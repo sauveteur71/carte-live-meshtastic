@@ -538,7 +538,7 @@ function suivreEnvoi(id, direct) {
 
 async function chargerMessages() {
   if (!etat.membre) return;
-  if (etat.admin && $('#form-envoi').hidden) preparerEnvoi();
+  if (etat.admin && ($('#form-envoi').hidden || !$('#form-envoi').vers.querySelector('option[data-nom]'))) preparerEnvoi();
   const msgs = await api('/api/messages?limite=300');
   $('#messages').innerHTML = msgs.length
     ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b> · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${esc(m.texte || '(non conservé)')}</div></div>`).join('')
@@ -556,7 +556,7 @@ async function repondreA(el) {
   if (vers !== 0xffffffff) {
     await preparerEnvoi(de === local ? vers : de); // message direct : on répond à l'autre
   } else {
-    if (f.hidden || !f.vers.options.length) await preparerEnvoi();
+    if (f.hidden || !f.vers.querySelector('option[data-nom]')) await preparerEnvoi();
     const opt = [...f.vers.options].find((o) => o.dataset.nom === canal) || [...f.vers.options].find((o) => (o.dataset.nom || '').toLowerCase() === canal.toLowerCase());
     if (opt) { f.vers.value = opt.value; r$.textContent = ''; }
     else { r$.textContent = `Le canal « ${canal} » n’est pas configuré sur le module connecté : impossible d’y répondre.`; return; }
@@ -2396,6 +2396,9 @@ async function chargerEtat() {
   majEtat(e);
 }
 function majEtat(e) {
+  // Module radio (re)connecté ou changé : la liste des canaux du formulaire d'envoi est relue
+  const sig = e.radio ? `${e.radio.connecte}:${e.radio.noeudLocal}` : '';
+  if (etat.admin && sig !== etat.sigRadio) { etat.sigRadio = sig; if ($('#form-envoi') && !$('#form-envoi').hidden) setTimeout(() => preparerEnvoi(), 1500); }
   etat.stats = e.stats;
   etat.alertes = e.alertes || [];
   etat.radio = e.radio || null;
