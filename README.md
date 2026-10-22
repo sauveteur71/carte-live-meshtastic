@@ -90,6 +90,23 @@ tailscale serve --bg --https=10000 http://127.0.0.1:8097   # flasheur
 
 La carte devient `https://MACHINE.TAILNET.ts.net` et le menu *Outils* pointe tout seul vers le client (`:8443`) et le flasheur (`:10000`). Autres adresses : variables `URL_CLIENT_MESHTASTIC` et `URL_FLASHER` dans `.env`.
 
+### Agent lancé automatiquement
+
+- **Windows** : à la première configuration, l'agent propose de se lancer tout seul à chaque ouverture de session (fenêtre réduite). Options : `-demarrage-auto`, `-sans-demarrage-auto`, `-configurer`.
+- **Linux / Raspberry Pi** : service systemd, par exemple `/etc/systemd/system/agent-gaulix.service` :
+
+```ini
+[Unit]
+Description=Agent carte live Meshtastic
+After=network-online.target
+[Service]
+ExecStart=/opt/agent-gaulix/agent-gaulix-raspberrypi-arm64 -config /opt/agent-gaulix/agent-gaulix.json
+Restart=always
+[Install]
+WantedBy=multi-user.target
+```
+puis `sudo systemctl enable --now agent-gaulix` (configurez d'abord l'agent une fois à la main).
+
 ### Accès depuis l'extérieur
 
 Le plus simple et le plus sûr est **Tailscale** (gratuit pour un usage personnel) sur le serveur et vos appareils. Si vous publiez la carte sur Internet, placez-la derrière un reverse proxy HTTPS.

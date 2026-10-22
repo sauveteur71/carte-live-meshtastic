@@ -474,6 +474,13 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
   // Un agent vient de se présenter : on l'inscrit et, si c'est le module choisi, on s'y connecte tout de suite
   function agentDisponible(hote, nom) {
     ajouterModule(hote, 1, nom);
+    // Le module choisi est un agent hors ligne : on bascule tout seul sur celui qui vient d'arriver
+    const actifHorsLigne = memo.actif && memo.actif.hote !== hote && agents && agents.estAgent(memo.actif.hote) && !agents.liste().some((a) => a.hote === memo.actif.hote);
+    if (!arretVoulu && actifHorsLigne && !(socket && !socket.destroyed)) {
+      journal(`« ${memo.actif.hote} » est hors ligne : bascule sur l'agent « ${nom} » qui vient de se connecter`);
+      connecterA(hote, 1);
+      return;
+    }
     // (sauf si le module vient d'être pris par un autre client, ex. l'appli du téléphone en Wi-Fi : on lui laisse la main)
     if (memo.actif && memo.actif.hote === hote && !arretVoulu && !(socket && !socket.destroyed) && !(etat.evince && etat.reprise > Date.now())) { tentative = 0; connecter(); }
   }

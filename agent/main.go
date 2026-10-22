@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -24,7 +25,7 @@ import (
 	"go.bug.st/serial"
 )
 
-const version = "1.2"
+const version = "1.3"
 
 type Reglages struct {
 	Serveur string `json:"serveur"` // ex. 100.64.1.2:4404 (adresse Tailscale ou locale du serveur)
@@ -32,6 +33,8 @@ type Reglages struct {
 	Nom     string `json:"nom"`     // nom affiché dans la carte (ex. Voiture)
 	Source  string `json:"source"`  // port série (COM5, /dev/ttyACM0) ou adresse Wi-Fi du module (192.168.1.40:4403)
 	Debit   int    `json:"debit,omitempty"`
+	// La question du démarrage automatique a déjà été posée
+	AutoDemande bool `json:"demarrageDemande,omitempty"`
 }
 
 var entree = bufio.NewReader(os.Stdin)
@@ -122,7 +125,13 @@ func firstNonEmpty(a, b string) string {
 func main() {
 	chemin := flag.String("config", "", "fichier de réglages (par défaut agent-gaulix.json à côté du programme)")
 	refaire := flag.Bool("configurer", false, "reposer les questions de configuration")
+	auto := flag.Bool("demarrage-auto", false, "lancer l'agent automatiquement à l'ouverture de session (Windows)")
+	sansAuto := flag.Bool("sans-demarrage-auto", false, "ne plus lancer l'agent automatiquement")
 	flag.Parse()
+	if *sansAuto {
+		retirerDemarrageAuto()
+		return
+	}
 
 	fmt.Printf("Agent Gaulix %s — relais d'un module Meshtastic vers la carte live\n", version)
 	f := fichierReglages(*chemin)
@@ -138,6 +147,19 @@ func main() {
 		} else {
 			journal("réglages enregistrés dans %s (relancez avec -configurer pour les changer)", f)
 		}
+	}
+	// Une seule fois : proposer le lancement automatique (plus besoin de relancer l'agent à la main)
+	if runtime.GOOS == "windows" && !r.AutoDemande && !demarrageAutoActif() {
+		if rep := strings.ToLower(demander("Lancer l'agent automatiquement à chaque démarrage de Windows ? (o/n)", "o")); strings.HasPrefix(rep, "o") || rep == "y" {
+			installerDemarrageAuto()
+		}
+		r.AutoDemande = true
+		if b, err := json.MarshalIndent(r, "", "  "); err == nil {
+			_ = os.WriteFile(f, b, 0600)
+		}
+	}
+	if *auto {
+		installerDemarrageAuto()
 	}
 	journal("module « %s » sur %s, carte %s", r.Nom, r.Source, r.Serveur)
 	for {
@@ -274,4 +296,50 @@ func relayer(r *Reglages, c net.Conn, lecteur *bufio.Reader) time.Duration {
 	<-fin
 	journal("relais terminé après %s : %s (%d octets reçus du module, %d envoyés)", time.Since(debut).Round(time.Second), cote, versCarte, versModule)
 	return 5 * time.Second
+}
+
+// ---- Démarrage automatique (Windows : petit fichier dans le dossier « Démarrage » de la session) ----
+func fichierDemarrage() string {
+	appdata := os.Getenv("APPDATA")
+	if appdata == "" {
+		return ""
+	}
+	return filepath.Join(appdata, "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "agent-gaulix.cmd")
+}
+
+func demarrageAutoActif() bool {
+	f := fichierDemarrage()
+	if f == "" {
+		return false
+	}
+	_, err := os.Stat(f)
+	return err == nil
+}
+
+func installerDemarrageAuto() {
+	if runtime.GOOS != "windows" {
+		journal("démarrage automatique : sous Linux / Raspberry Pi, créez un service systemd (voir le README du dépôt)")
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		journal("démarrage automatique impossible (%v)", err)
+		return
+	}
+	contenu := "@echo off\r\nrem Agent Gaulix : relie le module Meshtastic à la carte live\r\nstart \"Agent Gaulix\" /min \"" + exe + "\"\r\n"
+	if err := os.WriteFile(fichierDemarrage(), []byte(contenu), 0644); err != nil {
+		journal("démarrage automatique impossible (%v)", err)
+		return
+	}
+	journal("l'agent se lancera tout seul (fenêtre réduite) à chaque ouverture de session Windows. Pour l'arrêter : -sans-demarrage-auto")
+}
+
+func retirerDemarrageAuto() {
+	if f := fichierDemarrage(); f != "" {
+		if err := os.Remove(f); err == nil {
+			journal("démarrage automatique retiré")
+			return
+		}
+	}
+	journal("le démarrage automatique n'était pas activé")
 }
