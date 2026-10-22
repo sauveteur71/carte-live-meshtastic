@@ -69,6 +69,7 @@ Dans `docker-compose.yml`, remplacez la ligne `image:` par `build: .`, puis `doc
 - **MQTT** : la carte s'abonne à `MQTT_RACINE/#` (par défaut `msh/EU_868`). Un exemple de broker Mosquitto (TLS, comptes, droits) est fourni dans [`mosquitto/`](mosquitto/).
 - **Canaux** : ajoutez vos canaux (nom + clé) dans l'assistant ou dans `.env` (`CANAUX=MonCanal=AQ==;Autre=clé…`) pour déchiffrer leurs paquets.
 - **Module radio** (facultatif mais nécessaire pour l'administration) : *Réseau › Modules radio*
+  - **module branché en USB (ou en Bluetooth) sur le PC qui affiche la carte** : bouton *🔌 Brancher en USB* — la page relaie le module, rien à installer (Chrome ou Edge, carte en HTTPS) ;
   - module Wi-Fi joignable depuis le serveur : son adresse IP ;
   - module USB sur un PC, ou module d'un autre réseau : téléchargez l'**agent** depuis cette même page, lancez-le et donnez-lui l'adresse du serveur (port 4404) et le code affiché. **Ne redirigez jamais le port 4404 sur votre box** : utilisez le réseau local ou un VPN comme [Tailscale](https://tailscale.com).
 - **Administration à distance** : sur chaque nœud, ajoutez la clé publique du module (affichée dans l'onglet *Gestion*) dans *Sécurité › Clé d'administration*.

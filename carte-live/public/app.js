@@ -1466,7 +1466,7 @@ async function rendreModules(force) {
     return `<div class="ligne module"><span class="point ${cls}"></span><span class="titre">${esc(m.nom || 'Module inconnu')}${estAgent ? ' <span class="badge">agent</span>' : ''}<small>${sousTitre}</small></span><span class="meta"></span>
       <span class="sous-ligne meta-longue">${statut}</span><span class="sous-ligne boutons-module">${boutons}</span></div>`;
   };
-  zone.innerHTML = (r.modules.length ? r.modules.map(ligne).join('') : '<div class="vide">Aucun module enregistré.</div>') + `
+  zone.innerHTML = blocUsbNavigateur() + (r.modules.filter((m) => !(moduleNav.hote && m.hote === moduleNav.hote)).length ? r.modules.filter((m) => !(moduleNav.hote && m.hote === moduleNav.hote)).map(ligne).join('') : '<div class="vide">Aucun module enregistré.</div>') + `
     <form id="form-module" class="parametres compact">
       <label>Adresse IP <input name="hote" placeholder="192.168.1.50" required></label>
       <label>Nom (facultatif) <input name="nom" placeholder="Maison"></label>
@@ -1499,6 +1499,7 @@ async function rendreModules(force) {
     setTimeout(() => { rendreModules(true); chargerEtat().catch(() => {}); }, 4000);
   };
   zone.querySelectorAll('[data-mod-on]').forEach((b) => (b.onclick = () => { b.disabled = true; action('/api/radio/connecter', { hote: b.dataset.modOn, port: Number(b.dataset.port) }); }));
+  brancherBoutonsUsb(zone);
   zone.querySelectorAll('[data-mod-edit]').forEach((b) => (b.onclick = () => editeurReglages(Number(b.dataset.modEdit))));
   zone.querySelectorAll('[data-mod-off]').forEach((b) => (b.onclick = () => { b.disabled = true; action('/api/radio/deconnecter', { minutes: Number(b.dataset.modOff) }); }));
   zone.querySelectorAll('[data-mod-del]').forEach((b) => (b.onclick = () => action('/api/radio/modules', { hote: b.dataset.modDel, port: Number(b.dataset.port) }, 'DELETE')));
@@ -3034,3 +3035,150 @@ async function lireAvantQr(n, bouton) {
     });
   }
 })();
+
+// ---- Module branché sur ce PC (USB ou Bluetooth), relayé par la page ---------------------------
+// La page ouvre le port USB (Web Serial) ou la liaison Bluetooth (Web Bluetooth) et transmet le flux
+// Meshtastic au serveur par une WebSocket : le module devient celui de la carte, sans agent à installer.
+const moduleNav = { etat: 'aucun', ws: null, port: null, lecteur: null, ble: null, hote: null, nom: null, type: null, erreur: null };
+const ENTETE_MT = [0x94, 0xc3];
+const BLE_SERVICE = '6ba1b218-15a8-461f-9fa8-5dcae273eafd', BLE_TORADIO = 'f75c76d2-129e-4dad-a1dd-7866124401e7', BLE_FROMRADIO = '2c55e69e-4993-11ed-b878-0242ac120002', BLE_FROMNUM = 'ed9da18c-a800-4f66-a670-aa7547e34453';
+function blocUsbNavigateur() {
+  const https = location.protocol === 'https:';
+  const m = moduleNav;
+  const sousTitre = m.etat === 'relie' ? `relié par cette page (${m.type === 'ble' ? 'Bluetooth' : 'USB'}) · gardez cet onglet ouvert` : m.etat === 'connexion' ? 'connexion…' : m.erreur ? esc(m.erreur) : 'module branché sur ce PC';
+  return `<div class="bloc-usb ${m.etat}">
+    <div class="titre-usb"><span class="point ${m.etat === 'relie' ? 'actif' : m.etat === 'connexion' ? 'recent' : 'inactif'}"></span><b>${m.etat === 'relie' ? esc(m.nom || 'Module de ce PC') : 'Module de ce PC'}</b><small>${sousTitre}</small></div>
+    ${!https ? '<p class="note">USB et Bluetooth demandent la carte en <b>HTTPS</b> (adresse en …ts.net) et Chrome ou Edge.</p>'
+      : m.etat === 'relie' || m.etat === 'connexion' ? '<div class="actions-prop"><button data-usb="stop">Débrancher</button></div>'
+      : `<div class="actions-prop"><button data-usb="usb" class="principal-usb">🔌 Brancher en USB</button><button data-usb="ble">📶 Bluetooth</button></div>`}
+  </div>`;
+}
+function brancherBoutonsUsb(zone) {
+  zone.querySelectorAll('[data-usb]').forEach((b) => (b.onclick = () => {
+    if (b.dataset.usb === 'usb') brancherUsb(); else if (b.dataset.usb === 'ble') brancherBle(); else debrancherModuleNav();
+  }));
+}
+function majModuleNav(etatNouveau, erreur) {
+  moduleNav.etat = etatNouveau; moduleNav.erreur = erreur || null;
+  signatureModules = '';
+  if (typeof rendreModules === 'function') rendreModules(true);
+  const o = $('#outil-usb'); if (o) o.textContent = moduleNav.etat === 'relie' && moduleNav.type === 'usb' ? '🔌 Débrancher le module USB' : '🔌 Module USB de ce PC';
+}
+function ouvrirWsModule(nom, source, envoyerAuModule) {
+  return new Promise((ok, ko) => {
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/module?nom=${encodeURIComponent(nom)}&source=${encodeURIComponent(source)}`);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => ok(ws);
+    ws.onerror = () => ko(new Error('connexion au serveur refusée (êtes-vous connecté en admin ?)'));
+    ws.onmessage = (e) => { if (e.data instanceof ArrayBuffer) envoyerAuModule(new Uint8Array(e.data)); };
+    ws.onclose = () => { if (moduleNav.ws === ws) debrancherModuleNav('liaison avec le serveur fermée'); };
+  });
+}
+async function brancherUsb() {
+  if (!('serial' in navigator)) { alert('Ce navigateur ne gère pas l’USB : utilisez Chrome ou Edge, sur la carte en HTTPS.'); return; }
+  let port;
+  try { port = await navigator.serial.requestPort({}); } catch { return; } // fenêtre de choix annulée
+  moduleNav.type = 'usb'; majModuleNav('connexion');
+  try {
+    await port.open({ baudRate: 115200 });
+    try { await port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch { /* pas géré */ }
+    moduleNav.port = port;
+    const info = port.getInfo ? port.getInfo() : {};
+    const nom = `USB ${etat.compte ? etat.compte.identifiant : ''}`.trim();
+    const ecrivain = port.writable.getWriter();
+    moduleNav.ecrivain = ecrivain;
+    // Laisse au module le temps de démarrer s'il a redémarré à l'ouverture du port
+    await new Promise((r) => setTimeout(r, 1500));
+    moduleNav.ws = await ouvrirWsModule(nom, 'USB' + (info.usbVendorId ? ' ' + info.usbVendorId.toString(16) + ':' + (info.usbProductId || 0).toString(16) : ''), (octets) => ecrivain.write(octets).catch(() => {}));
+    moduleNav.nom = 'Module USB de ce PC';
+    moduleNav.hote = 'agent-' + nom.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    majModuleNav('relie');
+    // Module → serveur
+    (async () => {
+      const lecteur = port.readable.getReader();
+      moduleNav.lecteur = lecteur;
+      try {
+        for (;;) {
+          const { value, done } = await lecteur.read();
+          if (done) break;
+          if (value && moduleNav.ws && moduleNav.ws.readyState === 1) moduleNav.ws.send(value);
+        }
+      } catch { /* port débranché */ }
+      if (moduleNav.port === port) debrancherModuleNav('module débranché');
+    })();
+  } catch (e) {
+    try { await port.close(); } catch { /* déjà fermé */ }
+    majModuleNav('aucun', e.message.includes('open') || e.name === 'NetworkError' ? 'port déjà utilisé (fermez l’appli Meshtastic ou l’agent)' : e.message);
+  }
+}
+async function brancherBle() {
+  if (!navigator.bluetooth) { alert('Ce navigateur ne gère pas le Bluetooth : utilisez Chrome ou Edge, sur la carte en HTTPS.'); return; }
+  let appareil;
+  try { appareil = await navigator.bluetooth.requestDevice({ filters: [{ services: [BLE_SERVICE] }] }); } catch { return; }
+  moduleNav.type = 'ble'; majModuleNav('connexion');
+  try {
+    const gatt = await appareil.gatt.connect();
+    const svc = await gatt.getPrimaryService(BLE_SERVICE);
+    const toRadio = await svc.getCharacteristic(BLE_TORADIO), fromRadio = await svc.getCharacteristic(BLE_FROMRADIO), fromNum = await svc.getCharacteristic(BLE_FROMNUM);
+    moduleNav.ble = { appareil, gatt };
+    // Bluetooth : une trame par lecture/écriture ; on ajoute ou retire l'en-tête du flux série (0x94 0xC3 + longueur)
+    let lecture = false;
+    const vider = async () => {
+      if (lecture) return; lecture = true;
+      try {
+        for (;;) {
+          const v = await fromRadio.readValue();
+          if (!v.byteLength) break;
+          const t = new Uint8Array(4 + v.byteLength);
+          t.set(ENTETE_MT); t[2] = v.byteLength >> 8; t[3] = v.byteLength & 255; t.set(new Uint8Array(v.buffer, v.byteOffset, v.byteLength), 4);
+          if (moduleNav.ws && moduleNav.ws.readyState === 1) moduleNav.ws.send(t);
+        }
+      } catch { /* liaison interrompue */ }
+      lecture = false;
+    };
+    let tampon = new Uint8Array(0);
+    const versModule = async (octets) => {
+      const n = new Uint8Array(tampon.length + octets.length); n.set(tampon); n.set(octets, tampon.length); tampon = n;
+      for (;;) {
+        let i = 0; while (i + 1 < tampon.length && !(tampon[i] === 0x94 && tampon[i + 1] === 0xc3)) i++;
+        if (i + 4 > tampon.length) { tampon = tampon.slice(Math.max(0, i)); return; }
+        const lg = (tampon[i + 2] << 8) | tampon[i + 3];
+        if (i + 4 + lg > tampon.length) { tampon = tampon.slice(i); return; }
+        const trame = tampon.slice(i + 4, i + 4 + lg); tampon = tampon.slice(i + 4 + lg);
+        try { await toRadio.writeValue(trame); } catch { /* ignoré */ }
+        setTimeout(vider, 50);
+      }
+    };
+    await fromNum.startNotifications();
+    fromNum.addEventListener('characteristicvaluechanged', vider);
+    appareil.addEventListener('gattserverdisconnected', () => { if (moduleNav.ble && moduleNav.ble.appareil === appareil) debrancherModuleNav('Bluetooth déconnecté'); });
+    const nom = `Bluetooth ${appareil.name || ''}`.trim();
+    moduleNav.ws = await ouvrirWsModule(nom, 'Bluetooth', versModule);
+    moduleNav.nom = appareil.name || 'Module Bluetooth';
+    moduleNav.hote = 'agent-' + nom.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    majModuleNav('relie');
+    vider();
+  } catch (e) {
+    try { appareil.gatt.disconnect(); } catch { /* déjà */ }
+    majModuleNav('aucun', 'Bluetooth : ' + e.message);
+  }
+}
+async function debrancherModuleNav(raison) {
+  const m = moduleNav;
+  const ws = m.ws; m.ws = null;
+  try { if (ws) ws.close(); } catch { /* déjà */ }
+  try { if (m.lecteur) await m.lecteur.cancel(); } catch { /* déjà */ }
+  try { if (m.ecrivain) m.ecrivain.releaseLock(); } catch { /* déjà */ }
+  const port = m.port; m.port = null; m.lecteur = null; m.ecrivain = null;
+  try { if (port) await port.close(); } catch { /* déjà */ }
+  try { if (m.ble) m.ble.gatt.disconnect(); } catch { /* déjà */ }
+  m.ble = null; m.hote = null;
+  majModuleNav('aucun', typeof raison === 'string' ? raison : null);
+  setTimeout(() => { if (typeof chargerEtat === 'function') chargerEtat().catch(() => {}); }, 1500);
+}
+window.addEventListener('beforeunload', (e) => { if (moduleNav.etat === 'relie') { e.preventDefault(); e.returnValue = ''; } });
+document.addEventListener('DOMContentLoaded', () => {
+  const o = $('#outil-usb'), b = $('#outil-ble');
+  if (o) o.onclick = () => { document.querySelector('.menu-outils').open = false; moduleNav.etat === 'relie' && moduleNav.type === 'usb' ? debrancherModuleNav() : brancherUsb(); };
+  if (b) b.onclick = () => { document.querySelector('.menu-outils').open = false; brancherBle(); };
+});

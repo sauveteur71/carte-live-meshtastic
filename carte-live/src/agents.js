@@ -88,8 +88,19 @@ function creerAgents(config, { surArrivee } = {}) {
       if (!a || a.occupe || a.socket.destroyed) return null;
       a.occupe = true;
       clearInterval(a.ping);
-      a.socket.write('OUVRIR\n');
+      if (!a.virtuel) a.socket.write('OUVRIR\n');
       return a.socket;
+    },
+    // Module relié par la page web elle-même (USB ou Bluetooth du navigateur) : flux déjà ouvert
+    ajouterVirtuel(nom, source, flux, ip) {
+      const hote = slug(nom);
+      const ancien = agents.get(hote);
+      if (ancien && ancien.socket !== flux) ancien.socket.destroy();
+      const a = { hote, nom, source, version: 'navigateur', ip, depuis: Date.now(), socket: flux, occupe: false, virtuel: true };
+      agents.set(hote, a);
+      flux.on('close', () => { if (agents.get(hote) === a) agents.delete(hote); journal(`module « ${nom} » (navigateur) déconnecté`); });
+      journal(`module « ${nom} » relié par le navigateur depuis ${ip} (${source})`);
+      return hote;
     },
     liste: () => [...agents.values()].map(({ hote, nom, source, version, ip, depuis, occupe }) => ({ hote, nom, source, version, ip, depuis, occupe })),
   };

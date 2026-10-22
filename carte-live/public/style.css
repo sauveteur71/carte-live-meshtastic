@@ -606,3 +606,11 @@ body.fond-sombre .noms-ign { filter: invert(1) hue-rotate(180deg) brightness(1.1
 #bloc-agents a, .etapes-agent a, .fiche a, .note a { color: var(--accent, #2dd4bf); }
 /* Un menu déroulant ouvert (Couches, Outils) passe devant le panneau de droite */
 .outils:has(details[open]) { z-index: 1010; }
+
+/* Module branché sur ce PC */
+.bloc-usb { border: 1px solid var(--bord); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; background: rgba(62,230,196,.04); }
+.bloc-usb.relie { border-color: rgba(62,230,196,.5); }
+.titre-usb { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.titre-usb small { color: var(--doux); width: 100%; padding-left: 18px; }
+.principal-usb { border-color: var(--accent) !important; color: var(--accent) !important; font-weight: 600; }
+.menu-outils .menu button { text-align: left; }

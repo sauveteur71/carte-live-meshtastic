@@ -706,7 +706,53 @@ app.get('/sante', (req, res) => res.json({ ok: true, mqtt: clientMqtt && clientM
 const serveur = http.createServer(app);
 
 // ---- WebSocket temps réel -------------------------------------------------
-const wss = new WebSocketServer({ server: serveur, path: '/ws' });
+const wss = new WebSocketServer({ noServer: true });
+// Module branché sur le PC de l'utilisateur (Web Serial / Web Bluetooth) : la page relaie le flux Meshtastic
+const wssModule = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+serveur.on('upgrade', (req, socket, tete) => {
+  const chemin = (req.url || '').split('?')[0];
+  if (chemin === '/ws') wss.handleUpgrade(req, socket, tete, (ws) => wss.emit('connection', ws, req));
+  else if (chemin === '/ws/module' && estAdmin(req)) wssModule.handleUpgrade(req, socket, tete, (ws) => wssModule.emit('connection', ws, req));
+  else { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); }
+});
+const { Duplex } = require('stream');
+// Flux duplex au-dessus d'une WebSocket, avec les méthodes d'un socket TCP utilisées par le module radio
+function fluxWebSocket(ws) {
+  let minuterie = null, delai = 0;
+  const reveil = () => { if (delai) { clearTimeout(minuterie); minuterie = setTimeout(() => f.emit('timeout'), delai); } };
+  const f = new Duplex({
+    read() {},
+    write(morceau, enc, fait) { if (ws.readyState === 1) ws.send(morceau, { binary: true }, fait); else fait(); },
+    destroy(err, fait) { clearTimeout(minuterie); try { ws.close(); } catch { /* déjà fermé */ } fait(err); },
+  });
+  f.setNoDelay = () => f; f.setKeepAlive = () => f;
+  f.setTimeout = (ms) => { delai = ms; reveil(); return f; };
+  ws.on('message', (data, binaire) => { if (!binaire) return; reveil(); f.push(Buffer.from(data)); });
+  ws.on('close', () => { clearTimeout(minuterie); f.push(null); if (!f.destroyed) f.destroy(); });
+  ws.on('error', (e) => f.emit('error', e));
+  return f;
+}
+wssModule.on('connection', (ws, req) => {
+  const u = utilisateur(req);
+  const q = new URL(req.url, 'http://x').searchParams;
+  const nom = (q.get('nom') || `Navigateur ${u ? u.identifiant : ''}`).slice(0, 40);
+  const source = (q.get('source') || 'USB').slice(0, 40);
+  const flux = fluxWebSocket(ws);
+  const precedent = sourceRadio.modules().actif;
+  const hote = agents.ajouterVirtuel(nom, source + ' (navigateur)', flux, (req.socket.remoteAddress || '').replace(/^::ffff:/, ''));
+  sourceRadio.ajouterModule(hote, 1, nom);
+  sourceRadio.connecterA(hote, 1);
+  // À la déconnexion du navigateur, on revient au module utilisé avant
+  flux.on('close', () => {
+    const m = sourceRadio.modules();
+    if (m.actif && m.actif.hote === hote) {
+      sourceRadio.retirerModule(hote, 1);
+      if (precedent && precedent.hote !== hote) sourceRadio.connecterA(precedent.hote, precedent.port);
+    } else sourceRadio.retirerModule(hote, 1);
+    rafraichirEtat(); diffuser({ genre: 'statut' });
+  });
+  rafraichirEtat(); diffuser({ genre: 'statut' });
+});
 wss.on('connection', (ws, req) => {
   ws.admin = estMembre(req);
   ws.vivant = true;
