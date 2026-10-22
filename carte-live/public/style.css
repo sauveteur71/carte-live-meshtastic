@@ -597,3 +597,10 @@ select.flash { animation: flash-canal 1.2s ease-out; }
 .ligne-alt { font-size: 12px; padding: 3px 0; cursor: pointer; border-bottom: 1px solid var(--bord); }
 .ligne-alt:hover { color: var(--texte); }
 .sommet.plan.existant-relier span { background: #60a5fa; }
+
+/* Lisibilité des textes sur fond sombre */
+.etiquettes-claires { filter: brightness(2.1) contrast(1.15); }
+body.fond-sombre .noms-ign { filter: invert(1) hue-rotate(180deg) brightness(1.15) contrast(1.1); }
+#bloc-agents button { background: var(--surface-2); color: var(--texte); border: 1px solid var(--bord); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: 12px; }
+#bloc-agents button:hover { border-color: var(--accent); }
+#bloc-agents a, .etapes-agent a, .fiche a, .note a { color: var(--accent, #2dd4bf); }

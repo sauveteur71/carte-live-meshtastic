@@ -138,7 +138,7 @@ function initCarte() {
   const fonds = {
     'Sombre': L.layerGroup([
       L.tileLayer(t.url, { maxZoom: 19, maxNativeZoom: t.zoomMaxNatif || 19, className: t.sombre ? 'tuiles-sombres' : '', attribution: t.attribution }),
-      ...(t.etiquettes ? [L.tileLayer(t.etiquettes, { maxZoom: 19, maxNativeZoom: t.zoomMaxNatif || 19, opacity: 0.85 })] : []),
+      ...(t.etiquettes ? [L.tileLayer(t.etiquettes, { maxZoom: 19, maxNativeZoom: t.zoomMaxNatif || 19, className: 'etiquettes-claires' })] : []),
     ]),
     'Plan IGN': L.tileLayer(wmts('GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2'), { maxZoom: 19, maxNativeZoom: 19, attribution: ign }),
     'Plan IGN sombre': L.tileLayer(wmts('GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2'), { maxZoom: 19, maxNativeZoom: 19, className: 'tuiles-sombres', attribution: ign }),
@@ -147,7 +147,7 @@ function initCarte() {
   };
   const surcouches = {
     'Relief ombré': L.tileLayer(wmts('ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW', 'image/png', 'estompage_grayscale'), { maxZoom: 19, maxNativeZoom: 15, opacity: 0.4, attribution: ign }),
-    'Noms des lieux': L.tileLayer(wmts('GEOGRAPHICALNAMES.NAMES'), { maxZoom: 19, maxNativeZoom: 18, attribution: ign }),
+    'Noms des lieux': L.tileLayer(wmts('GEOGRAPHICALNAMES.NAMES'), { maxZoom: 19, maxNativeZoom: 18, className: 'noms-ign', attribution: ign }),
     'Points de repère': L.layerGroup(),
   };
   // Repères remarquables (Vierge du Puy, Mézenc…) avec leur nom toujours affiché
@@ -164,6 +164,9 @@ function initCarte() {
   let choix = 'Sombre';
   try { const c = localStorage.getItem('gaulix_fond'); if (c && fonds[c]) choix = c; } catch { /* stockage indisponible */ }
   fonds[choix].addTo(carte);
+  // Fond sombre : les surcouches de texte (noms IGN) passent en clair pour rester lisibles
+  const majFondSombre = () => document.body.classList.toggle('fond-sombre', /sombre/i.test(choix));
+  majFondSombre();
   for (const n of surcouchesMemo || []) if (surcouches[n]) surcouches[n].addTo(carte);
   carte.attributionControl.addAttribution('Meshtastic® est une marque de Meshtastic LLC');
   // Choix du fond et des surcouches dans le menu « Couches »
@@ -172,7 +175,7 @@ function initCarte() {
     <div class="titre-menu">Repères</div>${Object.keys(surcouches).map((n) => `<button data-surcouche="${n}" class="${carte.hasLayer(surcouches[n]) ? 'actif' : ''}">${n}</button>`).join('')}
     <div class="titre-menu">Réseau</div>`);
   menu.querySelectorAll('[data-fond]').forEach((b) => (b.onclick = () => {
-    fonds[choix].remove(); choix = b.dataset.fond; fonds[choix].addTo(carte);
+    fonds[choix].remove(); choix = b.dataset.fond; fonds[choix].addTo(carte); majFondSombre();
     menu.querySelectorAll('[data-fond]').forEach((x) => x.classList.toggle('actif', x === b));
     try { localStorage.setItem('gaulix_fond', choix); } catch { /* idem */ }
   }));
