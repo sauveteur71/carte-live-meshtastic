@@ -20,7 +20,7 @@ const NOEUDS = [
   { nom: '43-Yssingeaux-RPT', role: 2, lat: 45.1427, lon: 4.1238 },
   { nom: '43-Brioude-RPT', role: 2, lat: 45.2941, lon: 3.3842 },
   { nom: 'Salon Gaulix', role: 3, lat: 45.0441, lon: 3.8853 },
-  { nom: 'F4GLD 📟', role: 1, lat: 45.1105, lon: 3.9201 },
+  { nom: 'Station test 📟', role: 1, lat: 45.0820, lon: 3.9650 },
   { nom: 'Marc 43', role: 1, lat: 45.0612, lon: 3.8302 },
   { nom: 'Capteur Loire', role: 4, lat: 45.0963, lon: 3.9558 },
 ].map((n) => ({ ...n, cle: cle('simu-mc-' + n.nom) }));
@@ -105,7 +105,7 @@ const etatRep = (cle) => {
   if (!reglages.has(cle)) {
     const n = NOEUDS.find((x) => x.cle.toString('hex') === cle);
     reglages.set(cle, { name: n ? n.nom : '?', radio: '869.618,62.5,8,8', tx: '22', repeat: 'on', 'flood.max': '64', 'flood.max.advert': '8', 'advert.interval': cle.startsWith(relais[1].cle.toString('hex').slice(0, 4)) ? '0' : '120',
-      'flood.advert.interval': '12', 'path.hash.mode': '0', txdelay: '0.5', 'direct.txdelay': '0.3', dutycycle: '50.0%', 'multi.acks': '0', 'loop.detect': 'off', lat: String(n ? n.lat : 0), lon: String(n ? n.lon : 0), 'owner.info': 'F4GLD' });
+      'flood.advert.interval': '12', 'path.hash.mode': '0', txdelay: '0.5', 'direct.txdelay': '0.3', dutycycle: '50.0%', 'multi.acks': '0', 'loop.detect': 'off', lat: String(n ? n.lat : 0), lon: String(n ? n.lon : 0), 'owner.info': 'Gaulix' });
   }
   return reglages.get(cle);
 };
@@ -223,7 +223,7 @@ net.createServer((s) => {
     const snr = Math.round((Math.random() * 18 - 10) * 4) / 4, rssi = Math.round(-120 + Math.random() * 50);
     let brut;
     if (r < 0.35) brut = paquet(4, 1, chemin(2), annonce(hasard(NOEUDS)));
-    else if (r < 0.6) brut = paquet(5, 1, chemin(3), messagePublic(hasard(['F4GLD', 'Marc 43', 'Julie', 'Pierre 07']), hasard(MESSAGES)));
+    else if (r < 0.6) brut = paquet(5, 1, chemin(3), messagePublic(hasard(['Station test', 'Marc 43', 'Julie', 'Pierre 07']), hasard(MESSAGES)));
     else if (r < 0.75) brut = paquet(2, 1, chemin(2), Buffer.concat([Buffer.from([hasard(NOEUDS).cle[0], hasard(NOEUDS).cle[0]]), crypto.randomBytes(18)]));
     else if (r < 0.85) brut = paquet(3, 2, [], crypto.randomBytes(4));
     else if (r < 0.93) brut = paquet(7, 1, chemin(1), Buffer.concat([Buffer.from([relais[1].cle[0]]), MOI.cle, crypto.randomBytes(18)]));
