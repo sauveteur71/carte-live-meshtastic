@@ -604,3 +604,5 @@ body.fond-sombre .noms-ign { filter: invert(1) hue-rotate(180deg) brightness(1.1
 #bloc-agents button { background: var(--surface-2); color: var(--texte); border: 1px solid var(--bord); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: 12px; }
 #bloc-agents button:hover { border-color: var(--accent); }
 #bloc-agents a, .etapes-agent a, .fiche a, .note a { color: var(--accent, #2dd4bf); }
+/* Un menu déroulant ouvert (Couches, Outils) passe devant le panneau de droite */
+.outils:has(details[open]) { z-index: 1010; }
