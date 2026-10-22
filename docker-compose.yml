@@ -27,5 +27,23 @@ services:
         max-size: "5m"
         max-file: "3"
 
+  # Client officiel Meshtastic (https://github.com/meshtastic/web) : gérer un module en USB, Bluetooth ou HTTP
+  client-meshtastic:
+    image: ghcr.io/meshtastic/web:latest
+    container_name: client-meshtastic
+    restart: unless-stopped
+    ports:
+      - "${CLIENT_PORT:-8096}:8080"
+    mem_limit: 64m
+
+  # Flasheur officiel Meshtastic (https://github.com/meshtastic/web-flasher), construit par ce dépôt
+  flasher-meshtastic:
+    image: ghcr.io/sauveteur71/meshtastic-flasher:latest
+    container_name: flasher-meshtastic
+    restart: unless-stopped
+    ports:
+      - "${FLASHER_PORT:-8097}:8080"
+    mem_limit: 64m
+
 volumes:
   donnees:

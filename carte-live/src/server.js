@@ -74,6 +74,7 @@ app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '5m' }));
 app.get('/api/config', (req, res) => {
   res.json({
     titre: config.carte.titre,
+    outils: { client: config.urlClient || '', flasher: config.urlFlasher || '' },
     centre: [config.carte.centreLat, config.carte.centreLon],
     zoom: config.carte.zoom,
     tuiles: config.carte.tuiles,

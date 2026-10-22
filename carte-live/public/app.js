@@ -483,7 +483,8 @@ async function preparerEnvoi(dest) {
   f.hidden = false;
   if (dest !== undefined) envoi.dest = dest;
   const n = envoi.dest != null ? etat.noeuds.get(envoi.dest) : null;
-  f.vers.innerHTML = i.canaux.map((c) => `<option value="c${c.index}">📢 Canal ${esc(c.nom)}</option>`).join('')
+  envoi.canaux = i.canaux;
+  f.vers.innerHTML = i.canaux.map((c) => `<option value="c${c.index}" data-nom="${esc(c.nom)}">📢 Canal ${esc(c.nom)}</option>`).join('')
     + (n ? `<option value="d${n.num}" selected>✉️ Direct → ${esc(n.nomLong || n.id)}</option>` : '')
     + '<option value="choisir">✉️ Message direct… (choisir un nœud)</option>';
   f.querySelector('button[type=submit]').disabled = !i.connecte;
@@ -535,8 +536,31 @@ async function chargerMessages() {
   if (etat.admin && $('#form-envoi').hidden) preparerEnvoi();
   const msgs = await api('/api/messages?limite=300');
   $('#messages').innerHTML = msgs.length
-    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b> · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${esc(m.texte || '(non conservé)')}</div></div>`).join('')
+    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b> · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${esc(m.texte || '(non conservé)')}</div></div>`).join('')
     : '<div class="vide">Aucun message texte sur la période.</div>';
+  if (etat.admin) $('#messages').querySelectorAll('.message[data-de]').forEach((el) => (el.onclick = () => repondreA(el)));
+}
+
+// Clic sur un message : le formulaire bascule sur le bon canal (ou en direct vers l'expéditeur) pour répondre
+async function repondreA(el) {
+  const f = $('#form-envoi');
+  if (!f) return;
+  const de = Number(el.dataset.de) >>> 0, vers = Number(el.dataset.vers) >>> 0, canal = el.dataset.canal;
+  const local = etat.radio ? etat.radio.noeudLocal : null;
+  const r$ = $('#retour-envoi');
+  if (vers !== 0xffffffff) {
+    await preparerEnvoi(de === local ? vers : de); // message direct : on répond à l'autre
+  } else {
+    if (f.hidden || !f.vers.options.length) await preparerEnvoi();
+    const opt = [...f.vers.options].find((o) => o.dataset.nom === canal) || [...f.vers.options].find((o) => (o.dataset.nom || '').toLowerCase() === canal.toLowerCase());
+    if (opt) { f.vers.value = opt.value; r$.textContent = ''; }
+    else { r$.textContent = `Le canal « ${canal} » n’est pas configuré sur le module connecté : impossible d’y répondre.`; return; }
+  }
+  $('#messages').querySelectorAll('.message.choisi').forEach((x) => x.classList.remove('choisi'));
+  el.classList.add('choisi');
+  f.vers.classList.remove('flash'); void f.vers.offsetWidth; f.vers.classList.add('flash');
+  f.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  f.texte.focus();
 }
 
 // ---- Fiche nœud ------------------------------------------------------------------
@@ -2650,6 +2674,16 @@ async function demarrer() {
   etat.admin = etat.config.admin;
   etat.membre = etat.config.membre;
   document.title = etat.config.titre;
+  // Liens vers le client et le flasheur officiels (Web Serial / Web Bluetooth : HTTPS et Chrome ou Edge obligatoires)
+  {
+    const o = etat.config.outils || {}, https = location.protocol === 'https:';
+    const auto = (portHttps, portHttp) => `${location.protocol}//${location.hostname}:${https ? portHttps : portHttp}/`;
+    const lc = $('#lien-client'), lf = $('#lien-flasher'), note = $('#note-outils');
+    if (lc) lc.href = o.client || auto(8443, 8096);
+    if (lf) lf.href = o.flasher || auto(10000, 8097);
+    const chromium = !!(navigator.userAgentData && navigator.userAgentData.brands && navigator.userAgentData.brands.some((b) => /Chrom|Edge/i.test(b.brand)));
+    if (note) note.textContent = !https ? 'USB et Bluetooth demandent la carte en HTTPS (voir README).' : !('serial' in navigator) && !chromium ? 'USB et Bluetooth : utilisez Chrome ou Edge.' : '';
+  }
   const nomMarque = document.querySelector('.marque .nom');
   if (nomMarque) nomMarque.textContent = etat.config.titre.split(' · ')[0];
   const marque = document.querySelector('.marque .sous');

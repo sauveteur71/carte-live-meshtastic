@@ -578,3 +578,10 @@ svg.signal .t-rssi { fill: #f4a261; }
 .fiche[hidden] + .poignee-fiche { display: none; }
 body.redim, body.redim * { cursor: ew-resize !important; user-select: none !important; }
 @media (max-width: 900px) { .poignee { display: none; } }
+.menu-outils .menu a { display: block; text-decoration: none; color: var(--texte); white-space: nowrap; }
+.menu-outils .note { display: block; max-width: 230px; white-space: normal; margin-top: 4px; }
+.message.cliquable { cursor: pointer; }
+.message.cliquable:hover { background: rgba(255,255,255,.04); }
+.message.choisi { outline: 1px solid var(--accent, #2dd4bf); border-radius: 6px; }
+@keyframes flash-canal { 0% { box-shadow: 0 0 0 2px var(--accent, #2dd4bf); } 100% { box-shadow: 0 0 0 0 transparent; } }
+select.flash { animation: flash-canal 1.2s ease-out; }

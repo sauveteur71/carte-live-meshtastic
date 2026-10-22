@@ -99,6 +99,9 @@ const config = {
     return v.length === 4 && v.every(Number.isFinite) ? v : [44.74, 3.08, 45.43, 4.49];
   })(),
   zoneNom: texte('ZONE_NOM', 'Haute-Loire'),
+  // Client et flasheur officiels Meshtastic (vide = calculé : même machine, ports 8443/10000 en HTTPS ou 8096/8097 en HTTP)
+  urlClient: texte('URL_CLIENT_MESHTASTIC'),
+  urlFlasher: texte('URL_FLASHER'),
   // Au-delà de cette distance, une « liaison radio directe » est jugée impossible (erreur de position ou de relais)
   lienDistanceMaxKm: nombre('LIEN_DISTANCE_MAX_KM', 120),
   // Preset LoRa du réseau (pour le temps d'émission) si le module radio ne l'a pas communiqué

@@ -28,7 +28,8 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - **Éditeur de réglages** complet (nom, rôle, rediffusion, LoRa, position, 8 canaux) envoyé en une seule transaction et relu pour contrôle
 - Lecture de configuration **reprenable**, opérations multi-nœuds, arrêt et « réessayer », garde-fous pour le canal principal
 - **Vérification de conformité** : comparer tous vos nœuds à une référence (canaux, précision, fréquence, preset, rediffusion…)
-- QR code des réglages d'un nœud, messages directs ou sur un canal
+- QR code des réglages d'un nœud, messages directs ou sur un canal (un clic sur un message bascule sur son canal pour répondre)
+- Client et flasheur officiels Meshtastic intégrés (menu *Outils*)
 
 **Comptes** : administrateur créé à l'installation, inscriptions (fermées, sur validation ou ouvertes), précision des positions réduite pour le public.
 
@@ -71,6 +72,22 @@ Dans `docker-compose.yml`, remplacez la ligne `image:` par `build: .`, puis `doc
   - module Wi-Fi joignable depuis le serveur : son adresse IP ;
   - module USB sur un PC, ou module d'un autre réseau : téléchargez l'**agent** depuis cette même page, lancez-le et donnez-lui l'adresse du serveur (port 4404) et le code affiché. **Ne redirigez jamais le port 4404 sur votre box** : utilisez le réseau local ou un VPN comme [Tailscale](https://tailscale.com).
 - **Administration à distance** : sur chaque nœud, ajoutez la clé publique du module (affichée dans l'onglet *Gestion*) dans *Sécurité › Clé d'administration*.
+
+### Client et flasheur officiels (menu *Outils*)
+
+Le `docker-compose.yml` lance aussi, à côté de la carte :
+- le **client officiel Meshtastic** ([meshtastic/web](https://github.com/meshtastic/web)) sur le port 8096 : gérer un module en USB, Bluetooth ou HTTP depuis le navigateur ;
+- le **flasheur officiel** ([meshtastic/web-flasher](https://github.com/meshtastic/web-flasher)) sur le port 8097 : installer ou mettre à jour le firmware d'un module branché en USB (le firmware est téléchargé depuis les serveurs Meshtastic).
+
+L'USB et le Bluetooth dans un navigateur exigent **Chrome ou Edge** et une page en **HTTPS**. Avec Tailscale (HTTPS activé dans la console, rubrique DNS), sur le serveur :
+
+```bash
+tailscale serve --bg --https=443   http://127.0.0.1:8095   # carte
+tailscale serve --bg --https=8443  http://127.0.0.1:8096   # client
+tailscale serve --bg --https=10000 http://127.0.0.1:8097   # flasheur
+```
+
+La carte devient `https://MACHINE.TAILNET.ts.net` et le menu *Outils* pointe tout seul vers le client (`:8443`) et le flasheur (`:10000`). Autres adresses : variables `URL_CLIENT_MESHTASTIC` et `URL_FLASHER` dans `.env`.
 
 ### Accès depuis l'extérieur
 
