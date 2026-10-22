@@ -46,12 +46,26 @@ function creerPublicateurMc(config, journal) {
       clientId: 'carte-live-mc-' + crypto.randomBytes(3).toString('hex'), reconnectPeriod: 10000, rejectUnauthorized: false,
       will: { topic: prefixe(cle) + '/status', payload: Buffer.from(statut('offline', infos)), qos: 0, retain: true },
     });
+    let connecteA = 0, coupuresRapides = 0;
     client.on('connect', () => {
-      stats.connecte = true; stats.refus = null;
-      journal(`republication MeshCore sur ${prefixe(cle)}/packets`);
+      stats.connecte = true;
+      connecteA = Date.now();
+      if (!coupuresRapides) journal(`republication MeshCore sur ${prefixe(cle)}/packets`);
       client.publish(prefixe(cle) + '/status', statut('online', infos), { qos: 0, retain: true });
     });
-    client.on('close', () => { stats.connecte = false; });
+    client.on('close', () => {
+      stats.connecte = false;
+      // Le broker coupe juste après la connexion : en général, publication refusée (droits ACL sur le sujet)
+      if (connecteA && Date.now() - connecteA < 8000) {
+        coupuresRapides++;
+        if (coupuresRapides === 2) {
+          stats.refus = `le broker coupe la connexion à chaque publication : le compte MQTT « ${config.mqtt.utilisateur || '(anonyme)'} » n’a sans doute pas le droit d’écrire sur ${cfg.racine}/#`;
+          journal('republication MeshCore : ' + stats.refus + ' — nouvel essai toutes les 10 min');
+          client.options.reconnectPeriod = 10 * 60000;
+        }
+      } else if (connecteA) { coupuresRapides = 0; stats.refus = null; client.options.reconnectPeriod = 10000; }
+      connecteA = 0;
+    });
     client.on('error', (e) => { stats.erreurs++; stats.refus = e.message; });
     return client;
   }

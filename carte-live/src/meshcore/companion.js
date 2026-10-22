@@ -335,6 +335,8 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
   function fermer() {
     clearInterval(minuterieVie);
     const f = flux; flux = null;
+    navigateur = null;
+    etat = { ...etat, connecte: false, depuis: null, pret: false };
     toutAnnuler('companion débranché');
     if (f && !f.destroyed) f.destroy();
   }
