@@ -107,6 +107,16 @@ const config = {
   // Preset LoRa du réseau (pour le temps d'émission) si le module radio ne l'a pas communiqué
   reseauPreset: texte('RESEAU_PRESET', 'LONG_FAST'),
   fichierBase: texte('FICHIER_BASE', '/data/carte-live.db'),
+  // MeshCore : flux des observateurs (meshcoretomqtt) et republication de ce que capte le companion de la carte
+  meshcore: {
+    actif: texte('MESHCORE', 'oui') !== 'non',
+    racine: texte('MESHCORE_RACINE', 'meshcore').replace(/\/+$/, ''),
+    // Code de zone des sujets (aéroport le plus proche, ex. LPY = Le Puy)
+    iata: texte('MESHCORE_IATA', 'LPY').toUpperCase(),
+    republier: texte('MESHCORE_REPUBLIER', 'oui') !== 'non',
+    // Canaux de groupe à déchiffrer : Public, #nom (canal « hashtag ») ou nom=secret (32 caractères hexadécimaux)
+    canaux: texte('MESHCORE_CANAUX', 'Public').split(/[;\n]/).map((s) => s.trim()).filter(Boolean),
+  },
 };
 
 // ---- Réglages faits depuis la carte (assistant d'installation, page Réglages) ----------------
@@ -135,6 +145,14 @@ function appliquerReglages(r) {
   if (Number.isInteger(r.precisionPublique)) config.precisionPublique = r.precisionPublique;
   if (Number.isInteger(r.retentionJours) && r.retentionJours > 0) config.retentionJours = r.retentionJours;
   if (r.reseauPreset) config.reseauPreset = r.reseauPreset;
+  if (r.meshcore && typeof r.meshcore === 'object') {
+    const m = r.meshcore;
+    if (typeof m.iata === 'string' && /^[A-Z0-9]{2,8}$/i.test(m.iata)) config.meshcore.iata = m.iata.toUpperCase();
+    if (typeof m.racine === 'string' && m.racine.trim()) config.meshcore.racine = m.racine.trim().replace(/\/+$/, '');
+    if (typeof m.republier === 'boolean') config.meshcore.republier = m.republier;
+    if (typeof m.actif === 'boolean') config.meshcore.actif = m.actif;
+    if (Array.isArray(m.canaux) && m.canaux.length) config.meshcore.canaux = m.canaux.map(String);
+  }
 }
 try {
   config.reglages = JSON.parse(fs.readFileSync(config.fichierReglages, 'utf8'));

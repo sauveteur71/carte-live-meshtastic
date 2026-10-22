@@ -19,6 +19,10 @@ const { creerRelief, contourDepartement } = require('./relief');
 const { creerComptes } = require('./comptes');
 const { creerAdministration } = require('./administration');
 const { creerAgents } = require('./agents');
+const { creerReseauMc } = require('./meshcore/reseau');
+const { creerCompanion } = require('./meshcore/companion');
+const { lireMessageMc, creerPublicateurMc } = require('./meshcore/mqtt');
+const { preparerCanauxMc, decoderPaquet: decoderPaquetMc } = require('./meshcore/paquet');
 const fs = require('fs');
 
 const journal = (...a) => console.log(new Date().toISOString(), ...a);
@@ -27,6 +31,9 @@ const stockage = creerStockage(config.fichierBase);
 const reseau = creerReseau(stockage, config);
 const canaux = preparerCanaux(config.canaux);
 journal(`Canaux configurés : ${canaux.map((c) => `${c.nom} (hachage ${c.hachage})`).join(', ')}`);
+const canauxMc = preparerCanauxMc(config.meshcore.canaux);
+const reseauMc = creerReseauMc(stockage.db, config, canauxMc, (...a) => journal('[MeshCore]', ...a));
+if (config.meshcore.actif) journal(`MeshCore : canaux ${canauxMc.map((c) => c.nom).join(', ') || 'aucun'}, sujets ${config.meshcore.racine}/#`);
 
 // ---- Comptes et sessions ------------------------------------------------------
 const comptes = creerComptes(stockage.db, config);
@@ -89,6 +96,7 @@ app.get('/api/config', (req, res) => {
     zone: config.zone,
     zoneNom: config.zoneNom,
     radio: true,
+    meshcore: config.meshcore.actif,
     lienDistanceMaxKm: config.lienDistanceMaxKm,
     precisionPublique: config.precisionPublique,
   });
@@ -701,6 +709,96 @@ app.post('/api/mqtt/tester', async (req, res) => {
   res.json(r);
 });
 
+// ---- MeshCore ---------------------------------------------------------------------------------
+const exigerMc = (res) => { if (config.meshcore.actif) return true; res.status(404).json({ erreur: 'MeshCore désactivé (MESHCORE=non)' }); return false; };
+app.get('/api/mc/noeuds', (req, res) => {
+  if (!exigerMc(res)) return;
+  const membre = estMembre(req), maintenant = Date.now();
+  res.json(reseauMc.q.noeuds.all().map((n) => reseauMc.vueNoeud(n, membre, maintenant)));
+});
+app.get('/api/mc/noeuds/:cle', (req, res) => {
+  if (!exigerMc(res)) return;
+  const d = reseauMc.detailNoeud(String(req.params.cle).slice(0, 64), estMembre(req));
+  if (!d) return res.status(404).json({ erreur: 'Nœud MeshCore inconnu' });
+  res.json(d);
+});
+app.get('/api/mc/liens', (req, res) => {
+  if (!exigerMc(res)) return;
+  const heures = Math.min(Math.max(Number(req.query.heures) || 24, 0.25), config.retentionJours * 24);
+  res.json(reseauMc.liens(heures * 3600000));
+});
+app.get('/api/mc/paquets', (req, res) => {
+  if (!exigerMc(res)) return;
+  const type = /^[A-Z_]{2,12}$/.test(String(req.query.type || '')) ? req.query.type : null;
+  res.json(reseauMc.paquets(Math.min(Number(req.query.limite) || 200, 1000), type, estMembre(req)));
+});
+app.get('/api/mc/paquets/:id', (req, res) => {
+  if (!exigerMc(res)) return;
+  const d = reseauMc.detailPaquet(req.params.id, estMembre(req));
+  if (!d) return res.status(404).json({ erreur: 'Paquet inconnu (plus de ' + config.retentionJours + ' jours ?)' });
+  res.json(d);
+});
+app.get('/api/mc/messages', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  res.json(reseauMc.messages(Math.min(Number(req.query.limite) || 300, 2000)));
+});
+function etatMc(admin) {
+  const e = { stats: reseauMc.statistiques() };
+  const c = companion.etat();
+  e.companion = { connecte: c.connecte, nom: c.nom, cle: c.cle, radio: c.radio, navigateur: c.navigateur, paquets: c.paquets, depuis: c.depuis };
+  if (admin) {
+    e.companion = { ...c };
+    e.republication = publicateurMc.etat();
+    e.reglages = { iata: config.meshcore.iata, racine: config.meshcore.racine, republier: config.meshcore.republier, canaux: config.meshcore.canaux.join('\n') };
+    e.agents = agents.liste();
+  }
+  return e;
+}
+app.get('/api/mc/etat', (req, res) => { if (!exigerMc(res)) return; res.set('Cache-Control', 'no-store').json(etatMc(estAdmin(req))); });
+app.post('/api/mc/companion', (req, res) => {
+  if (!exigerAdmin(req, res) || !exigerMc(res)) return;
+  const b = req.body || {};
+  if (b.type === 'agent') {
+    if (!agents.estAgent(String(b.hote || ''))) return res.status(400).json({ erreur: 'Agent inconnu' });
+    companion.connecterA({ type: 'agent', hote: String(b.hote) });
+  } else {
+    const port = portValide(b.port ?? 5000);
+    if (!hoteValide(b.hote) || !port) return res.status(400).json({ erreur: 'Adresse ou port invalide' });
+    companion.connecterA({ type: 'tcp', hote: b.hote, port });
+  }
+  res.json({ ok: true });
+});
+app.delete('/api/mc/companion', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  companion.deconnecter();
+  res.json({ ok: true });
+});
+app.post('/api/mc/companion/annonce', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  try { companion.annoncer(!!(req.body || {}).inondation); res.json({ ok: true }); } catch (e) { res.status(409).json({ erreur: e.message }); }
+});
+app.post('/api/mc/companion/contacts', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  try { companion.rechargerContacts(); res.json({ ok: true }); } catch (e) { res.status(409).json({ erreur: e.message }); }
+});
+app.post('/api/mc/reglages', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const b = req.body || {}, m = { ...((config.reglages || {}).meshcore || {}) };
+  if (b.iata !== undefined) { if (!/^[A-Z0-9]{2,8}$/i.test(String(b.iata))) return res.status(400).json({ erreur: 'Code de zone : 2 à 8 lettres ou chiffres (ex. LPY)' }); m.iata = String(b.iata).toUpperCase(); }
+  if (b.racine !== undefined) { if (!/^[A-Za-z0-9_\-/]{1,60}$/.test(String(b.racine))) return res.status(400).json({ erreur: 'Racine invalide' }); m.racine = String(b.racine); }
+  if (typeof b.republier === 'boolean') m.republier = b.republier;
+  if (typeof b.actif === 'boolean') m.actif = b.actif;
+  if (typeof b.canaux === 'string') {
+    const l = b.canaux.split(/[;\n]/).map((x) => x.trim()).filter(Boolean).slice(0, 20);
+    const ok = preparerCanauxMc(l);
+    if (ok.length !== l.length) return res.status(400).json({ erreur: 'Canal invalide : « Public », « #nom » ou « nom=secret » (32 caractères hexadécimaux)' });
+    m.canaux = l;
+  }
+  res.json({ ok: true, redemarrage: true });
+  enregistrerReglagesEtRedemarrer({ ...config.reglages, meshcore: m }, u.identifiant);
+});
+
 app.get('/sante', (req, res) => res.json({ ok: true, mqtt: clientMqtt && clientMqtt.connected }));
 
 const serveur = http.createServer(app);
@@ -713,6 +811,7 @@ serveur.on('upgrade', (req, socket, tete) => {
   const chemin = (req.url || '').split('?')[0];
   if (chemin === '/ws') wss.handleUpgrade(req, socket, tete, (ws) => wss.emit('connection', ws, req));
   else if (chemin === '/ws/module' && estAdmin(req)) wssModule.handleUpgrade(req, socket, tete, (ws) => wssModule.emit('connection', ws, req));
+  else if (chemin === '/ws/meshcore' && estAdmin(req) && config.meshcore.actif) wssModule.handleUpgrade(req, socket, tete, (ws) => brancherCompanionNavigateur(ws, req));
   else { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); }
 });
 const { Duplex } = require('stream');
@@ -753,6 +852,15 @@ wssModule.on('connection', (ws, req) => {
   });
   rafraichirEtat(); diffuser({ genre: 'statut' });
 });
+// Companion MeshCore branché sur le PC de l'utilisateur, relayé par la page
+function brancherCompanionNavigateur(ws, req) {
+  const u = utilisateur(req);
+  const q = new URL(req.url, 'http://x').searchParams;
+  const source = q.get('source') === 'Bluetooth' ? 'Bluetooth' : 'USB';
+  const nom = (q.get('nom') || `${source} ${u ? u.identifiant : ''}`).slice(0, 40);
+  companion.brancherNavigateur(fluxWebSocket(ws), nom, source);
+  diffuserEtatMc();
+}
 wss.on('connection', (ws, req) => {
   ws.admin = estMembre(req);
   ws.vivant = true;
@@ -799,7 +907,21 @@ const clientMqtt = mqtt.connect(config.mqtt.url, {
   reconnectPeriod: 5000,
   rejectUnauthorized: false,
 });
-const sujets = [config.mqtt.racine + '/#', ...config.mqtt.sujetsSupplementaires];
+const sujets = [config.mqtt.racine + '/#', ...config.mqtt.sujetsSupplementaires, ...(config.meshcore.actif ? [config.meshcore.racine + '/#'] : [])];
+const prefixeMc = config.meshcore.racine + '/';
+let compteurMc = { recus: 0, observations: 0, erreurs: 0 };
+function messageMc(topic, message) {
+  compteurMc.recus++;
+  const m = lireMessageMc(topic, message);
+  if (!m) return;
+  if (m.genre === 'erreur') { compteurMc.erreurs++; return; }
+  const moi = companion.etat().cle;
+  if (m.cle === moi) return; // nos propres republications
+  if (m.genre === 'statut') { reseauMc.noterObservateur(m.cle, { nom: m.nom, etat: m.etat, details: m.details }); planifierEtatMc(); return; }
+  if (m.nom) reseauMc.noterObservateur(m.cle, { nom: m.nom, details: { iata: m.iata } });
+  const sortie = reseauMc.integrer(m.obs);
+  if (sortie) { compteurMc.observations++; diffuser(sortie); }
+}
 clientMqtt.on('connect', () => {
   statsMqtt.depuis = Date.now();
   journal(`MQTT connecté à ${config.mqtt.url.replace(/\/\/[^@]*@/, '//')}, abonnement à ${sujets.join(', ')}`);
@@ -811,6 +933,7 @@ clientMqtt.on('reconnect', () => { statsMqtt.reconnexions++; });
 clientMqtt.on('error', (e) => { statsMqtt.derniereErreur = { message: e.message, heure: Date.now() }; journal('Erreur MQTT :', e.message); });
 clientMqtt.on('message', (topic, message) => {
   compteur.recus++;
+  if (config.meshcore.actif && topic.startsWith(prefixeMc)) { try { messageMc(topic, message); } catch (e) { compteurMc.erreurs++; journal('Erreur MeshCore :', e.message, topic); } return; }
   noterMessageMqtt(topic);
   try {
     const evt = decoderMessage(topic, message, canaux);
@@ -831,10 +954,38 @@ function rafraichirEtat() {
   diffuser({ genre: 'etat', stats: reseau.statistiques(), alertes: dernieresAlertes, meshmonitor: typeof sourceMM !== 'undefined' && sourceMM ? sourceMM.etat() : null, radio: typeof sourceRadio !== 'undefined' && sourceRadio ? sourceRadio.etat() : null });
 }
 setInterval(rafraichirEtat, 30000);
+let minuterieEtatMc = null;
+function diffuserEtatMc() { if (config.meshcore.actif) diffuser({ genre: 'mc-etat', ...etatMc(false) }); }
+function planifierEtatMc() { if (!minuterieEtatMc) minuterieEtatMc = setTimeout(() => { minuterieEtatMc = null; diffuserEtatMc(); }, 1500); }
+setInterval(diffuserEtatMc, 30000);
 const sourceMM = creerSourceMeshMonitor(stockage, config, () => { rafraichirEtat(); diffuser({ genre: 'statut' }); });
 if (sourceMM) journal(`Source MeshMonitor activée : ${config.meshmonitor.url}`);
 // Agents (module USB sur un PC, ou module Wi-Fi d'un autre réseau) : ils se connectent au port 4404
-const agents = creerAgents(config, { surArrivee: (hote, nom) => { if (typeof sourceRadio !== 'undefined' && sourceRadio) { sourceRadio.agentDisponible(hote, nom); rafraichirEtat(); diffuser({ genre: 'statut' }); } } });
+const agents = creerAgents(config, { surArrivee: (hote, nom) => {
+  if (typeof companion !== 'undefined' && companion) companion.agentDisponible(hote);
+  if (typeof sourceRadio !== 'undefined' && sourceRadio) { sourceRadio.agentDisponible(hote, nom); rafraichirEtat(); diffuser({ genre: 'statut' }); }
+} });
+// Companion MeshCore (observateur de la carte) et republication sur le broker
+const publicateurMc = creerPublicateurMc(config, (...a) => journal('[MeshCore]', ...a));
+const companion = creerCompanion(config, {
+  agents,
+  journal: (...a) => journal('[MeshCore]', ...a),
+  surObservation: (obs) => {
+    try {
+      const sortie = reseauMc.integrer(obs);
+      if (sortie) diffuser(sortie);
+      const c = companion.etat();
+      if (obs.observateur && config.meshcore.republier) publicateurMc.publier(obs, decoderPaquetMc(obs.brut), c);
+    } catch (e) { journal('[MeshCore] observation non traitée :', e.message); }
+  },
+  surContacts: (liste) => { for (const ct of liste) reseauMc.importerContact(ct); planifierEtatMc(); diffuser({ genre: 'mc-noeuds' }); },
+  surEtat: () => {
+    const c = companion.etat();
+    if (c.cle) reseauMc.noterObservateur(c.cle, { nom: c.nom, role: 'companion', lat: c.lat, lon: c.lon, etat: c.connecte ? 'online' : 'offline', details: { modele: c.modele, firmware: c.firmware, radio: c.radio, iata: config.meshcore.iata, carte: true } });
+    planifierEtatMc();
+  },
+});
+if (config.meshcore.actif) companion.demarrer();
 const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   integrerEvenement: (evt) => {
     const sortie = reseau.integrer(evt);
@@ -869,7 +1020,7 @@ const relief = creerRelief(config, journal, {
 setTimeout(rafraichirEtat, 2000);
 
 setInterval(() => {
-  const n = stockage.purger(config.retentionJours);
+  const n = stockage.purger(config.retentionJours) + reseauMc.purger(config.retentionJours);
   reseau.nettoyer();
   journal(`Purge : ${n} lignes de plus de ${config.retentionJours} jours supprimées · MQTT reçus ${compteur.recus}, traités ${compteur.decodes}, erreurs ${compteur.erreurs}`);
 }, 3600000);
@@ -884,6 +1035,7 @@ serveur.listen(config.port, () => journal(`Carte live Meshtastic à l'écoute su
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     journal('Arrêt…');
+    publicateurMc.fermer();
     clientMqtt.end(true);
     stockage.db.close();
     process.exit(0);

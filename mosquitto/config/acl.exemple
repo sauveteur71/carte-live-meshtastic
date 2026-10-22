@@ -6,6 +6,8 @@
 # --- Lecture seule : la carte live et les outils de supervision ---
 user carte
 topic read msh/EU_868/#
+# MeshCore : lecture des observateurs + republication de ce que capte le companion de la carte
+topic readwrite meshcore/#
 
 # --- Passerelles radio (un compte par site) ---
 # readwrite : publication (uplink) + lecture (seulement utile si « Downlink » est activé sur la passerelle)
@@ -14,3 +16,7 @@ topic readwrite msh/EU_868/#
 
 user gw-relais1
 topic readwrite msh/EU_868/#
+
+# --- Observateurs MeshCore (meshcoretomqtt sur un Raspberry relié à un répéteur) ---
+user obs-meshcore1
+topic readwrite meshcore/#

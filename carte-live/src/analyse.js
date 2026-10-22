@@ -15,6 +15,7 @@ const PRESETS = {
   LONG_MODERATE: { sf: 11, bw: 125, cr: 8 },
   SHORT_TURBO: { sf: 7, bw: 500, cr: 5 },
   LONG_TURBO: { sf: 11, bw: 500, cr: 8 },
+  MESHCORE_FR: { sf: 8, bw: 62.5, cr: 8 },
 };
 // SNR minimal démodulable par facteur d'étalement (dB)
 const SNR_LIMITE = { 7: -7.5, 8: -10, 9: -12.5, 10: -15, 11: -17.5, 12: -20 };

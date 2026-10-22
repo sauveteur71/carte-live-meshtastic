@@ -1,6 +1,6 @@
 # Carte live Meshtastic
 
-Carte en temps réel, supervision et **administration à distance** d'un réseau [Meshtastic](https://meshtastic.org) local ou départemental : elle écoute votre broker MQTT et/ou un module radio, décode les paquets, garde l'historique et permet de programmer vos nœuds par LoRa.
+Carte en temps réel, supervision et **administration à distance** d'un réseau [Meshtastic](https://meshtastic.org) — et désormais [MeshCore](https://meshcore.co.uk) — local ou départemental : elle écoute votre broker MQTT et/ou un module radio, décode les paquets, garde l'historique et permet de programmer vos nœuds par LoRa.
 
 Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour n'importe quel département : tout se règle depuis l'assistant d'installation.
 
@@ -30,6 +30,13 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - **Vérification de conformité** : comparer tous vos nœuds à une référence (canaux, précision, fréquence, preset, rediffusion…)
 - QR code des réglages d'un nœud, messages directs ou sur un canal (un clic sur un message bascule sur son canal pour répondre)
 - Client et flasheur officiels Meshtastic intégrés (menu *Outils*)
+
+**MeshCore**
+- Carte MeshCore à part entière, **seule ou superposée** à Meshtastic (sélecteur *Réseau* en haut du panneau) : répéteurs, room servers, companions, capteurs, observateurs
+- Liens radio : mesurés (dernier saut vers un observateur, avec SNR), déduits des chemins des paquets (préfixes de clé rapprochés par la géographie) et des traces
+- **Analyseur de paquets** en direct : annonces, messages de canal (déchiffrés pour le canal Public et les canaux « #nom » configurés), messages directs, requêtes, accusés, traces… avec le chemin de relais identifiés et le détail octet par octet
+- Le **companion** de la carte sert d'observateur (Wi-Fi, USB par l'agent, ou USB / Bluetooth depuis le navigateur) ; ses paquets sont republiés sur votre broker au format **meshcoretomqtt** (`meshcore/IATA/CLÉ/packets`), et la carte lit aussi les autres observateurs publiés sur le broker
+- Couverture et profils de relief avec le réglage radio français (869,618 MHz, BW 62,5 kHz, SF8, CR8)
 
 **Comptes** : administrateur créé à l'installation, inscriptions (fermées, sur validation ou ouvertes), précision des positions réduite pour le public.
 
@@ -73,6 +80,19 @@ Dans `docker-compose.yml`, remplacez la ligne `image:` par `build: .`, puis `doc
   - module Wi-Fi joignable depuis le serveur : son adresse IP ;
   - module USB sur un PC, ou module d'un autre réseau : téléchargez l'**agent** depuis cette même page, lancez-le et donnez-lui l'adresse du serveur (port 4404) et le code affiché. **Ne redirigez jamais le port 4404 sur votre box** : utilisez le réseau local ou un VPN comme [Tailscale](https://tailscale.com).
 - **Administration à distance** : sur chaque nœud, ajoutez la clé publique du module (affichée dans l'onglet *Gestion*) dans *Sécurité › Clé d'administration*.
+
+### MeshCore
+
+Onglet **MeshCore › Companion** (admin) : reliez un companion MeshCore, qui devient l'**observateur** de la carte.
+- **Wi-Fi** : firmware « companion Wi-Fi », adresse IP et port (5000 par défaut) ;
+- **USB sur ce PC** (firmware « companion USB ») ou **Bluetooth** (firmware « companion BLE ») : boutons de la page, Chrome ou Edge, carte en HTTPS ;
+- **USB sur un autre PC** : l'agent (même programme que pour Meshtastic), choisi ensuite dans la liste des agents.
+
+Le companion ne sert qu'un client à la fois : l'appli MeshCore du téléphone est déconnectée pendant ce temps.
+
+Le compte MQTT de la carte doit pouvoir **lire et écrire** `meshcore/#` (voir [`mosquitto/config/acl.exemple`](mosquitto/config/acl.exemple)). Réglages (`.env` ou onglet Companion) : `MESHCORE_IATA` (code de zone, ex. `LPY`), `MESHCORE_CANAUX` (`Public`, `#nom`, `nom=secret`), `MESHCORE_REPUBLIER`.
+
+Essai sans matériel : `node outils/simulateur-meshcore.js`, puis *Companion › Wi-Fi* `127.0.0.1` port `5000`.
 
 ### Client et flasheur officiels (menu *Outils*)
 
@@ -143,6 +163,7 @@ Les contributions sont bienvenues : ouvrez une *issue* pour proposer une idée o
 
 - Code sous licence **GNU GPL v3** (voir [LICENSE](LICENSE)), comme le projet Meshtastic.
 - Protobufs : [meshtastic/protobufs](https://github.com/meshtastic/protobufs) (GPL v3).
+- Format des paquets MeshCore : documentation de [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore) (MIT) ; format MQTT de [meshcoretomqtt](https://github.com/Cisien/meshcoretomqtt).
 - Fonds et relief : © IGN Géoplateforme (licence ouverte Etalab) · OpenStreetMap © contributeurs (ODbL) · communes : API Géo de l'État.
 - Meshtastic® est une marque déposée de Meshtastic LLC. Ce projet n'est pas affilié à Meshtastic LLC.
 
@@ -150,6 +171,6 @@ Les contributions sont bienvenues : ouvrez une *issue* pour proposer une idée o
 
 ## 🇬🇧 English summary
 
-**Carte live Meshtastic** is a self-hosted live map, monitoring and **remote administration** tool for a local Meshtastic mesh (interface in French). It listens to your MQTT broker and/or a radio module (Wi-Fi, or USB through a small Go *agent*), stores history in SQLite, shows nodes, measured RF links, telemetry, alerts and packet details, estimates coverage from the French IGN terrain model, ranks the best hilltop sites (with road / 4×4 / footpath access from OpenStreetMap), and lets you read and edit node settings over LoRa (PKI admin, firmware ≥ 2.5), check that all your nodes share the same configuration, and generate channel QR codes.
+**Carte live Meshtastic** is a self-hosted live map, monitoring and **remote administration** tool for a local Meshtastic mesh (interface in French). It listens to your MQTT broker and/or a radio module (Wi-Fi, or USB through a small Go *agent*), stores history in SQLite, shows nodes, measured RF links, telemetry, alerts and packet details, estimates coverage from the French IGN terrain model, ranks the best hilltop sites (with road / 4×4 / footpath access from OpenStreetMap), and lets you read and edit node settings over LoRa (PKI admin, firmware ≥ 2.5), check that all your nodes share the same configuration, and generate channel QR codes. It also maps **MeshCore** networks (alone or overlaid on Meshtastic): repeaters, room servers, companions, links deduced from packet paths, a live packet analyzer, a companion radio used as observer (Wi-Fi, USB or Bluetooth), and meshcoretomqtt-compatible MQTT ingest and republishing.
 
 Quick start: `cp .env.exemple .env && docker compose up -d`, then open `http://SERVER_IP:8095` and follow the setup wizard. Multi-arch images (amd64/arm64) are published on GitHub Container Registry. Licensed under GPL-3.0.

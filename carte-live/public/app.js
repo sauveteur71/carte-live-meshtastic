@@ -221,6 +221,7 @@ etat.legende = (() => {
 const memoLegende = () => { try { localStorage.setItem('gaulix_legende', JSON.stringify(etat.legende)); } catch { /* stockage indisponible */ } };
 
 function visible(n) {
+  if (etat.vueReseau === 'meshcore') return false;
   const lg = etat.legende;
   if (n.lat != null && !lg.cat[categorie(n).cle]) return false;
   if (lg.seulMqtt && !passerelleEnLigne(n)) return false;
@@ -277,6 +278,7 @@ function dessinerNoeuds() {
 
 function dessinerLiens() {
   etat.coucheLiens.clearLayers();
+  if (etat.vueReseau === 'meshcore') return;
   const maintenant = Date.now();
   const fenetre = Number($('#fenetre').value) * 3600000;
   // Fusion des liens a<->b par source : on garde le plus récent et le meilleur SNR
@@ -328,7 +330,7 @@ function distanceKm(a, b) {
 
 // Animation d'un paquet reçu : trace de l'émetteur (ou du relais) vers la passerelle
 function animerPaquet(p, depuisRejeu) {
-  if (!etat.couches.animations || !etat.filtresPorts.has(p.port)) return;
+  if (!etat.couches.animations || !etat.filtresPorts.has(p.port) || etat.vueReseau === 'meshcore') return;
   if (etat.rejeu && etat.rejeu.actif && !depuisRejeu) return;
   if (etat.zone && !dansZoneNum(p.passerelle) && !dansZoneNum(p.de)) return;
   const gw = etat.noeuds.get(p.passerelle);
@@ -1122,7 +1124,7 @@ function dessinerSommets() {
 async function voirCouvertureSite(p, titre, hauteur, opts = {}) {
   const hs = hauteur ?? ($('#relief-hs') ? $('#relief-hs').value : 6);
   let r;
-  try { r = await api(`/api/relief/couverture?lat=${p.lat}&lon=${p.lon}&hs=${hs}`); } catch (e) { alert(e.message); return; }
+  try { r = await api(`/api/relief/couverture?lat=${p.lat}&lon=${p.lon}&hs=${hs}${opts.preset ? '&preset=' + opts.preset : ''}`); } catch (e) { alert(e.message); return; }
   if (etat.coucheCouverture) etat.coucheCouverture.remove();
   const e = r.emprise;
   const g = L.layerGroup();
@@ -1409,13 +1411,14 @@ async function couvrirPoint(latlng) {
   }));
 }
 
-async function ouvrirProfilCoords(a, b) {
+async function ouvrirProfilCoords(a, b, preset) {
   const dlg = $('#dlg-profil');
   const f = $('#form-profil');
   f.dataset.coords = JSON.stringify({ aLat: a.lat, aLon: a.lon, aNom: a.nom, bLat: b.lat, bLon: b.lon, bNom: b.nom });
   f.ha.value = a.h;
   f.hb.value = b.h;
   if (etat.radio && etat.radio.preset) f.preset.value = etat.radio.preset;
+  if (preset) f.preset.value = preset;
   if (!dlg.open) dlg.showModal();
   await calculerProfil();
 }
@@ -2291,6 +2294,7 @@ function appliquerZone(recadrer) {
   dessinerNoeuds();
   dessinerLiens();
   dessinerSommets();
+  if (typeof mcRedessiner === 'function') { mcRedessiner(); mcMajKpis(); }
   rendreNoeuds();
   if (etat.stats) majEtat({ stats: etat.stats, alertes: etat.alertes, radio: etat.radio, meshmonitor: null });
   chargerFlux().catch(() => {});
@@ -2304,9 +2308,12 @@ function rendreLegende() {
   const nb = (c) => [...etat.noeuds.values()].filter((n) => n.lat != null && dansZone(n) && categorie(n).cle === c.cle && (etat.couches.inactifs || n.statut !== 'inactif' || n.infrastructure || n.passerelle)).length;
   const nbMqtt = [...etat.noeuds.values()].filter((n) => dansZone(n) && passerelleEnLigne(n)).length;
   const bouton = (actif, attr, txt) => `<button class="pilule ${actif ? 'on' : ''}" ${attr}>${txt}</button>`;
+  const mcSeul = etat.vueReseau === 'meshcore';
+  const htmlMc = typeof mcHtmlLegende === 'function' ? mcHtmlLegende() : '';
   $('#legende').innerHTML = `
     <details class="leg-pli" ${lg.replie ? '' : 'open'}>
       <summary>Légende et filtres</summary>
+      ${mcSeul ? htmlMc.replace('<div class="leg-sep"></div>', '') + `<div class="leg-ligne"><span class="pastille-leg inactif"></span><span class="leg-nom">Inactifs (plus de ${etat.config.seuils.inactifHeures} h)</span>${bouton(etat.couches.inactifs, 'data-leg="inactifs"', etat.couches.inactifs ? 'Affiché' : 'Masqué')}</div><div class="rang">Liens (SNR) : ${SNR.map((x) => `<span><i class="trait" style="background:${x.hex}"></i>${x.nom}</span>`).join('')}</div>` : `
       <div class="leg-ligne"><span class="pastille-leg chaleur"></span><span class="leg-nom">Activité (10 dernières min)</span>${bouton(lg.chaleur, 'data-leg="chaleur"', lg.chaleur ? 'Affiché' : 'Masqué')}</div>
       <div class="leg-ligne"><span class="pastille-leg anneau"></span><span class="leg-nom">Passerelles MQTT en ligne (5 min) <small>${nbMqtt}</small></span>${bouton(lg.seulMqtt, 'data-leg="seulMqtt"', 'Seules')}</div>
       ${CATEGORIES.map((c) => {
@@ -2320,10 +2327,11 @@ function rendreLegende() {
       <div class="leg-sep"></div>
       <div class="rang">◆ relais · ● nœud · halo = actif, pâle = inactif</div>
       <div class="rang">Liens (SNR) : ${SNR.map((x) => `<span><i class="trait" style="background:${x.hex}"></i>${x.nom}</span>`).join('')}</div>
-      <div class="rang">— radio · - - voisinage · ··· traceroute</div>
+      <div class="rang">— radio · - - voisinage · ··· traceroute</div>${htmlMc}`}
     </details>`;
-  const appliquer = () => { memoLegende(); dessinerNoeuds(); dessinerLiens(); dessinerChaleur(); rendreLegende(); };
+  const appliquer = () => { memoLegende(); dessinerNoeuds(); dessinerLiens(); dessinerChaleur(); if (typeof mcRedessiner === 'function') mcRedessiner(); rendreLegende(); };
   const z = $('#legende');
+  if (typeof mcBrancherLegende === 'function') mcBrancherLegende(z);
   z.querySelector('details').ontoggle = (e) => { lg.replie = !e.target.open; memoLegende(); };
   z.querySelectorAll('[data-cat]').forEach((b) => (b.onclick = () => { lg.cat[b.dataset.cat] = !lg.cat[b.dataset.cat]; appliquer(); }));
   z.querySelectorAll('[data-seul]').forEach((b) => (b.onclick = () => {
@@ -2355,7 +2363,7 @@ function dessinerChaleur() {
   etat.coucheChaleur.clearLayers();
   const limite = Date.now() - 10 * 60000;
   while (activite.length && activite[0].heure < limite) activite.shift();
-  if (!etat.legende.chaleur) return;
+  if (!etat.legende.chaleur || etat.vueReseau === 'meshcore') return;
   const compte = new Map();
   for (const a of activite) compte.set(a.num, (compte.get(a.num) || 0) + 1);
   for (const [num, c] of compte) {
@@ -2419,6 +2427,7 @@ function majEtat(e) {
       : '');
   const lb = $('#ligne-broker');
   if (lb && etat.admin) lb.onclick = () => ouvrirBroker();
+  if (typeof mcMajSource === 'function') mcMajSource();
   rendreReseau();
   if (etat.admin) rendreModules();
 }
@@ -2526,6 +2535,8 @@ function connecterWs() {
       dessinerNoeuds();
     } else if (m.genre === 'statut') {
       planifierRafraichissement();
+    } else if (m.genre && m.genre.startsWith('mc-') && typeof mcRecevoir === 'function') {
+      mcRecevoir(m);
     }
   };
   ws.onclose = () => {
@@ -2869,6 +2880,7 @@ async function demarrer() {
   appliquerZone(etat.zone);
   await Promise.all([chargerLiens(), chargerEtat(), chargerFlux()]);
   connecterWs();
+  if (typeof demarrerMeshcore === 'function') demarrerMeshcore();
   chargerRelief();
   chargerActiviteInitiale();
   setInterval(rendreLegende, 60000);
