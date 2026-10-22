@@ -1,0 +1,31 @@
+# Carte live Meshtastic — lancement avec Docker Compose (Synology Container Manager, Unraid, Linux…)
+# 1. Copiez .env.exemple en .env et adaptez-le.   2. docker compose up -d
+# 3. Ouvrez http://IP_DU_SERVEUR:8095 : l'assistant crée le compte administrateur.
+
+services:
+  carte-live:
+    image: ghcr.io/sauveteur71/carte-live-meshtastic:latest
+    # Pour construire l'image vous-même à partir des sources, remplacez la ligne « image » par :
+    # build: .
+    container_name: carte-live-meshtastic
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      FICHIER_BASE: /data/carte-live.db
+    ports:
+      - "${CARTE_PORT:-8095}:8095"
+      # Agents (module USB sur un PC, module d'un autre réseau) : réseau local ou VPN (Tailscale) uniquement,
+      # ne jamais rediriger ce port sur la box Internet
+      - "${AGENTS_PORT_HOTE:-4404}:4404"
+    volumes:
+      # Base, comptes, réglages et cache du relief : à sauvegarder
+      - donnees:/data
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  donnees:

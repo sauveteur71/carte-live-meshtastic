@@ -1,0 +1,764 @@
+'use strict';
+// Carte live Meshtastic — serveur : MQTT -> décodage -> SQLite -> API REST + WebSocket temps réel
+
+const http = require('http');
+const path = require('path');
+const crypto = require('crypto');
+const express = require('express');
+const mqtt = require('mqtt');
+const { WebSocketServer } = require('ws');
+
+const config = require('./config');
+const { decoderMessage, preparerCanaux } = require('./decodeur');
+const { creerStockage } = require('./base');
+const { creerReseau } = require('./reseau');
+const { creerSourceMeshMonitor } = require('./meshmonitor');
+const { creerSourceRadio } = require('./radio');
+const { creerAnalyse } = require('./analyse');
+const { creerRelief, contourDepartement } = require('./relief');
+const { creerComptes } = require('./comptes');
+const { creerAdministration } = require('./administration');
+const { creerAgents } = require('./agents');
+const fs = require('fs');
+
+const journal = (...a) => console.log(new Date().toISOString(), ...a);
+
+const stockage = creerStockage(config.fichierBase);
+const reseau = creerReseau(stockage, config);
+const canaux = preparerCanaux(config.canaux);
+journal(`Canaux configurés : ${canaux.map((c) => `${c.nom} (hachage ${c.hachage})`).join(', ')}`);
+
+// ---- Comptes et sessions ------------------------------------------------------
+const comptes = creerComptes(stockage.db, config);
+function lireCookie(req, nom) {
+  const c = req.headers.cookie || '';
+  const m = c.split(';').map((x) => x.trim()).find((x) => x.startsWith(nom + '='));
+  return m ? decodeURIComponent(m.slice(nom.length + 1)) : null;
+}
+const utilisateur = (req) => comptes.lireJeton(lireCookie(req, 'gaulix_session'));
+// « Membre » : tout compte connecté (messages texte, positions exactes) ; « admin » : réglages et pilotage
+const estMembre = (req) => !!utilisateur(req);
+const estAdmin = (req) => { const u = utilisateur(req); return !!u && u.role === 'admin'; };
+function ouvrirSession(req, res, compte) {
+  const securise = req.secure ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `gaulix_session=${encodeURIComponent(comptes.jeton(compte))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${comptes.DUREE_SESSION / 1000}${securise}`);
+}
+// Adresse réelle du client (sans tenir compte des en-têtes de proxy, falsifiables)
+function ipPrivee(req) {
+  const ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  return ip === '127.0.0.1' || ip === '::1' || /^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip) || /^f[cd]/i.test(ip);
+}
+
+const tentatives = new Map();
+function limiter(ip) {
+  const maintenant = Date.now();
+  const t = (tentatives.get(ip) || []).filter((x) => maintenant - x < 15 * 60000);
+  t.push(maintenant);
+  tentatives.set(ip, t);
+  return t.length > 8;
+}
+
+// ---- Application web ------------------------------------------------------
+const app = express();
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use(express.json({ limit: '10kb' }));
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  next();
+});
+app.use('/vendor/leaflet', express.static(path.join(path.dirname(require.resolve('leaflet/package.json')), 'dist'), { maxAge: '7d' }));
+app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '5m' }));
+
+app.get('/api/config', (req, res) => {
+  res.json({
+    titre: config.carte.titre,
+    centre: [config.carte.centreLat, config.carte.centreLon],
+    zoom: config.carte.zoom,
+    tuiles: config.carte.tuiles,
+    retentionJours: config.retentionJours,
+    seuils: config.seuils,
+    admin: estAdmin(req),
+    membre: estMembre(req),
+    compte: utilisateur(req),
+    installation: comptes.installationRequise(),
+    inscriptions: config.inscriptions,
+    departement: config.departement,
+    zone: config.zone,
+    zoneNom: config.zoneNom,
+    radio: true,
+    lienDistanceMaxKm: config.lienDistanceMaxKm,
+    precisionPublique: config.precisionPublique,
+  });
+});
+
+app.get('/api/noeuds', (req, res) => {
+  const admin = estMembre(req);
+  const maintenant = Date.now();
+  res.json(stockage.q.noeuds.all().map((n) => reseau.vueNoeud(n, admin, maintenant)));
+});
+
+app.get('/api/noeuds/:num', (req, res) => {
+  const num = Number(req.params.num) >>> 0;
+  const d = reseau.detailNoeud(num, estMembre(req));
+  if (!d) return res.status(404).json({ erreur: 'Nœud inconnu' });
+  d.sante = analyse.sante(num);
+  res.json(d);
+});
+
+app.get('/api/analyse', (req, res) => {
+  const heures = Math.min(Math.max(Number(req.query.heures) || 24, 1), config.retentionJours * 24);
+  res.json(analyse.analyse(heures, req.query.zone === '1' ? config.zone : null));
+});
+
+app.get('/api/profil', async (req, res) => {
+  const nb = (v) => (v === undefined || v === '' ? undefined : Number(v));
+  try {
+    res.json(await analyse.profil({
+      a: Number(req.query.a), b: Number(req.query.b), ha: nb(req.query.ha), hb: nb(req.query.hb),
+      ptx: nb(req.query.ptx), ga: nb(req.query.ga), gb: nb(req.query.gb), pertes: nb(req.query.pertes), preset: req.query.preset,
+      aLat: nb(req.query.aLat), aLon: nb(req.query.aLon), bLat: nb(req.query.bLat), bLon: nb(req.query.bLon),
+      aNom: req.query.aNom ? String(req.query.aNom).slice(0, 60) : undefined, bNom: req.query.bNom ? String(req.query.bNom).slice(0, 60) : undefined,
+    }));
+  } catch (e) {
+    res.status(400).json({ erreur: e.message });
+  }
+});
+
+// ---- Relief et planification radio ----------------------------------------------
+const optsRelief = (q) => {
+  const nb = (v, min, max) => { const n = Number(v); return v === undefined || v === '' || !Number.isFinite(n) ? undefined : Math.min(max, Math.max(min, n)); };
+  return { hs: nb(q.hs, 0, 100), ht: nb(q.ht, 0, 50), ptx: nb(q.ptx, 0, 30), marge: nb(q.marge, 0, 30), rayonKm: nb(q.rayon, 5, 60), env: nb(q.env, 0, 40), preset: q.preset, acces: ['voiture', '4x4', 'pied'].includes(q.acces) ? q.acces : undefined };
+};
+app.get('/api/relief/etat', (req, res) => res.json({ ...relief.etat(), emprise: relief.emprise() }));
+app.get('/api/relief/sommets', (req, res) => {
+  res.json(relief.sommets().map((s) => ({ id: s.id, nom: s.nom, lat: s.lat, lon: s.lon, alt: s.alt, source: s.source, dominance: s.dominance, dansZone: s.dansZone, couverturePct: s.couverturePct, couvertureKm2: s.couvertureKm2, rang: s.rang, rangPlan: s.rangPlan, acces: s.acces || null })));
+});
+app.get('/api/relief/calibration', (req, res) => res.json(relief.calibration()));
+app.get('/api/relief/classement', (req, res) => {
+  const filtre = ['voiture', '4x4', 'pied'].includes(req.query.acces) ? req.query.acces : null;
+  res.json((filtre ? relief.classementAcces(filtre) : relief.classementAcces(null)) || relief.classement() || { attente: true, etat: relief.etat() });
+});
+app.post('/api/relief/recalculer', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  relief.calculerClassement(optsRelief(req.body || {}));
+  res.json({ ok: true });
+});
+app.get('/api/relief/couvrir', (req, res) => {
+  const lat = Number(req.query.lat), lon = Number(req.query.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ erreur: 'Point invalide' });
+  try { res.json(relief.couvrirPoint({ lat, lon }, optsRelief(req.query))); } catch (e) { res.status(503).json({ erreur: e.message }); }
+});
+const cacheCouverture = new Map();
+app.get('/api/relief/couverture', (req, res) => {
+  const lat = Number(req.query.lat), lon = Number(req.query.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ erreur: 'Point invalide' });
+  if (!relief.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
+  const o = optsRelief(req.query);
+  const cle = JSON.stringify([lat.toFixed(4), lon.toFixed(4), o]);
+  let r = cacheCouverture.get(cle);
+  if (!r) {
+    r = relief.couverturePng({ lat, lon }, o);
+    r.id = crypto.randomBytes(6).toString('hex');
+    cacheCouverture.set(cle, r);
+    cacheCouverture.set(r.id, r);
+    if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
+  }
+  res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: relief.emprise(), surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sol: r.sol, env: r.env, rayonKm: r.rayonKm });
+});
+app.get('/api/relief/couverture/:id.png', (req, res) => {
+  const r = cacheCouverture.get(req.params.id);
+  if (!r) return res.status(404).end();
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.end(r.image);
+});
+
+// ---- Recherche de lieux (OpenStreetMap via Photon + adresses IGN), avec cache ---------------
+const cacheRecherche = new Map();
+const sansAccents = (t) => String(t).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[-']/g, ' ');
+let reperes = [];
+try { reperes = JSON.parse(require('fs').readFileSync(path.join(__dirname, '..', 'donnees-ref', `reperes-${config.departement.code}.json`), 'utf8')); } catch { /* facultatif */ }
+app.get('/api/reperes', (req, res) => res.json(reperes.map(({ alias, ...r }) => r)));
+const distKm = (a, b) => { const r = Math.PI / 180; const s = Math.sin(((b.lat - a.lat) * r) / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(((b.lon - a.lon) * r) / 2) ** 2; return 12742 * Math.asin(Math.sqrt(s)); };
+app.get('/api/recherche', async (req, res) => {
+  const q = String(req.query.q || '').trim().slice(0, 120);
+  if (q.length < 2) return res.json([]);
+  const lat = Number(req.query.lat) || config.carte.centreLat, lon = Number(req.query.lon) || config.carte.centreLon;
+  const cle = q.toLowerCase() + '|' + lat.toFixed(1) + '|' + lon.toFixed(1);
+  const c = cacheRecherche.get(cle);
+  if (c && Date.now() - c.t < 3600000) return res.json(c.r);
+  // Points de repère locaux (avec noms usuels : « la Vierge », « le Mézenc »…)
+  const mots = sansAccents(q).split(/\s+/).filter((m) => m.length > 2 && !['les', 'des', 'puy', 'sur', 'statue'].includes(m));
+  const locaux = reperes.filter((r) => [r.nom, ...(r.alias || [])].some((n) => { const t = sansAccents(n); return t.includes(sansAccents(q)) || (mots.length && mots.every((m) => t.includes(m))); }))
+    .map((r) => ({ type: 'Repère', nom: r.nom, detail: r.detail, lat: r.lat, lon: r.lon, alt: r.alt, zoom: 16 }));
+  const ua = { 'User-Agent': 'carte-live-meshtastic/1.0 (+https://github.com/sauveteur71/carte-live-meshtastic)' };
+  const [osm, ign] = await Promise.all([
+    fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=${lat}&lon=${lon}&limit=8&lang=fr`, { headers: ua, signal: AbortSignal.timeout(6000) }).then((r) => r.json()).catch(() => null),
+    fetch(`https://data.geopf.fr/geocodage/search?q=${encodeURIComponent(q)}&lat=${lat}&lon=${lon}&limit=5&index=address`, { headers: ua, signal: AbortSignal.timeout(6000) }).then((r) => r.json()).catch(() => null),
+  ]);
+  const TYPES = { place: 'Lieu-dit', highway: 'Rue', building: 'Bâtiment', amenity: 'Service', tourism: 'Tourisme', historic: 'Monument', natural: 'Nature', leisure: 'Loisir', shop: 'Commerce', man_made: 'Ouvrage', boundary: 'Commune', railway: 'Gare', waterway: 'Cours d’eau', landuse: 'Zone' };
+  const sortie = [];
+  for (const f of (osm && osm.features) || []) {
+    const p = f.properties || {};
+    const [x, y] = f.geometry.coordinates;
+    const nom = p.name || [p.housenumber, p.street].filter(Boolean).join(' ') || p.city;
+    if (!nom) continue;
+    sortie.push({ type: TYPES[p.osm_key] || 'Lieu', nom, detail: [p.city && p.city !== nom ? p.city : null, p.county].filter(Boolean).join(' · '), lat: y, lon: x, zoom: p.osm_key === 'boundary' || p.osm_value === 'city' ? 13 : 17 });
+  }
+  for (const f of (ign && ign.features) || []) {
+    const p = f.properties || {};
+    const [x, y] = f.geometry.coordinates;
+    if (sortie.some((o) => Math.abs(o.lat - y) < 0.0005 && Math.abs(o.lon - x) < 0.0005)) continue;
+    sortie.push({ type: p.type === 'municipality' ? 'Commune' : 'Adresse', nom: p.label || p.name, detail: p.context || '', lat: y, lon: x, zoom: p.type === 'municipality' ? 13 : 17 });
+  }
+  // Les résultats proches (≤ 100 km) passent devant
+  const centre = { lat, lon };
+  const proches = sortie.filter((o) => distKm(centre, o) <= 100), loin = sortie.filter((o) => distKm(centre, o) > 100);
+  const r = [...locaux, ...proches, ...loin].filter((o, i, t) => t.findIndex((x) => Math.abs(x.lat - o.lat) < 0.0003 && Math.abs(x.lon - o.lon) < 0.0003) === i).slice(0, 10);
+  cacheRecherche.set(cle, { t: Date.now(), r });
+  if (cacheRecherche.size > 500) cacheRecherche.delete(cacheRecherche.keys().next().value);
+  res.json(r);
+});
+
+app.get('/api/rejeu', (req, res) => {
+  const fin = Number(req.query.fin) || Date.now();
+  const debut = Math.max(Number(req.query.debut) || fin - 24 * 3600000, fin - 48 * 3600000);
+  res.json(analyse.rejeu(debut, fin));
+});
+
+// ---- Modules Meshtastic Wi-Fi (admin) -----------------------------------------------------
+const hoteValide = (h) => typeof h === 'string' && /^(\d{1,3}\.){3}\d{1,3}$|^[a-z0-9]([a-z0-9-]{0,62})(\.[a-z0-9-]{1,63})*$/i.test(h) && h.length <= 253;
+const portValide = (p) => { const n = Number(p ?? 4403); return Number.isInteger(n) && n > 0 && n < 65536 ? n : null; };
+const exigerAdmin = (req, res) => { if (estAdmin(req)) return true; res.status(401).json({ erreur: 'Connexion admin requise' }); return false; };
+app.get('/api/radio/modules', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  res.json({ ...sourceRadio.modules(), etat: sourceRadio.etat(), agents: { port: agents.port, liste: agents.liste() } });
+});
+// Code secret des agents (admin) et renouvellement
+app.get('/api/radio/agents', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  res.set('Cache-Control', 'no-store').json({ code: agents.code(), port: agents.port, liste: agents.liste() });
+});
+app.post('/api/radio/agents/code', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  res.json({ code: agents.renouvelerCode() });
+});
+app.post('/api/radio/connecter', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const { hote } = req.body || {};
+  const port = portValide((req.body || {}).port);
+  if (!hote) { try { sourceRadio.reconnecter(); return res.json({ ok: true }); } catch (e) { return res.status(400).json({ erreur: e.message }); } }
+  if (!hoteValide(hote) || !port) return res.status(400).json({ erreur: 'Adresse ou port invalide' });
+  sourceRadio.connecterA(hote, port);
+  res.json({ ok: true });
+});
+app.post('/api/radio/deconnecter', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const minutes = Math.min(Math.max(Number((req.body || {}).minutes) || 0, 0), 24 * 60);
+  sourceRadio.deconnecter(minutes);
+  res.json({ ok: true });
+});
+app.post('/api/radio/modules', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const { hote, nom } = req.body || {};
+  const port = portValide((req.body || {}).port);
+  if (!hoteValide(hote) || !port) return res.status(400).json({ erreur: 'Adresse ou port invalide' });
+  res.json(sourceRadio.ajouterModule(hote, port, nom ? String(nom).slice(0, 40) : null));
+});
+app.delete('/api/radio/modules', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const { hote } = req.body || {};
+  const port = portValide((req.body || {}).port);
+  if (!hoteValide(hote) || !port) return res.status(400).json({ erreur: 'Adresse ou port invalide' });
+  sourceRadio.retirerModule(hote, port);
+  res.json({ ok: true });
+});
+let scanEnCours = false;
+app.post('/api/radio/scanner', async (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const prefixe = String((req.body || {}).prefixe || '');
+  // Uniquement les réseaux privés (192.168.x, 10.x, 172.16-31.x), par blocs de 254 adresses
+  if (!/^(192\.168\.\d{1,3}|10\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3})$/.test(prefixe)) return res.status(400).json({ erreur: 'Réseau privé attendu, ex. 192.168.0' });
+  if (scanEnCours) return res.status(409).json({ erreur: 'Recherche déjà en cours' });
+  scanEnCours = true;
+  try { res.json({ trouves: await sourceRadio.scanner(prefixe), ...sourceRadio.modules() }); } finally { scanEnCours = false; }
+});
+
+// ---- Administration des nœuds par LoRa (admin) ---------------------------------------------
+app.get('/api/admin-noeuds', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.json({ ...administration.infos(), taches: administration.taches(), roles: administration.ROLES, presets: administration.PRESETS, rediffusions: administration.REDIFFUSIONS, regions: administration.REGIONS, elements: administration.ELEMENTS, administrables: administration.administrables(), lectures: administration.lecturesConnues() });
+});
+app.post('/api/admin-noeuds/taches', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const b = req.body || {};
+  try { res.json(administration.lancer(String(b.type), b.cibles, b.params || {}, u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.get('/api/admin-noeuds/lecture/:num/detail', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.set('Cache-Control', 'no-store').json(administration.detailLecture(Number(req.params.num)) || { aucune: true });
+});
+app.get('/api/admin-noeuds/lecture/:num', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.json(administration.etatLecture(Number(req.params.num)) || { aucune: true });
+});
+app.post('/api/admin-noeuds/taches/:id/relancer', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { res.json(administration.relancer(req.params.id, u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/admin-noeuds/taches/:id/arreter', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { administration.arreter(req.params.id, u.identifiant); res.json({ ok: true }); } catch (e) { res.status(404).json({ erreur: e.message }); }
+});
+app.get('/api/admin-noeuds/taches/:id', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const t = administration.tache(req.params.id);
+  if (!t) return res.status(404).json({ erreur: 'Tâche inconnue' });
+  res.json(t);
+});
+
+// ---- QR code des réglages d'un nœud (canaux + LoRa, contient les clés : admin) ---------------
+app.get('/api/noeuds/:num/qr', async (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const num = Number(req.params.num) >>> 0;
+  const liste = (v) => (v == null ? null : String(v).split(',').filter((x) => x !== '').map(Number).filter((x) => Number.isInteger(x) && x >= 0 && x < 8));
+  const indices = req.query.canaux != null && req.query.canaux !== '' ? liste(req.query.canaux) : null;
+  const montants = liste(req.query.up), descendants = liste(req.query.down);
+  try {
+    const r = await require('./reglages-noeuds').qr(num, { indices, avecLora: req.query.lora !== '0', montants, descendants });
+    if (!r) return res.status(404).json({ erreur: 'Réglages de ce nœud inconnus : lisez sa configuration par LoRa', lirePossible: sourceRadio.infos().connecte });
+    res.set('Cache-Control', 'no-store').json(r);
+  } catch (e) { res.status(500).json({ erreur: e.message }); }
+});
+
+// ---- Envoi de messages texte par le module (admin) ---------------------------------------
+app.get('/api/envoi', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const i = sourceRadio.infos();
+  res.json({ connecte: i.connecte, noeudLocal: i.noeudLocal, canaux: i.canaux || [] });
+});
+app.post('/api/envoi', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try {
+    const r = administration.envoyerTexte(req.body || {}, u.identifiant);
+    setTimeout(() => diffuser({ genre: 'statut' }), 500);
+    res.json(r);
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.get('/api/envoi/:id', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.json(administration.etatEnvoi(req.params.id) || { statut: 'inconnu' });
+});
+
+// ---- Trames d'un nœud, détail d'une trame, comparaison des signaux ------------------------
+const BROADCAST = 0xffffffff;
+const FILTRES_TRAMES = {
+  emis: 'p.de = @n',
+  emis_direct: 'p.de = @n AND p.vers != @b',
+  diffusion: 'p.de = @n AND p.vers = @b',
+  recu: 'p.vers = @n',
+  conversation: '(p.de = @n OR p.vers = @n) AND p.vers != @b',
+  passerelle: 'EXISTS (SELECT 1 FROM receptions r2 WHERE r2.paquet = p.rowid AND r2.passerelle = @n)',
+  tous: '(p.de = @n OR p.vers = @n OR EXISTS (SELECT 1 FROM receptions r2 WHERE r2.paquet = p.rowid AND r2.passerelle = @n))',
+};
+const COLONNES_RECEPTIONS = `(SELECT json_group_array(json_object('passerelle', r.passerelle, 'heure', r.heure, 'snr', r.snr, 'rssi', r.rssi, 'sauts', r.sauts, 'relais', r.relais_num, 'sujet', r.sujet))
+  FROM receptions r WHERE r.paquet = p.rowid) AS receptions`;
+function preparerTrame(p, membre) {
+  return {
+    rowid: p.rowid, idPaquet: p.id_paquet, de: p.de, vers: p.vers, canal: p.canal, port: p.port, nomPort: p.nom_port, portnum: p.portnum,
+    heure: p.heure, hopDepart: p.hop_depart, sauts: p.sauts, dechiffre: !!p.dechiffre, pki: !!p.pki, viaMqtt: !!p.via_mqtt, taille: p.taille,
+    resume: p.resume, texte: membre ? p.texte : undefined, nbReceptions: p.nb_receptions,
+    contenu: p.contenu ? JSON.parse(p.contenu) : null,
+    receptions: JSON.parse(p.receptions || '[]').sort((a, b) => a.heure - b.heure),
+  };
+}
+app.get('/api/noeuds/:num/trames', (req, res) => {
+  const n = Number(req.params.num) >>> 0;
+  const filtre = FILTRES_TRAMES[req.query.filtre] ? req.query.filtre : 'emis';
+  const taille = Math.min(Math.max(Number(req.query.taille) || 25, 5), 100);
+  const page = Math.max(Number(req.query.page) || 1, 1);
+  const port = req.query.port ? String(req.query.port).slice(0, 20) : null;
+  const where = FILTRES_TRAMES[filtre] + (port ? ' AND p.port = @port' : '');
+  const params = { n, b: BROADCAST, port, lim: taille, off: (page - 1) * taille };
+  const total = stockage.db.prepare(`SELECT COUNT(*) AS t FROM paquets p WHERE ${where}`).get(params).t;
+  const lignes = stockage.db.prepare(`SELECT p.*, ${COLONNES_RECEPTIONS} FROM paquets p WHERE ${where} ORDER BY p.heure DESC LIMIT @lim OFFSET @off`).all(params);
+  const parPort = stockage.db.prepare(`SELECT p.port, COUNT(*) AS nb FROM paquets p WHERE ${FILTRES_TRAMES[filtre]} GROUP BY p.port ORDER BY nb DESC`).all(params);
+  const membre = estMembre(req);
+  res.json({ total, page, pages: Math.max(1, Math.ceil(total / taille)), filtre, parPort, trames: lignes.map((p) => preparerTrame(p, membre)) });
+});
+app.get('/api/trames/:rowid', (req, res) => {
+  const p = stockage.db.prepare(`SELECT p.*, ${COLONNES_RECEPTIONS} FROM paquets p WHERE p.rowid = ?`).get(Number(req.params.rowid));
+  if (!p) return res.status(404).json({ erreur: 'Trame inconnue (plus de ' + config.retentionJours + ' jours ?)' });
+  res.json(preparerTrame(p, estMembre(req)));
+});
+app.get('/api/signal', (req, res) => {
+  const de = Number(req.query.de) >>> 0, gw = Number(req.query.passerelle) >>> 0;
+  const depuis = Date.now() - Math.min(Number(req.query.jours) || config.retentionJours, config.retentionJours) * 86400000;
+  const points = stockage.db.prepare(`SELECT r.heure, r.snr, r.rssi, r.sauts, p.port, p.rowid FROM receptions r JOIN paquets p ON p.rowid = r.paquet
+      WHERE p.de = ? AND r.passerelle = ? AND r.heure >= ? AND (r.snr IS NOT NULL OR r.rssi IS NOT NULL) ORDER BY r.heure`).all(de, gw, depuis);
+  res.json({ de, passerelle: gw, points });
+});
+// Passerelles qui ont entendu un nœud (pour le menu « Comparer les signaux »)
+app.get('/api/noeuds/:num/entendu-par', (req, res) => {
+  const n = Number(req.params.num) >>> 0;
+  const depuis = Date.now() - config.retentionJours * 86400000;
+  res.json(stockage.db.prepare(`SELECT r.passerelle, COUNT(*) AS nb, MAX(r.heure) AS dernier, ROUND(AVG(r.snr), 2) AS snr, ROUND(AVG(r.rssi), 1) AS rssi, MIN(r.sauts) AS sautsMin,
+      (SELECT p2.rowid FROM receptions r3 JOIN paquets p2 ON p2.rowid = r3.paquet WHERE p2.de = @n AND r3.passerelle = r.passerelle ORDER BY r3.heure DESC LIMIT 1) AS derniereTrame,
+      (SELECT r4.snr FROM receptions r4 JOIN paquets p4 ON p4.rowid = r4.paquet WHERE p4.de = @n AND r4.passerelle = r.passerelle ORDER BY r4.heure DESC LIMIT 1) AS dernierSnr
+      FROM receptions r JOIN paquets p ON p.rowid = r.paquet WHERE p.de = @n AND r.heure >= @d AND r.passerelle != @n GROUP BY r.passerelle ORDER BY dernier DESC`).all({ n, d: depuis }));
+});
+
+app.get('/api/traceroutes', (req, res) => {
+  res.json(stockage.q.trRecents.all(Math.min(Number(req.query.limite) || 50, 500)));
+});
+
+app.post('/api/traceroute/:num', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!sourceRadio) return res.status(503).json({ erreur: 'Aucun module radio configuré (RADIO_HOTE)' });
+  try {
+    res.json(sourceRadio.traceroute(Number(req.params.num), 'manuel'));
+  } catch (e) {
+    res.status(409).json({ erreur: e.message });
+  }
+});
+
+app.get('/api/liens', (req, res) => {
+  const heures = Math.min(Math.max(Number(req.query.heures) || 24, 0.25), config.retentionJours * 24);
+  res.json(reseau.liens(heures * 3600000));
+});
+
+app.get('/api/paquets', (req, res) => {
+  const admin = estMembre(req);
+  const n = Math.min(Number(req.query.limite) || 200, 1000);
+  res.json(
+    stockage.q.paquetsRecents.all(n).map((p) => ({
+      ...p,
+      receptions: JSON.parse(p.receptions || '[]'),
+      texte: admin ? p.texte : undefined,
+    }))
+  );
+});
+
+app.get('/api/etat', (req, res) => {
+  res.json({ stats: reseau.statistiques(), alertes: dernieresAlertes, meshmonitor: sourceMM ? sourceMM.etat() : null, radio: sourceRadio ? sourceRadio.etat() : null });
+});
+
+app.get('/api/messages', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  res.json(stockage.q.messages.all(Math.min(Number(req.query.limite) || 300, 2000)));
+});
+
+app.post('/api/connexion', (req, res) => {
+  if (limiter(req.ip)) return res.status(429).json({ erreur: 'Trop de tentatives, réessayez dans 15 minutes' });
+  try {
+    const c = comptes.connecter((req.body || {}).identifiant, (req.body || {}).motDePasse);
+    ouvrirSession(req, res, c);
+    journal(`Connexion de ${c.identifiant} (${c.role})`);
+    res.json({ ok: true, compte: c });
+  } catch (e) { res.status(401).json({ erreur: e.message }); }
+});
+
+app.post('/api/deconnexion', (req, res) => {
+  res.setHeader('Set-Cookie', 'gaulix_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
+  res.json({ ok: true });
+});
+
+app.post('/api/inscription', (req, res) => {
+  if (comptes.installationRequise()) return res.status(409).json({ erreur: 'Installation à terminer : créez d’abord le compte administrateur' });
+  if (config.inscriptions === 'fermees') return res.status(403).json({ erreur: 'Les inscriptions sont fermées sur cette carte' });
+  if (limiter(req.ip)) return res.status(429).json({ erreur: 'Trop de tentatives, réessayez dans 15 minutes' });
+  try {
+    const b = req.body || {};
+    const statut = config.inscriptions === 'ouvertes' ? 'actif' : 'en_attente';
+    const c = comptes.creer({ identifiant: b.identifiant, motDePasse: b.motDePasse, indicatif: b.indicatif, email: b.email }, 'membre', statut);
+    journal(`Inscription de ${c.identifiant}${statut === 'en_attente' ? ' (à valider)' : ''}`);
+    if (statut === 'actif') ouvrirSession(req, res, c);
+    else rafraichirEtat();
+    res.json({ ok: true, enAttente: statut !== 'actif' });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+
+app.get('/api/compte', (req, res) => res.json(utilisateur(req)));
+app.post('/api/compte/mot-de-passe', (req, res) => {
+  const u = utilisateur(req);
+  if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
+  try {
+    comptes.changerMotDePasse(u.id, (req.body || {}).ancien, (req.body || {}).nouveau);
+    ouvrirSession(req, res, u);
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+
+// ---- Gestion des comptes (admin) ---------------------------------------------------
+app.get('/api/comptes', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.json(comptes.lister());
+});
+app.post('/api/comptes', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try {
+    const b = req.body || {};
+    res.json(comptes.creer(b, b.role === 'admin' ? 'admin' : 'membre', 'actif'));
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/comptes/:id', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try {
+    const id = Number(req.params.id), b = req.body || {};
+    if (b.role) comptes.changerRole(id, b.role);
+    if (b.statut) comptes.changerStatut(id, b.statut);
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.delete('/api/comptes/:id', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { comptes.supprimer(Number(req.params.id)); res.json({ ok: true }); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+
+// ---- Installation et réglages ---------------------------------------------------------
+let listeDepartements = [];
+try {
+  listeDepartements = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'), 'utf8')).features
+    .map((f) => ({ code: f.properties.code, nom: f.properties.nom })).sort((a, b) => a.code.localeCompare(b.code));
+} catch { /* liste indisponible */ }
+app.get('/api/departements', (req, res) => res.json(listeDepartements));
+
+function emprise(geom) {
+  let s = 90, o = 180, n = -90, e = -180;
+  const parcourir = (c) => { if (typeof c[0] === 'number') { o = Math.min(o, c[0]); e = Math.max(e, c[0]); s = Math.min(s, c[1]); n = Math.max(n, c[1]); } else c.forEach(parcourir); };
+  parcourir(geom.coordinates);
+  return [+s.toFixed(4), +o.toFixed(4), +n.toFixed(4), +e.toFixed(4)];
+}
+
+// Vérifie et complète des réglages envoyés par la carte ; renvoie l'objet à enregistrer
+function preparerReglages(b, existants = {}) {
+  const r = { ...existants };
+  const txt = (v, max = 200) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined);
+  if (txt(b.titre)) r.titre = txt(b.titre, 80);
+  if (b.departement) {
+    const d = listeDepartements.find((x) => x.code === String(b.departement));
+    if (!d) throw new Error('Département inconnu');
+    const geom = contourDepartement(d.code);
+    if (!geom) throw new Error('Contour du département introuvable');
+    const z = emprise(geom);
+    r.departement = d;
+    r.zone = z;
+    r.zoneNom = d.nom;
+    r.centre = [+((z[0] + z[2]) / 2).toFixed(4), +((z[1] + z[3]) / 2).toFixed(4)];
+    r.zoom = 9;
+    if (!txt(b.titre) && !existants.titre) r.titre = `Réseau Meshtastic · ${d.nom}`;
+  }
+  if (b.mqtt) {
+    const m = { ...(existants.mqtt || {}) };
+    if (txt(b.mqtt.url) !== undefined) {
+      if (b.mqtt.url && !/^(mqtts?|wss?):\/\/[^\s]+$/.test(b.mqtt.url.trim())) throw new Error('Adresse MQTT : mqtt://serveur:1883 attendu');
+      m.url = txt(b.mqtt.url);
+    }
+    if (txt(b.mqtt.utilisateur, 80) !== undefined) m.utilisateur = txt(b.mqtt.utilisateur, 80);
+    if (typeof b.mqtt.motDePasse === 'string' && b.mqtt.motDePasse !== '') m.motDePasse = b.mqtt.motDePasse.slice(0, 200);
+    if (txt(b.mqtt.racine, 120)) m.racine = txt(b.mqtt.racine, 120);
+    if (typeof b.mqtt.sujetsSupplementaires === 'string') m.sujetsSupplementaires = b.mqtt.sujetsSupplementaires.split(/[,\n]/).map((x) => x.trim()).filter(Boolean).slice(0, 10);
+    r.mqtt = m;
+  }
+  if (typeof b.canaux === 'string' && b.canaux.trim()) {
+    const lignes = b.canaux.split(/[;\n]/).map((x) => x.trim()).filter(Boolean);
+    for (const l of lignes) {
+      const [nom, cle] = l.split('=').map((x) => x && x.trim());
+      if (!nom || nom.length > 12) throw new Error(`Canal « ${l} » : nom de 1 à 12 caractères`);
+      if (cle && !/^[A-Za-z0-9+/=]{2,64}$/.test(cle)) throw new Error(`Canal « ${nom} » : clé base64 invalide`);
+    }
+    r.canaux = lignes.join(';');
+  }
+  if (['fermees', 'validation', 'ouvertes'].includes(b.inscriptions)) r.inscriptions = b.inscriptions;
+  if (b.precisionPublique !== undefined && [-1, 2, 3, 4].includes(Number(b.precisionPublique))) r.precisionPublique = Number(b.precisionPublique);
+  if (b.retentionJours !== undefined) { const n = Number(b.retentionJours); if (Number.isInteger(n) && n >= 1 && n <= 90) r.retentionJours = n; }
+  return r;
+}
+function enregistrerReglagesEtRedemarrer(r, qui) {
+  fs.writeFileSync(config.fichierReglages, JSON.stringify(r, null, 1), { mode: 0o600 });
+  journal(`Réglages enregistrés par ${qui}, redémarrage du service…`);
+  setTimeout(() => process.exit(0), 1200); // Docker relance le conteneur (restart: unless-stopped)
+}
+
+app.get('/api/installation', (req, res) => res.json({
+  requise: comptes.installationRequise(),
+  codeRequis: !!config.admin.motDePasse,
+  reseauLocal: ipPrivee(req),
+  // Configuration actuelle (fichier .env) proposée par défaut, sans secrets
+  actuel: {
+    titre: config.carte.titre, departement: config.departement.code,
+    mqtt: { url: config.mqtt.url, racine: config.mqtt.racine, utilisateur: config.mqtt.utilisateur, motDePasseDefini: !!config.mqtt.motDePasse },
+    canaux: config.canaux.map((c) => c.nom),
+  },
+}));
+app.post('/api/installation', (req, res) => {
+  if (!comptes.installationRequise()) return res.status(409).json({ erreur: 'L’installation est déjà faite : connectez-vous' });
+  if (limiter(req.ip)) return res.status(429).json({ erreur: 'Trop de tentatives, réessayez dans 15 minutes' });
+  const b = req.body || {};
+  // Sécurité : code d'installation (ADMIN_MOT_DE_PASSE du .env) s'il existe, sinon réseau local uniquement
+  if (config.admin.motDePasse) {
+    const a = crypto.createHash('sha256').update(String(b.code || '')).digest(), c = crypto.createHash('sha256').update(config.admin.motDePasse).digest();
+    if (!crypto.timingSafeEqual(a, c)) return res.status(403).json({ erreur: 'Code d’installation incorrect' });
+  } else if (!ipPrivee(req)) {
+    return res.status(403).json({ erreur: 'Première installation possible uniquement depuis le réseau local' });
+  }
+  let r;
+  try { r = b.reglages ? preparerReglages(b.reglages, config.reglages) : null; } catch (e) { return res.status(400).json({ erreur: e.message }); }
+  let c;
+  try { c = comptes.creer(b.compte || {}, 'admin', 'actif'); } catch (e) { return res.status(400).json({ erreur: e.message }); }
+  ouvrirSession(req, res, c);
+  journal(`Installation : compte administrateur « ${c.identifiant} » créé`);
+  const redemarrage = !!(r && Object.keys(b.reglages).length);
+  res.json({ ok: true, redemarrage });
+  if (redemarrage) enregistrerReglagesEtRedemarrer(r, c.identifiant);
+});
+
+app.get('/api/reglages', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.json({
+    titre: config.carte.titre,
+    departement: config.departement,
+    mqtt: { url: config.mqtt.url, utilisateur: config.mqtt.utilisateur, motDePasseDefini: !!config.mqtt.motDePasse, racine: config.mqtt.racine, sujetsSupplementaires: config.mqtt.sujetsSupplementaires.join(', ') },
+    canaux: config.canaux.map((c) => `${c.nom}=${c.cle}`).join('\n'),
+    inscriptions: config.inscriptions,
+    precisionPublique: config.precisionPublique,
+    retentionJours: config.retentionJours,
+  });
+});
+app.post('/api/reglages', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  let r;
+  try { r = preparerReglages(req.body || {}, config.reglages); } catch (e) { return res.status(400).json({ erreur: e.message }); }
+  res.json({ ok: true, redemarrage: true });
+  enregistrerReglagesEtRedemarrer(r, u.identifiant);
+});
+
+app.get('/sante', (req, res) => res.json({ ok: true, mqtt: clientMqtt && clientMqtt.connected }));
+
+const serveur = http.createServer(app);
+
+// ---- WebSocket temps réel -------------------------------------------------
+const wss = new WebSocketServer({ server: serveur, path: '/ws' });
+wss.on('connection', (ws, req) => {
+  ws.admin = estMembre(req);
+  ws.vivant = true;
+  ws.on('pong', () => (ws.vivant = true));
+  ws.send(JSON.stringify({ genre: 'bienvenue', admin: ws.admin, mqtt: !!(clientMqtt && clientMqtt.connected) }));
+});
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (!ws.vivant) { ws.terminate(); continue; }
+    ws.vivant = false;
+    ws.ping();
+  }
+}, 30000);
+
+function diffuser(message) {
+  const pub = JSON.stringify(message.texte !== undefined ? { ...message, texte: undefined } : message);
+  const adm = JSON.stringify(message);
+  for (const ws of wss.clients) if (ws.readyState === 1) ws.send(ws.admin ? adm : pub);
+}
+
+// ---- MQTT -----------------------------------------------------------------
+let compteur = { recus: 0, decodes: 0, erreurs: 0 };
+const clientMqtt = mqtt.connect(config.mqtt.url, {
+  username: config.mqtt.utilisateur || undefined,
+  password: config.mqtt.motDePasse || undefined,
+  clientId: 'carte-live-' + crypto.randomBytes(3).toString('hex'),
+  reconnectPeriod: 5000,
+  rejectUnauthorized: false,
+});
+const sujets = [config.mqtt.racine + '/#', ...config.mqtt.sujetsSupplementaires];
+clientMqtt.on('connect', () => {
+  journal(`MQTT connecté à ${config.mqtt.url.replace(/\/\/[^@]*@/, '//')}, abonnement à ${sujets.join(', ')}`);
+  clientMqtt.subscribe(sujets, { qos: 0 });
+  diffuser({ genre: 'mqtt', connecte: true });
+});
+clientMqtt.on('close', () => diffuser({ genre: 'mqtt', connecte: false }));
+clientMqtt.on('error', (e) => journal('Erreur MQTT :', e.message));
+clientMqtt.on('message', (topic, message) => {
+  compteur.recus++;
+  try {
+    const evt = decoderMessage(topic, message, canaux);
+    if (!evt) return;
+    if (evt.genre === 'erreur') { compteur.erreurs++; return; }
+    const sortie = reseau.integrer(evt);
+    if (sortie) { compteur.decodes++; diffuser(sortie); }
+  } catch (e) {
+    compteur.erreurs++;
+    journal('Erreur de traitement :', e.message, topic);
+  }
+});
+
+// ---- Tâches périodiques ---------------------------------------------------
+let dernieresAlertes = [];
+function rafraichirEtat() {
+  dernieresAlertes = reseau.calculerAlertes();
+  diffuser({ genre: 'etat', stats: reseau.statistiques(), alertes: dernieresAlertes, meshmonitor: typeof sourceMM !== 'undefined' && sourceMM ? sourceMM.etat() : null, radio: typeof sourceRadio !== 'undefined' && sourceRadio ? sourceRadio.etat() : null });
+}
+setInterval(rafraichirEtat, 30000);
+const sourceMM = creerSourceMeshMonitor(stockage, config, () => { rafraichirEtat(); diffuser({ genre: 'statut' }); });
+if (sourceMM) journal(`Source MeshMonitor activée : ${config.meshmonitor.url}`);
+// Agents (module USB sur un PC, ou module Wi-Fi d'un autre réseau) : ils se connectent au port 4404
+const agents = creerAgents(config, { surArrivee: (hote, nom) => { if (typeof sourceRadio !== 'undefined' && sourceRadio) { sourceRadio.agentDisponible(hote, nom); rafraichirEtat(); diffuser({ genre: 'statut' }); } } });
+const sourceRadio = creerSourceRadio(stockage, config, canaux, {
+  integrerEvenement: (evt) => {
+    const sortie = reseau.integrer(evt);
+    if (sortie) { compteur.decodes++; diffuser({ ...sortie, viaRadio: true }); }
+  },
+  apresSynchro: () => { rafraichirEtat(); diffuser({ genre: 'statut' }); },
+  estSurveille: (n) => reseau.estSurveille(n),
+}, agents);
+const administration = creerAdministration(sourceRadio, stockage);
+const analyse = creerAnalyse(stockage, config, reseau, () => (sourceRadio ? sourceRadio.etat().preset : null));
+const relief = creerRelief(config, journal, {
+  presetCourant: () => (sourceRadio ? sourceRadio.etat().preset : null),
+  // Relais / passerelles positionnés et entendus dans les dernières 24 h (un relais muet ne couvre plus rien)
+  noeudsReseau: () => {
+    const limite = Date.now() - 24 * 3600000;
+    return stockage.q.noeuds.all()
+      .filter((n) => n.lat != null && (n.vu || n.dernier_vu || 0) >= limite && reseau.estSurveille(n))
+      .map((n) => ({ num: n.num, nom: n.nom_long || n.nom_court || n.id, lat: n.lat, lon: n.lon }));
+  },
+  // Liaisons radio directes avec SNR mesuré (pour calibrer le modèle)
+  liensMesures: () => {
+    const noeuds = new Map(stockage.q.noeuds.all().filter((n) => n.lat != null).map((n) => [n.num, n]));
+    return reseau.liens(config.retentionJours * 86400000)
+      .filter((l) => l.snr != null && noeuds.has(l.a) && noeuds.has(l.b))
+      .map((l) => {
+        const a = noeuds.get(l.a), b = noeuds.get(l.b);
+        return { a: { lat: a.lat, lon: a.lon }, b: { lat: b.lat, lon: b.lon }, snr: l.snr, nom: `${a.nom_court || a.id} → ${b.nom_court || b.id}` };
+      });
+  },
+});
+{ const m = sourceRadio.modules(); journal(m.actif ? `Module radio actif : ${m.actif.hote}:${m.actif.port}` : 'Aucun module radio actif (choix depuis la carte, onglet Réseau)'); }
+setTimeout(rafraichirEtat, 2000);
+
+setInterval(() => {
+  const n = stockage.purger(config.retentionJours);
+  reseau.nettoyer();
+  journal(`Purge : ${n} lignes de plus de ${config.retentionJours} jours supprimées · MQTT reçus ${compteur.recus}, traités ${compteur.decodes}, erreurs ${compteur.erreurs}`);
+}, 3600000);
+stockage.purger(config.retentionJours);
+{
+  const n = reseau.nettoyer();
+  if (n.positions || n.liens) journal(`Nettoyage : ${n.positions} position(s) invalide(s), ${n.liens} lien(s) impossible(s) supprimés`);
+}
+
+serveur.listen(config.port, () => journal(`Carte live Meshtastic à l'écoute sur le port ${config.port}`));
+
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    journal('Arrêt…');
+    clientMqtt.end(true);
+    stockage.db.close();
+    process.exit(0);
+  });
+}

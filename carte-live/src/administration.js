@@ -1,0 +1,657 @@
+'use strict';
+// Administration des nœuds Meshtastic par LoRa, à travers le module connecté en TCP.
+// Messages AdminMessage (port 6) chiffrés PKI : le nœud distant doit avoir la clé publique du module
+// dans « Sécurité > Clé d'administration ». Chaque modification utilise la clé de session (session_passkey)
+// renvoyée par la dernière lecture (valable 300 s), comme l'appli officielle.
+
+const crypto = require('crypto');
+const { racine, idNoeud, ERREURS_ROUTAGE } = require('./decodeur');
+
+const AdminMessage = racine.lookupType('meshtastic.AdminMessage');
+const Routing = racine.lookupType('meshtastic.Routing');
+const User = racine.lookupType('meshtastic.User');
+const ROLES_ENUM = racine.lookupEnum('meshtastic.Config.DeviceConfig.Role').values;
+const REDIFFUSION_ENUM = racine.lookupEnum('meshtastic.Config.DeviceConfig.RebroadcastMode').values;
+const REGIONS_ENUM = racine.lookupEnum('meshtastic.Config.LoRaConfig.RegionCode').values;
+const PRESETS_ENUM = racine.lookupEnum('meshtastic.Config.LoRaConfig.ModemPreset').values;
+const TYPES_CONFIG = { device: 0, position: 1, power: 2, network: 3, display: 4, lora: 5, bluetooth: 6, security: 7 };
+const PORT_ADMIN = 6, PORT_ROUTAGE = 5;
+
+const journal = (...a) => console.log(new Date().toISOString(), '[Administration]', ...a);
+const versObjet = (type, m) => type.toObject(m, { longs: Number, enums: String, bytes: String, defaults: true });
+
+function creerAdministration(radio, stockage) {
+  const attentes = new Map(); // id du paquet -> { resolve, reject, minuterie, reponse }
+  const clesSession = new Map(); // nœud -> { cle (Buffer), heure }
+  const taches = new Map();
+  let file = Promise.resolve(); // une seule opération radio à la fois (temps d'émission)
+
+  // Nœuds qui ont déjà accepté une commande d'administration du module (donc ont sa clé dans leurs clés d'admin)
+  const fAdmin = require('path').join(require('path').dirname(require('./config').fichierBase), 'noeuds-administrables.json');
+  let administrables = {};
+  try { administrables = JSON.parse(require('fs').readFileSync(fAdmin, 'utf8')); } catch { /* aucun */ }
+  function noterAdmin(num, ok) {
+    const module = radio.infos().noeudLocal >>> 0;
+    const k = String(num >>> 0);
+    const e = administrables[k] || {};
+    administrables[k] = { ...e, ok, heure: Date.now(), modules: [...new Set([...(e.modules || []), module])] };
+    try { require('fs').writeFileSync(fAdmin, JSON.stringify(administrables)); } catch { /* lecture seule */ }
+  }
+  radio.ecouter((p) => {
+    const d = p.decoded;
+    if (!d || !d.requestId || !attentes.has(d.requestId)) return;
+    const a = attentes.get(d.requestId);
+    const de = p.from >>> 0;
+    if (d.portnum === PORT_ADMIN) {
+      const m = AdminMessage.decode(d.payload);
+      if (de !== (radio.infos().noeudLocal >>> 0)) noterAdmin(de, true);
+      if (m.sessionPasskey && m.sessionPasskey.length) clesSession.set(de, { cle: Buffer.from(m.sessionPasskey), heure: Date.now() });
+      if (a.reponse) { clearTimeout(a.minuterie); attentes.delete(d.requestId); a.resolve(m); }
+    } else if (d.portnum === PORT_ROUTAGE) {
+      const r = Routing.decode(d.payload);
+      const code = r.errorReason || 0;
+      if (code) {
+        if (code === 33 || code === 37) noterAdmin(de, false);
+        clearTimeout(a.minuterie); attentes.delete(d.requestId);
+        a.reject(Object.assign(new Error(ERREURS_ROUTAGE[code] || `erreur de routage ${code}`), { code }));
+      } else if (!a.reponse && de === a.dest) {
+        // Accusé de réception du nœud visé : la commande est appliquée
+        clearTimeout(a.minuterie); attentes.delete(d.requestId); a.resolve(null);
+      }
+    }
+  });
+
+  const ERREUR_ARRET = () => Object.assign(new Error('arrêtée à votre demande'), { arret: true });
+  const arrets = new Set(); // nœuds dont l'opération en cours doit s'arrêter
+  function envoyerAdmin(dest, message, { reponse = true, delai = 120000 } = {}) {
+    if (arrets.has(dest >>> 0)) return Promise.reject(ERREUR_ARRET());
+    const info = radio.infos();
+    if (!info.connecte) return Promise.reject(new Error('Module radio non connecté'));
+    dest = dest >>> 0;
+    const local = dest === info.noeudLocal;
+    const corps = { ...message };
+    const cs = clesSession.get(dest);
+    if (cs && Date.now() - cs.heure < 280000) corps.sessionPasskey = cs.cle;
+    const id = crypto.randomBytes(4).readUInt32LE(0) >>> 0 || 1;
+    return new Promise((resolve, reject) => {
+      const minuterie = setTimeout(() => { attentes.delete(id); reject(new Error(local ? 'pas de réponse du module' : 'pas de réponse (nœud hors de portée, clé d’admin absente ou firmware < 2.5)')); }, local ? 15000 : delai);
+      attentes.set(id, { resolve, reject, minuterie, reponse, dest });
+      try {
+        radio.envoyerPaquet({
+          to: dest, id, channel: 0, wantAck: !local, hopLimit: info.hopLimit, pkiEncrypted: !local,
+          decoded: { portnum: PORT_ADMIN, payload: AdminMessage.encode(AdminMessage.create(corps)).finish(), wantResponse: reponse },
+        });
+        // Commande au module local : pas d'accusé radio, elle est appliquée dès réception
+        if (local && !reponse) { clearTimeout(minuterie); attentes.delete(id); setTimeout(() => resolve(null), 300); }
+      } catch (e) { clearTimeout(minuterie); attentes.delete(id); reject(e); }
+    });
+  }
+  // Toutes les opérations passent par une file : une à la fois sur l'air
+  const enFile = (f) => { const r = file.then(f, f); file = r.catch(() => {}); return r; };
+  const admin = (dest, message, opts) => enFile(() => envoyerAdmin(dest, message, opts));
+  // Une modification exige une clé de session récente : lecture légère si besoin
+  async function assurerSession(dest) {
+    const cs = clesSession.get(dest >>> 0);
+    if (dest >>> 0 === radio.infos().noeudLocal) return;
+    if (!cs || Date.now() - cs.heure > 240000) await admin(dest, { getDeviceMetadataRequest: true });
+  }
+
+  // Envoie la fiche du module (nom + clé publique) à un nœud qui ne la connaît pas encore,
+  // comme « Échanger les infos » de l'appli. Le nœud répond avec sa propre fiche.
+  function echangerInfos(dest) {
+    const info = radio.infos();
+    const u = info.utilisateurLocal;
+    if (!u) throw new Error('Fiche du module pas encore reçue');
+    const user = { ...u, id: idNoeud(info.noeudLocal) };
+    if (!user.publicKey || !user.publicKey.length) user.publicKey = Buffer.from(info.clePublique || '', 'base64');
+    radio.envoyerPaquet({
+      to: dest >>> 0, id: crypto.randomBytes(4).readUInt32LE(0) >>> 0 || 1, channel: 0, wantAck: false, hopLimit: info.hopLimit,
+      decoded: { portnum: 4, payload: User.encode(User.create(user)).finish(), wantResponse: true },
+    });
+    journal(`fiche du module envoyée à ${idNoeud(dest)}`);
+  }
+
+  // ---- Opérations ---------------------------------------------------------------------
+  // ---- Lecture de la configuration, reprenable étape par étape ------------------------------
+  // Chaque élément lu est gardé (fichier du volume, réservé à l'admin car il contient les clés des canaux) :
+  // après un échec, « Reprendre la lecture » ne redemande que ce qui manque.
+  const fLectures = require('path').join(require('path').dirname(require('./config').fichierBase), 'lectures-noeuds.json');
+  const lectures = new Map();
+  try { for (const [k, v] of Object.entries(JSON.parse(require('fs').readFileSync(fLectures, 'utf8')))) lectures.set(Number(k), v); } catch { /* aucune */ }
+  // Les nœuds déjà lus avec succès ont forcément accepté le module : on les compte comme administrables
+  for (const [num, l] of lectures) if (!administrables[num] && (l.materiel || l.lora || l.device || (l.canauxBruts || []).some(Boolean))) administrables[num] = { ok: true, heure: l.heure, modules: [] };
+  const sauverLectures = () => { try { require('fs').writeFileSync(fLectures, JSON.stringify(Object.fromEntries(lectures)), { mode: 0o600 }); } catch { /* lecture seule */ } };
+  const VALIDITE_LECTURE = 7 * 86400000;
+  const ETAPES_FIXES = [
+    ['materiel', 'informations matérielles'], ['proprietaire', 'nom du nœud'],
+    ['device', 'configuration « appareil »'], ['lora', 'configuration « LoRa »'], ['position', 'configuration « position »'],
+  ];
+  function etatLecture(num) {
+    const l = lectures.get(num >>> 0);
+    if (!l || Date.now() - l.heure > VALIDITE_LECTURE) return null;
+    const faites = ETAPES_FIXES.filter(([k]) => l[k]).map(([, t]) => t);
+    const manquantes = ETAPES_FIXES.filter(([k]) => !l[k]).map(([, t]) => t);
+    const nbCanaux = (l.canauxBruts || []).filter(Boolean).length;
+    if (!l.canauxFin) manquantes.push(nbCanaux ? `canaux (à partir du n° ${l.canauxBruts.length})` : 'canaux');
+    return { heure: l.heure, complete: !manquantes.length, faites, manquantes, nbCanaux };
+  }
+  const erreurDefinitive = (e) => e.arret || [33, 34, 35, 36, 37, 39].includes(e.code);
+
+  async function lire(dest, journalTache, p = {}) {
+    dest = dest >>> 0;
+    const ancien = lectures.get(dest);
+    const sections = Array.isArray(p.sections) && p.sections.length ? p.sections : null; // null = tout
+    let l;
+    if (p.reprendre && ancien && Date.now() - ancien.heure < VALIDITE_LECTURE) l = ancien;
+    else if (sections && ancien) {
+      // Relecture de quelques sections seulement : on garde le reste
+      l = ancien;
+      for (const k of sections) { if (k === 'canaux') { l.canauxBruts = []; l.canauxFin = false; } else delete l[k]; }
+    } else l = { canauxBruts: [], canauxFin: false };
+    l.canauxBruts = l.canauxBruts || [];
+    l.heure = Date.now();
+    lectures.set(dest, l);
+    const dejaFaites = ETAPES_FIXES.filter(([k]) => l[k]).length + (l.canauxBruts || []).filter(Boolean).length;
+    if (p.reprendre && dejaFaites) journalTache(`reprise : ${dejaFaites} élément(s) déjà lus conservés`);
+    const Config = racine.lookupType('meshtastic.Config');
+    const Channel = racine.lookupType('meshtastic.Channel');
+    // Une demande, réessayée une fois si le nœud n'a pas répondu (liaison faible)
+    const demande = async (message, libelle) => {
+      try { return await admin(dest, message); } catch (e) {
+        if (erreurDefinitive(e)) throw e;
+        journalTache(`${libelle} : pas de réponse, nouvel essai…`);
+        return admin(dest, message);
+      }
+    };
+    const resultatPartiel = () => construireResultat(dest, l);
+    try {
+      for (const [cle, libelle] of ETAPES_FIXES) {
+        if (l[cle] || (sections && !sections.includes(cle))) continue;
+        if (cle === 'materiel') l.materiel = versObjet(racine.lookupType('meshtastic.DeviceMetadata'), (await demande({ getDeviceMetadataRequest: true }, libelle)).getDeviceMetadataResponse);
+        else if (cle === 'proprietaire') { const o = (await demande({ getOwnerRequest: true }, libelle)).getOwnerResponse; l.proprietaire = { nomLong: o.longName, nomCourt: o.shortName }; }
+        else l[cle] = versObjet(Config, (await demande({ getConfigRequest: TYPES_CONFIG[cle] }, libelle)).getConfigResponse)[cle];
+        l.heure = Date.now(); sauverLectures();
+        journalTache(`${libelle} lu(e)`);
+      }
+      for (let i = (l.canauxBruts || []).length; (!sections || sections.includes('canaux')) && !l.canauxFin && i < 8; i++) {
+        const ch = versObjet(Channel, (await demande({ getChannelRequest: i + 1 }, `canal ${i}`)).getChannelResponse);
+        l.canauxBruts[i] = ch;
+        if (ch.role === 'DISABLED' && i > 0) l.canauxFin = true; // canaux contigus : on s'arrête au premier vide
+        if (i === 7) l.canauxFin = true;
+        l.heure = Date.now(); sauverLectures();
+        journalTache(ch.role === 'DISABLED' ? `canal ${i} vide : fin des canaux` : `canal ${i} « ${ch.settings.name || 'défaut'} » lu`);
+      }
+    } catch (e) {
+      sauverLectures();
+      const et = etatLecture(dest);
+      throw Object.assign(new Error(`${e.message} — déjà lus : ${et ? et.faites.length + (et.nbCanaux ? ' + ' + et.nbCanaux + ' canal(aux)' : '') : 0} ; manquent : ${et ? et.manquantes.join(', ') : 'tout'}. Utilisez « Reprendre la lecture ».`), { code: e.code, partiel: resultatPartiel() });
+    }
+    const r = resultatPartiel();
+    const bruts = l.canauxBruts.filter((c) => c && c.role !== 'DISABLED');
+    if (l.canauxFin && l.lora) try { require('./reglages-noeuds').enregistrer(dest, { canaux: bruts, lora: l.lora, source: 'lecture LoRa' }); } catch (e) { journal('réglages :', e.message); }
+    journalTache(sections ? `éléments demandés lus (${sections.join(', ')})` : `${r.canaux.length} canal(aux) lus, configuration complète`);
+    return r;
+  }
+  function construireResultat(dest, l) {
+    return {
+      num: dest, id: idNoeud(dest), heure: l.heure, complet: !!(l.canauxFin && ETAPES_FIXES.every(([k]) => l[k])),
+      materiel: l.materiel || null, proprietaire: l.proprietaire || null, device: l.device || null, lora: l.lora || null, position: l.position || null,
+      canaux: (l.canauxBruts || []).filter((ch) => ch && ch.role !== 'DISABLED').map((ch) => ({ index: ch.index, role: ch.role, nom: ch.settings.name, psk: ch.settings.psk, montant: ch.settings.uplinkEnabled, descendant: ch.settings.downlinkEnabled, precision: ch.settings.moduleSettings ? ch.settings.moduleSettings.positionPrecision : 0 })),
+      canauxComplets: !!l.canauxFin,
+    };
+  }
+
+  // ---- Vérification de conformité ----------------------------------------------------------
+  const ELEMENTS = {
+    canaux: { nom: 'Canaux (noms, clés, ordre)', sections: ['canaux'] },
+    precision: { nom: 'Précision de position', sections: ['canaux'] },
+    mqtt: { nom: 'MQTT ↑↓ par canal', sections: ['canaux'] },
+    frequence: { nom: 'Région, slot et fréquence', sections: ['lora'] },
+    preset: { nom: 'Preset (Long Moderate…)', sections: ['lora'] },
+    sauts: { nom: 'Nombre de sauts', sections: ['lora'] },
+    puissance: { nom: 'Puissance d’émission', sections: ['lora'] },
+    rediffusion: { nom: 'Rediffusion (rebroadcast)', sections: ['device'] },
+  };
+  const actifs = (l) => (l.canauxBruts || []).filter((c) => c && c.role !== 'DISABLED');
+  const cleTexte = (b64) => { const b = Buffer.from(b64 || '', 'base64'); return !b.length ? 'aucune' : b.length === 1 ? (b[0] === 1 ? 'défaut (AQ==)' : 'simple n°' + b[0]) : 'perso ' + crypto.createHash('sha256').update(b).digest('hex').slice(0, 6); };
+  const prec = (c) => (c.settings.moduleSettings ? c.settings.moduleSettings.positionPrecision || 0 : 0);
+  function comparer(ref, l, elements) {
+    const ecarts = [];
+    const e = (element, objet, attendu, trouve) => ecarts.push({ element, objet, attendu: String(attendu), trouve: String(trouve) });
+    const ra = actifs(ref), la = actifs(l);
+    if (elements.includes('canaux')) {
+      for (let i = 0; i < Math.max(ra.length, la.length); i++) {
+        const a = ra[i], b = la[i];
+        const desc = (c) => (c ? `${c.settings.name || '(nom du preset)'} · ${cleTexte(c.settings.psk)}` : 'absent');
+        if (!a || !b || (a.settings.name || '') !== (b.settings.name || '') || (a.settings.psk || '') !== (b.settings.psk || '')) e('canaux', `canal ${i}`, desc(a), desc(b));
+      }
+    }
+    const parNom = new Map(la.map((c) => [c.settings.name || '', c]));
+    for (const a of ra) {
+      const b = parNom.get(a.settings.name || '');
+      if (!b) continue; // canal absent : déjà signalé par « canaux »
+      const nomc = a.settings.name || 'principal';
+      if (elements.includes('precision') && prec(a) !== prec(b)) e('precision', nomc, prec(a) + ' bits', prec(b) + ' bits');
+      if (elements.includes('mqtt')) {
+        const m = (c) => (c.settings.uplinkEnabled ? '↑' : '–') + (c.settings.downlinkEnabled ? '↓' : '–');
+        if (m(a) !== m(b)) e('mqtt', nomc, m(a), m(b));
+      }
+    }
+    const lr = ref.lora || {}, ll = l.lora || {};
+    if (elements.includes('frequence')) {
+      if (lr.region !== ll.region) e('frequence', 'région', lr.region, ll.region);
+      if ((lr.channelNum || 0) !== (ll.channelNum || 0)) e('frequence', 'slot', lr.channelNum || 'auto', ll.channelNum || 'auto');
+      if (Math.abs((lr.overrideFrequency || 0) - (ll.overrideFrequency || 0)) > 0.0005) e('frequence', 'fréquence forcée', lr.overrideFrequency ? lr.overrideFrequency.toFixed(4) : 'non', ll.overrideFrequency ? ll.overrideFrequency.toFixed(4) : 'non');
+    }
+    if (elements.includes('preset')) {
+      const pr = (x) => (x.usePreset === false ? 'personnalisé' : x.modemPreset);
+      if (pr(lr) !== pr(ll)) e('preset', 'preset', pr(lr), pr(ll));
+    }
+    if (elements.includes('sauts') && lr.hopLimit !== ll.hopLimit) e('sauts', 'sauts', lr.hopLimit, ll.hopLimit);
+    if (elements.includes('puissance') && (lr.txPower || 0) !== (ll.txPower || 0)) e('puissance', 'puissance', lr.txPower ? lr.txPower + ' dBm' : 'défaut', ll.txPower ? ll.txPower + ' dBm' : 'défaut');
+    if (elements.includes('rediffusion') && (ref.device || {}).rebroadcastMode !== (l.device || {}).rebroadcastMode) e('rediffusion', 'rebroadcast', (ref.device || {}).rebroadcastMode, (l.device || {}).rebroadcastMode);
+    return ecarts;
+  }
+  const sectionsPour = (elements) => [...new Set(elements.flatMap((k) => (ELEMENTS[k] ? ELEMENTS[k].sections : [])))];
+  const lectureFraiche = (num, sections, ageMax) => {
+    const l = lectures.get(num >>> 0);
+    if (!l || Date.now() - l.heure > ageMax) return false;
+    return sections.every((k) => (k === 'canaux' ? l.canauxFin : !!l[k]));
+  };
+  // Une étape par nœud : la référence d'abord (lue si besoin), puis chaque nœud comparé à elle
+  async function verifier(dest, p, journalTache) {
+    dest = dest >>> 0;
+    const elements = (p.elements || []).filter((k) => ELEMENTS[k]);
+    const sections = sectionsPour(elements);
+    const ageMax = (Number(p.ageMaxHeures) || 0) * 3600000;
+    if (ageMax && lectureFraiche(dest, sections, ageMax)) journalTache('lecture récente réutilisée');
+    else await lire(dest, journalTache, { sections, reprendre: false });
+    if (dest === (p.reference >>> 0)) return { reference: true, ecarts: [] };
+    const ref = lectures.get(p.reference >>> 0);
+    if (!ref || !lectureFraiche(p.reference, sections, Math.max(ageMax, 3600000))) throw new Error('référence non lue : relancez la vérification');
+    const ecarts = comparer(ref, lectures.get(dest), elements);
+    return { conforme: !ecarts.length, ecarts };
+  }
+
+  const precisionValide = (v) => {
+    if (v === undefined || v === null || v === '') return 17;
+    const n = Number(v);
+    if (!Number.isInteger(n) || !(n === 0 || n === 32 || (n >= 10 && n <= 19))) throw new Error('Précision de position invalide');
+    return n;
+  };
+  const CONFIRMATION_PRINCIPAL = 'CANAL 0';
+
+  async function definirCanal(dest, p, journalTache = () => {}) {
+    const index = Number(p.index);
+    if (!Number.isInteger(index) || index < 0 || index > 7) throw new Error('Emplacement de canal invalide (0 à 7)');
+    if (index === 0) return definirPrincipal(dest, p, journalTache);
+    await assurerSession(dest);
+    const settings = p.role === 'DISABLED' ? {} : {
+      name: String(p.nom || '').slice(0, 11),
+      psk: Buffer.from(p.psk || 'AQ==', 'base64'),
+      uplinkEnabled: !!p.montant, downlinkEnabled: !!p.descendant,
+      moduleSettings: { positionPrecision: precisionValide(p.precision) },
+    };
+    await admin(dest, { setChannel: { index, role: p.role === 'DISABLED' ? 0 : 2, settings } }, { reponse: false });
+  }
+
+  // Canal principal : garde-fous (confirmation, fréquence fixe, relecture avant/après)
+  async function definirPrincipal(dest, p, journalTache) {
+    if (p.confirmation !== CONFIRMATION_PRINCIPAL) throw new Error(`Confirmation manquante : tapez « ${CONFIRMATION_PRINCIPAL} »`);
+    if (p.role === 'DISABLED') throw new Error('Le canal principal ne peut pas être supprimé');
+    const nom = String(p.nom || '').trim().slice(0, 11);
+    if (!nom) throw new Error('Le canal principal doit avoir un nom');
+    const psk = Buffer.from(p.psk || 'AQ==', 'base64');
+    if (![0, 1, 16, 32].includes(psk.length)) throw new Error('Clé invalide (1, 16 ou 32 octets)');
+    const Config = racine.lookupType('meshtastic.Config');
+    const Channel = racine.lookupType('meshtastic.Channel');
+
+    // 1. Relecture du réglage LoRa : la fréquence ne doit pas dépendre du nom du canal principal
+    const c = await admin(dest, { getConfigRequest: TYPES_CONFIG.lora });
+    const lora = versObjet(Config, c.getConfigResponse).lora || {};
+    const freqFixe = (lora.overrideFrequency || 0) > 0 || (lora.channelNum || 0) > 0 || dest === (radio.infos().noeudLocal >>> 0); // module local : relié en Wi-Fi/USB, pas de risque de perdre le contact
+    journalTache(`réglage LoRa lu : ${lora.overrideFrequency ? lora.overrideFrequency.toFixed(4) + ' MHz forcée' : lora.channelNum ? 'slot ' + lora.channelNum : 'slot automatique (calculé depuis le nom du canal 0)'}`);
+
+    // 2. Relecture du canal 0 actuel
+    const a = await admin(dest, { getChannelRequest: 1 });
+    const actuel = versObjet(Channel, a.getChannelResponse);
+    const ancienNom = (actuel.settings && actuel.settings.name) || '';
+    journalTache(`canal 0 actuel : « ${ancienNom || '(nom du preset)'} »`);
+    if (!freqFixe && nom !== ancienNom) {
+      throw Object.assign(new Error(`Refusé : la fréquence de ce nœud est calculée depuis le nom du canal 0 (« ${ancienNom || 'preset'} »). Le renommer en « ${nom} » le ferait changer de fréquence et vous perdriez le contact. Forcez d'abord un slot ou une fréquence (869,4625 MHz) sur ce nœud, sur place ou par QR code.`), { garde: true });
+    }
+    const settings = {
+      name: nom, psk, id: (actuel.settings && actuel.settings.id) || 0,
+      uplinkEnabled: !!p.montant, downlinkEnabled: !!p.descendant,
+      moduleSettings: { positionPrecision: precisionValide(p.precision) },
+    };
+
+    // 3. Écriture
+    await admin(dest, { setChannel: { index: 0, role: 1, settings } }, { reponse: false });
+    journalTache('canal 0 envoyé, vérification dans 20 s…');
+
+    // 4. Relecture : le nœud répond-il toujours, avec le nouveau canal ?
+    await new Promise((r) => setTimeout(r, 20000));
+    clesSession.delete(dest);
+    let verif = null;
+    for (let essai = 1; essai <= 3 && !verif; essai++) {
+      try { verif = versObjet(Channel, (await admin(dest, { getChannelRequest: 1 })).getChannelResponse); } catch (e) {
+        journalTache(`vérification ${essai}/3 sans réponse (${e.message})`);
+        if (essai < 3) await new Promise((r) => setTimeout(r, 15000));
+      }
+    }
+    if (!verif) throw new Error('Canal 0 envoyé et accusé, mais le nœud ne répond plus à la relecture : vérifiez-le sur la carte dans quelques minutes');
+    const nomLu = (verif.settings && verif.settings.name) || '';
+    if (nomLu !== nom) throw new Error(`Le nœud répond mais son canal 0 est encore « ${nomLu} »`);
+    journalTache(`vérifié : canal 0 = « ${nomLu} », le nœud répond toujours`);
+    return { canal0: nomLu, ancien: ancienNom };
+  }
+
+  async function definirPosition(dest, p) {
+    await assurerSession(dest);
+    if (p.retirer) { await admin(dest, { removeFixedPosition: true }, { reponse: false }); return; }
+    const lat = Number(p.lat), lon = Number(p.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Coordonnées invalides');
+    await admin(dest, { setFixedPosition: { latitudeI: Math.round(lat * 1e7), longitudeI: Math.round(lon * 1e7), altitude: p.alt != null && p.alt !== '' ? Math.round(Number(p.alt)) : 0, time: Math.floor(Date.now() / 1000) } }, { reponse: false });
+  }
+
+  async function definirNom(dest, p) {
+    await assurerSession(dest);
+    const nomLong = String(p.nomLong || '').trim().slice(0, 39), nomCourt = String(p.nomCourt || '').trim().slice(0, 4);
+    if (!nomLong && !nomCourt) throw new Error('Nom vide');
+    // Le nom complet est relu pour ne rien effacer (clé publique, rôle…)
+    const o = await admin(dest, { getOwnerRequest: true });
+    const u = { ...o.getOwnerResponse };
+    if (nomLong) u.longName = nomLong;
+    if (nomCourt) u.shortName = nomCourt;
+    await admin(dest, { setOwner: u }, { reponse: false });
+  }
+
+  // Modifie quelques champs d'une section de configuration : la section complète est relue puis renvoyée
+  const CHAMPS = {
+    device: { role: (v) => { if (!(v in ROLES_ENUM)) throw new Error('Rôle inconnu'); return ROLES_ENUM[v]; }, nodeInfoBroadcastSecs: (v) => entier(v, 0, 86400 * 7), rebroadcastMode: (v) => { if (!(v in REDIFFUSION_ENUM)) throw new Error('Mode de rediffusion inconnu'); return REDIFFUSION_ENUM[v]; } },
+    lora: {
+      hopLimit: (v) => entier(v, 1, 7), modemPreset: (v) => { if (!(v in PRESETS_ENUM)) throw new Error('Preset inconnu'); return PRESETS_ENUM[v]; }, txPower: (v) => entier(v, 0, 30), txEnabled: (v) => !!v,
+      region: (v) => { if (!(v in REGIONS_ENUM) || v === 'UNSET') throw new Error('Région inconnue'); return REGIONS_ENUM[v]; },
+      channelNum: (v) => entier(v, 0, 200), usePreset: (v) => !!v, sx126xRxBoostedGain: (v) => !!v, configOkToMqtt: (v) => !!v,
+      overrideFrequency: (v) => { const f = Number(v); if (!(f === 0 || (f >= 400 && f <= 1000))) throw new Error('Fréquence forcée invalide (0 ou en MHz)'); return f; },
+    },
+    position: { positionBroadcastSecs: (v) => entier(v, 0, 86400 * 7), positionBroadcastSmartEnabled: (v) => !!v, fixedPosition: (v) => !!v },
+  };
+  function entier(v, min, max) { const n = Number(v); if (!Number.isInteger(n) || n < min || n > max) throw new Error(`Valeur hors limites (${min} à ${max})`); return n; }
+  async function definirConfig(dest, p) {
+    const section = p.section;
+    if (!CHAMPS[section]) throw new Error('Section non modifiable');
+    const valeurs = {};
+    for (const [k, v] of Object.entries(p.valeurs || {})) {
+      if (!CHAMPS[section][k]) throw new Error(`Réglage « ${k} » non modifiable`);
+      valeurs[k] = CHAMPS[section][k](v);
+    }
+    if (!Object.keys(valeurs).length) throw new Error('Aucune valeur');
+    const c = await admin(dest, { getConfigRequest: TYPES_CONFIG[section] });
+    const actuel = c.getConfigResponse[section];
+    if (!actuel) throw new Error('Configuration illisible');
+    await admin(dest, { setConfig: { [section]: { ...actuel, ...valeurs } } }, { reponse: false });
+  }
+
+  // ---- Modification groupée (éditeur de réglages) ---------------------------------------------
+  // Tout est envoyé dans une transaction (begin/commit edit settings) : un seul enregistrement, un seul redémarrage.
+  async function modifier(dest, p, journalTache) {
+    dest = dest >>> 0;
+    const local = dest === (radio.infos().noeudLocal >>> 0);
+    const Config = racine.lookupType('meshtastic.Config');
+    const canaux = Array.isArray(p.canaux) ? p.canaux : [];
+    const sections = ['device', 'lora', 'position'].filter((k) => p[k] && Object.keys(p[k]).length);
+    if (!canaux.length && !sections.length && !p.nom) throw new Error('Aucune modification');
+    // Valeurs vérifiées avant tout envoi
+    const valeurs = {};
+    for (const k of sections) {
+      valeurs[k] = {};
+      for (const [c, v] of Object.entries(p[k])) {
+        if (!CHAMPS[k][c]) throw new Error(`Réglage « ${c} » non modifiable`);
+        valeurs[k][c] = CHAMPS[k][c](v);
+      }
+    }
+    const c0 = canaux.find((c) => Number(c.index) === 0);
+    if (c0 && p.confirmation !== CONFIRMATION_PRINCIPAL) throw new Error(`Confirmation manquante pour le canal 0 : tapez « ${CONFIRMATION_PRINCIPAL} »`);
+    await assurerSession(dest);
+    // Garde-fou canal 0 : sur un nœud distant, la fréquence ne doit pas dépendre du nom du canal principal
+    if (c0 && !local) {
+      const lo = versObjet(Config, (await admin(dest, { getConfigRequest: TYPES_CONFIG.lora })).getConfigResponse).lora || {};
+      const apres = { ...lo, ...(valeurs.lora || {}) };
+      const actuel = versObjet(racine.lookupType('meshtastic.Channel'), (await admin(dest, { getChannelRequest: 1 })).getChannelResponse);
+      const fixe = (apres.overrideFrequency || 0) > 0 || (apres.channelNum || 0) > 0;
+      if (!fixe && (actuel.settings.name || '') !== String(c0.nom || '').trim()) throw new Error('Refusé : la fréquence de ce nœud dépend du nom du canal 0, le renommer couperait le contact. Forcez d’abord le slot ou la fréquence.');
+      journalTache('garde-fou canal 0 : fréquence fixe, OK');
+    }
+    await admin(dest, { beginEditSettings: true }, { reponse: false });
+    journalTache('début des modifications');
+    if (p.nom && (p.nom.nomLong || p.nom.nomCourt)) {
+      const o = (await admin(dest, { getOwnerRequest: true })).getOwnerResponse;
+      const u = { ...o };
+      if (p.nom.nomLong) u.longName = String(p.nom.nomLong).trim().slice(0, 39);
+      if (p.nom.nomCourt) u.shortName = String(p.nom.nomCourt).trim().slice(0, 4);
+      await admin(dest, { setOwner: u }, { reponse: false });
+      journalTache(`nom → ${u.longName} / ${u.shortName}`);
+    }
+    for (const k of sections) {
+      const actuel = (await admin(dest, { getConfigRequest: TYPES_CONFIG[k] })).getConfigResponse[k];
+      if (!actuel) throw new Error(`Configuration « ${k} » illisible`);
+      await admin(dest, { setConfig: { [k]: { ...actuel, ...valeurs[k] } } }, { reponse: false });
+      journalTache(`configuration « ${k} » envoyée (${Object.keys(valeurs[k]).join(', ')})`);
+    }
+    for (const c of canaux.sort((a, b) => b.index - a.index)) { // les canaux supprimés d'abord, en partant de la fin
+      const index = Number(c.index);
+      if (!Number.isInteger(index) || index < 0 || index > 7) throw new Error('Canal invalide');
+      if (c.supprimer && index === 0) throw new Error('Le canal principal ne peut pas être supprimé');
+      const settings = c.supprimer ? {} : {
+        name: String(c.nom || '').trim().slice(0, 11), psk: Buffer.from(c.psk || 'AQ==', 'base64'), id: Number(c.id) || 0,
+        uplinkEnabled: !!c.montant, downlinkEnabled: !!c.descendant, moduleSettings: { positionPrecision: precisionValide(c.precision) },
+      };
+      if (!c.supprimer && ![0, 1, 16, 32].includes(settings.psk.length)) throw new Error(`Clé du canal ${index} invalide`);
+      if (!c.supprimer && index > 0 && !settings.name) throw new Error(`Le canal ${index} doit avoir un nom`);
+      await admin(dest, { setChannel: { index, role: c.supprimer ? 0 : index === 0 ? 1 : 2, settings } }, { reponse: false });
+      journalTache(c.supprimer ? `canal ${index} supprimé` : `canal ${index} « ${settings.name || 'preset'} » envoyé`);
+    }
+    await admin(dest, { commitEditSettings: true }, { reponse: false });
+    journalTache('modifications enregistrées par le nœud (il peut redémarrer)');
+    // Relecture de contrôle de ce qui a changé
+    await new Promise((r) => setTimeout(r, local ? 15000 : 25000));
+    clesSession.delete(dest);
+    const aRelire = [...sections, ...(canaux.length ? ['canaux'] : []), ...(p.nom ? ['proprietaire'] : [])];
+    for (let essai = 1; essai <= 3; essai++) {
+      try { await lire(dest, journalTache, { sections: aRelire }); journalTache('relecture de contrôle faite'); return { modifie: true, relu: aRelire }; } catch (e) {
+        if (e.arret) throw e;
+        journalTache(`relecture ${essai}/3 impossible (${e.message.split(' — ')[0]})`);
+        await new Promise((r) => setTimeout(r, 15000));
+      }
+    }
+    throw new Error('Modifications envoyées et accusées, mais la relecture de contrôle a échoué : relisez la configuration dans quelques minutes');
+  }
+
+  async function redemarrer(dest) {
+    await assurerSession(dest);
+    await admin(dest, { rebootSeconds: 5 }, { reponse: false });
+  }
+
+  // ---- Tâches (plusieurs nœuds, suivies depuis la carte) ---------------------------------------
+  const OPERATIONS = {
+    lire: { nom: 'Lecture de la configuration', f: (d, p, j) => lire(d, j, p) },
+    verifier: { nom: 'Vérification de conformité', f: (d, p, j) => verifier(d, p, j) },
+    modifier: { nom: 'Modification des réglages', f: (d, p, j) => modifier(d, p, j) },
+    canal: { nom: 'Canal', f: (d, p, j) => definirCanal(d, p, j) },
+    position: { nom: 'Position fixe', f: definirPosition },
+    nom: { nom: 'Nom du nœud', f: definirNom },
+    config: { nom: 'Configuration', f: definirConfig },
+    redemarrer: { nom: 'Redémarrage', f: redemarrer },
+    echanger: { nom: 'Envoi de la fiche du module', f: async (d) => { await enFile(async () => { echangerInfos(d); await new Promise((r) => setTimeout(r, 3000)); }); } },
+  };
+  function lancer(type, cibles, params, auteur) {
+    const op = OPERATIONS[type];
+    if (!op) throw new Error('Opération inconnue');
+    if (!radio.infos().connecte) throw new Error('Module radio non connecté : connectez-le dans Réseau > Modules Wi-Fi');
+    cibles = [...new Set((cibles || []).map((x) => Number(x) >>> 0))].filter(Boolean);
+    if (!cibles.length) throw new Error('Aucun nœud choisi');
+    if (cibles.length > 30) throw new Error('30 nœuds au maximum par opération');
+    if (['position', 'nom', 'lire', 'modifier'].includes(type) && cibles.length > 1) throw new Error('Cette opération se fait nœud par nœud');
+    if (type === 'verifier') {
+      const ref = Number(params && params.reference) >>> 0;
+      if (!ref) throw new Error('Référence manquante');
+      if (!(params.elements || []).some((k) => ELEMENTS[k])) throw new Error('Choisissez au moins un élément à vérifier');
+      cibles = [ref, ...cibles.filter((c) => c !== ref)]; // la référence est lue en premier
+      if (cibles.length < 2) throw new Error('Choisissez au moins un nœud à comparer à la référence');
+    }
+    const id = crypto.randomBytes(6).toString('hex');
+    const tache = { id, type, nom: op.nom, auteur, debut: Date.now(), fin: null, params, noeuds: cibles.map((num) => ({ num, statut: 'en_attente', detail: null, resultat: null })) };
+    taches.set(id, tache);
+    if (taches.size > 50) taches.delete(taches.keys().next().value);
+    journal(`${op.nom} lancée par ${auteur} sur ${cibles.length} nœud(s)`);
+    (async () => {
+      for (const n of tache.noeuds) {
+        if (tache.arret) { n.statut = 'annule'; n.detail = 'non traité (opération arrêtée)'; continue; }
+        if (type === 'verifier' && n !== tache.noeuds[0] && tache.noeuds[0].statut !== 'ok') { n.statut = 'annule'; n.detail = 'non vérifié : la référence n’a pas pu être lue'; continue; }
+        n.statut = 'en_cours';
+        const etapes = [];
+        try {
+          n.etapes = etapes;
+          const executer = (reprise) => op.f(n.num, reprise && type === 'lire' ? { ...(params || {}), reprendre: true } : params || {}, (t) => { etapes.push(t); n.detail = t; });
+          try {
+            n.resultat = await executer();
+          } catch (e) {
+            if (e.arret || tache.arret) throw e;
+            // Le nœud ne connaît pas encore la clé publique du module : on lui envoie la fiche puis on réessaie
+            if (e.code === 36) { clesSession.delete(n.num); n.detail = 'clé de session périmée, nouvel essai…'; }
+            else if (e.code === 35 || e.code === 39) {
+              n.detail = 'échange des fiches (clés publiques) avec le nœud…';
+              await enFile(async () => { echangerInfos(n.num); await new Promise((r) => setTimeout(r, 20000)); });
+            } else throw e;
+            n.detail = 'nouvel essai…';
+            n.resultat = await executer(true); // une lecture reprend là où elle s'était arrêtée
+          }
+          n.statut = 'ok';
+          n.detail = type === 'modifier' ? 'modifié et relu' : type === 'verifier' ? (n.resultat.reference ? 'référence lue' : n.resultat.conforme ? 'conforme' : `${n.resultat.ecarts.length} écart(s)`) : type === 'lire' ? 'configuration lue' : n.resultat && n.resultat.canal0 ? `canal 0 « ${n.resultat.ancien || 'preset'} » → « ${n.resultat.canal0} », vérifié` : 'appliqué (accusé reçu)';
+        } catch (e) {
+          if (e.partiel) n.resultat = e.partiel;
+          n.statut = e.arret || tache.arret ? 'annule' : 'echec';
+          n.detail = e.code === 35 ? 'le nœud ne connaît toujours pas la clé du module (fiche envoyée, réessayez dans une minute)'
+            : e.code === 37 ? 'clé du module absente des clés d’administration de ce nœud' : e.message;
+          // Où en était-on ? (ex. pour le canal 0 : avant ou après l'écriture)
+          const derniere = n.etapes && n.etapes.length ? n.etapes[n.etapes.length - 1] : null;
+          if (derniere && type !== 'lire') n.detail += ` — dernière étape réussie : ${derniere}`;
+        }
+        arrets.delete(n.num >>> 0);
+        journal(`${op.nom} → ${idNoeud(n.num)} : ${n.statut}${n.detail ? ' (' + n.detail + ')' : ''}`);
+      }
+      tache.fin = Date.now();
+    })();
+    return tache;
+  }
+
+  function resumeParams(t) {
+    const p = t.params || {};
+    if (t.type === 'canal') return p.role === 'DISABLED' ? `suppression du canal ${p.index}` : `canal ${p.index} « ${p.nom || ''} »${Number(p.index) === 0 ? ' (principal)' : ''}`;
+    if (t.type === 'config') return `${p.section} : ${Object.entries(p.valeurs || {}).map(([k, v]) => k + '=' + v).join(', ')}`;
+    if (t.type === 'nom') return [p.nomLong, p.nomCourt].filter(Boolean).join(' / ');
+    if (t.type === 'modifier') return [p.nom ? 'nom' : '', ...['device', 'lora', 'position'].filter((k) => p[k] && Object.keys(p[k]).length).map((k) => k + ' (' + Object.keys(p[k]).join(', ') + ')'), p.canaux && p.canaux.length ? 'canaux ' + p.canaux.map((c) => c.index).join(', ') : ''].filter(Boolean).join(' · ');
+    if (t.type === 'verifier') return `référence ${idNoeud(p.reference)} · ${(p.elements || []).map((k) => (ELEMENTS[k] || {}).nom || k).join(', ')}`;
+    if (t.type === 'position') return p.retirer ? 'retrait de la position fixe' : `${p.lat}, ${p.lon}`;
+    return '';
+  }
+
+  // Nouvel essai d'une opération terminée, avec les mêmes réglages, sur les nœuds en échec ou arrêtés seulement.
+  // Une lecture reprend là où elle s'était arrêtée.
+  function relancer(id, auteur) {
+    const t = taches.get(id);
+    if (!t) throw new Error('Opération introuvable (la carte a peut-être redémarré) : relancez-la depuis le formulaire');
+    if (!t.fin) throw new Error('Opération encore en cours');
+    const cibles = t.noeuds.filter((n) => n.statut === 'echec' || n.statut === 'annule').map((n) => n.num);
+    if (!cibles.length) throw new Error('Aucun nœud en échec à relancer');
+    const params = t.type === 'lire' ? { ...(t.params || {}), reprendre: true } : t.params;
+    return lancer(t.type, cibles, params, auteur);
+  }
+
+  // Arrêt d'une opération en cours : la demande radio en attente est abandonnée tout de suite,
+  // les nœuds suivants ne sont pas traités. Une lecture garde ce qui a déjà été lu (« Reprendre » plus tard).
+  function arreter(id, auteur) {
+    const t = taches.get(id);
+    if (!t) throw new Error('Opération inconnue');
+    if (t.fin) return t;
+    t.arret = true;
+    journal(`${t.nom} arrêtée par ${auteur}`);
+    for (const n of t.noeuds) {
+      if (n.statut !== 'en_cours') continue;
+      arrets.add(n.num >>> 0);
+      n.detail = 'arrêt en cours…';
+      for (const [idp, a] of attentes) {
+        if (a.dest !== (n.num >>> 0)) continue;
+        clearTimeout(a.minuterie); attentes.delete(idp); a.reject(ERREUR_ARRET());
+      }
+    }
+    return t;
+  }
+
+  // ---- Messages texte ---------------------------------------------------------------------
+  const envois = new Map(); // id -> { statut, dest, heure }
+  radio.ecouter((p) => {
+    const d = p.decoded;
+    if (!d || d.portnum !== PORT_ROUTAGE || !d.requestId || !envois.has(d.requestId)) return;
+    const e = envois.get(d.requestId);
+    const code = Routing.decode(d.payload).errorReason || 0;
+    const de = p.from >>> 0;
+    if (code) { e.statut = 'echec'; e.detail = ERREURS_ROUTAGE[code] || `erreur ${code}`; }
+    else if (de === e.dest) e.statut = 'recu'; // accusé du destinataire (message direct)
+    else if (e.statut !== 'recu') e.statut = 'relaye'; // un voisin a retransmis (accusé implicite)
+  });
+  function envoyerTexte({ texte, canal, dest }, auteur) {
+    const info = radio.infos();
+    if (!info.connecte) throw new Error('Module radio non connecté');
+    texte = String(texte || '').trim();
+    const octets = Buffer.from(texte, 'utf8');
+    if (!octets.length) throw new Error('Message vide');
+    if (octets.length > 200) throw new Error(`Message trop long (${octets.length} octets, 200 au maximum)`);
+    const direct = dest != null && dest !== '' && Number(dest) >>> 0 !== 0xffffffff;
+    const vers = direct ? Number(dest) >>> 0 : 0xffffffff;
+    const index = direct ? 0 : Number(canal);
+    if (!direct && !info.canaux.some((c) => c.index === index)) throw new Error('Canal inconnu du module');
+    const id = crypto.randomBytes(4).readUInt32LE(0) >>> 0 || 1;
+    const paquet = { from: info.noeudLocal, to: vers, id, channel: index, wantAck: true, hopLimit: info.hopLimit, decoded: { portnum: 1, payload: octets } };
+    radio.envoyerPaquet({ to: vers, id, channel: index, wantAck: true, hopLimit: info.hopLimit, decoded: { portnum: 1, payload: octets } });
+    envois.set(id, { statut: 'envoye', dest: vers, heure: Date.now() });
+    if (envois.size > 200) envois.delete(envois.keys().next().value);
+    try { radio.injecter({ ...paquet, rxTime: Math.floor(Date.now() / 1000), hopStart: info.hopLimit }); } catch (e) { journal('enregistrement du message :', e.message); }
+    journal(`message ${direct ? 'direct vers ' + idNoeud(vers) : 'sur le canal ' + index} envoyé par ${auteur}`);
+    return { id, dest: vers, canal: index };
+  }
+
+  return {
+    envoyerTexte,
+    etatEnvoi: (id) => envois.get(Number(id) >>> 0) || null,
+    canaux: () => radio.infos().canaux,
+    lancer,
+    // Pendant une lecture, le résultat partiel est fourni au fur et à mesure
+    tache: (id) => {
+      const t = taches.get(id);
+      if (!t) return null;
+      if (t.type !== 'lire' || t.fin) return t;
+      return { ...t, noeuds: t.noeuds.map((n) => (n.statut === 'en_cours' && lectures.has(n.num >>> 0) ? { ...n, resultat: construireResultat(n.num >>> 0, lectures.get(n.num >>> 0)) } : n)) };
+    },
+    arreter,
+    relancer,
+    ELEMENTS: Object.fromEntries(Object.entries(ELEMENTS).map(([k, v]) => [k, v.nom])),
+    administrables: () => administrables,
+    lecturesConnues: () => [...lectures.entries()].map(([num, l]) => ({ num, heure: l.heure, complete: !!(l.canauxFin && l.lora && l.device) })),
+    taches: () => [...taches.values()].reverse().map((t) => ({ ...t, params: undefined, resume: resumeParams(t), noeuds: t.noeuds.map(({ resultat, etapes, ...n }) => ({ ...n, partiel: !!resultat })) })),
+    infos: () => {
+      const i = radio.infos();
+      return { connecte: i.connecte, noeudLocal: i.noeudLocal, clePublique: i.clePublique, clesConnues: [...i.clesPubliques.keys()] };
+    },
+    ROLES: Object.keys(ROLES_ENUM),
+    PRESETS: Object.keys(PRESETS_ENUM),
+    REDIFFUSIONS: Object.keys(REDIFFUSION_ENUM),
+    etatLecture,
+    detailLecture: (num) => { const l = lectures.get(num >>> 0); return l ? construireResultat(num >>> 0, l) : null; },
+    REGIONS: Object.keys(REGIONS_ENUM).filter((r) => r !== 'UNSET'),
+  };
+}
+
+module.exports = { creerAdministration };

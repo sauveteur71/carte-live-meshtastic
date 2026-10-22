@@ -1,0 +1,20 @@
+# Réglages et données propres à chaque installation : jamais dans le dépôt
+.env
+donnees/
+data/
+*.db
+*.db-shm
+*.db-wal
+mosquitto/config/passwd
+mosquitto/config/acl
+mosquitto/certs/
+mosquitto/data/
+mosquitto/log/
+
+# Dépendances et fichiers générés
+node_modules/
+carte-live/public/agent/
+agent/agent-gaulix*
+agent-gaulix.json
+.DS_Store
+Thumbs.db

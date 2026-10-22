@@ -1,0 +1,14 @@
+[
+ {"nom": "Statue Notre-Dame de France", "alias": ["vierge", "statue de la vierge", "vierge du puy", "notre dame de france", "rocher corneille"], "detail": "Rocher Corneille · Le Puy-en-Velay", "lat": 45.04727, "lon": 3.88521, "alt": 757},
+ {"nom": "Cathédrale Notre-Dame du Puy", "alias": ["cathedrale", "cathédrale du puy"], "detail": "Le Puy-en-Velay", "lat": 45.04559, "lon": 3.88471},
+ {"nom": "Saint-Michel d'Aiguilhe", "alias": ["aiguilhe", "rocher saint michel", "chapelle saint michel"], "detail": "Aiguilhe", "lat": 45.05001, "lon": 3.88252},
+ {"nom": "Statue Saint-Joseph", "alias": ["saint joseph", "espaly"], "detail": "Espaly-Saint-Marcel", "lat": 45.0482, "lon": 3.86473},
+ {"nom": "Mont Mézenc", "alias": ["mezenc"], "detail": "1753 m · Borée / Les Estables", "lat": 44.91104, "lon": 4.19086, "alt": 1753},
+ {"nom": "Mont Gerbier de Jonc", "alias": ["gerbier"], "detail": "Saint-Martial (07)", "lat": 44.84388, "lon": 4.21986},
+ {"nom": "Le Testavoyre (Meygal)", "alias": ["meygal", "testavoyre", "grand testavoyre"], "detail": "Champclause", "lat": 45.05478, "lon": 4.13052},
+ {"nom": "Mont Bar", "alias": ["bar", "allegre"], "detail": "Allègre", "lat": 45.19732, "lon": 3.72836},
+ {"nom": "Mont Devès", "alias": ["deves"], "detail": "Séneujols", "lat": 44.9401, "lon": 3.76512},
+ {"nom": "Mont Mouchet", "alias": ["mouchet"], "detail": "Auvers", "lat": 44.97582, "lon": 3.37286},
+ {"nom": "Lac du Bouchet", "alias": ["bouchet"], "detail": "Cayres", "lat": 44.90898, "lon": 3.7904},
+ {"nom": "Abbaye de la Chaise-Dieu", "alias": ["chaise dieu", "chaise-dieu"], "detail": "La Chaise-Dieu", "lat": 45.32056, "lon": 3.69577}
+]

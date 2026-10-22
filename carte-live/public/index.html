@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Carte live Meshtastic</title>
+  <meta name="description" content="Carte en temps réel, supervision et administration d’un réseau Meshtastic">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='6' fill='%233ee6c4'/%3E%3Ccircle cx='16' cy='16' r='12' fill='none' stroke='%233ee6c4' stroke-width='2' opacity='.5'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="carte"></div>
+
+  <header class="barre">
+    <div class="marque">
+      <span class="logo"></span>
+      <div>
+        <div class="nom">Carte live</div>
+        <div class="sous">Carte live · Haute-Loire</div>
+      </div>
+      <span id="direct" class="direct" title="État de la connexion au broker">
+        <i></i><b>Connexion…</b>
+      </span>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><b id="k-actifs">–</b><span>nœuds actifs</span></div>
+      <div class="kpi"><b id="k-passerelles">–</b><span>passerelles en ligne</span></div>
+      <div class="kpi"><b id="k-liens">–</b><span>liens 24 h</span></div>
+      <div class="kpi"><b id="k-debit">–</b><span>paquets / min</span></div>
+      <div class="kpi"><b id="k-canal">–</b><span>occupation canal</span></div>
+    </div>
+  </header>
+
+  <div class="outils">
+    <button id="btn-zone" class="vue-zone actif" title="Basculer entre la Haute-Loire et la France">Haute-Loire</button>
+    <label class="choix">Liens
+      <select id="fenetre">
+        <option value="1">1 h</option>
+        <option value="6">6 h</option>
+        <option value="24" selected>24 h</option>
+        <option value="168">7 jours</option>
+      </select>
+    </label>
+    <details class="menu-couches">
+      <summary>Couches ▾</summary>
+      <div class="menu">
+      <button class="bascule actif" data-couche="rf" title="Liens radio directs entendus par les passerelles">Radio</button>
+      <button class="bascule actif" data-couche="voisinage" title="Liens déclarés par le module Voisinage (NeighborInfo)">Voisinage</button>
+      <button class="bascule actif" data-couche="traceroute" title="Liens issus des traceroutes">Traceroute</button>
+      <button class="bascule" data-couche="inactifs" title="Afficher les nœuds non entendus depuis longtemps">Inactifs</button>
+      <button class="bascule actif" data-couche="animations" title="Animer les paquets en direct">Animations</button>
+      <button class="bascule actif" data-couche="sommets" title="Points hauts du relief et meilleurs sites radio">Points hauts</button>
+      </div>
+    </details>
+    <button id="btn-profil" title="Profil de relief entre deux points : cliquez A puis B (nœud, sommet ou n’importe quel lieu)">Profil</button>
+    <button id="btn-couvrir" title="Cliquez un lieu sur la carte : la carte propose 4 points hauts capables de le couvrir">Couvrir</button>
+    <button id="btn-couv-ici" title="Cliquez n'importe quel lieu : zone couverte par une antenne placée là (clic droit sur la carte : même menu)">Couverture</button>
+    <button id="btn-rejeu" title="Rejouer les dernières 24 heures">Rejeu</button>
+    <button id="btn-effacer" hidden title="Effacer la couverture affichée">Effacer</button>
+    <button id="btn-admin" class="admin">Connexion</button>
+  </div>
+
+  <div class="recherche-lieu" role="search">
+    <input id="recherche-lieu" type="search" placeholder="Rechercher un lieu, un nœud, un sommet ou des coordonnées…" autocomplete="off" aria-label="Rechercher un lieu">
+    <ul id="resultats-lieu" class="resultats-lieu" hidden></ul>
+  </div>
+
+  <aside class="panneau" id="panneau">
+    <nav class="onglets">
+      <button data-onglet="reseau" class="actif">Réseau</button>
+      <button data-onglet="noeuds">Nœuds</button>
+      <button data-onglet="trafic">Trafic</button>
+      <button data-onglet="analyse">Analyse</button>
+      <button data-onglet="sites" title="Meilleurs sites radio selon le relief">Sites</button>
+      <button data-onglet="gestion" id="onglet-gestion" hidden title="Programmer les nœuds par LoRa">Gestion</button>
+      <button data-onglet="messages" id="onglet-messages" hidden>Messages</button>
+      <button class="replier" id="replier" title="Replier le panneau">‹</button>
+    </nav>
+
+    <section data-vue="reseau" class="vue actif">
+      <h3>Alertes <span id="nb-alertes" class="pastille">0</span></h3>
+      <div id="alertes" class="liste-alertes"></div>
+      <h3>Passerelles</h3>
+      <div id="passerelles" class="liste"></div>
+      <h3>Relais et infrastructure</h3>
+      <div id="infra" class="liste"></div>
+      <h3>Sources de données</h3>
+      <div id="sources" class="liste"></div>
+      <div id="bloc-modules" hidden>
+        <h3>Modules radio (Wi-Fi, USB)</h3>
+        <div id="modules-radio" class="liste"></div>
+      </div>
+      <h3>Trafic de la dernière heure</h3>
+      <div id="repartition" class="repartition"></div>
+    </section>
+
+    <section data-vue="noeuds" class="vue">
+      <div class="recherche">
+        <input id="recherche" type="search" placeholder="Nom, nom court ou !identifiant…" autocomplete="off">
+        <select id="tri">
+          <option value="vu">Dernier entendu</option>
+          <option value="nom">Nom</option>
+          <option value="sauts">Sauts</option>
+          <option value="snr">SNR</option>
+        </select>
+      </div>
+      <div id="noeuds" class="liste"></div>
+    </section>
+
+    <section data-vue="trafic" class="vue">
+      <div id="filtres" class="filtres"></div>
+      <div id="flux" class="flux"></div>
+    </section>
+
+    <section data-vue="analyse" class="vue">
+      <div class="recherche">
+        <select id="analyse-periode">
+          <option value="6">6 dernières heures</option>
+          <option value="24" selected>24 dernières heures</option>
+          <option value="168">7 jours</option>
+        </select>
+      </div>
+      <div id="analyse"></div>
+    </section>
+
+    <section data-vue="sites" class="vue">
+      <div id="sites"><div class="vide">Chargement du relief…</div></div>
+    </section>
+
+    <section data-vue="gestion" class="vue">
+      <div id="gestion"><div class="vide">Chargement…</div></div>
+    </section>
+
+    <section data-vue="messages" class="vue">
+      <form id="form-envoi" class="envoi" hidden>
+        <div class="envoi-ligne">
+          <select name="vers" aria-label="Destinataire"></select>
+          <span class="compteur" id="compteur-envoi">0/200</span>
+        </div>
+        <div class="envoi-ligne">
+          <textarea name="texte" rows="2" maxlength="400" placeholder="Votre message…" required></textarea>
+          <button type="submit" class="principal" title="Envoyer (Entrée)">Envoyer</button>
+        </div>
+        <div class="note" id="retour-envoi"></div>
+      </form>
+      <div id="messages" class="flux"></div>
+    </section>
+  </aside>
+  <button class="deplier" id="deplier" hidden title="Afficher le panneau">›</button>
+
+  <aside class="fiche" id="fiche" hidden>
+    <button class="fermer" id="fermer-fiche" title="Fermer">×</button>
+    <div id="fiche-contenu"></div>
+  </aside>
+
+  <div class="legende" id="legende"></div>
+
+  <div class="rejeu" id="rejeu" hidden>
+    <button id="rejeu-lecture" title="Lecture / pause">▶</button>
+    <input type="range" id="rejeu-curseur" step="60000" aria-label="Instant du rejeu">
+    <b id="rejeu-heure">–</b>
+    <select id="rejeu-vitesse" title="Vitesse">
+      <option value="60">×60</option>
+      <option value="300" selected>×300</option>
+      <option value="1800">×1800</option>
+    </select>
+    <small id="rejeu-info"></small>
+    <button id="rejeu-fermer" title="Fermer le rejeu">×</button>
+  </div>
+
+  <dialog id="dlg-profil" class="large">
+    <button class="fermer" id="fermer-profil" title="Fermer">×</button>
+    <h3>Profil de relief et bilan de liaison</h3>
+    <form id="form-profil" class="parametres">
+      <label>Antenne A (m) <input name="ha" type="number" step="0.5" min="0" value="3"></label>
+      <label>Antenne B (m) <input name="hb" type="number" step="0.5" min="0" value="3"></label>
+      <label>Puissance (dBm) <input name="ptx" type="number" step="1" min="0" max="30" value="27"></label>
+      <label>Gain antennes (dBi) <input name="ga" type="number" step="0.5" value="2.15"></label>
+      <label>Pertes câbles (dB) <input name="pertes" type="number" step="0.5" min="0" value="1.5"></label>
+      <label>Preset <select name="preset">
+        <option value="LONG_FAST">LongFast</option><option value="LONG_MODERATE">LongModerate</option>
+        <option value="LONG_SLOW">LongSlow</option><option value="MEDIUM_FAST">MediumFast</option>
+        <option value="MEDIUM_SLOW">MediumSlow</option><option value="SHORT_FAST">ShortFast</option>
+      </select></label>
+      <button type="submit" class="principal">Recalculer</button>
+    </form>
+    <div id="profil-resultat"></div>
+  </dialog>
+
+  <dialog id="dlg-trames" class="tres-large">
+    <button class="fermer" data-fermer title="Fermer">×</button>
+    <div id="trames-contenu"></div>
+  </dialog>
+  <dialog id="dlg-qr" class="large">
+    <button class="fermer" data-fermer title="Fermer">×</button>
+    <div id="qr-contenu"></div>
+  </dialog>
+  <dialog id="dlg-trame" class="large">
+    <button class="fermer" data-fermer title="Fermer">×</button>
+    <div id="trame-contenu"></div>
+  </dialog>
+  <dialog id="dlg-signal" class="large">
+    <button class="fermer" data-fermer title="Fermer">×</button>
+    <div id="signal-contenu"></div>
+  </dialog>
+
+  <dialog id="dlg-compte">
+    <button class="fermer" id="fermer-compte" title="Fermer">×</button>
+    <nav class="onglets-dlg">
+      <button data-dlg="connexion" class="actif">Se connecter</button>
+      <button data-dlg="inscription" id="onglet-inscription">S'inscrire</button>
+    </nav>
+    <form id="form-connexion" data-pan="connexion">
+      <label>Identifiant <input name="identifiant" autocomplete="username" required></label>
+      <label>Mot de passe <input name="motDePasse" type="password" autocomplete="current-password" required></label>
+      <p class="erreur"></p>
+      <div class="actions"><button type="submit" class="principal">Se connecter</button></div>
+    </form>
+    <form id="form-inscription" data-pan="inscription" hidden>
+      <p class="note" id="note-inscription"></p>
+      <label>Identifiant <input name="identifiant" autocomplete="username" required minlength="3" maxlength="32"></label>
+      <label>Indicatif radio (facultatif) <input name="indicatif" placeholder="F4XXX" maxlength="16"></label>
+      <label>E-mail (facultatif) <input name="email" type="email" autocomplete="email"></label>
+      <label>Mot de passe <input name="motDePasse" type="password" autocomplete="new-password" required minlength="8"></label>
+      <label>Confirmer le mot de passe <input name="confirmation" type="password" autocomplete="new-password" required minlength="8"></label>
+      <p class="erreur"></p>
+      <div class="actions"><button type="submit" class="principal">Créer mon compte</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-gestion" class="large">
+    <button class="fermer" id="fermer-gestion" title="Fermer">×</button>
+    <nav class="onglets-dlg">
+      <button data-dlg="moncompte" class="actif">Mon compte</button>
+      <button data-dlg="comptes" class="seul-admin">Comptes</button>
+      <button data-dlg="reglages" class="seul-admin">Réglages</button>
+    </nav>
+    <section data-pan="moncompte" id="pan-moncompte"></section>
+    <section data-pan="comptes" id="pan-comptes" hidden></section>
+    <section data-pan="reglages" id="pan-reglages" hidden></section>
+  </dialog>
+
+  <dialog id="dlg-installation" class="large">
+    <h2>Bienvenue : installation de la carte</h2>
+    <p class="note">Première mise en route. Créez le compte administrateur, puis indiquez votre zone et votre serveur MQTT. Tout reste modifiable ensuite dans <b>Réglages</b>.</p>
+    <form id="form-installation">
+      <h3>1. Compte administrateur</h3>
+      <div class="grille-form">
+        <label>Identifiant <input name="identifiant" required minlength="3" maxlength="32" autocomplete="username"></label>
+        <label>Indicatif radio <input name="indicatif" placeholder="F4XXX" maxlength="16"></label>
+        <label>Mot de passe <input name="motDePasse" type="password" required minlength="8" autocomplete="new-password"></label>
+        <label>Confirmer <input name="confirmation" type="password" required minlength="8" autocomplete="new-password"></label>
+        <label id="champ-code" hidden>Code d'installation <input name="code" type="password" autocomplete="off"><small>Valeur de ADMIN_MOT_DE_PASSE dans le fichier .env</small></label>
+      </div>
+      <h3>2. Votre réseau</h3>
+      <div class="grille-form">
+        <label>Département <select name="departement"></select></label>
+        <label>Nom de la carte <input name="titre" placeholder="Réseau Meshtastic · …" maxlength="80"></label>
+        <label>Serveur MQTT <input name="mqttUrl" placeholder="mqtt://serveur:1883"></label>
+        <label>Sujet racine <input name="mqttRacine" placeholder="msh/EU_868"></label>
+        <label>Utilisateur MQTT <input name="mqttUtilisateur" autocomplete="off"></label>
+        <label>Mot de passe MQTT <input name="mqttMotDePasse" type="password" autocomplete="new-password"></label>
+        <label class="large-col">Canaux à déchiffrer <textarea name="canaux" rows="3" placeholder="LongFast=AQ==&#10;MonCanal=clé en base64"></textarea><small>Un canal par ligne : nom=clé (AQ== = clé publique par défaut)</small></label>
+        <label>Inscriptions <select name="inscriptions"><option value="validation">Sur validation de l'admin</option><option value="ouvertes">Ouvertes à tous</option><option value="fermees">Fermées</option></select></label>
+      </div>
+      <p class="erreur"></p>
+      <div class="actions"><button type="submit" class="principal">Terminer l'installation</button></div>
+    </form>
+  </dialog>
+
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

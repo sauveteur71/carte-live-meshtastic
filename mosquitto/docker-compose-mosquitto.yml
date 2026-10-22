@@ -1,0 +1,18 @@
+# ============================================================
+#  Broker Mosquitto (facultatif) à placer à côté de la carte live
+#  1883 : réseau local · 8883 : Internet chiffré TLS (redirigé par la box)
+# ============================================================
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mqtt-meshtastic
+    restart: unless-stopped
+    ports:
+      - "1883:1883"   # réseau local uniquement
+      - "8883:8883"   # Internet, chiffré TLS (redirigé par la box)
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+      - ./mosquitto/certs:/mosquitto/certs:ro

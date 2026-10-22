@@ -1,0 +1,16 @@
+# ============================================================
+#  Droits d'accès MQTT — exemple (copier en « acl »)
+#  Comptes créés avec : mosquitto_passwd /mosquitto/config/passwd NOM
+# ============================================================
+
+# --- Lecture seule : la carte live et les outils de supervision ---
+user carte
+topic read msh/EU_868/#
+
+# --- Passerelles radio (un compte par site) ---
+# readwrite : publication (uplink) + lecture (seulement utile si « Downlink » est activé sur la passerelle)
+user gw-maison
+topic readwrite msh/EU_868/#
+
+user gw-relais1
+topic readwrite msh/EU_868/#
