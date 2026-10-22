@@ -90,9 +90,19 @@ tailscale serve --bg --https=10000 http://127.0.0.1:8097   # flasheur
 
 La carte devient `https://MACHINE.TAILNET.ts.net` et le menu *Outils* pointe tout seul vers le client (`:8443`) et le flasheur (`:10000`). Autres adresses : variables `URL_CLIENT_MESHTASTIC` et `URL_FLASHER` dans `.env`.
 
+### Plusieurs modules pour un même agent
+
+L'agent garde en mémoire autant de connexions que vous voulez (ex. *USB* sur `COM5`, *Le Monteil* sur `192.168.1.83`, *QRA* sur `192.168.0.50`). Chacune apparaît dans *Réseau › Modules* sous son nom, **seulement quand son module est présent** : port USB branché, ou module Wi-Fi sur le même réseau local que le PC. Emportez le portable d'une maison à l'autre : la bonne connexion apparaît toute seule.
+
+- `-configurer` : menu pour ajouter (`a`), modifier (`m 2`), retirer (`r 2`) une connexion ou changer le serveur et le code (`s`)
+- `-ajouter` : ajouter une connexion d'un coup ; `-liste` : voir les connexions et leur état
+- module Wi-Fi joint par un VPN ou un routeur (pas sur le réseau local du PC) : ajoutez `"toujours": true` à sa connexion dans `agent-gaulix.json`
+
+Les réglages d'un agent 1.3 ou antérieur sont repris automatiquement.
+
 ### Agent lancé automatiquement
 
-- **Windows** : à la première configuration, l'agent propose de se lancer tout seul à chaque ouverture de session (fenêtre réduite). Options : `-demarrage-auto`, `-sans-demarrage-auto`, `-configurer`.
+- **Windows** : à la première configuration, l'agent propose de se lancer tout seul à chaque ouverture de session (fenêtre réduite). Options : `-demarrage-auto`, `-sans-demarrage-auto`, `-configurer`, `-ajouter`, `-liste`.
 - **Linux / Raspberry Pi** : service systemd, par exemple `/etc/systemd/system/agent-gaulix.service` :
 
 ```ini

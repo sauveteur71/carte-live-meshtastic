@@ -1482,6 +1482,7 @@ async function rendreModules(force) {
         <li>Lancez-le et répondez aux questions : adresse du serveur <b class="mono">${esc(location.hostname)}:${(r.agents && r.agents.port) || 4404}</b> (ou son adresse Tailscale), le code ci-dessous, un nom (ex. Voiture), le port USB (COM5…) ou l’adresse du module Wi-Fi.</li>
         <li>Le module apparaît ici avec le badge « agent » : cliquez sur Connecter.</li>
       </ol>
+      <p class="note"><b>Plusieurs modules</b> (ex. USB, Le Monteil, QRA) : relancez l’agent avec <span class="mono">-configurer</span> puis <b>a</b> pour ajouter une connexion. Chacune apparaît ici sous son nom quand son module est présent (port USB branché, ou PC sur le réseau du module Wi-Fi).</p>
       <div class="code-agent">Code secret : <b class="mono" id="code-agent">••••-••••-••••</b> <button type="button" id="voir-code">Afficher</button> <button type="button" id="nouveau-code" title="Les agents déjà configurés devront recevoir le nouveau code">Nouveau code</button></div>
       <p class="note">Fermez l’appli Meshtastic du PC pendant ce temps (un port USB ne sert qu’un programme). Pour administrer vos nœuds avec ce module, sa clé publique doit figurer dans leurs clés d’administration.</p>
     </details>`;
