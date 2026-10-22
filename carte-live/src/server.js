@@ -750,7 +750,7 @@ app.get('/api/mc/paquets/:id', (req, res) => {
 app.get('/api/mc/analyse', (req, res) => {
   if (!exigerMc(res)) return;
   const heures = Math.min(Math.max(Number(req.query.heures) || 24, 1), config.retentionJours * 24);
-  res.json(reseauMc.analyse(heures, require('./analyse').tempsEmission));
+  res.json(reseauMc.analyse(heures, require('./analyse').tempsEmission, req.query.zone === '1'));
 });
 // QR codes au format de l'appli MeshCore : contact (public) ou canal du companion (admin : contient le secret)
 app.get('/api/mc/qr', async (req, res) => {

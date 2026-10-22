@@ -377,7 +377,7 @@ async function mcRendreAnalyse() {
   z.innerHTML = `<div class="recherche"><select id="mc-periode">${[[1, 'Dernière heure'], [6, '6 dernières heures'], [24, '24 dernières heures'], [168, '7 jours']].map(([v, l]) => `<option value="${v}" ${v === h ? 'selected' : ''}>${l}</option>`).join('')}</select></div><div id="mc-analyse"><div class="vide">Calcul…</div></div>`;
   $('#mc-periode').onchange = (e) => { mc.heuresAnalyse = Number(e.target.value); mcRendreAnalyse(); };
   let a;
-  try { a = await api('/api/mc/analyse?heures=' + h); } catch (e) { $('#mc-analyse').innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  try { a = await api('/api/mc/analyse?heures=' + h + (etat.zone ? '&zone=1' : '')); } catch (e) { $('#mc-analyse').innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
   if (mc.vue !== 'analyse' || !$('#mc-analyse')) return;
   const max = Math.max(1, ...a.parType.map((t) => t.nb));
   const maxH = Math.max(1, ...a.parHeure.map((x) => x.nb));
@@ -388,7 +388,7 @@ async function mcRendreAnalyse() {
       <div class="mesure"><span>Temps d’antenne</span><b>${a.airtimeS} s</b></div>
       <div class="mesure"><span>Occupation</span><b>${fmt(a.occupationPct, 1, ' %')}</b></div>
     </div>
-    <p class="note">Occupation : temps d’émission cumulé des paquets distincts (réglage MeshCore France, SF8 · 62,5 kHz), sans compter les répétitions par les relais.</p>
+    <p class="note">${a.zone ? `Paquets entendus par les observateurs de la zone (${esc(etat.config.zoneNom)}).` : 'Tous les paquets reçus (toutes zones) : l’occupation n’a de sens que pour une zone.'} Occupation : temps d’émission cumulé des paquets distincts (SF8 · 62,5 kHz), sans compter les répétitions par les relais.</p>
     <h4>Par type</h4><div class="repartition">
     ${a.parType.map((t) => { const x = mcType(t.type); return `<div class="barre-port"><span>${esc(x.nom)}</span><div class="piste"><i style="width:${(t.nb / max) * 100}%;background:${x.hex}"></i></div><span class="nb">${t.nb}</span></div>`; }).join('') || '<div class="vide">Aucun paquet.</div>'}</div>
     <h4>Activité par heure</h4>

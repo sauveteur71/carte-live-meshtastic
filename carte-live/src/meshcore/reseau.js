@@ -450,26 +450,31 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
   }
 
   // Analyse du trafic : types, émetteurs, sauts, observateurs, temps d'antenne estimé
-  function analyse(heures, tempsEmission) {
+  function analyse(heures, tempsEmission, zone = false) {
     const depuis = Date.now() - heures * 3600000;
-    const parType = db.prepare('SELECT type, COUNT(*) AS nb, SUM(taille) AS octets, SUM(nb_receptions) AS receptions FROM mc_paquets WHERE heure >= ? GROUP BY type ORDER BY nb DESC').all(depuis)
+    const z = config.zone;
+    // Zone : paquets entendus par au moins un observateur situé dans la zone
+    const filtre = zone ? ` AND p.rowid IN (SELECT r.paquet FROM mc_receptions r JOIN mc_noeuds o ON o.cle = r.observateur WHERE r.heure >= @d AND o.lat BETWEEN ${z[0]} AND ${z[2]} AND o.lon BETWEEN ${z[1]} AND ${z[3]})` : '';
+    const P = { d: depuis };
+    const parType = db.prepare(`SELECT p.type, COUNT(*) AS nb, SUM(p.taille) AS octets, SUM(p.nb_receptions) AS receptions FROM mc_paquets p WHERE p.heure >= @d${filtre} GROUP BY p.type ORDER BY nb DESC`).all(P)
       .map((r) => ({ ...r, airtimeS: Math.round(r.nb * tempsEmission(Math.round((r.octets || 0) / Math.max(r.nb, 1)), 'MESHCORE_FR') * 10) / 10 }));
     const emetteurs = db.prepare(`SELECT p.de, n.nom, n.role, COUNT(*) AS nb, SUM(p.taille) AS octets, MIN(p.sauts) AS sauts_min,
         SUM(CASE WHEN p.type = 'ADVERT' THEN 1 ELSE 0 END) AS annonces
-        FROM mc_paquets p LEFT JOIN mc_noeuds n ON n.cle = p.de WHERE p.heure >= ? AND p.de IS NOT NULL GROUP BY p.de ORDER BY nb DESC LIMIT 40`).all(depuis);
-    const sauts = db.prepare('SELECT sauts, COUNT(*) AS nb FROM mc_paquets WHERE heure >= ? AND sauts IS NOT NULL GROUP BY sauts ORDER BY sauts').all(depuis);
+        FROM mc_paquets p LEFT JOIN mc_noeuds n ON n.cle = p.de WHERE p.heure >= @d AND p.de IS NOT NULL${filtre} GROUP BY p.de ORDER BY nb DESC LIMIT 40`).all(P);
+    const sauts = db.prepare(`SELECT p.sauts, COUNT(*) AS nb FROM mc_paquets p WHERE p.heure >= @d AND p.sauts IS NOT NULL${filtre} GROUP BY p.sauts ORDER BY p.sauts`).all(P);
     const observateurs = db.prepare(`SELECT r.observateur, n.nom, COUNT(*) AS nb, ROUND(AVG(r.snr), 1) AS snr, MAX(r.heure) AS dernier
-        FROM mc_receptions r LEFT JOIN mc_noeuds n ON n.cle = r.observateur WHERE r.heure >= ? GROUP BY r.observateur ORDER BY nb DESC LIMIT 40`).all(depuis);
+        FROM mc_receptions r LEFT JOIN mc_noeuds n ON n.cle = r.observateur WHERE r.heure >= @d${zone ? ` AND n.lat BETWEEN ${z[0]} AND ${z[2]} AND n.lon BETWEEN ${z[1]} AND ${z[3]}` : ''} GROUP BY r.observateur ORDER BY nb DESC LIMIT 40`).all(P);
     const relais = new Map();
-    for (const r of db.prepare('SELECT chemin FROM mc_paquets WHERE heure >= ? AND sauts > 0').all(depuis)) for (const h of JSON.parse(r.chemin || '[]')) relais.set(h, (relais.get(h) || 0) + 1);
+    for (const r of db.prepare(`SELECT p.chemin FROM mc_paquets p WHERE p.heure >= @d AND p.sauts > 0${filtre}`).all(P)) for (const h of JSON.parse(r.chemin || '[]')) relais.set(h, (relais.get(h) || 0) + 1);
     const cache = noeudsCache();
     const topRelais = [...relais.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([h, nb]) => {
-      const c = cache.filter((n) => n.cle.startsWith(h) && ['repeteur', 'salon'].includes(n.role));
+      let c = cache.filter((n) => n.cle.startsWith(h) && ['repeteur', 'salon'].includes(n.role));
+      if (zone && c.length > 1) { const cz = c.filter(dansZone); if (cz.length) c = cz; }
       return { prefixe: h, nb, candidats: c.slice(0, 3).map((n) => ({ cle: n.cle, nom: n.nom })) };
     });
-    const parHeure = db.prepare('SELECT (heure / 3600000) * 3600000 AS h, COUNT(*) AS nb FROM mc_paquets WHERE heure >= ? GROUP BY heure / 3600000 ORDER BY h').all(depuis);
+    const parHeure = db.prepare(`SELECT (p.heure / 3600000) * 3600000 AS h, COUNT(*) AS nb FROM mc_paquets p WHERE p.heure >= @d${filtre} GROUP BY p.heure / 3600000 ORDER BY h`).all(P);
     const total = parType.reduce((t, r) => t + r.nb, 0), air = parType.reduce((t, r) => t + r.airtimeS, 0);
-    return { heures, total, airtimeS: Math.round(air), occupationPct: Math.round((air / (heures * 3600)) * 1000) / 10, parType, emetteurs, sauts, observateurs, topRelais, parHeure };
+    return { heures, zone, total, airtimeS: Math.round(air), occupationPct: Math.round((air / (heures * 3600)) * 1000) / 10, parType, emetteurs, sauts, observateurs, topRelais, parHeure };
   }
 
   return { noterEtat, telemetrie, calculerAlertes, analyse, surveilles, integrer, importerContact, noterObservateur, vueNoeud, liens, statistiques, detailNoeud, paquets, detailPaquet, messages, noterMessage, confirmerAck, statutMessage, lierVoisins, definirCanaux, definirMoi, canaux: () => canaux, purger, q, resoudreChemin };
