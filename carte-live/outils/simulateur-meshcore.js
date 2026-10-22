@@ -99,18 +99,53 @@ function contact(n) {
   return trame(b);
 }
 
+// État simulé des répéteurs administrables (mot de passe « password »)
+const reglages = new Map();
+const etatRep = (cle) => {
+  if (!reglages.has(cle)) {
+    const n = NOEUDS.find((x) => x.cle.toString('hex') === cle);
+    reglages.set(cle, { name: n ? n.nom : '?', radio: '869.618,62.5,8,8', tx: '22', repeat: 'on', 'flood.max': '64', 'flood.max.advert': '8', 'advert.interval': cle.startsWith(relais[1].cle.toString('hex').slice(0, 4)) ? '0' : '120',
+      'flood.advert.interval': '12', 'path.hash.mode': '0', txdelay: '0.5', 'direct.txdelay': '0.3', dutycycle: '50.0%', 'multi.acks': '0', 'loop.detect': 'off', lat: String(n ? n.lat : 0), lon: String(n ? n.lon : 0), 'owner.info': 'F4GLD' });
+  }
+  return reglages.get(cle);
+};
+const SECRET_HL = crypto.createHash('sha256').update('#haute-loire').digest().subarray(0, 16);
+function repondreCli(cleHex, ligne) {
+  const r = etatRep(cleHex);
+  let m;
+  if ((m = /^get (\S+)$/.exec(ligne))) return r[m[1]] !== undefined ? '> ' + r[m[1]] : '??: ' + m[1];
+  if ((m = /^set (\S+) (.+)$/.exec(ligne))) { r[m[1]] = m[1] === 'dutycycle' ? m[2] + '.0%' : m[2]; return m[1] === 'radio' ? 'OK - reboot to apply' : m[1] === 'repeat' ? 'OK - repeat is now ' + m[2].toUpperCase() : 'OK'; }
+  if (ligne === 'ver') return 'v1.12.0 (Build: 22-Oct-2026)';
+  if (ligne === 'board') return 'Heltec V3';
+  if (ligne === 'clock') return '12:00 - 22/10/2026 UTC';
+  if (ligne === 'clock sync') return 'OK - clock set: 12:00 - 22/10/2026 UTC';
+  if (ligne === 'neighbors') return relais.filter((x) => x.cle.toString('hex') !== cleHex).slice(0, 3).map((x, i) => `${x.cle.toString('hex').slice(0, 8)}:${Math.floor(Date.now() / 1000) - 300 * i}:${(i * 7 - 10) * 4}`).join('\n');
+  if (/^advert/.test(ligne)) return 'OK - Advert sent';
+  return 'Unknown command';
+}
+
 net.createServer((s) => {
   console.log('carte connectée');
   let tampon = Buffer.alloc(0);
+  const fileMessages = [];
+  const pousser = (trameMsg) => { fileMessages.push(trameMsg); s.write(trame(Buffer.from([0x83]))); };
+  const msgContact = (prefixe6, type, texteMsg) => {
+    const b = Buffer.alloc(4 + 6 + 2 + 4); b[0] = 16; b[1] = 24; prefixe6.copy(b, 4); b[10] = 1; b[11] = type; b.writeUInt32LE(Math.floor(Date.now() / 1000), 12);
+    return trame(Buffer.concat([b, Buffer.from(texteMsg, 'utf8')]));
+  };
+  const minuterieDm = setInterval(() => { if (!s.destroyed && Math.random() < 0.3) pousser(msgContact(NOEUDS[7].cle.subarray(0, 6), 0, 'Salut, tu me reçois ? ' + new Date().toLocaleTimeString('fr-FR'))); }, 45000);
   s.on('data', (d) => {
     tampon = Buffer.concat([tampon, d]);
     while (tampon.length >= 3 && tampon[0] === 0x3c) {
       const lg = tampon.readUInt16LE(1);
       if (tampon.length < 3 + lg) break;
       const cmd = tampon.subarray(3, 3 + lg); tampon = tampon.subarray(3 + lg);
+      const ok = () => s.write(trame(Buffer.from([0])));
+      const envoye = (tag) => { const b = Buffer.alloc(10); b[0] = 6; b[1] = 1; b.writeUInt32LE(tag, 2); b.writeUInt32LE(8000, 6); s.write(trame(b)); };
       switch (cmd[0]) {
         case 1: s.write(selfInfo()); break;
         case 22: s.write(deviceInfo()); break;
+        case 6: case 9: case 29: case 7: ok(); break;
         case 4: {
           const n = Buffer.alloc(5); n[0] = 2; n.writeUInt32LE(4, 1); s.write(trame(n));
           for (const c of NOEUDS.slice(0, 4)) s.write(contact(c));
@@ -118,12 +153,59 @@ net.createServer((s) => {
           break;
         }
         case 20: { const b = Buffer.alloc(11); b[0] = 12; b.writeUInt16LE(4012, 1); s.write(trame(b)); break; }
-        case 7: s.write(trame(Buffer.from([0]))); break;
+        case 31: {
+          const i = cmd[1];
+          if (i > 1) { s.write(trame(Buffer.from([1, 2]))); break; }
+          const b = Buffer.alloc(50); b[0] = 18; b[1] = i; b.write(i === 0 ? 'Public' : '#haute-loire', 2); (i === 0 ? PUBLIC : SECRET_HL).copy(b, 34);
+          s.write(trame(b));
+          break;
+        }
+        case 10: s.write(fileMessages.length ? fileMessages.shift() : trame(Buffer.from([10]))); break;
+        case 3: {
+          ok();
+          const texteMsg = cmd.subarray(7).toString('utf8');
+          setTimeout(() => !s.destroyed && s.write(logRx(paquet(5, 1, [relais[0].cle[0]], messagePublic(MOI.nom, texteMsg)), 6, -95)), 2500);
+          break;
+        }
+        case 2: {
+          const type = cmd[1], prefixe = cmd.subarray(7, 13), texteMsg = cmd.subarray(13).toString('utf8');
+          const tag = crypto.randomBytes(4).readUInt32LE(0);
+          envoye(tag);
+          if (type === 1) {
+            const cible = NOEUDS.find((x) => x.cle.subarray(0, 6).equals(prefixe));
+            setTimeout(() => !s.destroyed && pousser(msgContact(prefixe, 1, repondreCli(cible ? cible.cle.toString('hex') : '', texteMsg))), 1200 + Math.random() * 1500);
+          } else setTimeout(() => { if (!s.destroyed) { const b = Buffer.alloc(9); b[0] = 0x82; b.writeUInt32LE(tag, 1); b.writeUInt32LE(2400, 5); s.write(trame(b)); } }, 3000);
+          break;
+        }
+        case 26: {
+          const cle = cmd.subarray(1, 33), mdp = cmd.subarray(33).toString('utf8');
+          envoye(cle.readUInt32LE(0));
+          setTimeout(() => {
+            if (s.destroyed) return;
+            const b = Buffer.alloc(14); b[0] = mdp === 'password' ? 0x85 : 0x86; b[1] = 1; cle.copy(b, 2, 0, 6); b[12] = 3; b[13] = 2;
+            s.write(trame(mdp === 'password' ? b : b.subarray(0, 8)));
+          }, 1500);
+          break;
+        }
+        case 27: {
+          const cle = cmd.subarray(1, 33);
+          envoye(cle.readUInt32LE(0));
+          setTimeout(() => {
+            if (s.destroyed) return;
+            const b = Buffer.alloc(8 + 56); b[0] = 0x87; cle.copy(b, 2, 0, 6);
+            const d = b.subarray(8);
+            d.writeUInt16LE(3950 + Math.round(Math.random() * 200), 0); d.writeInt16LE(-112, 4); d.writeInt16LE(-87, 6);
+            d.writeUInt32LE(15230, 8); d.writeUInt32LE(4210, 12); d.writeUInt32LE(3200, 16); d.writeUInt32LE(86400 * 3, 20); d.writeInt16LE(22, 42);
+            s.write(trame(b));
+          }, 1800);
+          break;
+        }
         default: s.write(trame(Buffer.from([1, 1])));
       }
     }
     if (tampon.length && tampon[0] !== 0x3c) tampon = Buffer.alloc(0);
   });
+  s.on('close', () => clearInterval(minuterieDm));
   const envoyer = () => {
     if (s.destroyed) return;
     const r = Math.random();

@@ -584,7 +584,7 @@ function creerRelief(config, journal, fournisseurs) {
     // Nœuds du graphe : départ, arrivée, relais existants, points hauts dans un couloir autour de A-B
     const marge = Math.max(15000, Math.min(P.rayonMax, dAB * 0.5));
     const dansCouloir = (p) => distanceM(a, p) + distanceM(p, b) <= dAB + 2 * marge;
-    const existants = fournisseurs.noeudsReseau().filter((n) => !Number.isNaN(alt(n.lat, n.lon)) && dansCouloir(n));
+    const existants = (opts.noeuds || fournisseurs.noeudsReseau()).filter((n) => !Number.isNaN(alt(n.lat, n.lon)) && dansCouloir(n));
     let candidats = sommets.filter((s) => accessible(s, min) && dansCouloir(s) && !existants.some((n) => distanceM(n, s) < 300));
     if (candidats.length > 260) candidats = candidats.sort((x, y) => (y.dominance || 0) - (x.dominance || 0)).slice(0, 260);
     const noeuds = [
@@ -650,7 +650,7 @@ function creerRelief(config, journal, fournisseurs) {
   function couvrirPoint(cible, opts = {}) {
     if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
     const P = parametres(opts);
-    const reseau = fournisseurs.noeudsReseau();
+    const reseau = opts.noeuds || fournisseurs.noeudsReseau();
     const candidats = [];
     const min = niveauMin(opts.acces);
     for (const s of sommets) {

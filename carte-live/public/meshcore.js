@@ -38,7 +38,7 @@ const mc = {
   vue: (() => { try { return localStorage.getItem('gaulix_mc_vue') || 'noeuds'; } catch { return 'noeuds'; } })(),
   filtresTypes: new Set(Object.keys(MC_TYPES)),
   roles: (() => { try { return { ...Object.fromEntries(Object.keys(MC_ROLES).map((k) => [k, true])), ...JSON.parse(localStorage.getItem('gaulix_mc_roles') || '{}') }; } catch { return Object.fromEntries(Object.keys(MC_ROLES).map((k) => [k, true])); } })(),
-  couches: { rf: true, chemin: true, trace: true },
+  couches: { rf: true, chemin: true, trace: true, voisinage: true },
   selection: null,
   nav: { etat: 'aucun', ws: null, port: null, lecteur: null, ecrivain: null, ble: null, type: null, erreur: null },
 };
@@ -145,11 +145,11 @@ function mcDessinerLiens() {
     const ligne = L.polyline([[l.na.lat, l.na.lon], [l.nbN.lat, l.nbN.lon]], {
       pane: 'liens', color: l.source === 'chemin' && l.snr == null ? '#fb923c' : couleurSnr(l.snr),
       weight: Math.min(1 + Math.log2(1 + l.nb) * 0.6, 4), opacity: Math.max(0.2, 0.85 - age * 0.7),
-      dashArray: l.source === 'chemin' ? '5 6' : l.source === 'trace' ? '2 5' : null, className: 'lien-mc',
+      dashArray: l.source === 'chemin' ? '5 6' : l.source === 'trace' ? '2 5' : l.source === 'voisinage' ? '9 4 2 4' : null, className: 'lien-mc',
     });
     const d = distanceKm(l.na, l.nbN);
     ligne.bindTooltip(`<b>${esc(l.na.nom || l.na.id)} ↔ ${esc(l.nbN.nom || l.nbN.id)}</b> <small>MeshCore</small><br>` +
-      `${{ rf: 'Liaison radio mesurée (dernier saut vers un observateur)', chemin: 'Liaison déduite du chemin d’un paquet', trace: 'Trace (SNR mesuré au saut)' }[l.source]}` +
+      `${{ rf: 'Liaison radio mesurée (dernier saut vers un observateur)', chemin: 'Liaison déduite du chemin d’un paquet', trace: 'Trace (SNR mesuré au saut)', voisinage: 'Voisin déclaré par le répéteur (SNR mesuré par lui)' }[l.source]}` +
       `${l.snr != null ? '<br>SNR ' + fmt(l.snr, 1, ' dB') : ''}${l.rssi != null ? ' · RSSI ' + fmt(l.rssi, 0, ' dBm') : ''}` +
       `<br>${l.nb} observation${l.nb > 1 ? 's' : ''}${d != null ? ' · ' + fmt(d, 1, ' km') : ''} · ${ilYa(l.dernierVu)}`, { className: 'info', sticky: true });
     ligne.addTo(mc.coucheLiens);
@@ -194,9 +194,9 @@ function mcHtmlLegende() {
   const b = (actif, attr, txt) => `<button class="pilule ${actif ? 'on' : ''}" ${attr}>${txt}</button>`;
   return `<div class="leg-sep"></div><div class="leg-titre-mc">MeshCore</div>
     ${Object.entries(MC_ROLES).map(([k, r]) => `<div class="leg-ligne"><span class="pastille-leg mc ${k}" style="--mcc:${r.hex}"></span><span class="leg-nom">${r.nom} <small>${nb(k)}</small></span>${b(mc.roles[k], `data-mc-role="${k}"`, mc.roles[k] ? 'Affiché' : 'Masqué')}</div>`).join('')}
-    <div class="leg-ligne"><span class="leg-nom">Liens</span>${b(mc.couches.rf, 'data-mc-couche="rf"', 'Mesurés')}${b(mc.couches.chemin, 'data-mc-couche="chemin"', 'Chemins')}${b(mc.couches.trace, 'data-mc-couche="trace"', 'Traces')}</div>
+    <div class="leg-ligne"><span class="leg-nom">Liens</span>${b(mc.couches.rf, 'data-mc-couche="rf"', 'Mesurés')}${b(mc.couches.chemin, 'data-mc-couche="chemin"', 'Chemins')}${b(mc.couches.trace, 'data-mc-couche="trace"', 'Traces')}${b(mc.couches.voisinage, 'data-mc-couche="voisinage"', 'Voisins')}</div>
     <div class="rang">◆ répéteur · ■ room server · ◯ companion · ▲ capteur · anneau = observateur</div>
-    <div class="rang">— mesuré (SNR) · - - chemin d’un paquet · ··· trace</div>`;
+    <div class="rang">— mesuré (SNR) · - - chemin d’un paquet · ··· trace · -·- voisin déclaré</div>`;
 }
 function mcBrancherLegende(z) {
   z.querySelectorAll('[data-mc-role]').forEach((b) => (b.onclick = () => {
@@ -227,6 +227,7 @@ function mcRendrePanneau() {
   if (mc.vue === 'noeuds') mcRendreNoeuds();
   else if (mc.vue === 'paquets') mcRendrePaquets();
   else if (mc.vue === 'messages') mcRendreMessages();
+  else if (mc.vue === 'gestion') mcRendreGestion();
   else mcRendreCompanion();
 }
 function mcRendreNoeuds() {
@@ -287,6 +288,7 @@ async function mcRendrePaquets() {
   };
   let liste = [];
   try { liste = await api('/api/mc/paquets?limite=300'); } catch (e) { $('#mc-flux').innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  if (mc.vue !== 'paquets' || !$('#mc-flux')) return;
   const f = liste.filter((p) => mc.filtresTypes.has(MC_CLE_TYPE[p.type] || 'autre'));
   $('#mc-flux').innerHTML = f.length ? f.map((p) => mcLignePaquet({ ...p, cheminResolu: null }, false)).join('') : '<div class="vide">Aucun paquet MeshCore pour ces filtres.</div>';
 }
@@ -298,17 +300,244 @@ function mcAjouterAuFlux(p) {
   while (flux.children.length > 300) flux.lastElementChild.remove();
 }
 
+// ---- Messages : lecture (membres), envoi sur un canal ou en direct (admin, par le companion) ----------
 async function mcRendreMessages() {
   const z = $('#mc-contenu');
-  if (!etat.membre) { z.innerHTML = '<div class="vide">Connectez-vous pour lire les messages des canaux MeshCore.</div>'; return; }
+  if (!etat.membre) { z.innerHTML = '<div class="vide">Connectez-vous pour lire les messages MeshCore.</div>'; return; }
   let l = [];
   try { l = await api('/api/mc/messages?limite=300'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
-  z.innerHTML = `<p class="note">Messages des canaux déchiffrés par la carte (${esc((mc.etat && mc.etat.reglages && mc.etat.reglages.canaux || 'Public').split('\n').join(', '))}). L’envoi depuis la carte arrive dans une prochaine version.</p>
+  if (mc.vue !== 'messages') return;
+  const c = (mc.etat && mc.etat.companion) || {};
+  const canaux = c.canaux || [];
+  const peutEnvoyer = etat.admin && c.connecte;
+  const dest = mc.destMessage || (canaux[0] ? 'canal:' + canaux[0].index : '');
+  const destDirect = dest.startsWith('direct:') ? dest.slice(7) : null;
+  const ancienTexte = $('#mc-texte') ? $('#mc-texte').value : '';
+  z.innerHTML = `
+    ${peutEnvoyer ? `<form id="mc-envoi" class="envoi">
+      <div class="envoi-ligne"><select id="mc-dest" aria-label="Destinataire">
+        ${canaux.map((x) => `<option value="canal:${x.index}" ${dest === 'canal:' + x.index ? 'selected' : ''}>Canal ${esc(x.nom)}</option>`).join('')}
+        ${destDirect ? `<option value="direct:${destDirect}" selected>✉️ ${esc(mcNom(destDirect))} (direct)</option>` : ''}
+        <option value="choisir">✉️ Message direct à…</option>
+      </select><span class="compteur" id="mc-compteur">0/140</span></div>
+      <div class="envoi-ligne"><textarea id="mc-texte" rows="2" maxlength="140" placeholder="Votre message (envoyé par ${esc(c.nom || 'le companion')})…" required></textarea><button type="submit" class="principal">Envoyer</button></div>
+      <div class="note" id="mc-retour-envoi"></div>
+    </form>` : `<p class="note">${etat.admin ? 'Reliez un companion (onglet Companion) pour envoyer des messages.' : 'L’envoi est réservé aux administrateurs.'}</p>`}
     <div id="mc-messages" class="flux">${l.length ? l.map(mcLigneMessage).join('') : '<div class="vide">Aucun message pour l’instant.</div>'}</div>`;
+  if (!peutEnvoyer) return;
+  const ta = $('#mc-texte');
+  ta.value = ancienTexte;
+  const compter = () => { const n = new TextEncoder().encode(ta.value).length; $('#mc-compteur').textContent = `${n}/140`; $('#mc-compteur').classList.toggle('trop', n > 140); };
+  ta.oninput = compter; compter();
+  ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#mc-envoi').requestSubmit(); } };
+  $('#mc-dest').onchange = (e) => {
+    if (e.target.value === 'choisir') {
+      const q = prompt('Nom (ou début) du destinataire MeshCore :');
+      const n = q && [...mc.noeuds.values()].find((x) => (x.nom || '').toLowerCase().includes(q.toLowerCase().trim()));
+      if (q && !n) alert('Aucun nœud MeshCore de ce nom sur la carte.');
+      if (n) mc.destMessage = 'direct:' + n.cle;
+      mcRendreMessages();
+      return;
+    }
+    mc.destMessage = e.target.value;
+  };
+  $('#mc-envoi').onsubmit = async (e) => {
+    e.preventDefault();
+    const v = $('#mc-dest').value, texte = ta.value.trim();
+    if (!texte) return;
+    const b = e.target.querySelector('button[type=submit]');
+    b.disabled = true; $('#mc-retour-envoi').textContent = 'Envoi…';
+    try {
+      const corps = v.startsWith('direct:') ? { vers: v.slice(7), texte } : { canal: Number(v.slice(6)), texte };
+      const r = await postJson('/api/mc/messages', corps);
+      ta.value = ''; compter();
+      $('#mc-retour-envoi').textContent = corps.vers ? `Envoyé${r.inondation ? ' (en inondation : chemin pas encore connu)' : ''}, en attente de l’accusé de réception…` : 'Envoyé sur le canal.';
+      mcRendreMessages();
+    } catch (err) { $('#mc-retour-envoi').textContent = err.message; }
+    b.disabled = false;
+  };
 }
+const STATUTS_MSG = { envoye: '⏳ envoyé', confirme: '✔ reçu', relaye: '✔ relayé', sans_accuse: '⚠ pas d’accusé' };
 function mcLigneMessage(m) {
-  return `<div class="paquet mc message-mc" data-mc-paquet="${m.rowid}"><div class="entete"><span class="heure">${new Date(m.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span class="tag"><i style="background:${MC_TYPES.canal.hex}"></i>${esc(m.canal || '')}</span>${m.sauts != null ? `<span>${m.sauts === 0 ? 'direct' : m.sauts + ' saut' + (m.sauts > 1 ? 's' : '')}</span>` : ''}</div>
-    <div class="corps"><b>${esc(m.expediteur || '?')}</b> : ${esc(m.texte)}</div></div>`;
+  const qui = m.sens === 'envoye' ? `<b>${esc(m.nomDe || 'moi')}</b>${m.genre === 'direct' ? ` → ${esc(m.nomVers || mcNom(m.vers))}` : ''}` : `<b>${esc(m.nomDe || '?')}</b>${m.genre === 'direct' ? ' → moi' : ''}`;
+  const lieu = m.genre === 'direct' ? 'Direct' : m.canal || '';
+  return `<div class="paquet mc message-mc ${m.sens}" ${m.genre === 'direct' && m.sens === 'recu' && m.de ? `data-mc-repondre="${m.de}"` : m.genre === 'canal' && m.indexCanal != null ? `data-mc-canal="${m.indexCanal}"` : ''}>
+    <div class="entete"><span class="heure">${new Date(m.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span class="tag"><i style="background:${m.genre === 'direct' ? MC_TYPES.message.hex : MC_TYPES.canal.hex}"></i>${esc(lieu)}</span>
+    ${m.sauts != null ? `<span>${m.sauts === 0 ? 'direct' : m.sauts + ' saut' + (m.sauts > 1 ? 's' : '')}</span>` : ''}${m.sens === 'envoye' ? `<span class="statut-msg ${m.statut || ''}">${STATUTS_MSG[m.statut] || ''}${m.relais > 1 ? ' ×' + m.relais : ''}</span>` : ''}</div>
+    <div class="corps">${qui} : ${esc(m.texte)}</div></div>`;
+}
+
+// ---- Gestion : administration des répéteurs et room servers (admin) ---------------------------
+const mcGestion = { selection: new Set(), suivi: null, tache: null, info: null };
+const MC_TACHES = { lire: 'Lire la configuration', statut: 'État', voisins: 'Voisins', verifier: 'Vérification de conformité', modifier: 'Modification', cli: 'Commande', annonce: 'Annonce', horloge: 'Horloge', redemarrer: 'Redémarrage' };
+const MC_STATUTS = { en_attente: 'en attente', en_cours: 'en cours…', ok: 'réussi', echec: 'échec', annule: 'arrêté' };
+async function mcRendreGestion() {
+  const z = $('#mc-contenu');
+  if (!etat.admin) { z.innerHTML = '<div class="vide">Réservé aux administrateurs.</div>'; return; }
+  try { mcGestion.info = await api('/api/mc/admin'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  if (mc.vue !== 'gestion') return;
+  const i = mcGestion.info;
+  const liste = [...mc.noeuds.values()].filter((n) => ['repeteur', 'salon', 'capteur'].includes(n.role) && mcDansZone(n)).sort((a, b) => (a.nom || '').localeCompare(b.nom || ''));
+  const sel = mcGestion.selection;
+  z.innerHTML = `
+    ${i.companion.connecte ? '' : '<div class="alerte attention">Aucun companion relié : l’administration passe par lui (onglet Companion).</div>'}
+    <p class="note">Cochez les nœuds, puis choisissez l’opération. Il faut le <b>mot de passe admin</b> de chaque nœud (mémorisable sur le serveur). Pour une vérification, le <b>premier coché</b> sert de référence.</p>
+    <div class="liste liste-mc-gestion">${liste.map((n) => `<label class="ligne-coche"><input type="checkbox" data-mc-sel="${n.cle}" ${sel.has(n.cle) ? 'checked' : ''}>
+      <span class="point ${n.statut}"></span><span class="titre"><i class="role-mc ${n.role}" style="--mcc:${mcRole(n.role).hex}"></i>${esc(n.nom || n.id)}
+      ${i.memorises.includes(n.cle) ? '<small title="mot de passe mémorisé">🔑</small>' : ''}${i.lectures[n.cle] ? `<small>lu ${ilYa(i.lectures[n.cle].heure)}</small>` : ''}</span>
+      <button class="mini" data-mc-fiche="${n.cle}" title="Fiche et administration">›</button></label>`).join('') || '<div class="vide">Aucun répéteur MeshCore connu.</div>'}</div>
+    <div class="actions-prop"><button data-mc-tout>Tout cocher</button><button data-mc-rien>Rien</button><span class="note">${sel.size} coché(s)</span></div>
+    <form id="mc-f-gestion" class="form-edit">
+      <div class="grille-edit">
+        <label>Mot de passe admin <input name="mdp" type="password" autocomplete="off" placeholder="vide = mots de passe mémorisés"></label>
+        <label class="case"><input type="checkbox" name="memoriser"> Mémoriser sur le serveur</label>
+      </div>
+      <details class="elements-mc"><summary>Éléments comparés par la vérification</summary>
+        ${i.elements.map((e) => `<label class="case"><input type="checkbox" name="el" value="${e}" ${i.elementsDefaut.includes(e) ? 'checked' : ''}> ${esc((i.params.find((p) => p.cle === e) || {}).nom || e)}</label>`).join('')}
+      </details>
+      <div class="actions-prop">
+        <button type="button" data-mc-op="lire" class="principal">Lire la configuration</button>
+        <button type="button" data-mc-op="statut">État</button>
+        <button type="button" data-mc-op="voisins">Voisins</button>
+        <button type="button" data-mc-op="verifier">Vérifier la conformité</button>
+        <button type="button" data-mc-op="horloge">Mettre à l’heure</button>
+        <button type="button" data-mc-op="annonce">Annonce</button>
+      </div>
+      <p class="erreur" id="mc-g-retour"></p>
+    </form>
+    <div id="mc-g-tache"></div>
+    <h4>Dernières opérations</h4>
+    <div class="liste">${i.taches.map((t) => `<div class="ligne" data-mc-tache="${t.id}"><span class="point ${t.statut === 'ok' ? 'actif' : t.statut === 'en_cours' || t.statut === 'en_attente' ? 'recent' : 'alerte'}"></span><span class="titre">${esc(MC_TACHES[t.type] || t.type)}<small>${t.cles.map((k) => esc(t.noms[k] || k.slice(0, 6))).join(', ')}</small></span><span class="meta">${MC_STATUTS[t.statut]} · ${ilYa(t.creee)}</span></div>`).join('') || '<div class="vide">Aucune.</div>'}</div>`;
+  z.querySelectorAll('[data-mc-sel]').forEach((c) => (c.onchange = () => { if (c.checked) sel.add(c.dataset.mcSel); else sel.delete(c.dataset.mcSel); z.querySelector('.actions-prop .note').textContent = `${sel.size} coché(s)`; }));
+  z.querySelector('[data-mc-tout]').onclick = () => { liste.forEach((n) => sel.add(n.cle)); mcRendreGestion(); };
+  z.querySelector('[data-mc-rien]').onclick = () => { sel.clear(); mcRendreGestion(); };
+  z.querySelectorAll('[data-mc-fiche]').forEach((b) => (b.onclick = (e) => { e.preventDefault(); mcOuvrirFiche(b.dataset.mcFiche, 'admin'); }));
+  z.querySelectorAll('[data-mc-tache]').forEach((l) => (l.onclick = () => mcSuivreTache(l.dataset.mcTache, $('#mc-g-tache'))));
+  z.querySelectorAll('[data-mc-op]').forEach((b) => (b.onclick = async () => {
+    const f = $('#mc-f-gestion');
+    const type = b.dataset.mcOp;
+    if (!sel.size) { $('#mc-g-retour').textContent = 'Cochez au moins un nœud.'; return; }
+    const ordre = [...sel];
+    const params = { motDePasse: f.mdp.value || undefined, memoriser: f.memoriser.checked, elements: [...f.querySelectorAll('[name=el]:checked')].map((x) => x.value) };
+    if (type === 'annonce') params.inondation = confirm('Annonce relayée par tout le réseau ?\nOK = tout le réseau · Annuler = voisins directs seulement');
+    try {
+      const t = await postJson('/api/mc/admin/taches', { type, cles: ordre, params });
+      f.mdp.value = '';
+      mcSuivreTache(t.id, $('#mc-g-tache'));
+    } catch (err) { $('#mc-g-retour').textContent = err.message; }
+  }));
+  if (mcGestion.tache) mcSuivreTache(mcGestion.tache, $('#mc-g-tache'));
+}
+
+// Suivi en direct d'une tâche (étapes, résultats, rapport de conformité)
+function mcSuivreTache(id, zone, apres) {
+  mcGestion.tache = id;
+  clearInterval(mcGestion.suivi);
+  const tour = async () => {
+    if (!zone.isConnected) { clearInterval(mcGestion.suivi); return; }
+    let t;
+    try { t = await api('/api/mc/admin/taches/' + id); } catch { clearInterval(mcGestion.suivi); return; }
+    zone.innerHTML = mcHtmlTache(t);
+    const st = zone.querySelector('[data-mc-arreter]');
+    if (st) st.onclick = () => postJson(`/api/mc/admin/taches/${id}/arreter`).catch(() => {});
+    zone.querySelectorAll('[data-mc-aligner]').forEach((b) => (b.onclick = () => mcAligner(t, b.dataset.mcAligner, zone)));
+    const j = zone.querySelector('.journal-mc'); if (j) j.scrollTop = j.scrollHeight;
+    if (!['en_cours', 'en_attente'].includes(t.statut)) { clearInterval(mcGestion.suivi); if (apres) apres(t); }
+  };
+  tour();
+  mcGestion.suivi = setInterval(tour, 1500);
+}
+function mcHtmlTache(t) {
+  const enCours = ['en_cours', 'en_attente'].includes(t.statut);
+  const r = t.rapport;
+  return `<div class="tache-mc ${t.statut}">
+    <div class="titre-tache"><b>${esc(MC_TACHES[t.type] || t.type)}</b> · ${MC_STATUTS[t.statut]}${t.courant ? ` · ${esc(t.noms[t.courant] || '')}` : ''}${enCours ? ' <span class="sablier"></span> <button class="mini" data-mc-arreter>Arrêter</button>' : ''}</div>
+    ${r ? `<table class="voisins petit"><thead><tr><th>Nœud</th><th>Résultat</th></tr></thead><tbody>
+      <tr><td><b>${esc(t.noms[r.reference] || '')}</b></td><td>référence</td></tr>
+      ${r.noeuds.map((x) => `<tr><td>${esc(x.nom || x.cle.slice(0, 8))}</td><td>${!x.lu ? `<span class="ko">non lu : ${esc(x.erreur)}</span>` : x.conforme ? '<span class="ok">✔ conforme</span>' : `${x.ecarts.map((e) => `<div><b>${esc(e.element)}</b> : ${esc(e.valeur)} <small>(réf. ${esc(e.reference)})</small></div>`).join('')}<button class="mini" data-mc-aligner="${x.cle}">Aligner sur la référence</button>`}</td></tr>`).join('')}
+    </tbody></table>` : ''}
+    <div class="journal-mc">${t.etapes.map((e) => `<div class="${e.ok ? '' : 'ko'}"><span class="heure">${heure(e.heure)}</span> ${e.cle ? `<b>${esc((t.noms[e.cle] || e.cle.slice(0, 6)).slice(0, 18))}</b> ` : ''}${esc(e.texte).replace(/\n/g, '<br>')}</div>`).join('')}</div>
+  </div>`;
+}
+async function mcAligner(t, cle, zone) {
+  const x = t.rapport.noeuds.find((n) => n.cle === cle);
+  if (!x) return;
+  const valeurs = Object.fromEntries(x.ecarts.map((e) => [e.element, e.reference]));
+  const radio = valeurs.radio !== undefined;
+  if (!confirm(`Appliquer à « ${x.nom} » :\n${Object.entries(valeurs).map(([k, v]) => `• ${k} = ${v}`).join('\n')}${radio ? '\n\n⚠ Changer la radio d’un nœud distant peut le rendre injoignable s’il ne parle plus comme les autres. Un redémarrage sera nécessaire.' : ''}`)) return;
+  try { const n = await postJson('/api/mc/admin/taches', { type: 'modifier', cles: [cle], params: { valeurs } }); mcSuivreTache(n.id, zone); } catch (e) { alert(e.message); }
+}
+
+// Panneau d'administration dans la fiche d'un répéteur / room server
+async function mcRendreAdminFiche(n, z) {
+  let l;
+  try { l = await api('/api/mc/admin/lecture/' + n.cle); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const info = mcGestion.info || await api('/api/mc/admin').catch(() => null);
+  mcGestion.info = info;
+  const lu = l.lecture || {}, v = lu.valeurs || {}, inf = lu.infos || {}, st = lu.statut;
+  const champ = (p) => {
+    const val = v[p.cle] ?? '';
+    const attrs = `name="${p.cle}" data-initial="${esc(val)}"`;
+    if (p.type === 'onoff') return `<select ${attrs}>${['on', 'off'].map((o) => `<option ${val === o ? 'selected' : ''}>${o}</option>`).join('')}${val ? '' : '<option value="" selected>?</option>'}</select>`;
+    if (p.type === 'liste') return `<select ${attrs}>${p.valeurs.map(([o, lib]) => `<option value="${o}" ${val === o ? 'selected' : ''}>${esc(lib)}</option>`).join('')}${val ? '' : '<option value="" selected>?</option>'}</select>`;
+    return `<input ${attrs} value="${esc(val)}" ${p.type === 'nombre' ? `inputmode="decimal"` : ''} placeholder="${val ? '' : 'non lu'}">`;
+  };
+  z.innerHTML = `
+    <form id="mc-f-adm" class="form-edit">
+      <div class="grille-edit">
+        <label>Mot de passe admin <input name="mdp" type="password" autocomplete="off" placeholder="${l.memorise ? '🔑 mémorisé (laisser vide)' : 'mot de passe du nœud'}"></label>
+        <label class="case"><input type="checkbox" name="memoriser" ${l.memorise ? 'checked' : ''}> Mémoriser sur le serveur</label>
+      </div>
+      <div class="actions-prop">
+        <button type="button" data-a="lire" class="principal">Lire la configuration</button><button type="button" data-a="statut">État</button><button type="button" data-a="voisins">Voisins</button>
+        <button type="button" data-a="horloge">Mettre à l’heure</button><button type="button" data-a="annonce">Annonce</button><button type="button" data-a="redemarrer">Redémarrer</button>
+        ${l.memorise ? '<button type="button" data-a="oublier">Oublier le mot de passe</button>' : ''}
+      </div>
+      ${lu.heure ? `<p class="note">Configuration lue ${ilYa(lu.heure)}${inf.version ? ` · ${esc(inf.version)}` : ''}${inf.carte ? ` · ${esc(inf.carte)}` : ''}</p>` : '<p class="note">Configuration jamais lue : commencez par « Lire la configuration ».</p>'}
+      ${st ? `<div class="grille">
+        <div class="mesure"><span>Batterie</span><b>${fmt(st.batterieMv / 1000, 2, ' V')}</b></div>
+        <div class="mesure"><span>Bruit de fond</span><b>${st.bruitDbm} dBm</b></div>
+        <div class="mesure"><span>Émission</span><b>${fmt(st.occupationEmissionPct, 1, ' %')}</b></div>
+        <div class="mesure"><span>Allumé depuis</span><b>${duree(st.allumeS)}</b></div>
+        <div class="mesure"><span>Reçus · émis</span><b>${st.recus} · ${st.emis}</b></div>
+        <div class="mesure"><span>Dernier SNR</span><b>${fmt(st.dernierSnr, 1, ' dB')}</b></div>
+      </div><p class="note">État lu ${ilYa(st.heure)} · ${st.doublonsInondation ?? 0} doublons · ${st.erreurs ?? 0} erreurs</p>` : ''}
+      <h4>Réglages</h4>
+      <div class="grille-edit reglages-mc">${(info ? info.params : []).map((p) => `<label>${esc(p.nom)}${p.redemarrage ? ' <small>(redémarrage)</small>' : ''} ${champ(p)}</label>`).join('')}</div>
+      <div class="actions-prop"><button type="button" data-a="appliquer" class="principal">Appliquer les changements</button></div>
+      ${lu.voisins ? `<h4>Voisins déclarés (${lu.voisins.length})</h4><table class="voisins petit"><thead><tr><th>Nœud</th><th class="num">SNR</th><th class="num">km</th><th>Entendu</th></tr></thead><tbody>
+        ${lu.voisins.map((x) => `<tr ${x.cle ? `data-mc="${x.cle}"` : ''}><td>${esc(x.nom || x.prefixe)}</td><td class="num" style="color:${couleurSnr(x.snr)}">${fmt(x.snr, 1)}</td><td class="num">${x.distanceKm != null ? fmt(x.distanceKm, 1) : '–'}</td><td>${x.vu ? ilYa(x.vu) : '–'}</td></tr>`).join('')}</tbody></table>` : ''}
+      <h4>Console</h4>
+      <div class="envoi-ligne"><input name="cli" placeholder="commande CLI, ex. get radio, neighbors, clock" autocomplete="off"><button type="button" data-a="cli">Envoyer</button></div>
+      <p class="erreur" id="mc-adm-retour"></p>
+    </form>
+    <div id="mc-adm-tache"></div>`;
+  const f = $('#mc-f-adm');
+  const lancer = async (type, params = {}) => {
+    try {
+      const t = await postJson('/api/mc/admin/taches', { type, cles: [n.cle], params: { ...params, motDePasse: f.mdp.value || undefined, memoriser: f.memoriser.checked } });
+      f.mdp.value = '';
+      $('#mc-adm-retour').textContent = '';
+      mcSuivreTache(t.id, $('#mc-adm-tache'), (fin) => { if (['lire', 'statut', 'voisins', 'modifier'].includes(fin.type) && mc.selection === n.cle) mcRendreAdminFiche(n, z).then(() => { const zt = $('#mc-adm-tache'); if (zt) zt.innerHTML = mcHtmlTache(fin); }); });
+    } catch (e) { $('#mc-adm-retour').textContent = e.message; }
+  };
+  f.querySelectorAll('[data-a]').forEach((b) => (b.onclick = async () => {
+    const a = b.dataset.a;
+    if (a === 'oublier') { await postJson('/api/mc/admin/mot-de-passe', { cle: n.cle, motDePasse: null }); mcRendreAdminFiche(n, z); return; }
+    if (a === 'redemarrer' && !confirm(`Redémarrer « ${n.nom} » à distance ?`)) return;
+    if (a === 'annonce') return lancer('annonce', { inondation: confirm('Annonce relayée par tout le réseau ?\nOK = tout le réseau · Annuler = voisins directs seulement') });
+    if (a === 'cli') { const c = f.cli.value.trim(); if (c) lancer('cli', { commande: c }); return; }
+    if (a === 'appliquer') {
+      const valeurs = {};
+      f.querySelectorAll('.reglages-mc [name]').forEach((x) => { if (x.value !== '' && x.value !== x.dataset.initial) valeurs[x.name] = x.value.trim(); });
+      if (!Object.keys(valeurs).length) { $('#mc-adm-retour').textContent = 'Aucun réglage modifié.'; return; }
+      if (!confirm(`Appliquer à « ${n.nom} » :\n${Object.entries(valeurs).map(([k, x]) => `• ${k} = ${x}`).join('\n')}${valeurs.radio ? '\n\n⚠ Changer la radio d’un nœud distant peut le rendre injoignable s’il ne parle plus comme les autres. Un redémarrage sera nécessaire.' : ''}`)) return;
+      return lancer('modifier', { valeurs });
+    }
+    lancer(a);
+  }));
+  f.cli.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); f.querySelector('[data-a="cli"]').click(); } };
+  z.querySelectorAll('tr[data-mc]').forEach((tr) => (tr.onclick = () => mcOuvrirFiche(tr.dataset.mc)));
 }
 
 // ---- Companion : liaison de la carte avec un companion MeshCore -----------------------------------
@@ -498,7 +727,7 @@ async function mcDebrancherNav(raison) {
 window.addEventListener('beforeunload', (e) => { if (mc.nav.etat === 'relie') { e.preventDefault(); e.returnValue = ''; } });
 
 // ---- Fiche d'un nœud MeshCore ------------------------------------------------------------------
-async function mcOuvrirFiche(cle) {
+async function mcOuvrirFiche(cle, ongletInitial) {
   mc.selection = cle;
   etat.selection = null;
   $('#fiche').hidden = false;
@@ -518,7 +747,7 @@ async function mcOuvrirFiche(cle) {
   if (n.observateur) mesures.push(['Observateur', n.etatObservateur === 'offline' ? 'hors ligne' : 'en ligne'], ['Matériel', obs.modele || '–'], ['Firmware', obs.firmware || '–']);
   const voisins = d.voisins.slice(0, 40).map((v) => `<tr data-mc="${v.cle}"><td><span style="color:${v.snrEntendu ?? v.snrEmis != null ? couleurSnr(v.snrEntendu ?? v.snrEmis) : '#fb923c'}">●</span> ${esc(v.nom || v.cle.slice(0, 8))}</td>
     <td class="num">${fmt(v.snrEntendu, 1)}</td><td class="num">${fmt(v.snrEmis, 1)}</td><td class="num">${v.distanceKm != null ? fmt(v.distanceKm, 1) : '–'}</td><td class="num">${v.nb}</td>
-    <td>${esc(v.sources.map((s) => ({ rf: 'mesuré', chemin: 'chemin', trace: 'trace' }[s])).join(', '))}</td>
+    <td>${esc(v.sources.map((s) => ({ rf: 'mesuré', chemin: 'chemin', trace: 'trace', voisinage: 'voisin déclaré' }[s])).join(', '))}</td>
     <td class="num">${n.lat != null && mc.noeuds.get(v.cle) && mc.noeuds.get(v.cle).lat != null ? `<button class="mini" data-mc-profil="${v.cle}" title="Profil de relief">⛰</button>` : ''}</td></tr>`).join('');
   zc.innerHTML = `
     <h2>${esc(n.nom || n.id)}</h2>
@@ -530,11 +759,12 @@ async function mcOuvrirFiche(cle) {
       ${n.observateur ? `<span class="badge passerelle">Observateur${obs.carte ? ' de la carte' : obs.iata ? ' · ' + esc(obs.iata) : ''}</span>` : ''}
       <span class="badge reseau-mc">MeshCore</span>
     </div>
-    <nav class="onglets-fiche"><button data-of="infos" class="actif">Informations</button><button data-of="voisins">Voisins (${d.voisins.length})</button><button data-of="trames">Paquets</button></nav>
+    <nav class="onglets-fiche"><button data-of="infos" class="actif">Informations</button><button data-of="voisins">Voisins (${d.voisins.length})</button><button data-of="trames">Paquets</button>${etat.admin && ['repeteur', 'salon', 'capteur'].includes(n.role) ? '<button data-of="admin">Administration</button>' : ''}</nav>
     <div data-pf="infos">
       <div class="grille">${mesures.map(([l, v]) => `<div class="mesure"><span>${l}</span><b>${esc(v)}</b></div>`).join('')}</div>
       <div class="boutons">
         ${n.lat != null ? '<button id="mc-centrer">Centrer</button>' : ''}
+        ${etat.admin && n.role !== 'repeteur' && !(mc.etat && mc.etat.companion && mc.etat.companion.cle === n.cle) ? '<button id="mc-ecrire">✉️ Message direct</button>' : ''}
         ${n.lat != null ? `<button id="mc-couv">Couverture selon le relief</button><label class="champ-mini">antenne <input id="mc-h" type="number" min="0.5" max="80" step="0.5" value="${n.infrastructure ? 6 : 2}"> m</label>` : ''}
       </div>
       ${d.entenduPar.length ? `<h4>Entendu par (observateurs)</h4><table class="voisins"><thead><tr><th>Observateur</th><th class="num">Paquets</th><th class="num">SNR</th><th class="num">RSSI</th><th class="num">Sauts min.</th></tr></thead><tbody>
@@ -545,11 +775,22 @@ async function mcOuvrirFiche(cle) {
       ${voisins ? `<table class="voisins"><thead><tr><th>Nœud</th><th class="num">SNR reçu</th><th class="num">SNR émis</th><th class="num">km</th><th class="num">Obs.</th><th>Source</th><th></th></tr></thead><tbody>${voisins}</tbody></table>
       <p class="note">« Mesuré » : dernier saut vers un observateur (SNR réel). « Chemin » : déduit de la liste des répéteurs traversés par un paquet (préfixes de clé, rapprochés par la géographie).</p>` : '<div class="vide">Aucune liaison connue.</div>'}
     </div>
+    <div data-pf="admin" hidden><div id="mc-admin-fiche"><div class="vide">Chargement…</div></div></div>
     <div data-pf="trames" hidden><div class="flux">${d.paquets.map((p) => mcLignePaquet(p, false)).join('') || '<div class="vide">Aucun paquet émis par ce nœud (seuls les annonces et les requêtes portent la clé complète de l’émetteur).</div>'}</div></div>`;
   zc.querySelectorAll('[data-of]').forEach((b) => (b.onclick = () => {
     zc.querySelectorAll('[data-of]').forEach((x) => x.classList.toggle('actif', x === b));
     zc.querySelectorAll('[data-pf]').forEach((x) => (x.hidden = x.dataset.pf !== b.dataset.of));
+    if (b.dataset.of === 'admin') mcRendreAdminFiche({ cle: n.cle, nom: n.nom || n.id, role: n.role }, $('#mc-admin-fiche'));
   }));
+  if (ongletInitial) { const b = zc.querySelector(`[data-of="${ongletInitial}"]`); if (b) b.click(); }
+  const ec = $('#mc-ecrire');
+  if (ec) ec.onclick = () => {
+    mc.destMessage = 'direct:' + n.cle; mc.vue = 'messages';
+    $('#panneau').classList.remove('replie'); $('#deplier').hidden = true;
+    document.querySelector('.onglets button[data-onglet="meshcore"]').click();
+    mcRendrePanneau();
+    setTimeout(() => { const t = $('#mc-texte'); if (t) t.focus(); }, 400);
+  };
   const c = $('#mc-centrer'); if (c) c.onclick = () => carte.flyTo([n.lat, n.lon], Math.max(carte.getZoom(), 12));
   const cv = $('#mc-couv'); if (cv) cv.onclick = () => voirCouvertureSite({ lat: n.lat, lon: n.lon }, n.nom || n.id, Number($('#mc-h').value) || 2, { cadrer: true, preset: 'MESHCORE_FR' });
   zc.querySelectorAll('tr[data-mc]').forEach((tr) => (tr.onclick = (e) => { if (!e.target.closest('[data-mc-profil]')) mcOuvrirFiche(tr.dataset.mc); }));
@@ -617,7 +858,13 @@ async function mcChargerLiens() {
   mc.liens = await api('/api/mc/liens?heures=' + $('#fenetre').value);
   mcDessinerLiens();
 }
-let mcRafraichir = null;
+let mcRafraichir = null, mcMinuterieMsg = null;
+function mcMessagesARafraichir() {
+  if (mc.vue !== 'messages' || !$('[data-vue="meshcore"]').classList.contains('actif')) { const b = document.querySelector('.sous-onglets-mc button[data-mc-vue="messages"]'); if (b && mc.vue !== 'messages') b.classList.add('nouveau'); return; }
+  if (document.activeElement && document.activeElement.id === 'mc-texte' && $('#mc-texte').value) return setTimeout(mcMessagesARafraichir, 4000);
+  clearTimeout(mcMinuterieMsg);
+  mcMinuterieMsg = setTimeout(() => { if (mc.vue === 'messages') mcRendreMessages(); }, 600);
+}
 function mcPlanifier() {
   if (mcRafraichir) return;
   mcRafraichir = setTimeout(async () => { mcRafraichir = null; await Promise.all([mcChargerNoeuds(), mcChargerLiens()]).catch(() => {}); rendreLegende(); }, 4000);
@@ -633,16 +880,14 @@ function mcRecevoir(m) {
     }
     mcAnimer(m);
     mcAjouterAuFlux(m);
-    if (m.texte && etat.membre && mc.vue === 'messages') {
-      const z = $('#mc-messages');
-      if (z) { const v = z.querySelector('.vide'); if (v) v.remove(); z.insertAdjacentHTML('afterbegin', mcLigneMessage({ rowid: m.rowid, heure: m.heure, canal: m.canal, expediteur: m.expediteur, texte: m.texte, sauts: m.sauts })); }
-    }
+    if (m.texte && m.premiere && etat.membre) mcMessagesARafraichir();
   } else if (m.genre === 'mc-etat') {
     mc.etat = { ...(mc.etat || {}), stats: m.stats, companion: { ...((mc.etat && mc.etat.companion) || {}), ...m.companion } };
     mcMajKpis();
     mcMajSource();
     if (etat.admin && mc.vue === 'companion') mcChargerEtat();
   } else if (m.genre === 'mc-noeuds') mcPlanifier();
+  else if (m.genre === 'mc-message' && etat.membre) mcMessagesARafraichir();
 }
 
 function demarrerMeshcore() {
@@ -665,6 +910,7 @@ function demarrerMeshcore() {
   // Onglet du panneau
   document.querySelectorAll('.sous-onglets-mc button').forEach((b) => (b.onclick = () => {
     mc.vue = b.dataset.mcVue;
+    b.classList.remove('nouveau');
     try { localStorage.setItem('gaulix_mc_vue', mc.vue); } catch { /* idem */ }
     if (mc.vue === 'companion') mcChargerEtat();
     $('#mc-contenu').innerHTML = '';
@@ -675,6 +921,16 @@ function demarrerMeshcore() {
   const sv = document.querySelector('.sous-onglets-mc button[data-mc-vue="messages"]');
   if (sv) sv.hidden = !etat.membre;
   if (!etat.membre && mc.vue === 'messages') mc.vue = 'noeuds';
+  const sg = document.querySelector('.sous-onglets-mc button[data-mc-vue="gestion"]');
+  if (sg) sg.hidden = !etat.admin;
+  if (!etat.admin && mc.vue === 'gestion') mc.vue = 'noeuds';
+  // Clic sur un message : répondre (message direct reçu) ou écrire sur son canal
+  document.body.addEventListener('click', (e) => {
+    const r = e.target.closest('[data-mc-repondre], [data-mc-canal]');
+    if (!r || !etat.admin) return;
+    mc.destMessage = r.dataset.mcRepondre ? 'direct:' + r.dataset.mcRepondre : 'canal:' + r.dataset.mcCanal;
+    mcRendreMessages().then(() => { const t = $('#mc-texte'); if (t) t.focus(); });
+  });
   // Clics dans les listes (nœuds, paquets) : délégation
   document.body.addEventListener('click', (e) => {
     const p = e.target.closest('[data-mc-paquet]');

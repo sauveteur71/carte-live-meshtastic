@@ -11,7 +11,8 @@ const { distanceKm } = require('../reseau');
 
 const ROLES_RELAIS = new Set(['repeteur', 'salon']);
 
-function creerReseauMc(db, config, canaux, journal = () => {}) {
+function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
+  let canaux = canauxInitiaux;
   db.exec(`
     CREATE TABLE IF NOT EXISTS mc_noeuds (
       cle TEXT PRIMARY KEY, nom TEXT, role TEXT, lat REAL, lon REAL, heure_position INTEGER,
@@ -39,6 +40,13 @@ function creerReseauMc(db, config, canaux, journal = () => {}) {
       PRIMARY KEY (a, b, source)
     );
     CREATE INDEX IF NOT EXISTS idx_mc_liens_heure ON mc_liens(dernier_vu);
+    -- Messages : reçus (canaux déchiffrés, messages directs du companion) et envoyés depuis la carte
+    CREATE TABLE IF NOT EXISTS mc_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, heure INTEGER, sens TEXT, genre TEXT, canal TEXT, index_canal INTEGER,
+      de TEXT, nom_de TEXT, vers TEXT, nom_vers TEXT, texte TEXT, sauts INTEGER, snr REAL,
+      statut TEXT, ack INTEGER, auteur TEXT, hachage TEXT, relais INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_mc_messages_heure ON mc_messages(heure);
   `);
 
   const q = {
@@ -80,12 +88,21 @@ function creerReseauMc(db, config, canaux, journal = () => {}) {
     compteType: db.prepare('SELECT type, COUNT(*) AS nb FROM mc_paquets WHERE heure >= ? GROUP BY type'),
     compte: db.prepare('SELECT COUNT(*) AS nb FROM mc_paquets WHERE heure >= ?'),
     receptionsObs: db.prepare('SELECT COUNT(*) AS nb FROM mc_receptions WHERE observateur = ? AND heure >= ?'),
+    msgInserer: db.prepare(`INSERT INTO mc_messages (heure, sens, genre, canal, index_canal, de, nom_de, vers, nom_vers, texte, sauts, snr, statut, ack, auteur, hachage)
+        VALUES (@heure, @sens, @genre, @canal, @indexCanal, @de, @nomDe, @vers, @nomVers, @texte, @sauts, @snr, @statut, @ack, @auteur, @hachage)`),
+    msgListe: db.prepare('SELECT * FROM mc_messages ORDER BY heure DESC LIMIT ?'),
+    msgEcho: db.prepare(`SELECT id FROM mc_messages WHERE sens = 'envoye' AND genre = 'canal' AND canal = ? AND texte = ? AND heure >= ? ORDER BY heure DESC LIMIT 1`),
+    msgRelais: db.prepare('UPDATE mc_messages SET relais = relais + 1, statut = ? WHERE id = ?'),
+    msgAck: db.prepare(`UPDATE mc_messages SET statut = 'confirme' WHERE ack = ? AND sens = 'envoye' AND heure >= ?`),
+    msgStatut: db.prepare('UPDATE mc_messages SET statut = ? WHERE id = ?'),
+    msgHachage: db.prepare('SELECT id FROM mc_messages WHERE hachage = ?'),
   };
   const purges = [
     db.prepare('DELETE FROM mc_paquets WHERE heure < ?'),
     db.prepare('DELETE FROM mc_receptions WHERE heure < ?'),
     db.prepare('DELETE FROM mc_liens WHERE dernier_vu < ?'),
     db.prepare('DELETE FROM mc_noeuds WHERE dernier_vu < ? AND COALESCE(observateur, 0) = 0'),
+    db.prepare('DELETE FROM mc_messages WHERE heure < ?'),
   ];
 
   const assurer = (cle, heure, source) => { if (cle) q.creer.run(cle, heure, heure, source || null); };
@@ -184,6 +201,12 @@ function creerReseauMc(db, config, canaux, journal = () => {}) {
         contenu: JSON.stringify({ ...c, texte: undefined, signature: undefined }),
       });
       const premiere = r.nb_receptions === 1;
+      if (garderTexte && premiere) {
+        // Notre propre message, relayé par un répéteur et réentendu : on le note comme « relayé » au lieu d'un doublon
+        const echo = c.expediteur && moi && c.expediteur === moi.nom ? q.msgEcho.get(c.canal, c.texte, heure - 5 * 60000) : null;
+        if (echo) q.msgRelais.run('relaye', echo.id);
+        else if (!q.msgHachage.get(p.hachage)) q.msgInserer.run({ heure, sens: 'recu', genre: 'canal', canal: c.canal, indexCanal: null, de: null, nomDe: c.expediteur || null, vers: null, nomVers: null, texte: c.texte, sauts, snr: sauts === 0 ? obs.snr ?? null : null, statut: null, ack: null, auteur: null, hachage: p.hachage });
+      }
 
       // Liens radio : uniquement pour l'inondation (le chemin y liste les relais déjà traversés)
       const noeudObs = obsCle ? q.noeud.get(obsCle) : null;
@@ -320,7 +343,7 @@ function creerReseauMc(db, config, canaux, journal = () => {}) {
     try { contenu = p.contenu ? JSON.parse(p.contenu) : null; } catch { /* ignoré */ }
     return {
       rowid: p.rowid, hachage: p.hachage, heure: p.heure, type: p.type, route: p.route, de: p.de, dePrefixe: p.de_prefixe, versPrefixe: p.vers_prefixe,
-      canal: p.canal, expediteur: membre ? p.expediteur : (p.expediteur ? '…' : null), texte: membre ? p.texte : undefined, resume: membre ? p.resume : p.resume.replace(/ · .*$/, ''),
+      canal: p.canal, expediteur: membre ? p.expediteur : (p.expediteur ? '…' : null), texte: membre ? p.texte : undefined, resume: membre ? p.resume : String(p.resume || '').replace(/ · .*$/, ''),
       taille: p.taille, chemin: JSON.parse(p.chemin || '[]'), sauts: p.sauts, nbReceptions: p.nb_receptions, nbObservateurs: p.nb_observateurs, contenu,
     };
   }
@@ -346,7 +369,33 @@ function creerReseauMc(db, config, canaux, journal = () => {}) {
     return d;
   }
 
-  function messages(limite) { return q.messages.all(limite); }
+  let moi = null; // companion de la carte (pour reconnaître nos propres messages)
+  function definirMoi(m) { moi = m; }
+  function messages(limite) {
+    return q.msgListe.all(limite).map((m) => ({
+      id: m.id, heure: m.heure, sens: m.sens, genre: m.genre, canal: m.canal, indexCanal: m.index_canal, de: m.de, nomDe: m.nom_de || (m.de ? (q.noeud.get(m.de) || {}).nom : null),
+      vers: m.vers, nomVers: m.nom_vers, texte: m.texte, sauts: m.sauts, snr: m.snr, statut: m.statut, relais: m.relais, auteur: m.auteur,
+    }));
+  }
+  function noterMessage(m) {
+    const r = q.msgInserer.run({ heure: Date.now(), sens: m.sens, genre: m.genre, canal: m.canal ?? null, indexCanal: m.indexCanal ?? null, de: m.de ?? null, nomDe: m.nomDe ?? null,
+      vers: m.vers ?? null, nomVers: m.nomVers ?? null, texte: m.texte, sauts: m.sauts ?? null, snr: m.snr ?? null, statut: m.statut ?? null, ack: m.ack ?? null, auteur: m.auteur ?? null, hachage: m.hachage ?? null });
+    return Number(r.lastInsertRowid);
+  }
+  const confirmerAck = (ack) => q.msgAck.run(ack, Date.now() - 30 * 60000).changes;
+  const statutMessage = (id, statut) => q.msgStatut.run(statut, id);
+  // Voisins déclarés par un répéteur (commande « neighbors ») : préfixe de clé + SNR mesuré par le répéteur
+  function lierVoisins(cleRepeteur, voisins) {
+    const rep = q.noeud.get(cleRepeteur);
+    if (!rep) return [];
+    const heure = Date.now();
+    return voisins.map((v) => {
+      const n = resoudre(v.prefixe, rep) || noeudsCache().find((x) => x.cle.startsWith(v.prefixe.toUpperCase()) && v.prefixe.length >= 8);
+      if (n) lier(n, rep, 'voisinage', v.snr, null, heure);
+      return { ...v, cle: n ? n.cle : null, nom: n ? n.nom : null, role: n ? n.role : null, distanceKm: n && n.lat != null && rep.lat != null ? Math.round(distanceKm(n, rep) * 10) / 10 : null };
+    });
+  }
+  function definirCanaux(liste) { canaux = liste; }
 
   function purger(jours) {
     const limite = Date.now() - jours * 86400000;
@@ -356,7 +405,7 @@ function creerReseauMc(db, config, canaux, journal = () => {}) {
     return n;
   }
 
-  return { integrer, importerContact, noterObservateur, vueNoeud, liens, statistiques, detailNoeud, paquets, detailPaquet, messages, purger, q, resoudreChemin };
+  return { integrer, importerContact, noterObservateur, vueNoeud, liens, statistiques, detailNoeud, paquets, detailPaquet, messages, noterMessage, confirmerAck, statutMessage, lierVoisins, definirCanaux, definirMoi, canaux: () => canaux, purger, q, resoudreChemin };
 }
 
 module.exports = { creerReseauMc };

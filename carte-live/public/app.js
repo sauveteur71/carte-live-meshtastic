@@ -1185,7 +1185,7 @@ async function couvertureIci(latlng, hauteur) {
   $('#fiche').hidden = false;
   etat.selection = null;
   $('#fiche-contenu').innerHTML = '<div class="vide">Calcul de la couverture depuis ce point…</div>';
-  const r = await voirCouvertureSite(p, 'Point choisi', h, { cadrer: true });
+  const r = await voirCouvertureSite(p, 'Point choisi', h, { cadrer: true, preset: etat.vueReseau === 'meshcore' ? 'MESHCORE_FR' : undefined });
   if (!r) { $('#fiche-contenu').innerHTML = '<div class="vide">Calcul impossible.</div>'; return; }
   $('#fiche-contenu').innerHTML = `
     <h2>Couverture depuis ce point</h2>
@@ -1300,7 +1300,7 @@ async function relierPoints(a, b, opts = {}) {
   $('#fiche').hidden = false;
   etat.selection = null;
   $('#fiche-contenu').innerHTML = `<h2>Relier deux lieux</h2><div class="alerte info-lecture"><span class="sablier"></span> Recherche du chemin radio entre <b>${esc(a.nom)}</b> et <b>${esc(b.nom)}</b> (relais existants et points hauts)…</div>`;
-  const q = new URLSearchParams({ aLat: a.lat.toFixed(5), aLon: a.lon.toFixed(5), bLat: b.lat.toFixed(5), bLon: b.lon.toFixed(5), aNom: a.nom, bNom: b.nom, hs, hA, hB, acces: etat.filtreAcces || 'tous' });
+  const q = new URLSearchParams({ aLat: a.lat.toFixed(5), aLon: a.lon.toFixed(5), bLat: b.lat.toFixed(5), bLon: b.lon.toFixed(5), aNom: a.nom, bNom: b.nom, hs, hA, hB, acces: etat.filtreAcces || 'tous', ...(etat.vueReseau === 'meshcore' ? { reseau: 'meshcore', preset: 'MESHCORE_FR' } : {}) });
   let r;
   try { r = await api('/api/relief/relier?' + q); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Relier deux lieux</h2><div class="vide">${esc(e.message)}</div>`; return; }
   if (etat.coucheCouvrir) etat.coucheCouvrir.remove();
@@ -1369,7 +1369,7 @@ async function couvrirPoint(latlng) {
   etat.selection = null;
   $('#fiche-contenu').innerHTML = '<div class="vide">Recherche des points hauts capables de couvrir ce point…</div>';
   let r;
-  try { r = await api(`/api/relief/couvrir?lat=${latlng.lat.toFixed(5)}&lon=${latlng.lng.toFixed(5)}&hs=${hs}&ht=${ht}&acces=${etat.filtreAcces}`); } catch (e) { $('#fiche-contenu').innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  try { r = await api(`/api/relief/couvrir?lat=${latlng.lat.toFixed(5)}&lon=${latlng.lng.toFixed(5)}&hs=${hs}&ht=${ht}&acces=${etat.filtreAcces}${etat.vueReseau === 'meshcore' ? '&reseau=meshcore&preset=MESHCORE_FR' : ''}`); } catch (e) { $('#fiche-contenu').innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
   const pts = [latlng];
   r.propositions.forEach((p, i) => {
     pts.push([p.lat, p.lon]);

@@ -37,6 +37,10 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - **Analyseur de paquets** en direct : annonces, messages de canal (déchiffrés pour le canal Public et les canaux « #nom » configurés), messages directs, requêtes, accusés, traces… avec le chemin de relais identifiés et le détail octet par octet
 - Le **companion** de la carte sert d'observateur (Wi-Fi, USB par l'agent, ou USB / Bluetooth depuis le navigateur) ; ses paquets sont republiés sur votre broker au format **meshcoretomqtt** (`meshcore/IATA/CLÉ/packets`), et la carte lit aussi les autres observateurs publiés sur le broker
 - Couverture et profils de relief avec le réglage radio français (869,618 MHz, BW 62,5 kHz, SF8, CR8)
+- **Messages** : envoi sur les canaux du companion et en direct (accusé de réception, « relayé » quand un répéteur a répété votre message), réception des messages directs ; un clic sur un message prépare la réponse
+- **Administration à distance des répéteurs et room servers** (onglet *MeshCore › Gestion* et fiche du nœud) : connexion par mot de passe admin (mémorisable), lecture et modification des réglages (nom, radio, puissance, répétition, sauts max., intervalles d'annonce, délais…), état (batterie, bruit de fond, temps d'émission), voisins déclarés (ajoutés à la carte), mise à l'heure, annonce, redémarrage, console CLI
+- **Vérification de conformité** de plusieurs répéteurs par rapport à une référence, avec « Aligner sur la référence »
+- *Relier* et *Couvrir* utilisent les répéteurs MeshCore et le réglage radio MeshCore en vue « MeshCore »
 
 **Comptes** : administrateur créé à l'installation, inscriptions (fermées, sur validation ou ouvertes), précision des positions réduite pour le public.
 

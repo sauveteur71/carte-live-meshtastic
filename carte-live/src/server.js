@@ -23,6 +23,7 @@ const { creerReseauMc } = require('./meshcore/reseau');
 const { creerCompanion } = require('./meshcore/companion');
 const { lireMessageMc, creerPublicateurMc } = require('./meshcore/mqtt');
 const { preparerCanauxMc, decoderPaquet: decoderPaquetMc } = require('./meshcore/paquet');
+const { creerAdministrationMc } = require('./meshcore/administration');
 const fs = require('fs');
 
 const journal = (...a) => console.log(new Date().toISOString(), ...a);
@@ -157,8 +158,12 @@ app.post('/api/relief/recalculer', (req, res) => {
 app.get('/api/relief/couvrir', (req, res) => {
   const lat = Number(req.query.lat), lon = Number(req.query.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ erreur: 'Point invalide' });
-  try { res.json(relief.couvrirPoint({ lat, lon }, optsRelief(req.query))); } catch (e) { res.status(503).json({ erreur: e.message }); }
+  const o = optsRelief(req.query);
+  if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
+  try { res.json(relief.couvrirPoint({ lat, lon }, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
 });
+// Répéteurs MeshCore positionnés et entendus depuis 24 h (relais existants pour « Relier » et « Couvrir »)
+const repeteursMc = () => { const lim = Date.now() - 24 * 3600000; return reseauMc.q.noeuds.all().filter((n) => n.lat != null && ['repeteur', 'salon'].includes(n.role) && (n.dernier_vu || 0) >= lim).map((n) => ({ num: n.cle, nom: n.nom || n.cle.slice(0, 8), lat: n.lat, lon: n.lon })); };
 app.get('/api/relief/relier', (req, res) => {
   const q = req.query, n = (v) => Number(v);
   const a = { lat: n(q.aLat), lon: n(q.aLon), nom: q.aNom ? String(q.aNom).slice(0, 60) : 'Départ' }, b = { lat: n(q.bLat), lon: n(q.bLon), nom: q.bNom ? String(q.bNom).slice(0, 60) : 'Arrivée' };
@@ -166,6 +171,7 @@ app.get('/api/relief/relier', (req, res) => {
   const o = optsRelief(q);
   if (q.hA) o.hauteurA = Math.min(Math.max(Number(q.hA) || 2, 0.5), 60);
   if (q.hB) o.hauteurB = Math.min(Math.max(Number(q.hB) || 2, 0.5), 60);
+  if (q.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
   try { res.json(relief.relierPoints(a, b, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
 });
 const cacheCouverture = new Map();
@@ -745,9 +751,9 @@ app.get('/api/mc/messages', (req, res) => {
 function etatMc(admin) {
   const e = { stats: reseauMc.statistiques() };
   const c = companion.etat();
-  e.companion = { connecte: c.connecte, nom: c.nom, cle: c.cle, radio: c.radio, navigateur: c.navigateur, paquets: c.paquets, depuis: c.depuis };
+  e.companion = { connecte: c.connecte, nom: c.nom, cle: c.cle, radio: c.radio, navigateur: c.navigateur, paquets: c.paquets, depuis: c.depuis, pret: c.pret, canaux: companion.canaux() };
   if (admin) {
-    e.companion = { ...c };
+    e.companion = { ...c, canaux: companion.canaux() };
     e.republication = publicateurMc.etat();
     e.reglages = { iata: config.meshcore.iata, racine: config.meshcore.racine, republier: config.meshcore.republier, canaux: config.meshcore.canaux.join('\n') };
     e.agents = agents.liste();
@@ -781,6 +787,68 @@ app.post('/api/mc/companion/contacts', (req, res) => {
   if (!exigerAdmin(req, res)) return;
   try { companion.rechargerContacts(); res.json({ ok: true }); } catch (e) { res.status(409).json({ erreur: e.message }); }
 });
+// Envoi d'un message (canal du companion ou message direct) — admin
+app.post('/api/mc/messages', async (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const b = req.body || {};
+  const texte = String(b.texte || '').trim();
+  if (!texte) return res.status(400).json({ erreur: 'Message vide' });
+  if (Buffer.byteLength(texte) > 140) return res.status(400).json({ erreur: 'Message trop long (140 octets au plus)' });
+  const c = companion.etat();
+  try {
+    if (b.vers) {
+      const n = reseauMc.q.noeud.get(String(b.vers).toUpperCase());
+      if (!n) return res.status(404).json({ erreur: 'Destinataire inconnu' });
+      const r = await companion.envoyerDirect({ cle: n.cle, nom: n.nom, role: n.role, lat: n.lat, lon: n.lon, horodatageAnnonce: n.horodatage_annonce }, texte);
+      const id = reseauMc.noterMessage({ sens: 'envoye', genre: 'direct', de: c.cle, nomDe: c.nom, vers: n.cle, nomVers: n.nom, texte, statut: 'envoye', ack: r.ack, auteur: u.identifiant });
+      setTimeout(() => { const m = reseauMc.messages(200).find((x) => x.id === id); if (m && m.statut === 'envoye') { reseauMc.statutMessage(id, 'sans_accuse'); diffuser({ genre: 'mc-message', confirmation: true }); } }, Math.max(r.delaiMs * 2, 30000));
+      res.json({ ok: true, id, inondation: r.inondation });
+    } else {
+      const index = Number(b.canal);
+      const canal = companion.canaux().find((x) => x.index === index);
+      if (!canal) return res.status(400).json({ erreur: 'Canal inconnu du companion' });
+      await companion.envoyerCanal(index, texte);
+      const id = reseauMc.noterMessage({ sens: 'envoye', genre: 'canal', canal: canal.nom, indexCanal: index, de: c.cle, nomDe: c.nom, texte, statut: 'envoye', auteur: u.identifiant });
+      res.json({ ok: true, id });
+    }
+    diffuser({ genre: 'mc-message', confirmation: true });
+  } catch (e) { res.status(409).json({ erreur: e.message }); }
+});
+
+// ---- Administration des répéteurs MeshCore (admin) ----
+app.get('/api/mc/admin', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  res.set('Cache-Control', 'no-store').json({ params: adminMc.PARAMS, elements: adminMc.ELEMENTS, elementsDefaut: adminMc.ELEMENTS_DEFAUT, taches: adminMc.taches(), memorises: adminMc.memorises(), lectures: adminMc.lectures(), companion: { connecte: companion.etat().connecte, pret: companion.etat().pret } });
+});
+app.get('/api/mc/admin/lecture/:cle', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  res.set('Cache-Control', 'no-store').json({ lecture: adminMc.lecture(req.params.cle), memorise: adminMc.memorises().includes(String(req.params.cle).toUpperCase()) });
+});
+app.post('/api/mc/admin/taches', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const b = req.body || {};
+  try { res.json(adminMc.lancer(String(b.type), b.cles, b.params || {}, u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.get('/api/mc/admin/taches/:id', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const t = adminMc.tache(req.params.id);
+  if (!t) return res.status(404).json({ erreur: 'Tâche inconnue' });
+  res.set('Cache-Control', 'no-store').json(t);
+});
+app.post('/api/mc/admin/taches/:id/arreter', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  try { adminMc.arreter(req.params.id); res.json({ ok: true }); } catch (e) { res.status(404).json({ erreur: e.message }); }
+});
+app.post('/api/mc/admin/mot-de-passe', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const b = req.body || {};
+  if (!/^[0-9A-F]{64}$/i.test(String(b.cle || ''))) return res.status(400).json({ erreur: 'Clé invalide' });
+  if (b.motDePasse == null) adminMc.oublierMotDePasse(b.cle); else adminMc.memoriserMotDePasse(b.cle, String(b.motDePasse).slice(0, 15));
+  res.json({ ok: true });
+});
+
 app.post('/api/mc/reglages', (req, res) => {
   const u = utilisateur(req);
   if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
@@ -979,13 +1047,35 @@ const companion = creerCompanion(config, {
     } catch (e) { journal('[MeshCore] observation non traitée :', e.message); }
   },
   surContacts: (liste) => { for (const ct of liste) reseauMc.importerContact(ct); planifierEtatMc(); diffuser({ genre: 'mc-noeuds' }); },
+  // Canaux du companion : leurs messages sont déchiffrés aussi (en plus de ceux des réglages)
+  surCanaux: (liste) => {
+    const tous = [...canauxMc];
+    for (const c of preparerCanauxMc(liste.map((x) => ({ nom: x.nom, secret: x.secret })))) if (!tous.some((y) => y.secret === c.secret)) tous.push(c);
+    reseauMc.definirCanaux(tous);
+  },
+  surMessage: (m) => {
+    if (m.genre === 'canal') {
+      // Déjà décodé depuis le paquet brut si le canal est connu ; sinon on le garde tel quel
+      if (reseauMc.canaux().some((c) => c.nom === m.canal)) return;
+      const i = m.texte.indexOf(': ');
+      const id = reseauMc.noterMessage({ sens: 'recu', genre: 'canal', canal: m.canal, indexCanal: m.index, nomDe: i > 0 ? m.texte.slice(0, i) : null, texte: i > 0 ? m.texte.slice(i + 2) : m.texte, sauts: m.sauts, snr: m.snr });
+      diffuser({ genre: 'mc-message', id, sens: 'recu', canal: m.canal, texte: i > 0 ? m.texte.slice(i + 2) : m.texte, nomDe: i > 0 ? m.texte.slice(0, i) : null, heure: Date.now() });
+      return;
+    }
+    const c = companion.etat();
+    const id = reseauMc.noterMessage({ sens: 'recu', genre: 'direct', de: m.de || null, nomDe: m.nom || m.prefixe, vers: c.cle, nomVers: c.nom, texte: m.texte, sauts: m.sauts, snr: m.snr });
+    diffuser({ genre: 'mc-message', id, sens: 'recu', direct: true, de: m.de, nomDe: m.nom || m.prefixe, texte: m.texte, heure: Date.now() });
+  },
+  surConfirmation: ({ ack }) => { if (reseauMc.confirmerAck(ack)) diffuser({ genre: 'mc-message', confirmation: true }); },
   surEtat: () => {
     const c = companion.etat();
+    if (c.cle) reseauMc.definirMoi({ cle: c.cle, nom: c.nom });
     if (c.cle) reseauMc.noterObservateur(c.cle, { nom: c.nom, role: 'companion', lat: c.lat, lon: c.lon, etat: c.connecte ? 'online' : 'offline', details: { modele: c.modele, firmware: c.firmware, radio: c.radio, iata: config.meshcore.iata, carte: true } });
     planifierEtatMc();
   },
 });
 if (config.meshcore.actif) companion.demarrer();
+const adminMc = creerAdministrationMc(config, companion, reseauMc, (...a) => journal('[MeshCore]', ...a));
 const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   integrerEvenement: (evt) => {
     const sortie = reseau.integrer(evt);
