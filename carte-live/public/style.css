@@ -734,3 +734,9 @@ label.case { display: flex !important; flex-direction: row !important; align-ite
 .chemin-test small { color: var(--doux); margin-left: 4px; }
 .sous-onglets-mc { flex-wrap: wrap; }
 .sous-onglets-mc button { flex: 1 0 auto; min-width: 70px; }
+body[data-reseau="meshcore"] .mt-seul { display: none !important; }
+.titre-reseau { display: none; font-size: 10px; padding: 1px 6px; border-radius: 99px; letter-spacing: .05em; }
+body[data-reseau="les-deux"] .titre-reseau { display: inline-block; background: rgba(62,230,196,.12); color: var(--accent); }
+body[data-reseau="les-deux"] .mc-seul-bloc .titre-reseau { background: rgba(249,115,22,.15); color: #fdba74; }
+/* Vue MeshCore seule : on masque ce qui ne concerne que Meshtastic */
+body[data-reseau="meshcore"] #sources .ligne:not(#ligne-mc):not(#ligne-broker) { display: none; }

@@ -69,13 +69,13 @@ function appliquerVueReseau() {
   const ong = document.querySelector('.onglets button[data-onglet="meshcore"]');
   if (ong) ong.hidden = etat.vueReseau === 'meshtastic';
   // Onglets propres à Meshtastic masqués en vue MeshCore seule
-  for (const o of ['trafic', 'gestion', 'messages']) {
+  for (const o of ['noeuds', 'trafic', 'analyse', 'gestion', 'messages']) {
     const b = document.querySelector(`.onglets button[data-onglet="${o}"]`);
     if (b && !b.dataset.cacheInitial) b.dataset.cacheInitial = b.hidden ? '1' : '0';
     if (b) b.hidden = b.dataset.cacheInitial === '1' || etat.vueReseau === 'meshcore';
   }
   const actif = document.querySelector('.onglets button.actif');
-  if (etat.vueReseau === 'meshcore' && (!actif || actif.hidden || ['reseau', 'noeuds'].includes(actif.dataset.onglet))) ong && ong.click();
+  if (etat.vueReseau === 'meshcore' && (!actif || actif.hidden)) ong && ong.click();
   if (etat.vueReseau === 'meshtastic' && actif && actif.dataset.onglet === 'meshcore') document.querySelector('.onglets button[data-onglet="reseau"]').click();
   dessinerNoeuds();
   dessinerLiens();
@@ -589,21 +589,23 @@ async function mcChargerEtat() {
   if (mc.vue === 'companion' && $('[data-vue="meshcore"]').classList.contains('actif')) mcRendreCompanion();
 }
 function mcMajAlertes() {
-  const a = ((mc.etat && mc.etat.alertes) || []).filter((x) => { const n = x.noeud && mc.noeuds.get(x.noeud); return !n || mcDansZone(n); });
-  let z = $('#alertes-mc');
-  if (!z) {
-    const ref = $('#alertes');
-    if (!ref) return;
-    ref.insertAdjacentHTML('afterend', '<h3 id="titre-alertes-mc">Alertes MeshCore <span id="nb-alertes-mc" class="pastille">0</span></h3><div id="alertes-mc" class="liste-alertes"></div>');
-    z = $('#alertes-mc');
+  const z = $('#alertes-mc');
+  if (!z) return;
+  if (!z.dataset.branche) {
+    z.dataset.branche = '1';
     z.onclick = (e) => { const el = e.target.closest('[data-mc-alerte]'); if (el && el.dataset.mcAlerte) mcOuvrirFiche(el.dataset.mcAlerte); };
   }
-  const cache = etat.vueReseau === 'meshtastic';
-  $('#titre-alertes-mc').hidden = cache; z.hidden = cache;
+  document.querySelectorAll('.mc-seul-bloc').forEach((b) => (b.hidden = !mcAffiche()));
+  const a = ((mc.etat && mc.etat.alertes) || []).filter((x) => { const n = x.noeud && mc.noeuds.get(x.noeud); return !n || mcDansZone(n); });
   const p = $('#nb-alertes-mc');
   p.textContent = a.length;
   p.className = 'pastille' + (a.some((x) => x.niveau === 'critique') ? ' critique' : a.length ? ' attention' : '');
   z.innerHTML = a.length ? a.map((x) => `<div class="alerte ${x.niveau}" data-mc-alerte="${x.noeud || ''}">${esc(x.message)}<small>${x.niveau === 'critique' ? 'Critique' : 'Attention'} · depuis ${ilYa(x.depuis).replace('il y a ', '')}</small></div>`).join('') : '<div class="vide">Aucune alerte MeshCore.</div>';
+  // Répéteurs et room servers de la zone
+  const rep = [...mc.noeuds.values()].filter((n) => ['repeteur', 'salon'].includes(n.role) && mcDansZone(n)).sort((x, y) => (x.nom || '').localeCompare(y.nom || ''));
+  const enAlerte = new Set(a.map((x) => x.noeud));
+  $('#infra-mc').innerHTML = rep.length ? rep.map((n) => `<div class="ligne" data-mc="${n.cle}"><span class="point ${enAlerte.has(n.cle) ? 'alerte' : n.statut}"></span><span class="titre"><i class="role-mc ${n.role}" style="--mcc:${mcRole(n.role).hex}"></i>${esc(n.nom || n.id)}<small>${esc(mcRole(n.role).un)}</small></span><span class="meta">${ilYa(n.dernierVu)}</span></div>`).join('')
+    : '<div class="vide">Aucun répéteur MeshCore connu dans la zone (reliez votre companion pour entendre ceux du coin).</div>';
 }
 // Chaleur d'activité MeshCore (paquets des 10 dernières minutes, par nœud émetteur ou relais)
 const mcActivite = [];
@@ -976,6 +978,7 @@ async function mcChargerNoeuds() {
   mcDessinerNoeuds();
   if ($('#mc-liste') && mc.vue === 'noeuds') mcRendreNoeuds();
   mcMajKpis();
+  mcMajAlertes();
 }
 async function mcChargerLiens() {
   mc.liens = await api('/api/mc/liens?heures=' + $('#fenetre').value);

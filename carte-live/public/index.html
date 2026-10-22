@@ -91,22 +91,33 @@
     </nav>
 
     <section data-vue="reseau" class="vue actif">
-      <h3>Alertes <span id="nb-alertes" class="pastille">0</span></h3>
-      <div id="alertes" class="liste-alertes"></div>
-      <h3>Passerelles</h3>
-      <div id="passerelles" class="liste"></div>
-      <h3>Relais et infrastructure</h3>
-      <div id="infra" class="liste"></div>
+      <div class="mt-seul">
+        <h3>Alertes <span class="titre-reseau">Meshtastic</span> <span id="nb-alertes" class="pastille">0</span></h3>
+        <div id="alertes" class="liste-alertes"></div>
+      </div>
+      <div class="mc-seul-bloc" hidden>
+        <h3>Alertes <span class="titre-reseau">MeshCore</span> <span id="nb-alertes-mc" class="pastille">0</span></h3>
+        <div id="alertes-mc" class="liste-alertes"></div>
+        <h3>Répéteurs MeshCore de la zone</h3>
+        <div id="infra-mc" class="liste"></div>
+      </div>
+      <div class="mt-seul">
+        <h3>Passerelles <span class="titre-reseau">Meshtastic</span></h3>
+        <div id="passerelles" class="liste"></div>
+        <h3>Relais et infrastructure <span class="titre-reseau">Meshtastic</span></h3>
+        <div id="infra" class="liste"></div>
+      </div>
       <h3>Sources de données</h3>
       <div id="sources" class="liste"></div>
-      <div id="bloc-modules" hidden>
-        <h3>Modules radio (Wi-Fi, USB)</h3>
+      <div id="bloc-modules" class="mt-seul" hidden>
+        <h3>Modules radio Meshtastic (Wi-Fi, USB)</h3>
         <div id="modules-radio" class="liste"></div>
       </div>
-      <h3>Trafic de la dernière heure</h3>
-      <div id="repartition" class="repartition"></div>
+      <div class="mt-seul">
+        <h3>Trafic Meshtastic de la dernière heure</h3>
+        <div id="repartition" class="repartition"></div>
+      </div>
     </section>
-
     <section data-vue="noeuds" class="vue">
       <div class="recherche">
         <input id="recherche" type="search" placeholder="Nom, nom court ou !identifiant…" autocomplete="off">
