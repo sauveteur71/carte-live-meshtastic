@@ -82,6 +82,8 @@ function appliquerVueReseau() {
   mcRedessiner();
   rendreLegende();
   mcMajKpis();
+  mcMajAlertes();
+  mcDessinerChaleur();
 }
 
 // ---- Carte ---------------------------------------------------------------------------------
@@ -228,6 +230,7 @@ function mcRendrePanneau() {
   else if (mc.vue === 'paquets') mcRendrePaquets();
   else if (mc.vue === 'messages') mcRendreMessages();
   else if (mc.vue === 'gestion') mcRendreGestion();
+  else if (mc.vue === 'analyse') mcRendreAnalyse();
   else mcRendreCompanion();
 }
 function mcRendreNoeuds() {
@@ -365,6 +368,43 @@ function mcLigneMessage(m) {
     <div class="entete"><span class="heure">${new Date(m.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span class="tag"><i style="background:${m.genre === 'direct' ? MC_TYPES.message.hex : MC_TYPES.canal.hex}"></i>${esc(lieu)}</span>
     ${m.sauts != null ? `<span>${m.sauts === 0 ? 'direct' : m.sauts + ' saut' + (m.sauts > 1 ? 's' : '')}</span>` : ''}${m.sens === 'envoye' ? `<span class="statut-msg ${m.statut || ''}">${STATUTS_MSG[m.statut] || ''}${m.relais > 1 ? ' ×' + m.relais : ''}</span>` : ''}</div>
     <div class="corps">${qui} : ${esc(m.texte)}</div></div>`;
+}
+
+// ---- Analyse du trafic MeshCore ----------------------------------------------------------------
+async function mcRendreAnalyse() {
+  const z = $('#mc-contenu');
+  const h = mc.heuresAnalyse || 24;
+  z.innerHTML = `<div class="recherche"><select id="mc-periode">${[[1, 'Dernière heure'], [6, '6 dernières heures'], [24, '24 dernières heures'], [168, '7 jours']].map(([v, l]) => `<option value="${v}" ${v === h ? 'selected' : ''}>${l}</option>`).join('')}</select></div><div id="mc-analyse"><div class="vide">Calcul…</div></div>`;
+  $('#mc-periode').onchange = (e) => { mc.heuresAnalyse = Number(e.target.value); mcRendreAnalyse(); };
+  let a;
+  try { a = await api('/api/mc/analyse?heures=' + h); } catch (e) { $('#mc-analyse').innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  if (mc.vue !== 'analyse' || !$('#mc-analyse')) return;
+  const max = Math.max(1, ...a.parType.map((t) => t.nb));
+  const maxH = Math.max(1, ...a.parHeure.map((x) => x.nb));
+  const maxS = Math.max(1, ...a.sauts.map((x) => x.nb));
+  $('#mc-analyse').innerHTML = `
+    <div class="grille">
+      <div class="mesure"><span>Paquets</span><b>${a.total}</b></div>
+      <div class="mesure"><span>Temps d’antenne</span><b>${a.airtimeS} s</b></div>
+      <div class="mesure"><span>Occupation</span><b>${fmt(a.occupationPct, 1, ' %')}</b></div>
+    </div>
+    <p class="note">Occupation : temps d’émission cumulé des paquets distincts (réglage MeshCore France, SF8 · 62,5 kHz), sans compter les répétitions par les relais.</p>
+    <h4>Par type</h4><div class="repartition">
+    ${a.parType.map((t) => { const x = mcType(t.type); return `<div class="barre-port"><span>${esc(x.nom)}</span><div class="piste"><i style="width:${(t.nb / max) * 100}%;background:${x.hex}"></i></div><span class="nb">${t.nb}</span></div>`; }).join('') || '<div class="vide">Aucun paquet.</div>'}</div>
+    <h4>Activité par heure</h4>
+    <div class="histo-mc">${a.parHeure.map((x) => `<i style="height:${Math.max(4, (x.nb / maxH) * 100)}%" title="${new Date(x.h).toLocaleString('fr-FR', { weekday: 'short', hour: '2-digit' })} h : ${x.nb} paquets"></i>`).join('')}</div>
+    <h4>Nombre de sauts (paquets en inondation)</h4><div class="repartition">
+    ${a.sauts.map((x) => `<div class="barre-port"><span>${x.sauts === 0 ? 'direct' : x.sauts + ' saut' + (x.sauts > 1 ? 's' : '')}</span><div class="piste"><i style="width:${(x.nb / maxS) * 100}%;background:#fb923c"></i></div><span class="nb">${x.nb}</span></div>`).join('')}</div>
+    <h4>Émetteurs identifiés les plus actifs</h4>
+    <table class="voisins petit"><thead><tr><th>Nœud</th><th class="num">Paquets</th><th class="num">Annonces</th><th class="num">Sauts min.</th></tr></thead><tbody>
+      ${a.emetteurs.map((e) => `<tr data-mc="${e.de}"><td><i class="role-mc ${e.role || 'inconnu'}" style="--mcc:${mcRole(e.role).hex}"></i>${esc(e.nom || e.de.slice(0, 8))}</td><td class="num">${e.nb}</td><td class="num">${e.annonces}</td><td class="num">${e.sauts_min ?? '–'}</td></tr>`).join('')}</tbody></table>
+    <h4>Répéteurs les plus traversés</h4>
+    <table class="voisins petit"><thead><tr><th>Préfixe</th><th>Répéteur(s) possible(s)</th><th class="num">Passages</th></tr></thead><tbody>
+      ${a.topRelais.map((r) => `<tr ${r.candidats.length === 1 ? `data-mc="${r.candidats[0].cle}"` : ''}><td class="mono">${esc(r.prefixe)}</td><td>${r.candidats.length ? r.candidats.map((c) => esc(c.nom || c.cle.slice(0, 8))).join(' / ') : '<small>inconnu</small>'}${r.candidats.length > 1 ? ' <small>(préfixe partagé)</small>' : ''}</td><td class="num">${r.nb}</td></tr>`).join('')}</tbody></table>
+    <h4>Observateurs</h4>
+    <table class="voisins petit"><thead><tr><th>Observateur</th><th class="num">Réceptions</th><th class="num">SNR moy.</th><th>Dernière</th></tr></thead><tbody>
+      ${a.observateurs.map((o) => `<tr data-mc="${o.observateur}"><td>${esc(o.nom || o.observateur.slice(0, 8))}</td><td class="num">${o.nb}</td><td class="num">${fmt(o.snr, 1)}</td><td>${ilYa(o.dernier)}</td></tr>`).join('')}</tbody></table>`;
+  $('#mc-analyse').querySelectorAll('tr[data-mc]').forEach((tr) => (tr.onclick = () => mcOuvrirFiche(tr.dataset.mc)));
 }
 
 // ---- Gestion : administration des répéteurs et room servers (admin) ---------------------------
@@ -545,7 +585,43 @@ async function mcChargerEtat() {
   try { mc.etat = await api('/api/mc/etat'); } catch { return; }
   mcMajKpis();
   mcMajSource();
+  mcMajAlertes();
   if (mc.vue === 'companion' && $('[data-vue="meshcore"]').classList.contains('actif')) mcRendreCompanion();
+}
+function mcMajAlertes() {
+  const a = ((mc.etat && mc.etat.alertes) || []).filter((x) => { const n = x.noeud && mc.noeuds.get(x.noeud); return !n || mcDansZone(n); });
+  let z = $('#alertes-mc');
+  if (!z) {
+    const ref = $('#alertes');
+    if (!ref) return;
+    ref.insertAdjacentHTML('afterend', '<h3 id="titre-alertes-mc">Alertes MeshCore <span id="nb-alertes-mc" class="pastille">0</span></h3><div id="alertes-mc" class="liste-alertes"></div>');
+    z = $('#alertes-mc');
+    z.onclick = (e) => { const el = e.target.closest('[data-mc-alerte]'); if (el && el.dataset.mcAlerte) mcOuvrirFiche(el.dataset.mcAlerte); };
+  }
+  const cache = etat.vueReseau === 'meshtastic';
+  $('#titre-alertes-mc').hidden = cache; z.hidden = cache;
+  const p = $('#nb-alertes-mc');
+  p.textContent = a.length;
+  p.className = 'pastille' + (a.some((x) => x.niveau === 'critique') ? ' critique' : a.length ? ' attention' : '');
+  z.innerHTML = a.length ? a.map((x) => `<div class="alerte ${x.niveau}" data-mc-alerte="${x.noeud || ''}">${esc(x.message)}<small>${x.niveau === 'critique' ? 'Critique' : 'Attention'} · depuis ${ilYa(x.depuis).replace('il y a ', '')}</small></div>`).join('') : '<div class="vide">Aucune alerte MeshCore.</div>';
+}
+// Chaleur d'activité MeshCore (paquets des 10 dernières minutes, par nœud émetteur ou relais)
+const mcActivite = [];
+function mcNoterActivite(cle) { if (cle) mcActivite.push({ cle, heure: Date.now() }); }
+function mcDessinerChaleur() {
+  if (!mc.coucheChaleur) mc.coucheChaleur = L.layerGroup().addTo(carte);
+  mc.coucheChaleur.clearLayers();
+  const limite = Date.now() - 10 * 60000;
+  while (mcActivite.length && mcActivite[0].heure < limite) mcActivite.shift();
+  if (!etat.legende.chaleur || !mcAffiche()) return;
+  const compte = new Map();
+  for (const a of mcActivite) compte.set(a.cle, (compte.get(a.cle) || 0) + 1);
+  for (const [cle, c] of compte) {
+    const n = mc.noeuds.get(cle);
+    if (!n || n.lat == null || !mcDansZone(n)) continue;
+    const f = Math.min(1, c / 12);
+    for (const [r, o] of [[4500, 0.05], [2600, 0.08], [1200, 0.13]]) L.circle([n.lat, n.lon], { radius: r * (0.7 + f * 0.6), stroke: false, fillColor: f > 0.6 ? '#ff3b3b' : f > 0.25 ? '#ff8a3b' : '#ffd23b', fillOpacity: o + f * 0.08, pane: 'couverture', interactive: false }).addTo(mc.coucheChaleur);
+  }
 }
 function mcMajSource() {
   const z = $('#sources');
@@ -583,6 +659,7 @@ function mcRendreCompanion() {
       ${c.connecte ? '<button data-mc-act="annonce0" title="Annonce entendue seulement par les voisins directs">Annonce voisins</button><button data-mc-act="annonce1" title="Annonce relayée par les répéteurs">Annonce réseau</button><button data-mc-act="contacts" title="Relire les contacts du companion">Contacts</button>' : ''}
       ${c.cible || c.navigateur ? '<button data-mc-act="stop">Débrancher</button>' : ''}
     </div>
+    ${c.canaux && c.canaux.length ? `<h4>Canaux du companion</h4><div class="actions-prop">${c.canaux.map((x) => `<button data-mc-qr-canal="${esc(x.nom)}" title="QR code du canal (avec sa clé)">🔳 ${esc(x.nom)}</button>`).join('')}</div>` : ''}
     <h4>Relier un companion</h4>
     <p class="note">La carte se sert du companion comme <b>observateur</b> : il lui transmet chaque paquet MeshCore qu’il entend, avec le SNR. Il ne peut servir qu’un client à la fois (l’appli du téléphone sera déconnectée).</p>
     <div class="bloc-usb">
@@ -622,6 +699,7 @@ function mcRendreCompanion() {
       setTimeout(mcChargerEtat, 800);
     } catch (err) { retour(err.message); }
   }));
+  z.querySelectorAll('[data-mc-qr-canal]').forEach((b) => (b.onclick = () => mcOuvrirQr({ canal: b.dataset.mcQrCanal })));
   z.querySelectorAll('[data-mc-agent]').forEach((b) => (b.onclick = async () => {
     try { await postJson('/api/mc/companion', { type: 'agent', hote: b.dataset.mcAgent }); setTimeout(mcChargerEtat, 4500); b.textContent = 'Connexion…'; } catch (err) { retour(err.message); }
   }));
@@ -726,6 +804,34 @@ async function mcDebrancherNav(raison) {
 }
 window.addEventListener('beforeunload', (e) => { if (mc.nav.etat === 'relie') { e.preventDefault(); e.returnValue = ''; } });
 
+// Résultat d'une découverte de chemin, avec tracé sur la carte
+function mcHtmlChemin(c, n) {
+  const etape = (x) => `<span class="saut${x.cle ? ' resolu' : ''}">${esc(x.nom || x.prefixe)}</span>`;
+  const moi = (mc.etat && mc.etat.companion && mc.etat.companion.nom) || 'companion';
+  return `<div class="chemin-test"><h4>Liaison testée ${c.heure ? ilYa(c.heure) : ''} · ${fmt(c.dureeMs / 1000, 1, ' s')} aller-retour</h4>
+    <div class="chemin-mc"><span class="saut obs">${esc(moi)}</span>${c.aller.map((x) => '<i>›</i>' + etape(x)).join('')}<i>›</i><span class="saut obs">${esc(n.nom || n.id)}</span> <small>aller</small></div>
+    <div class="chemin-mc"><span class="saut obs">${esc(n.nom || n.id)}</span>${c.retour.map((x) => '<i>›</i>' + etape(x)).join('')}<i>›</i><span class="saut obs">${esc(moi)}</span> <small>retour</small></div></div>`;
+}
+function mcHtmlTelemetrie(t) {
+  if (!t || !t.length) return '';
+  const pts = t.map((x) => ({ heure: x.heure, tension: x.batterie_mv ? x.batterie_mv / 1000 : null, emission: x.emission_pct, bruit: x.bruit }));
+  const der = t[t.length - 1];
+  return `<h4>État du répéteur (${t.length} relevé${t.length > 1 ? 's' : ''}, dernier ${ilYa(der.heure)})</h4>
+    <div class="grille"><div class="mesure"><span>Batterie</span><b>${fmt(der.batterie_mv / 1000, 2, ' V')}</b></div><div class="mesure"><span>Bruit</span><b>${der.bruit ?? '–'} dBm</b></div><div class="mesure"><span>Émission</span><b>${fmt(der.emission_pct, 1, ' %')}</b></div></div>
+    ${courbe(pts, 'tension', 'Tension', ' V', 2, etat.config.seuils.tensionVolts)}${courbe(pts, 'emission', 'Temps d’émission', ' %', 1)}${courbe(pts, 'bruit', 'Bruit de fond', ' dBm', 0)}`;
+}
+async function mcOuvrirQr(q) {
+  const dlg = $('#dlg-qr'), z = $('#qr-contenu');
+  z.innerHTML = '<div class="vide">Chargement…</div>';
+  if (!dlg.open) dlg.showModal();
+  try {
+    const r = await api('/api/mc/qr?' + new URLSearchParams(q));
+    z.innerHTML = `<h3>${esc(r.titre)}</h3><div class="qr-mc">${r.svg}</div>
+      <p class="note">À scanner dans l’appli MeshCore (${q.canal ? 'ajout du canal, avec sa clé : ne le diffusez qu’aux personnes autorisées' : 'ajout du contact'}).</p>
+      <div class="boutons"><button data-copier="${esc(r.url)}">Copier le lien</button></div>`;
+  } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; }
+}
+
 // ---- Fiche d'un nœud MeshCore ------------------------------------------------------------------
 async function mcOuvrirFiche(cle, ongletInitial) {
   mc.selection = cle;
@@ -765,8 +871,12 @@ async function mcOuvrirFiche(cle, ongletInitial) {
       <div class="boutons">
         ${n.lat != null ? '<button id="mc-centrer">Centrer</button>' : ''}
         ${etat.admin && n.role !== 'repeteur' && !(mc.etat && mc.etat.companion && mc.etat.companion.cle === n.cle) ? '<button id="mc-ecrire">✉️ Message direct</button>' : ''}
+        ${etat.admin && mc.etat && mc.etat.companion && mc.etat.companion.connecte && mc.etat.companion.cle !== n.cle ? '<button id="mc-tester" title="Découverte du chemin aller et retour depuis le companion de la carte">Tester la liaison</button>' : ''}
+        <button id="mc-qr" title="QR code à scanner dans l’appli MeshCore pour ajouter ce contact">🔳 QR code</button>
         ${n.lat != null ? `<button id="mc-couv">Couverture selon le relief</button><label class="champ-mini">antenne <input id="mc-h" type="number" min="0.5" max="80" step="0.5" value="${n.infrastructure ? 6 : 2}"> m</label>` : ''}
       </div>
+      <div id="mc-test-zone">${d.chemin ? mcHtmlChemin(d.chemin, n) : ''}</div>
+      ${mcHtmlTelemetrie(d.telemetrie)}
       ${d.entenduPar.length ? `<h4>Entendu par (observateurs)</h4><table class="voisins"><thead><tr><th>Observateur</th><th class="num">Paquets</th><th class="num">SNR</th><th class="num">RSSI</th><th class="num">Sauts min.</th></tr></thead><tbody>
         ${d.entenduPar.map((e) => `<tr data-mc="${e.observateur}"><td>${esc(e.nom || e.observateur.slice(0, 8))}</td><td class="num">${e.nb}</td><td class="num">${fmt(e.snr, 1)}</td><td class="num">${fmt(e.rssi, 0)}</td><td class="num">${e.sauts_min ?? '–'}</td></tr>`).join('')}</tbody></table>` : ''}
       <p class="note">Le SNR et le RSSI d’un observateur ne valent que pour les paquets entendus <b>en direct</b> (0 saut). Les « sauts » comptent les répéteurs traversés.</p>
@@ -783,6 +893,19 @@ async function mcOuvrirFiche(cle, ongletInitial) {
     if (b.dataset.of === 'admin') mcRendreAdminFiche({ cle: n.cle, nom: n.nom || n.id, role: n.role }, $('#mc-admin-fiche'));
   }));
   if (ongletInitial) { const b = zc.querySelector(`[data-of="${ongletInitial}"]`); if (b) b.click(); }
+  const bq = $('#mc-qr'); if (bq) bq.onclick = () => mcOuvrirQr({ cle: n.cle });
+  const bt = $('#mc-tester');
+  if (bt) bt.onclick = async () => {
+    bt.disabled = true;
+    try {
+      const t = await postJson('/api/mc/admin/taches', { type: 'chemin', cles: [n.cle] });
+      mcSuivreTache(t.id, $('#mc-test-zone'), (fin) => {
+        const r = fin.resultats[n.cle];
+        if (r && r.chemin && $('#mc-test-zone')) $('#mc-test-zone').insertAdjacentHTML('afterbegin', mcHtmlChemin(r.chemin, n));
+        bt.disabled = false;
+      });
+    } catch (e) { alert(e.message); bt.disabled = false; }
+  };
   const ec = $('#mc-ecrire');
   if (ec) ec.onclick = () => {
     mc.destMessage = 'direct:' + n.cle; mc.vue = 'messages';
@@ -880,11 +1003,14 @@ function mcRecevoir(m) {
     }
     mcAnimer(m);
     mcAjouterAuFlux(m);
+    mcNoterActivite(m.de); (m.cheminResolu || []).forEach(mcNoterActivite);
     if (m.texte && m.premiere && etat.membre) mcMessagesARafraichir();
   } else if (m.genre === 'mc-etat') {
     mc.etat = { ...(mc.etat || {}), stats: m.stats, companion: { ...((mc.etat && mc.etat.companion) || {}), ...m.companion } };
+    if (m.alertes) mc.etat.alertes = m.alertes;
     mcMajKpis();
     mcMajSource();
+    mcMajAlertes();
     if (etat.admin && mc.vue === 'companion') mcChargerEtat();
   } else if (m.genre === 'mc-noeuds') mcPlanifier();
   else if (m.genre === 'mc-message' && etat.membre) mcMessagesARafraichir();
@@ -947,5 +1073,6 @@ function demarrerMeshcore() {
   $('#fermer-fiche').addEventListener('click', () => { mc.selection = null; });
   Promise.all([mcChargerNoeuds(), mcChargerLiens(), mcChargerEtat()]).then(() => { appliquerVueReseau(); }).catch(() => appliquerVueReseau());
   setInterval(() => mcChargerLiens().catch(() => {}), 120000);
+  setInterval(mcDessinerChaleur, 20000);
   setInterval(() => { mcChargerNoeuds().catch(() => {}); }, 60000);
 }

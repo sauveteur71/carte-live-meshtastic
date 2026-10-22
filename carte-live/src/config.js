@@ -116,6 +116,11 @@ const config = {
     republier: texte('MESHCORE_REPUBLIER', 'oui') !== 'non',
     // Canaux de groupe à déchiffrer : Public, #nom (canal « hashtag ») ou nom=secret (32 caractères hexadécimaux)
     canaux: texte('MESHCORE_CANAUX', 'Public').split(/[;\n]/).map((s) => s.trim()).filter(Boolean),
+    // Répéteur « muet » au-delà de ce délai (les répéteurs MeshCore s'annoncent peu : 12 h par défaut)
+    muetHeures: nombre('MESHCORE_MUET_HEURES', 26),
+    // Interrogation automatique de l'état des répéteurs surveillés (0 = jamais) et nombre max. par tour
+    supervisionHeures: nombre('MESHCORE_SUPERVISION_HEURES', 3),
+    supervisionMax: nombre('MESHCORE_SUPERVISION_MAX', 8),
   },
 };
 

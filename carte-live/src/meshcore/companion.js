@@ -16,7 +16,6 @@
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const { ROLES } = require('./paquet');
 
 const CMD = {
@@ -28,7 +27,7 @@ const RESP = {
   OK: 0, ERR: 1, CONTACTS_START: 2, CONTACT: 3, END_CONTACTS: 4, SELF_INFO: 5, SENT: 6, CONTACT_MSG: 7, CHANNEL_MSG: 8,
   NO_MORE: 10, BATT: 12, DEVICE_INFO: 13, CONTACT_MSG_V3: 16, CHANNEL_MSG_V3: 17, CHANNEL_INFO: 18,
 };
-const PUSH = { ADVERT: 0x80, PATH_UPDATED: 0x81, SEND_CONFIRMED: 0x82, MSG_WAITING: 0x83, LOGIN_OK: 0x85, LOGIN_FAIL: 0x86, STATUS: 0x87, LOG_RX: 0x88, NEW_ADVERT: 0x8a };
+const PUSH = { CHEMIN: 0x8d, ADVERT: 0x80, PATH_UPDATED: 0x81, SEND_CONFIRMED: 0x82, MSG_WAITING: 0x83, LOGIN_OK: 0x85, LOGIN_FAIL: 0x86, STATUS: 0x87, LOG_RX: 0x88, NEW_ADVERT: 0x8a };
 const ERREURS = { 1: 'commande non gérée par ce firmware', 2: 'introuvable (contact ou canal inconnu du companion)', 3: 'table pleine (contacts ou envois en attente)', 4: 'companion occupé', 5: 'erreur de stockage', 6: 'paramètre refusé' };
 const TYPES_ROLE = { companion: 1, repeteur: 2, salon: 3, capteur: 4 };
 const NOM_APPLI = 'carte-live';
@@ -325,7 +324,7 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
       case PUSH.SEND_CONFIRMED:
         if (t.length >= 9 && surConfirmation) surConfirmation({ ack: t.readUInt32LE(1), allerRetourMs: t.readUInt32LE(5) });
         break;
-      case PUSH.LOGIN_OK: case PUSH.LOGIN_FAIL: case PUSH.STATUS:
+      case PUSH.LOGIN_OK: case PUSH.LOGIN_FAIL: case PUSH.STATUS: case PUSH.CHEMIN:
         servirAttentes(t);
         break;
       case RESP.SELF_INFO: traiterSelfInfo(t); break;
@@ -464,8 +463,26 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
       s.occupationEmissionPct = s.allumeS ? Math.round((s.tempsEmissionS / s.allumeS) * 1000) / 10 : null;
       return s;
     },
+    // Découverte du chemin (aller et retour) vers un nœud : requête en inondation, réponse avec les deux chemins
+    async decouvrirChemin(noeud) {
+      exigerPret();
+      await assurerContact(noeud);
+      const prefixe = noeud.cle.slice(0, 12);
+      const debut = Date.now();
+      const attente = attendre((t) => t[0] === 0x8d && t.subarray(2, 8).toString('hex').toUpperCase() === prefixe, 60000);
+      attente.catch(() => {});
+      await commande(Buffer.concat([Buffer.from([52, 0]), cleOctets(noeud.cle)]), [RESP.SENT], 6000);
+      const t = await attente;
+      const lireChemin = (i) => {
+        const lg = t[i], n = lg & 0x3f, taille = (lg >> 6) + 1;
+        const h = [];
+        for (let k = 0; k < n; k++) h.push(t.subarray(i + 1 + k * taille, i + 1 + (k + 1) * taille).toString('hex').toUpperCase());
+        return { chemin: h, fin: i + 1 + n * taille };
+      };
+      const aller = lireChemin(8), retour = lireChemin(aller.fin);
+      return { aller: aller.chemin, retour: retour.chemin, dureeMs: Date.now() - debut };
+    },
     demarrer() { if (!arret) planifier(1500); },
-    _hacher: (t) => crypto.createHash('sha256').update(t).digest('hex'),
   };
 }
 

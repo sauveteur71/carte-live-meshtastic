@@ -725,3 +725,12 @@ label.case { display: flex !important; flex-direction: row !important; align-ite
 #mc-contenu .actions-prop, #mc-f-adm .actions-prop, .tache-mc .actions-prop { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
 #mc-contenu .actions-prop button, #mc-f-adm .actions-prop button { white-space: nowrap; flex: 0 0 auto; }
 #mc-f-gestion .grille-edit, #mc-f-adm > .grille-edit:first-child { grid-template-columns: 1fr auto; align-items: end; }
+.histo-mc { display: flex; align-items: flex-end; gap: 2px; height: 60px; padding: 4px 0; border-bottom: 1px solid var(--bord); }
+.histo-mc i { flex: 1; background: linear-gradient(#fb923c, #f97316); border-radius: 2px 2px 0 0; min-width: 2px; }
+.qr-mc { background: #fff; border-radius: 8px; padding: 8px; width: min(320px, 80vw); margin: 8px auto; }
+.qr-mc svg { width: 100%; height: auto; display: block; }
+.chemin-test { border: 1px solid rgba(34,211,238,.35); border-radius: 8px; padding: 6px 8px; margin: 8px 0; }
+.chemin-test h4 { margin: 0 0 4px; }
+.chemin-test small { color: var(--doux); margin-left: 4px; }
+.sous-onglets-mc { flex-wrap: wrap; }
+.sous-onglets-mc button { flex: 1 0 auto; min-width: 70px; }

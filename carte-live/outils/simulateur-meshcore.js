@@ -200,6 +200,17 @@ net.createServer((s) => {
           }, 1800);
           break;
         }
+        case 52: {
+          const cle = cmd.subarray(2, 34);
+          envoye(cle.readUInt32LE(0));
+          setTimeout(() => {
+            if (s.destroyed) return;
+            const aller = [relais[0].cle[0], relais[2].cle[0]], retour = [relais[2].cle[0], relais[0].cle[0]];
+            const b = Buffer.concat([Buffer.from([0x8d, 0]), cle.subarray(0, 6), Buffer.from([aller.length, ...aller, retour.length, ...retour])]);
+            s.write(trame(b));
+          }, 3500);
+          break;
+        }
         default: s.write(trame(Buffer.from([1, 1])));
       }
     }

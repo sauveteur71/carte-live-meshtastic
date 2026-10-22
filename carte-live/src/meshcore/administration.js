@@ -64,7 +64,7 @@ function lireVoisins(t) {
     .map((m) => ({ prefixe: m[1].toUpperCase(), vu: Number(m[2]) * 1000 || null, snr: Number(m[3]) / 4 }));
 }
 
-function creerAdministrationMc(config, companion, reseauMc, journal) {
+function creerAdministrationMc(config, companion, reseauMc, journal, surFin = () => {}) {
   const dossier = path.dirname(config.fichierBase);
   const fMdp = path.join(dossier, 'meshcore-admin.json');
   const fLectures = path.join(dossier, 'meshcore-lectures.json');
@@ -101,7 +101,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal) {
       }
     }
     if (type === 'verifier' && liste.length < 2) throw new Error('choisissez au moins 2 nœuds (le premier sert de référence)');
-    if (!['lire', 'statut', 'voisins', 'cli', 'modifier', 'verifier', 'annonce', 'horloge', 'redemarrer'].includes(type)) throw new Error('opération inconnue');
+    if (!['lire', 'statut', 'voisins', 'cli', 'modifier', 'verifier', 'annonce', 'horloge', 'redemarrer', 'chemin'].includes(type)) throw new Error('opération inconnue');
     const t = {
       id: crypto.randomBytes(5).toString('hex'), type, cles: liste.map((n) => n.cle), noms: Object.fromEntries(liste.map((n) => [n.cle, n.nom])), params: { ...params, motDePasse: undefined },
       motDePasse: params.motDePasse || null, memoriser: !!params.memoriser, statut: 'en_attente', creee: Date.now(), auteur, etapes: [], resultats: {}, arret: false,
@@ -168,6 +168,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal) {
     lectures[n.cle] = { ...(lectures[n.cle] || {}), statut: { ...s, heure: Date.now() } };
     ecrire(fLectures, lectures);
     t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), statut: s };
+    if (s.batterieMv != null) reseauMc.noterEtat(n.cle, s);
     etape(t, n.cle, `batterie ${(s.batterieMv / 1000).toFixed(2)} V · bruit ${s.bruitDbm} dBm · émission ${s.occupationEmissionPct ?? '?'} % du temps`);
   }
 
@@ -187,10 +188,24 @@ function creerAdministrationMc(config, companion, reseauMc, journal) {
       const n = noeud(cle);
       t.courant = cle;
       try {
-        await seConnecter(t, n);
+        // L'état et la découverte de chemin ne demandent pas de connexion admin
+        if (!['statut', 'chemin'].includes(t.type) || t.motDePasse || motsDePasse[n.cle]) await seConnecter(t, n).catch((e) => { if (!['statut', 'chemin'].includes(t.type)) throw e; etape(t, n.cle, 'connexion : ' + e.message + ' (on continue sans)', false); });
         switch (t.type) {
           case 'lire': await lireConfig(t, n); await statut(t, n).catch((e) => etape(t, n.cle, 'état : ' + e.message, false)); await voisins(t, n).catch((e) => etape(t, n.cle, 'voisins : ' + e.message, false)); break;
           case 'statut': await statut(t, n); break;
+          case 'chemin': {
+            etape(t, n.cle, 'découverte du chemin (requête en inondation)…');
+            const r = await companion.decouvrirChemin(n);
+            const moi = companion.etat();
+            const res = (l) => { const rs = reseauMc.resoudreChemin(l, null, null); return l.map((h, i) => ({ prefixe: h, cle: rs[i] ? rs[i].cle : null, nom: rs[i] ? rs[i].nom : null })); };
+            const aller = res(r.aller), retour = res(r.retour);
+            t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), chemin: { aller, retour, dureeMs: r.dureeMs, de: moi.nom } };
+            lectures[n.cle] = { ...(lectures[n.cle] || {}), chemin: { aller, retour, dureeMs: r.dureeMs, heure: Date.now() } };
+            ecrire(fLectures, lectures);
+            const txt = (l) => (l.length ? l.map((x) => x.nom || x.prefixe).join(' › ') : 'direct');
+            etape(t, n.cle, `aller : ${moi.nom || 'companion'} › ${txt(aller)} › ${n.nom} · retour : ${txt(retour)} · ${(r.dureeMs / 1000).toFixed(1)} s`);
+            break;
+          }
           case 'voisins': await voisins(t, n); break;
           case 'verifier': await lireConfig(t, n, elements); break;
           case 'annonce': etape(t, n.cle, nettoyer(await cli(t, n, t.params.inondation === false ? 'advert.zerohop' : 'advert'))); break;
@@ -268,6 +283,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal) {
     const res = Object.values(t.resultats);
     t.statut = t.arret ? 'annule' : res.length && res.every((r) => r.ok) && res.length === t.cles.length ? 'ok' : 'echec';
     enCours = null;
+    try { surFin(vue(t)); } catch { /* ignoré */ }
     setImmediate(suivante);
   }
 
@@ -277,8 +293,22 @@ function creerAdministrationMc(config, companion, reseauMc, journal) {
     return v;
   }
 
+  // Supervision : interrogation périodique de l'état des répéteurs surveillés, quand le companion est relié
+  let derniereSupervision = 0;
+  setInterval(() => {
+    const h = config.meshcore.supervisionHeures;
+    if (!h || enCours || file.length || !companion.etat().connecte || Date.now() - derniereSupervision < h * 3600000) return;
+    derniereSupervision = Date.now();
+    const contacts = new Set(companion.contacts().map((c) => c.cle));
+    const cibles = reseauMc.surveilles(Object.keys(motsDePasse))
+      .sort((a, b) => (motsDePasse[b.cle] ? 2 : contacts.has(b.cle) ? 1 : 0) - (motsDePasse[a.cle] ? 2 : contacts.has(a.cle) ? 1 : 0) || (b.dernier_vu || 0) - (a.dernier_vu || 0))
+      .slice(0, config.meshcore.supervisionMax).map((n) => n.cle);
+    if (cibles.length) { journal(`supervision : état de ${cibles.length} répéteur(s)`); lancer('statut', cibles, {}, 'supervision'); }
+  }, 60000);
+
   return {
     PARAMS, ELEMENTS, ELEMENTS_DEFAUT,
+    supervision: () => ({ derniere: derniereSupervision || null, intervalleHeures: config.meshcore.supervisionHeures }),
     lancer,
     tache: (id) => { const t = taches.get(id); return t ? vue(t) : null; },
     taches: () => [...taches.values()].reverse().slice(0, 30).map((t) => vue(t, false)),

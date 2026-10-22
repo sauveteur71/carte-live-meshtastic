@@ -2313,7 +2313,7 @@ function rendreLegende() {
   $('#legende').innerHTML = `
     <details class="leg-pli" ${lg.replie ? '' : 'open'}>
       <summary>Légende et filtres</summary>
-      ${mcSeul ? htmlMc.replace('<div class="leg-sep"></div>', '') + `<div class="leg-ligne"><span class="pastille-leg inactif"></span><span class="leg-nom">Inactifs (plus de ${etat.config.seuils.inactifHeures} h)</span>${bouton(etat.couches.inactifs, 'data-leg="inactifs"', etat.couches.inactifs ? 'Affiché' : 'Masqué')}</div><div class="rang">Liens (SNR) : ${SNR.map((x) => `<span><i class="trait" style="background:${x.hex}"></i>${x.nom}</span>`).join('')}</div>` : `
+      ${mcSeul ? `<div class="leg-ligne"><span class="pastille-leg chaleur"></span><span class="leg-nom">Activité (10 dernières min)</span>${bouton(lg.chaleur, 'data-leg="chaleur"', lg.chaleur ? 'Affiché' : 'Masqué')}</div>` + htmlMc.replace('<div class="leg-sep"></div>', '') + `<div class="leg-ligne"><span class="pastille-leg inactif"></span><span class="leg-nom">Inactifs (plus de ${etat.config.seuils.inactifHeures} h)</span>${bouton(etat.couches.inactifs, 'data-leg="inactifs"', etat.couches.inactifs ? 'Affiché' : 'Masqué')}</div><div class="rang">Liens (SNR) : ${SNR.map((x) => `<span><i class="trait" style="background:${x.hex}"></i>${x.nom}</span>`).join('')}</div>` : `
       <div class="leg-ligne"><span class="pastille-leg chaleur"></span><span class="leg-nom">Activité (10 dernières min)</span>${bouton(lg.chaleur, 'data-leg="chaleur"', lg.chaleur ? 'Affiché' : 'Masqué')}</div>
       <div class="leg-ligne"><span class="pastille-leg anneau"></span><span class="leg-nom">Passerelles MQTT en ligne (5 min) <small>${nbMqtt}</small></span>${bouton(lg.seulMqtt, 'data-leg="seulMqtt"', 'Seules')}</div>
       ${CATEGORIES.map((c) => {
@@ -2329,7 +2329,7 @@ function rendreLegende() {
       <div class="rang">Liens (SNR) : ${SNR.map((x) => `<span><i class="trait" style="background:${x.hex}"></i>${x.nom}</span>`).join('')}</div>
       <div class="rang">— radio · - - voisinage · ··· traceroute</div>${htmlMc}`}
     </details>`;
-  const appliquer = () => { memoLegende(); dessinerNoeuds(); dessinerLiens(); dessinerChaleur(); if (typeof mcRedessiner === 'function') mcRedessiner(); rendreLegende(); };
+  const appliquer = () => { memoLegende(); dessinerNoeuds(); dessinerLiens(); dessinerChaleur(); if (typeof mcRedessiner === 'function') { mcRedessiner(); mcDessinerChaleur(); } rendreLegende(); };
   const z = $('#legende');
   if (typeof mcBrancherLegende === 'function') mcBrancherLegende(z);
   z.querySelector('details').ontoggle = (e) => { lg.replie = !e.target.open; memoLegende(); };

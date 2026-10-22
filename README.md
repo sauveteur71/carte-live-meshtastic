@@ -41,6 +41,9 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - **Administration à distance des répéteurs et room servers** (onglet *MeshCore › Gestion* et fiche du nœud) : connexion par mot de passe admin (mémorisable), lecture et modification des réglages (nom, radio, puissance, répétition, sauts max., intervalles d'annonce, délais…), état (batterie, bruit de fond, temps d'émission), voisins déclarés (ajoutés à la carte), mise à l'heure, annonce, redémarrage, console CLI
 - **Vérification de conformité** de plusieurs répéteurs par rapport à une référence, avec « Aligner sur la référence »
 - *Relier* et *Couvrir* utilisent les répéteurs MeshCore et le réglage radio MeshCore en vue « MeshCore »
+- **Supervision** : état des répéteurs de la zone interrogé automatiquement (toutes les 3 h par défaut, `MESHCORE_SUPERVISION_HEURES`), courbes de tension, d'émission et de bruit de fond ; **alertes** MeshCore (répéteur muet depuis `MESHCORE_MUET_HEURES`, batterie faible, émission excessive, brouillage, companion déconnecté)
+- **Tester la liaison** vers un nœud (découverte du chemin aller et retour), **analyse du trafic** (types, temps d'antenne, sauts, émetteurs, répéteurs les plus traversés, observateurs), chaleur d'activité
+- **QR codes** au format de l'appli MeshCore : contact de n'importe quel nœud, canaux du companion (admin)
 
 **Comptes** : administrateur créé à l'installation, inscriptions (fermées, sur validation ou ouvertes), précision des positions réduite pour le public.
 

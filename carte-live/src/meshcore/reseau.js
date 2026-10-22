@@ -47,6 +47,11 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
       statut TEXT, ack INTEGER, auteur TEXT, hachage TEXT, relais INTEGER DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_mc_messages_heure ON mc_messages(heure);
+    -- État des répéteurs (réponses « status ») : historique pour les courbes et les alertes
+    CREATE TABLE IF NOT EXISTS mc_telemetrie (
+      cle TEXT, heure INTEGER, batterie_mv INTEGER, bruit INTEGER, emission_pct REAL, recus INTEGER, emis INTEGER, allume_s INTEGER, snr REAL, file INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_mc_telemetrie ON mc_telemetrie(cle, heure);
   `);
 
   const q = {
@@ -96,6 +101,9 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     msgAck: db.prepare(`UPDATE mc_messages SET statut = 'confirme' WHERE ack = ? AND sens = 'envoye' AND heure >= ?`),
     msgStatut: db.prepare('UPDATE mc_messages SET statut = ? WHERE id = ?'),
     msgHachage: db.prepare('SELECT id FROM mc_messages WHERE hachage = ?'),
+    telInserer: db.prepare('INSERT INTO mc_telemetrie (cle, heure, batterie_mv, bruit, emission_pct, recus, emis, allume_s, snr, file) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    telNoeud: db.prepare('SELECT heure, batterie_mv, bruit, emission_pct, recus, emis, allume_s, snr FROM mc_telemetrie WHERE cle = ? AND heure >= ? ORDER BY heure'),
+    telDernier: db.prepare('SELECT t.* FROM mc_telemetrie t JOIN (SELECT cle, MAX(heure) AS h FROM mc_telemetrie GROUP BY cle) d ON d.cle = t.cle AND d.h = t.heure'),
   };
   const purges = [
     db.prepare('DELETE FROM mc_paquets WHERE heure < ?'),
@@ -103,6 +111,7 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     db.prepare('DELETE FROM mc_liens WHERE dernier_vu < ?'),
     db.prepare('DELETE FROM mc_noeuds WHERE dernier_vu < ? AND COALESCE(observateur, 0) = 0'),
     db.prepare('DELETE FROM mc_messages WHERE heure < ?'),
+    db.prepare('DELETE FROM mc_telemetrie WHERE heure < ?'),
   ];
 
   const assurer = (cle, heure, source) => { if (cle) q.creer.run(cle, heure, heure, source || null); };
@@ -405,7 +414,65 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     return n;
   }
 
-  return { integrer, importerContact, noterObservateur, vueNoeud, liens, statistiques, detailNoeud, paquets, detailPaquet, messages, noterMessage, confirmerAck, statutMessage, lierVoisins, definirCanaux, definirMoi, canaux: () => canaux, purger, q, resoudreChemin };
+  // ---- Supervision : état des répéteurs, alertes, analyse du trafic ----
+  function noterEtat(cle, st) {
+    q.telInserer.run(cle, Date.now(), st.batterieMv ?? null, st.bruitDbm ?? null, st.occupationEmissionPct ?? null, st.recus ?? null, st.emis ?? null, st.allumeS ?? null, st.dernierSnr ?? null, st.fileEmission ?? null);
+    q.vu.run({ cle, heure: Date.now(), sauts: null, snr: null, rssi: null });
+  }
+  const telemetrie = (cle, depuis) => q.telNoeud.all(cle, depuis);
+  const dansZone = (n) => { const z = config.zone; return n.lat != null && n.lat >= z[0] && n.lat <= z[2] && n.lon >= z[1] && n.lon <= z[3]; };
+  // Répéteurs surveillés : ceux de la zone, plus ceux qu'on administre
+  function surveilles(administres = []) {
+    return q.noeuds.all().filter((n) => ['repeteur', 'salon'].includes(n.role) && (dansZone(n) || administres.includes(n.cle)));
+  }
+  const alertesActives = new Map();
+  function calculerAlertes({ administres = [], companion = null } = {}) {
+    const maintenant = Date.now(), s = config.seuils, nouvelles = new Map();
+    const ajouter = (cle, a) => { const anc = alertesActives.get(cle); nouvelles.set(cle, { cle, depuis: anc ? anc.depuis : maintenant, ...a }); };
+    const muetH = config.meshcore.muetHeures;
+    const derniers = new Map(q.telDernier.all().map((t) => [t.cle, t]));
+    for (const n of surveilles(administres)) {
+      const nom = n.nom || n.cle.slice(0, 8);
+      const ageH = (maintenant - (n.dernier_vu || 0)) / 3600000;
+      if (ageH > muetH) ajouter('mc-muet:' + n.cle, { noeud: n.cle, type: 'muet', niveau: 'critique', nom, message: `Répéteur MeshCore ${nom} non entendu depuis ${ageH > 48 ? Math.round(ageH / 24) + ' jours' : Math.round(ageH) + ' h'}` });
+      const t = derniers.get(n.cle);
+      if (t && maintenant - t.heure < 24 * 3600000) {
+        if (t.batterie_mv && t.batterie_mv / 1000 < s.tensionVolts) ajouter('mc-batt:' + n.cle, { noeud: n.cle, type: 'batterie', niveau: t.batterie_mv / 1000 < s.tensionVolts - 0.2 ? 'critique' : 'attention', nom, message: `Batterie faible sur ${nom} : ${(t.batterie_mv / 1000).toFixed(2)} V` });
+        if (t.emission_pct != null && t.emission_pct >= s.emissionPourcent) ajouter('mc-tx:' + n.cle, { noeud: n.cle, type: 'emission', niveau: 'attention', nom, message: `${nom} émet ${t.emission_pct} % du temps depuis son démarrage (limite 10 %)` });
+        if (t.bruit != null && t.bruit > -95) ajouter('mc-bruit:' + n.cle, { noeud: n.cle, type: 'bruit', niveau: 'attention', nom, message: `Bruit de fond élevé autour de ${nom} : ${t.bruit} dBm (brouillage ?)` });
+      }
+    }
+    if (companion && companion.cible && !companion.connecte) ajouter('mc-companion', { noeud: companion.cle, type: 'companion', niveau: 'attention', nom: companion.nom || 'companion', message: `Companion MeshCore de la carte non relié${companion.erreur ? ' (' + companion.erreur + ')' : ''}` });
+    alertesActives.clear();
+    for (const [k, v] of nouvelles) alertesActives.set(k, v);
+    const ordre = { critique: 0, attention: 1 };
+    return [...alertesActives.values()].sort((a, b) => ordre[a.niveau] - ordre[b.niveau] || a.depuis - b.depuis);
+  }
+
+  // Analyse du trafic : types, émetteurs, sauts, observateurs, temps d'antenne estimé
+  function analyse(heures, tempsEmission) {
+    const depuis = Date.now() - heures * 3600000;
+    const parType = db.prepare('SELECT type, COUNT(*) AS nb, SUM(taille) AS octets, SUM(nb_receptions) AS receptions FROM mc_paquets WHERE heure >= ? GROUP BY type ORDER BY nb DESC').all(depuis)
+      .map((r) => ({ ...r, airtimeS: Math.round(r.nb * tempsEmission(Math.round((r.octets || 0) / Math.max(r.nb, 1)), 'MESHCORE_FR') * 10) / 10 }));
+    const emetteurs = db.prepare(`SELECT p.de, n.nom, n.role, COUNT(*) AS nb, SUM(p.taille) AS octets, MIN(p.sauts) AS sauts_min,
+        SUM(CASE WHEN p.type = 'ADVERT' THEN 1 ELSE 0 END) AS annonces
+        FROM mc_paquets p LEFT JOIN mc_noeuds n ON n.cle = p.de WHERE p.heure >= ? AND p.de IS NOT NULL GROUP BY p.de ORDER BY nb DESC LIMIT 40`).all(depuis);
+    const sauts = db.prepare('SELECT sauts, COUNT(*) AS nb FROM mc_paquets WHERE heure >= ? AND sauts IS NOT NULL GROUP BY sauts ORDER BY sauts').all(depuis);
+    const observateurs = db.prepare(`SELECT r.observateur, n.nom, COUNT(*) AS nb, ROUND(AVG(r.snr), 1) AS snr, MAX(r.heure) AS dernier
+        FROM mc_receptions r LEFT JOIN mc_noeuds n ON n.cle = r.observateur WHERE r.heure >= ? GROUP BY r.observateur ORDER BY nb DESC LIMIT 40`).all(depuis);
+    const relais = new Map();
+    for (const r of db.prepare('SELECT chemin FROM mc_paquets WHERE heure >= ? AND sauts > 0').all(depuis)) for (const h of JSON.parse(r.chemin || '[]')) relais.set(h, (relais.get(h) || 0) + 1);
+    const cache = noeudsCache();
+    const topRelais = [...relais.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([h, nb]) => {
+      const c = cache.filter((n) => n.cle.startsWith(h) && ['repeteur', 'salon'].includes(n.role));
+      return { prefixe: h, nb, candidats: c.slice(0, 3).map((n) => ({ cle: n.cle, nom: n.nom })) };
+    });
+    const parHeure = db.prepare('SELECT (heure / 3600000) * 3600000 AS h, COUNT(*) AS nb FROM mc_paquets WHERE heure >= ? GROUP BY heure / 3600000 ORDER BY h').all(depuis);
+    const total = parType.reduce((t, r) => t + r.nb, 0), air = parType.reduce((t, r) => t + r.airtimeS, 0);
+    return { heures, total, airtimeS: Math.round(air), occupationPct: Math.round((air / (heures * 3600)) * 1000) / 10, parType, emetteurs, sauts, observateurs, topRelais, parHeure };
+  }
+
+  return { noterEtat, telemetrie, calculerAlertes, analyse, surveilles, integrer, importerContact, noterObservateur, vueNoeud, liens, statistiques, detailNoeud, paquets, detailPaquet, messages, noterMessage, confirmerAck, statutMessage, lierVoisins, definirCanaux, definirMoi, canaux: () => canaux, purger, q, resoudreChemin };
 }
 
 module.exports = { creerReseauMc };

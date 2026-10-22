@@ -726,6 +726,9 @@ app.get('/api/mc/noeuds/:cle', (req, res) => {
   if (!exigerMc(res)) return;
   const d = reseauMc.detailNoeud(String(req.params.cle).slice(0, 64), estMembre(req));
   if (!d) return res.status(404).json({ erreur: 'Nœud MeshCore inconnu' });
+  d.telemetrie = reseauMc.telemetrie(d.noeud.cle, Date.now() - config.retentionJours * 86400000);
+  const lu = estAdmin(req) ? adminMc.lecture(d.noeud.cle) : null;
+  if (lu && lu.chemin) d.chemin = lu.chemin;
   res.json(d);
 });
 app.get('/api/mc/liens', (req, res) => {
@@ -744,12 +747,36 @@ app.get('/api/mc/paquets/:id', (req, res) => {
   if (!d) return res.status(404).json({ erreur: 'Paquet inconnu (plus de ' + config.retentionJours + ' jours ?)' });
   res.json(d);
 });
+app.get('/api/mc/analyse', (req, res) => {
+  if (!exigerMc(res)) return;
+  const heures = Math.min(Math.max(Number(req.query.heures) || 24, 1), config.retentionJours * 24);
+  res.json(reseauMc.analyse(heures, require('./analyse').tempsEmission));
+});
+// QR codes au format de l'appli MeshCore : contact (public) ou canal du companion (admin : contient le secret)
+app.get('/api/mc/qr', async (req, res) => {
+  if (!exigerMc(res)) return;
+  let url, titre;
+  if (req.query.canal != null) {
+    if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+    const c = companion.secretsCanaux().find((x) => x.nom === String(req.query.canal));
+    if (!c) return res.status(404).json({ erreur: 'Canal inconnu du companion' });
+    url = `meshcore://channel/add?name=${encodeURIComponent(c.nom)}&secret=${c.secret}`; titre = 'Canal ' + c.nom;
+  } else {
+    const n = reseauMc.q.noeud.get(String(req.query.cle || '').toUpperCase());
+    if (!n) return res.status(404).json({ erreur: 'Nœud inconnu' });
+    const type = { companion: 1, repeteur: 2, salon: 3, capteur: 4 }[n.role] || 1;
+    url = `meshcore://contact/add?name=${encodeURIComponent(n.nom || n.cle.slice(0, 8))}&public_key=${n.cle.toLowerCase()}&type=${type}`; titre = n.nom || n.cle.slice(0, 8);
+  }
+  const svg = await require('qrcode').toString(url, { type: 'svg', errorCorrectionLevel: 'M', margin: 2, color: { dark: '#0b1d26', light: '#ffffff' } });
+  res.set('Cache-Control', 'no-store').json({ url, svg, titre });
+});
 app.get('/api/mc/messages', (req, res) => {
   if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
   res.json(reseauMc.messages(Math.min(Number(req.query.limite) || 300, 2000)));
 });
+let alertesMc = [];
 function etatMc(admin) {
-  const e = { stats: reseauMc.statistiques() };
+  const e = { stats: reseauMc.statistiques(), alertes: alertesMc };
   const c = companion.etat();
   e.companion = { connecte: c.connecte, nom: c.nom, cle: c.cle, radio: c.radio, navigateur: c.navigateur, paquets: c.paquets, depuis: c.depuis, pret: c.pret, canaux: companion.canaux() };
   if (admin) {
@@ -819,7 +846,7 @@ app.post('/api/mc/messages', async (req, res) => {
 // ---- Administration des répéteurs MeshCore (admin) ----
 app.get('/api/mc/admin', (req, res) => {
   if (!exigerAdmin(req, res)) return;
-  res.set('Cache-Control', 'no-store').json({ params: adminMc.PARAMS, elements: adminMc.ELEMENTS, elementsDefaut: adminMc.ELEMENTS_DEFAUT, taches: adminMc.taches(), memorises: adminMc.memorises(), lectures: adminMc.lectures(), companion: { connecte: companion.etat().connecte, pret: companion.etat().pret } });
+  res.set('Cache-Control', 'no-store').json({ supervision: adminMc.supervision(), params: adminMc.PARAMS, elements: adminMc.ELEMENTS, elementsDefaut: adminMc.ELEMENTS_DEFAUT, taches: adminMc.taches(), memorises: adminMc.memorises(), lectures: adminMc.lectures(), companion: { connecte: companion.etat().connecte, pret: companion.etat().pret } });
 });
 app.get('/api/mc/admin/lecture/:cle', (req, res) => {
   if (!exigerAdmin(req, res)) return;
@@ -1023,7 +1050,12 @@ function rafraichirEtat() {
 }
 setInterval(rafraichirEtat, 30000);
 let minuterieEtatMc = null;
-function diffuserEtatMc() { if (config.meshcore.actif) diffuser({ genre: 'mc-etat', ...etatMc(false) }); }
+function diffuserEtatMc() {
+  if (!config.meshcore.actif) return;
+  const c = companion.etat();
+  alertesMc = reseauMc.calculerAlertes({ administres: adminMc.memorises(), companion: { cible: c.cible || c.navigateur, connecte: c.connecte, nom: c.nom, cle: c.cle, erreur: c.erreur } });
+  diffuser({ genre: 'mc-etat', ...etatMc(false) });
+}
 function planifierEtatMc() { if (!minuterieEtatMc) minuterieEtatMc = setTimeout(() => { minuterieEtatMc = null; diffuserEtatMc(); }, 1500); }
 setInterval(diffuserEtatMc, 30000);
 const sourceMM = creerSourceMeshMonitor(stockage, config, () => { rafraichirEtat(); diffuser({ genre: 'statut' }); });
@@ -1075,7 +1107,7 @@ const companion = creerCompanion(config, {
   },
 });
 if (config.meshcore.actif) companion.demarrer();
-const adminMc = creerAdministrationMc(config, companion, reseauMc, (...a) => journal('[MeshCore]', ...a));
+const adminMc = creerAdministrationMc(config, companion, reseauMc, (...a) => journal('[MeshCore]', ...a), (t) => { if (['statut', 'lire', 'chemin', 'voisins'].includes(t.type)) { planifierEtatMc(); diffuser({ genre: 'mc-noeuds' }); } });
 const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   integrerEvenement: (evt) => {
     const sortie = reseau.integrer(evt);
