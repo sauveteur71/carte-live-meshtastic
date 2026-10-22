@@ -55,6 +55,7 @@
     </details>
     <button id="btn-profil" title="Profil de relief entre deux points : cliquez A puis B (nœud, sommet ou n’importe quel lieu)">Profil</button>
     <button id="btn-couvrir" title="Cliquez un lieu sur la carte : la carte propose 4 points hauts capables de le couvrir">Couvrir</button>
+    <button id="btn-relier" title="Cliquez un point de départ puis un point d’arrivée : la carte indique s’il faut des relais, et où les installer">Relier</button>
     <button id="btn-couv-ici" title="Cliquez n'importe quel lieu : zone couverte par une antenne placée là (clic droit sur la carte : même menu)">Couverture</button>
     <button id="btn-rejeu" title="Rejouer les dernières 24 heures">Rejeu</button>
     <details class="menu-couches menu-outils">
@@ -203,6 +204,10 @@
   <dialog id="dlg-qr" class="large">
     <button class="fermer" data-fermer title="Fermer">×</button>
     <div id="qr-contenu"></div>
+  </dialog>
+  <dialog id="dlg-mqtt" class="large">
+    <button class="fermer" data-fermer title="Fermer">×</button>
+    <div id="mqtt-contenu"></div>
   </dialog>
   <dialog id="dlg-trame" class="large">
     <button class="fermer" data-fermer title="Fermer">×</button>

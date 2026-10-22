@@ -1267,6 +1267,91 @@ function rendreSites() {
   }));
 }
 
+// ---- Relier deux lieux : faut-il des relais, et où ? -----------------------------------------
+function nomLieu(latlng) {
+  // Un nœud ou un point haut à moins de 400 m donne son nom au point cliqué
+  let meilleur = null, dmin = 400;
+  for (const n of etat.noeuds.values()) if (n.lat != null) { const d = carte.distance(latlng, [n.lat, n.lon]); if (d < dmin) { dmin = d; meilleur = { nom: n.nomLong || n.nomCourt || n.id, lat: n.lat, lon: n.lon, noeud: true }; } }
+  for (const s of etat.sommets || []) { const d = carte.distance(latlng, [s.lat, s.lon]); if (d < dmin) { dmin = d; meilleur = { nom: nomSommet(s), lat: s.lat, lon: s.lon }; } }
+  return meilleur || { nom: `Point ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`, lat: latlng.lat, lon: latlng.lng };
+}
+function choisirPointRelier(latlng) {
+  const p = nomLieu(latlng);
+  if (!etat.relierA) {
+    etat.relierA = p;
+    if (etat.repereRelier) etat.repereRelier.remove();
+    etat.repereRelier = L.circleMarker([p.lat, p.lon], { radius: 8, color: '#2dd4bf', weight: 3, fillOpacity: 0.3, pane: 'traces' }).bindTooltip('Départ : ' + p.nom, { permanent: true, direction: 'top', className: 'info' }).addTo(carte);
+    basculerMode('relier');
+    return;
+  }
+  const a = etat.relierA;
+  etat.relierA = null;
+  basculerMode(null);
+  relierPoints(a, p);
+}
+async function relierPoints(a, b, opts = {}) {
+  const hs = $('#relief-hs') ? $('#relief-hs').value : 6;
+  const hA = opts.hA ?? 2, hB = opts.hB ?? 2;
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  $('#fiche-contenu').innerHTML = `<h2>Relier deux lieux</h2><div class="alerte info-lecture"><span class="sablier"></span> Recherche du chemin radio entre <b>${esc(a.nom)}</b> et <b>${esc(b.nom)}</b> (relais existants et points hauts)…</div>`;
+  const q = new URLSearchParams({ aLat: a.lat.toFixed(5), aLon: a.lon.toFixed(5), bLat: b.lat.toFixed(5), bLon: b.lon.toFixed(5), aNom: a.nom, bNom: b.nom, hs, hA, hB, acces: etat.filtreAcces || 'tous' });
+  let r;
+  try { r = await api('/api/relief/relier?' + q); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Relier deux lieux</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  if (etat.coucheCouvrir) etat.coucheCouvrir.remove();
+  const g = L.layerGroup().addTo(carte);
+  etat.coucheCouvrir = g;
+  $('#btn-effacer').hidden = false;
+  const ICONES = { depart: '🅰', arrivee: '🅱', existant: '📡', nouveau: '🆕' };
+  const pts = [[r.a.lat, r.a.lon], [r.b.lat, r.b.lon]];
+  if (r.possible) {
+    r.bonds.forEach((l, k) => {
+      const x = r.chemin[k], y = r.chemin[k + 1];
+      L.polyline([[x.lat, x.lon], [y.lat, y.lon]], { color: hexMarge(l.marge), weight: 4, opacity: 0.9, pane: 'traces' })
+        .bindTooltip(`Bond ${k + 1} : ${fmt(l.distance / 1000, 1, ' km')} · marge ${l.marge >= 0 ? '+' : ''}${fmt(l.marge, 1, ' dB')}`, { className: 'info', sticky: true }).addTo(g);
+    });
+    r.chemin.forEach((c, k) => {
+      pts.push([c.lat, c.lon]);
+      const nouveau = c.type === 'nouveau';
+      L.marker([c.lat, c.lon], { icon: L.divIcon({ className: 'sommet plan' + (nouveau ? '' : ' existant-relier'), html: `<span>${k === 0 ? 'A' : k === r.chemin.length - 1 ? 'B' : k}</span>`, iconSize: [22, 22], iconAnchor: [11, 11] }), pane: 'traces', zIndexOffset: 800 })
+        .bindTooltip(`<b>${esc(c.nom || nomSommet(c))}</b><br>${{ depart: 'Départ', arrivee: 'Arrivée', existant: 'Relais existant', nouveau: 'Relais à installer' }[c.type]} · ${c.alt} m`, { className: 'info' }).addTo(g);
+    });
+  } else {
+    L.polyline(pts, { color: '#ff5c6c', weight: 2, dashArray: '6 6', pane: 'traces' }).addTo(g);
+  }
+  carte.fitBounds(L.latLngBounds(pts), { padding: [80, 80], maxZoom: 12 });
+  const ligneEtape = (c, k) => {
+    const l = k > 0 ? r.bonds[k - 1] : null;
+    const titre = { depart: 'Départ', arrivee: 'Arrivée', existant: 'Relais existant', nouveau: 'Nouveau relais à installer' }[c.type];
+    const alt = (r.alternatives || []).find((x) => x.etape === k);
+    return `${l ? `<div class="bond-relier" style="border-color:${couleurMarge(l.marge)}">↓ ${fmt(l.distance / 1000, 1, ' km')} · marge <b style="color:${couleurMarge(l.marge)}">${l.marge >= 0 ? '+' : ''}${fmt(l.marge, 1, ' dB')}</b> · ${l.obstacle ? `obstacle à ${fmt(l.obstacle.distanceKm, 1, ' km')}` : 'visibilité directe'}</div>` : ''}
+      <div class="proposition etape-relier ${c.type}">
+        <div class="entete-prop"><span class="lettre">${k === 0 ? 'A' : k === r.chemin.length - 1 ? 'B' : k}</span><b>${esc(c.nom || nomSommet(c))}</b><span class="marge">${titre}</span></div>
+        <div class="meta-longue">${c.alt} m${c.commune ? ' · ' + esc(c.commune) : ''} · antenne ${c.hauteur} m${c.type === 'nouveau' ? ` · Accès : ${texteAcces(c.acces)}` : ''}</div>
+        ${c.type === 'nouveau' ? blocCoords(c.lat, c.lon, { alt: c.alt }) : ''}
+        ${alt && alt.options.length ? `<details class="alt-relier"><summary>Autres emplacements possibles (${alt.options.length})</summary>${alt.options.map((o) => `<div class="ligne-alt" data-lat="${o.lat}" data-lon="${o.lon}">${esc(o.nom || nomSommet(o))} · ${o.alt} m${o.commune ? ' · ' + esc(o.commune) : ''} · marge mini ${fmt(o.margeMin, 1, ' dB')} ${o.acces ? ACCES[o.acces.type].icone : ''}</div>`).join('')}</details>` : ''}
+      </div>`;
+  };
+  $('#fiche-contenu').innerHTML = `<h2>Relier ${esc(a.nom)} → ${esc(b.nom)}</h2>
+    <div class="ident">${fmt(r.distanceKm, 1, ' km')} à vol d’oiseau · ${esc(r.parametres.preset)} · antennes : relais ${r.parametres.hs} m, extrémités ${hA} / ${hB} m${r.filtreAcces !== 'tous' ? ` · sites ${esc(ACCES[r.filtreAcces] ? ACCES[r.filtreAcces].nom : r.filtreAcces)}` : ''}</div>
+    ${!r.possible ? `<div class="alerte attention">✖ ${esc(r.raison)}</div><p class="note">Essayez des antennes plus hautes aux extrémités, ou retirez le filtre d’accès (onglet Sites).</p>`
+      : r.nouveaux === 0 && r.chemin.length === 2 ? `<div class="alerte info-lecture">✔ <b>Liaison directe possible</b> sans relais (marge ${r.direct.marge >= 0 ? '+' : ''}${fmt(r.direct.marge, 1, ' dB')}).</div>`
+      : `<div class="alerte ${r.nouveaux ? 'attention' : 'info-lecture'}">${r.nouveaux ? `⚠ Il faut <b>${r.nouveaux} nouveau${r.nouveaux > 1 ? 'x' : ''} relais</b>` : '✔ Possible avec les relais existants'}${r.chemin.some((c) => c.type === 'existant') ? `, en passant par ${r.chemin.filter((c) => c.type === 'existant').map((c) => esc(c.nom)).join(', ')}` : ''}.</div>
+         <p class="note">Liaison directe impossible : marge ${r.direct ? fmt(r.direct.marge, 1, ' dB') : '–'}${r.direct && r.direct.obstacle ? `, relief à ${fmt(r.direct.obstacle.distanceKm, 1, ' km')} (${r.direct.obstacle.hauteur} m au-dessus de la visée)` : ''}.</p>`}
+    <div class="parametres compact">
+      <label>Antenne au départ (m) <input id="relier-ha" type="number" min="0.5" max="60" step="0.5" value="${hA}"></label>
+      <label>Antenne à l’arrivée (m) <input id="relier-hb" type="number" min="0.5" max="60" step="0.5" value="${hB}"></label>
+      <button id="relier-recalc">Recalculer</button>
+    </div>
+    ${r.possible ? r.chemin.map(ligneEtape).join('') : ''}
+    ${r.possible && r.nouveaux ? '<div class="actions-prop"><button id="gpx-relier">Télécharger les points (GPX)</button></div>' : ''}
+    <p class="note">Chaque bond doit garder au moins 0 dB de marge après ${r.parametres.margeSecurite} dB de marge de sécurité et ${r.parametres.env} dB de pertes de végétation et bâti (calibrées sur vos liaisons mesurées). Le chemin privilégie les relais existants, puis le moins de nouveaux sites possible, puis les bonds les plus confortables.${r.evalues ? ` ${r.evalues} sites évalués${r.dureeMs ? ' en ' + fmt(r.dureeMs / 1000, 1, ' s') : ''}.` : ''}</p>`;
+  $('#relier-recalc').onclick = () => relierPoints(a, b, { hA: Number($('#relier-ha').value) || 2, hB: Number($('#relier-hb').value) || 2 });
+  $('#fiche-contenu').querySelectorAll('.ligne-alt').forEach((el) => (el.onclick = () => carte.flyTo([Number(el.dataset.lat), Number(el.dataset.lon)], 13)));
+  const gx = $('#gpx-relier');
+  if (gx) gx.onclick = () => telechargerGpx('relier.gpx', r.chemin.map((c, k) => ({ lat: c.lat, lon: c.lon, alt: c.alt, nom: `${k === 0 ? 'A' : k === r.chemin.length - 1 ? 'B' : k} - ${c.nom || nomSommet(c)}`, desc: c.type === 'nouveau' ? 'Relais à installer' : c.type === 'existant' ? 'Relais existant' : '' })));
+}
+
 async function couvrirPoint(latlng) {
   const hs = $('#relief-hs') ? $('#relief-hs').value : 6, ht = $('#relief-ht') ? $('#relief-ht').value : 2;
   if (etat.coucheCouvrir) etat.coucheCouvrir.remove();
@@ -1339,6 +1424,9 @@ function basculerMode(mode) {
   $('#btn-couvrir').textContent = mode === 'couvrir' ? 'Cliquez le point à couvrir…' : 'Couvrir';
   $('#btn-couv-ici').classList.toggle('actif', mode === 'ici');
   $('#btn-couv-ici').textContent = mode === 'ici' ? 'Cliquez l’emplacement…' : 'Couverture';
+  $('#btn-relier').classList.toggle('actif', mode === 'relier');
+  $('#btn-relier').textContent = mode === 'relier' ? (etat.relierA ? 'Cliquez l’arrivée…' : 'Cliquez le départ…') : 'Relier';
+  if (mode !== 'relier') { etat.relierA = null; if (etat.repereRelier) { etat.repereRelier.remove(); etat.repereRelier = null; } }
   document.body.classList.toggle('mode-viseur', !!mode);
 }
 
@@ -2317,15 +2405,84 @@ function majEtat(e) {
   const mm = e.meshmonitor;
   const ok = document.querySelector('#direct').classList.contains('ok');
   $('#sources').innerHTML =
-    `<div class="ligne"><span class="point ${ok ? 'actif' : 'alerte'}"></span><span class="titre">Broker MQTT</span><span class="meta">${ok ? 'connecté' : 'déconnecté'}</span></div>` +
+    `<div class="ligne${etat.admin ? ' cliquable' : ''}" id="ligne-broker" title="${etat.admin ? 'État, réglages et test du broker' : ''}"><span class="point ${ok ? 'actif' : 'alerte'}"></span><span class="titre">Broker MQTT</span><span class="meta">${ok ? 'connecté' : 'déconnecté'}${etat.admin ? ' ›' : ''}</span></div>` +
     (e.radio
       ? `<div class="ligne"><span class="point ${e.radio.connecte ? 'actif' : e.radio.evince ? 'recent' : 'alerte'}"></span><span class="titre">Module radio${e.radio.nomLocal ? `<small>${esc(e.radio.nomLocal)}</small>` : ''}</span><span class="meta"></span><span class="sous-ligne meta-longue">${e.radio.connecte ? `connecté · ${e.radio.paquets} paquets${e.radio.prochainCycle ? ` · traceroutes ${e.radio.cycleEnCours ? 'en cours' : 'à ' + new Date(e.radio.prochainCycle).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} (${e.radio.ciblesAuto} relais)` : ''}` : e.radio.arret ? esc(e.radio.repriseAuto ? 'libéré pour un autre client · reprise ' + new Date(e.radio.repriseAuto).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : e.radio.hote ? 'déconnecté à la demande' : 'aucun module choisi') : e.radio.evince ? esc('laissé à un autre client · reprise ' + new Date(e.radio.reprise).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })) : esc('déconnecté' + (e.radio.erreur ? ' (' + e.radio.erreur + ')' : ''))}</span></div>`
       : '') +
     (mm
       ? `<div class="ligne"><span class="point ${mm.ok ? 'actif' : 'alerte'}"></span><span class="titre">MeshMonitor${mm.sources && mm.sources[0] ? `<small>${esc(mm.sources.map((x) => x.nom).join(', '))}</small>` : ''}</span><span class="meta">${mm.ok ? `${mm.noeuds} nœuds · ${ilYa(mm.derniere)}` : esc(mm.erreur || 'en attente')}</span></div>`
       : '');
+  const lb = $('#ligne-broker');
+  if (lb && etat.admin) lb.onclick = () => ouvrirBroker();
   rendreReseau();
   if (etat.admin) rendreModules();
+}
+
+// ---- Page du broker MQTT : état, passerelles entendues, réglages et test ----------------------
+let suiviBroker = null;
+async function ouvrirBroker() {
+  const dlg = $('#dlg-mqtt'), z = $('#mqtt-contenu');
+  if (!dlg.open) dlg.showModal();
+  dlg.onclose = () => { clearInterval(suiviBroker); suiviBroker = null; };
+  let m;
+  try { m = await api('/api/mqtt'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const formOuvert = z.querySelector('#f-broker');
+  const etatHtml = `
+    <div class="grille">
+      <div class="mesure"><span>État</span><b class="${m.connecte ? 'ok' : 'ko'}">${m.connecte ? '● connecté' : '● déconnecté'}</b></div>
+      <div class="mesure"><span>Connecté depuis</span><b>${m.depuis ? ilYa(m.depuis).replace('il y a ', '') : '–'}</b></div>
+      <div class="mesure"><span>Dernier message</span><b>${m.dernierMessage ? ilYa(m.dernierMessage) : '–'}</b></div>
+      <div class="mesure"><span>Messages / min (10 min)</span><b>${fmt(m.parMinute, 1)}</b></div>
+      <div class="mesure"><span>Reçus · décodés · erreurs</span><b>${m.recus} · ${m.decodes} · ${m.erreurs}</b></div>
+      <div class="mesure"><span>Reconnexions</span><b>${m.reconnexions}</b></div>
+    </div>
+    ${m.derniereErreur ? `<div class="alerte attention">Dernière erreur (${ilYa(m.derniereErreur.heure)}) : ${esc(m.derniereErreur.message)}</div>` : ''}
+    <p class="note">Abonnement : <span class="mono">${esc(m.sujets.join(', '))}</span></p>
+    <h4>Passerelles entendues par le broker (${m.passerelles.length})</h4>
+    ${m.passerelles.length ? `<div class="defil-gw"><table class="voisins"><thead><tr><th>Passerelle</th><th>Sujet</th><th class="num">Messages</th><th>Dernier</th></tr></thead><tbody>
+      ${m.passerelles.map((g) => `<tr><td>${esc(g.nom || g.id)}<br><small class="mono">${esc(g.id)}</small></td><td class="mono petit">${esc(g.sujet)}</td><td class="num">${g.messages}</td><td>${ilYa(g.derniere)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vide">Aucune passerelle depuis le démarrage.</div>'}
+    ${m.canaux.length ? `<p class="note">Canaux vus : ${m.canaux.map((c) => `${esc(c.canal)} (${c.messages})`).join(' · ')}</p>` : ''}`;
+  if (formOuvert) { $('#broker-etat').innerHTML = etatHtml; return; }
+  z.innerHTML = `<h3>Broker MQTT</h3><div class="ident">${esc(m.url)}</div>
+    <div id="broker-etat">${etatHtml}</div>
+    <h4>Réglages</h4>
+    <form id="f-broker" class="form-edit">
+      <div class="grille-edit">
+        <label>Adresse <input name="url" value="${esc(m.url.includes('***') ? '' : m.url)}" placeholder="mqtt://serveur:1883 ou mqtts://serveur:8883"></label>
+        <label>Racine des sujets <input name="racine" value="${esc(m.racine)}" placeholder="msh/EU_868"></label>
+        <label>Utilisateur <input name="utilisateur" value="${esc(m.utilisateur || '')}" autocomplete="off"></label>
+        <label>Mot de passe <input name="motDePasse" type="password" placeholder="${m.motDePasseDefini ? '(inchangé)' : ''}" autocomplete="new-password"></label>
+        <label style="grid-column: 1 / -1">Sujets supplémentaires (séparés par des virgules) <input name="sujetsSupplementaires" value="${esc(m.sujetsSupplementaires || '')}"></label>
+      </div>
+      <div class="actions-prop"><button type="button" id="broker-tester">🔌 Tester ces réglages (10 s)</button><button type="submit" class="principal">Enregistrer et redémarrer</button></div>
+      <div id="broker-test"></div>
+      <p class="note">Le test se connecte avec ces réglages <b>sans toucher</b> à la connexion actuelle, s’abonne à la racine et compte les messages reçus pendant 10 s. Mot de passe vide = celui déjà enregistré.</p>
+    </form>`;
+  const fo = $('#f-broker');
+  const valeurs = () => ({ url: fo.url.value.trim() || undefined, racine: fo.racine.value.trim(), utilisateur: fo.utilisateur.value.trim(), motDePasse: fo.motDePasse.value, sujetsSupplementaires: fo.sujetsSupplementaires.value });
+  $('#broker-tester').onclick = async () => {
+    const b = $('#broker-tester'), zt = $('#broker-test');
+    b.disabled = true; zt.innerHTML = '<div class="alerte info-lecture"><span class="sablier"></span> Test en cours (connexion puis 10 s d’écoute)…</div>';
+    try {
+      const r = await postJson('/api/mqtt/tester', valeurs());
+      zt.innerHTML = r.connecte
+        ? `<div class="alerte info-lecture">✔ Connecté en ${r.delaiConnexionMs} ms · abonnement ${esc(r.abonnement || '?')} · <b>${r.messages}</b> message(s) en ${r.dureeEcouteS} s${r.erreur ? ' · ' + esc(r.erreur) : ''}</div>
+           ${r.messages ? `<table class="voisins petit"><thead><tr><th>Sujet</th><th class="num">Messages</th></tr></thead><tbody>${r.sujets.map((x) => `<tr><td class="mono">${esc(x.sujet)}</td><td class="num">${x.n}</td></tr>`).join('')}</tbody></table>` : '<p class="note">Connexion correcte mais aucun message : vérifiez la racine, les droits (ACL) du compte et que des passerelles publient.</p>'}`
+        : `<div class="alerte attention">✖ Échec : ${esc(r.erreur || 'connexion impossible')}</div>`;
+    } catch (e) { zt.innerHTML = `<div class="alerte attention">${esc(e.message)}</div>`; }
+    b.disabled = false;
+  };
+  fo.onsubmit = async (e) => {
+    e.preventDefault();
+    if (!confirm('Enregistrer ces réglages ? Le service redémarre (quelques secondes) et se reconnecte au broker.')) return;
+    const v = valeurs();
+    const corps = { mqtt: { racine: v.racine, utilisateur: v.utilisateur, motDePasse: v.motDePasse, sujetsSupplementaires: v.sujetsSupplementaires } };
+    if (v.url) corps.mqtt.url = v.url;
+    try { await postJson('/api/reglages', corps); $('#broker-test').innerHTML = '<div class="alerte info-lecture">Enregistré : redémarrage du service… la page se recharge.</div>'; setTimeout(() => location.reload(), 9000); }
+    catch (err) { $('#broker-test').innerHTML = `<div class="alerte attention">${esc(err.message)}</div>`; }
+  };
+  clearInterval(suiviBroker);
+  suiviBroker = setInterval(() => { if ($('#dlg-mqtt').open) ouvrirBroker(); }, 5000);
 }
 
 let rafraichir = null;
@@ -2414,9 +2571,11 @@ function brancherInterface() {
   carte.on('zoomend', () => { dessinerNoeuds(); dessinerSommets(); });
   $('#btn-couvrir').onclick = () => { basculerMode(etat.modeCarte === 'couvrir' ? null : 'couvrir'); if (etat.modeProfil) $('#btn-profil').click(); };
   $('#btn-couv-ici').onclick = () => { basculerMode(etat.modeCarte === 'ici' ? null : 'ici'); if (etat.modeProfil) $('#btn-profil').click(); };
+  $('#btn-relier').onclick = () => { etat.relierA = null; basculerMode(etat.modeCarte === 'relier' ? null : 'relier'); if (etat.modeProfil) $('#btn-profil').click(); };
   carte.on('click', (e) => {
     const m = etat.modeCarte;
     if (!m) return;
+    if (m === 'relier') { choisirPointRelier(e.latlng); return; }
     basculerMode(null);
     if (m === 'couvrir') couvrirPoint(e.latlng); else couvertureIci(e.latlng, Number($('#relief-hs') ? $('#relief-hs').value : 6) || 6);
   });
@@ -2424,7 +2583,7 @@ function brancherInterface() {
   carte.on('contextmenu', (e) => {
     const div = L.DomUtil.create('div', 'menu-contexte');
     const lat = e.latlng.lat, lon = e.latlng.lng;
-    div.innerHTML = `<div class="ctx-coords"><b class="mono">${lat.toFixed(5)}, ${lon.toFixed(5)}</b><button class="mini" data-copier="${lat.toFixed(5)}, ${lon.toFixed(5)}">Copier</button></div><button data-a="ici">Couverture depuis ici</button><button data-a="couvrir">Couvrir ce point (4 points hauts)</button><button data-a="profil">${etat.modeProfil && etat.modeProfil.a ? 'Profil jusqu’ici (point B)' : 'Profil depuis ici (point A)'}</button>`;
+    div.innerHTML = `<div class="ctx-coords"><b class="mono">${lat.toFixed(5)}, ${lon.toFixed(5)}</b><button class="mini" data-copier="${lat.toFixed(5)}, ${lon.toFixed(5)}">Copier</button></div><button data-a="ici">Couverture depuis ici</button><button data-a="couvrir">Couvrir ce point (4 points hauts)</button><button data-a="relier">${etat.modeCarte === 'relier' && etat.relierA ? 'Relier jusqu’ici (arrivée)' : 'Relier depuis ici (relais nécessaires)'}</button><button data-a="profil">${etat.modeProfil && etat.modeProfil.a ? 'Profil jusqu’ici (point B)' : 'Profil depuis ici (point A)'}</button>`;
     const pop = L.popup({ closeButton: false, className: 'popup-contexte' }).setLatLng(e.latlng).setContent(div).openOn(carte);
     div.onclick = (ev) => {
       const a = ev.target.closest('button');
@@ -2433,7 +2592,8 @@ function brancherInterface() {
       if (a.dataset.a === 'profil') {
         if (!etat.modeProfil) $('#btn-profil').click();
         choisirPointProfil({ lat: e.latlng.lat, lon: e.latlng.lng, nom: `Point ${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`, h: 3 });
-      } else if (a.dataset.a === 'ici') couvertureIci(e.latlng, 6); else couvrirPoint(e.latlng);
+      } else if (a.dataset.a === 'relier') { if (etat.modeCarte !== 'relier') { etat.relierA = null; basculerMode('relier'); } choisirPointRelier(e.latlng); }
+      else if (a.dataset.a === 'ici') couvertureIci(e.latlng, 6); else couvrirPoint(e.latlng);
     };
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && etat.modeCarte) basculerMode(null); });

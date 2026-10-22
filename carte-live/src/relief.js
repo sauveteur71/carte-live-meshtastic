@@ -565,6 +565,85 @@ function creerRelief(config, journal, fournisseurs) {
     return min;
   }
 
+  // ---- Relier deux lieux : relais nécessaires ------------------------------------------------
+  // Chemin le moins coûteux entre A et B à travers les relais existants (gratuits) et les points hauts
+  // (chaque nouveau relais coûte cher) ; chaque bond doit avoir une marge >= 0 dB après marge de sécurité
+  // et pertes d'environnement. Les liaisons sont calculées à la demande (Dijkstra) et mises en cache.
+  function relierPoints(a, b, opts = {}) {
+    if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
+    for (const p of [a, b]) if (Number.isNaN(alt(p.lat, p.lon))) throw new Error('Point hors de la zone du modèle de relief (département et ses abords)');
+    const P = parametres(opts);
+    const ha = opts.hauteurA ?? P.ht, hb = opts.hauteurB ?? P.ht;
+    const min = niveauMin(opts.acces);
+    const dAB = distanceM(a, b);
+    const direct = liaison(a, b, P, ha, hb);
+    const base = { a: { ...a, alt: Math.round(alt(a.lat, a.lon)) }, b: { ...b, alt: Math.round(alt(b.lat, b.lon)) }, distanceKm: +(dAB / 1000).toFixed(1), direct, parametres: { preset: P.preset, hs: P.hs, ht: P.ht, margeSecurite: P.margeSecurite, env: P.env, rayonKm: P.rayonMax / 1000 }, filtreAcces: opts.acces || 'tous' };
+    if (direct && direct.marge >= 0) return { ...base, possible: true, nouveaux: 0, chemin: [{ type: 'depart', ...base.a }, { type: 'arrivee', ...base.b }], bonds: [direct], alternatives: [] };
+    // Nœuds du graphe : départ, arrivée, relais existants, points hauts dans un couloir autour de A-B
+    const marge = Math.max(15000, Math.min(P.rayonMax, dAB * 0.5));
+    const dansCouloir = (p) => distanceM(a, p) + distanceM(p, b) <= dAB + 2 * marge;
+    const existants = fournisseurs.noeudsReseau().filter((n) => !Number.isNaN(alt(n.lat, n.lon)) && dansCouloir(n));
+    let candidats = sommets.filter((s) => accessible(s, min) && dansCouloir(s) && !existants.some((n) => distanceM(n, s) < 300));
+    if (candidats.length > 260) candidats = candidats.sort((x, y) => (y.dominance || 0) - (x.dominance || 0)).slice(0, 260);
+    const noeuds = [
+      { type: 'depart', ...base.a, h: ha }, { type: 'arrivee', ...base.b, h: hb },
+      ...existants.map((n) => ({ type: 'existant', num: n.num, nom: n.nom, lat: n.lat, lon: n.lon, h: 4 })),
+      ...candidats.map((s) => ({ type: 'nouveau', id: s.id, nom: s.nom, commune: s.commune, lat: s.lat, lon: s.lon, alt: s.alt, acces: s.acces || null, h: P.hs })),
+    ];
+    const cache = new Map();
+    const lien = (i, j) => {
+      const k = i < j ? i + ':' + j : j + ':' + i;
+      if (!cache.has(k)) {
+        const x = noeuds[i], y = noeuds[j];
+        cache.set(k, distanceM(x, y) > P.rayonMax ? null : liaison(x, y, P, x.h, y.h));
+      }
+      return cache.get(k);
+    };
+    const coutNoeud = (n) => (n.type === 'nouveau' ? 100 : n.type === 'existant' ? 3 : 0);
+    const coutBond = (l) => 1 + Math.max(0, 8 - l.marge) * 0.8 + l.distance / 20000; // préfère les bonds confortables
+    const MAX_NOUVEAUX = 4;
+    const dist = new Array(noeuds.length).fill(Infinity), prec = new Array(noeuds.length).fill(-1), nb = new Array(noeuds.length).fill(0);
+    const vu = new Uint8Array(noeuds.length);
+    dist[0] = 0;
+    const debut = Date.now();
+    for (;;) {
+      let u = -1, best = Infinity;
+      for (let i = 0; i < noeuds.length; i++) if (!vu[i] && dist[i] < best) { best = dist[i]; u = i; }
+      if (u < 0 || u === 1) break;
+      vu[u] = 1;
+      if (Date.now() - debut > 25000) break; // garde-fou
+      for (let v = 0; v < noeuds.length; v++) {
+        if (vu[v] || v === u || v === 0) continue;
+        const nvNouveaux = nb[u] + (noeuds[v].type === 'nouveau' ? 1 : 0);
+        if (nvNouveaux > MAX_NOUVEAUX) continue;
+        if (dist[u] + 1 >= dist[v]) continue; // inutile de calculer la liaison
+        const l = lien(u, v);
+        if (!l || l.marge < 0) continue;
+        const c = dist[u] + coutBond(l) + coutNoeud(noeuds[v]);
+        if (c < dist[v]) { dist[v] = c; prec[v] = u; nb[v] = nvNouveaux; }
+      }
+    }
+    if (prec[1] < 0) return { ...base, possible: false, nouveaux: null, chemin: [], bonds: [], alternatives: [], evalues: candidats.length + existants.length, raison: `Aucun chemin trouvé avec au plus ${MAX_NOUVEAUX} nouveaux relais${min ? ' accessibles' : ''} (rayon ${P.rayonMax / 1000} km par bond).` };
+    const ordre = [];
+    for (let v = 1; v >= 0; v = prec[v]) ordre.unshift(v);
+    const chemin = ordre.map((i) => { const n = noeuds[i]; const { h, ...reste } = n; return { ...reste, hauteur: h, alt: n.alt ?? Math.round(alt(n.lat, n.lon)) }; });
+    const bonds = ordre.slice(1).map((v, k) => ({ ...lien(ordre[k], v), de: k, vers: k + 1 }));
+    // Autres emplacements possibles pour chaque nouveau relais (mêmes voisins dans le chemin)
+    const alternatives = [];
+    ordre.forEach((i, k) => {
+      if (noeuds[i].type !== 'nouveau') return;
+      const avant = ordre[k - 1], apres = ordre[k + 1];
+      const liste = [];
+      for (let j = 0; j < noeuds.length; j++) {
+        if (noeuds[j].type !== 'nouveau' || j === i) continue;
+        const l1 = lien(avant, j), l2 = lien(j, apres);
+        if (l1 && l2 && l1.marge >= 0 && l2.marge >= 0) liste.push({ id: noeuds[j].id, nom: noeuds[j].nom, commune: noeuds[j].commune, lat: noeuds[j].lat, lon: noeuds[j].lon, alt: noeuds[j].alt, acces: noeuds[j].acces, margeMin: Math.min(l1.marge, l2.marge) });
+      }
+      alternatives.push({ etape: k, options: liste.sort((x, y) => y.margeMin - x.margeMin).slice(0, 4) });
+    });
+    return { ...base, possible: true, nouveaux: chemin.filter((c) => c.type === 'nouveau').length, chemin, bonds, alternatives, evalues: candidats.length + existants.length, liaisonsCalculees: cache.size, dureeMs: Date.now() - debut };
+  }
+
   // ---- Propositions pour couvrir un point -------------------------------------------------
   function couvrirPoint(cible, opts = {}) {
     if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
@@ -638,6 +717,7 @@ function creerRelief(config, journal, fournisseurs) {
     },
     couverturePng,
     couvrirPoint,
+    relierPoints,
     calculerClassement,
     classementAcces,
     etatAcces: () => acces.etat(),

@@ -151,6 +151,15 @@ app.get('/api/relief/couvrir', (req, res) => {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ erreur: 'Point invalide' });
   try { res.json(relief.couvrirPoint({ lat, lon }, optsRelief(req.query))); } catch (e) { res.status(503).json({ erreur: e.message }); }
 });
+app.get('/api/relief/relier', (req, res) => {
+  const q = req.query, n = (v) => Number(v);
+  const a = { lat: n(q.aLat), lon: n(q.aLon), nom: q.aNom ? String(q.aNom).slice(0, 60) : 'Départ' }, b = { lat: n(q.bLat), lon: n(q.bLon), nom: q.bNom ? String(q.bNom).slice(0, 60) : 'Arrivée' };
+  if (![a.lat, a.lon, b.lat, b.lon].every(Number.isFinite)) return res.status(400).json({ erreur: 'Points invalides' });
+  const o = optsRelief(q);
+  if (q.hA) o.hauteurA = Math.min(Math.max(Number(q.hA) || 2, 0.5), 60);
+  if (q.hB) o.hauteurB = Math.min(Math.max(Number(q.hB) || 2, 0.5), 60);
+  try { res.json(relief.relierPoints(a, b, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
+});
 const cacheCouverture = new Map();
 app.get('/api/relief/couverture', (req, res) => {
   const lat = Number(req.query.lat), lon = Number(req.query.lon);
@@ -641,6 +650,57 @@ app.post('/api/reglages', (req, res) => {
   enregistrerReglagesEtRedemarrer(r, u.identifiant);
 });
 
+// ---- Broker MQTT : état, statistiques et test d'une configuration (admin) --------------------
+const masquerUrl = (u) => String(u || '').replace(/\/\/[^@/]*@/, '//***@');
+app.get('/api/mqtt', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const m = Math.floor(Date.now() / 60000);
+  let n10 = 0; for (let k = m - 10; k < m; k++) n10 += statsMqtt.minutes.get(k) || 0;
+  const noeuds = new Map(stockage.q.noeuds.all().map((n) => [n.id, n.nom_long || n.nom_court]));
+  res.set('Cache-Control', 'no-store').json({
+    url: masquerUrl(config.mqtt.url), utilisateur: config.mqtt.utilisateur, motDePasseDefini: !!config.mqtt.motDePasse,
+    racine: config.mqtt.racine, sujetsSupplementaires: config.mqtt.sujetsSupplementaires.join(', '), sujets,
+    connecte: !!(clientMqtt && clientMqtt.connected), depuis: statsMqtt.depuis, reconnexions: statsMqtt.reconnexions, derniereErreur: statsMqtt.derniereErreur,
+    dernierMessage: statsMqtt.dernierMessage, parMinute: +(n10 / 10).toFixed(1), ...compteur,
+    passerelles: [...statsMqtt.passerelles.entries()].sort((a, b) => b[1].derniere - a[1].derniere).slice(0, 40).map(([id, e]) => ({ id, nom: noeuds.get(id) || null, ...e })),
+    canaux: [...statsMqtt.canaux.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([canal, messages]) => ({ canal, messages })),
+  });
+});
+let testMqttEnCours = false;
+app.post('/api/mqtt/tester', async (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (testMqttEnCours) return res.status(409).json({ erreur: 'Un test est déjà en cours' });
+  const b = req.body || {};
+  const url = String(b.url || config.mqtt.url).trim();
+  if (!/^(mqtts?|wss?):\/\/[^\s]+$/.test(url)) return res.status(400).json({ erreur: 'Adresse attendue : mqtt://serveur:1883 (ou mqtts://, ws://, wss://)' });
+  const utilisateurTest = b.utilisateur != null ? String(b.utilisateur).trim() : config.mqtt.utilisateur;
+  // Mot de passe vide = celui déjà enregistré (s'il s'agit du même compte)
+  const mdp = b.motDePasse ? String(b.motDePasse) : (utilisateurTest === config.mqtt.utilisateur ? config.mqtt.motDePasse : '');
+  const racine = String(b.racine || config.mqtt.racine).trim().replace(/\/+$/, '');
+  const duree = Math.min(Math.max(Number(b.duree) || 10, 3), 30) * 1000;
+  testMqttEnCours = true;
+  const debut = Date.now();
+  const r = { url: masquerUrl(url), racine, connecte: false, delaiConnexionMs: null, messages: 0, sujets: {}, erreur: null, abonnement: null };
+  const c = mqtt.connect(url, { username: utilisateurTest || undefined, password: mdp || undefined, clientId: 'carte-live-test-' + crypto.randomBytes(3).toString('hex'), reconnectPeriod: 0, connectTimeout: 8000, rejectUnauthorized: false });
+  const fin = () => new Promise((ok) => { try { c.end(true, {}, ok); } catch { ok(); } });
+  try {
+    await new Promise((ok, ko) => {
+      c.once('connect', () => { r.connecte = true; r.delaiConnexionMs = Date.now() - debut; ok(); });
+      c.once('error', (e) => ko(e));
+      c.once('close', () => { if (!r.connecte) ko(new Error('connexion refusée ou fermée par le broker')); });
+      setTimeout(() => ko(new Error('pas de réponse du broker en 8 s')), 8500);
+    });
+    await new Promise((ok) => c.subscribe(racine + '/#', { qos: 0 }, (e, g) => { r.abonnement = e ? 'refusé : ' + e.message : g && g[0] && g[0].qos === 128 ? 'refusé par le broker (droits ACL)' : 'accepté'; ok(); }));
+    c.on('message', (t) => { r.messages++; const k = t.split('/').slice(0, 7).join('/'); r.sujets[k] = (r.sujets[k] || 0) + 1; });
+    await new Promise((ok) => setTimeout(ok, duree));
+  } catch (e) {
+    r.erreur = /Not authorized|Bad username/i.test(e.message) ? 'identifiant ou mot de passe refusé par le broker' : e.message;
+  } finally { await fin(); testMqttEnCours = false; }
+  r.dureeEcouteS = Math.round(duree / 1000);
+  r.sujets = Object.entries(r.sujets).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([sujet, n]) => ({ sujet, n }));
+  res.json(r);
+});
+
 app.get('/sante', (req, res) => res.json({ ok: true, mqtt: clientMqtt && clientMqtt.connected }));
 
 const serveur = http.createServer(app);
@@ -669,6 +729,23 @@ function diffuser(message) {
 
 // ---- MQTT -----------------------------------------------------------------
 let compteur = { recus: 0, decodes: 0, erreurs: 0 };
+// Statistiques du broker pour la page « Broker MQTT » : passerelles (dernier segment du sujet), canaux, débit
+const statsMqtt = { depuis: null, reconnexions: 0, derniereErreur: null, dernierMessage: null, minutes: new Map(), passerelles: new Map(), canaux: new Map() };
+function noterMessageMqtt(topic) {
+  const t = Date.now(), m = Math.floor(t / 60000);
+  statsMqtt.dernierMessage = t;
+  statsMqtt.minutes.set(m, (statsMqtt.minutes.get(m) || 0) + 1);
+  if (statsMqtt.minutes.size > 70) statsMqtt.minutes.delete(statsMqtt.minutes.keys().next().value);
+  const parts = topic.split('/');
+  const gw = parts[parts.length - 1];
+  if (/^![0-9a-f]{8}$/i.test(gw)) {
+    const e = statsMqtt.passerelles.get(gw) || { messages: 0, sujet: parts.slice(0, -1).join('/') };
+    e.messages++; e.derniere = t; statsMqtt.passerelles.set(gw, e);
+    if (statsMqtt.passerelles.size > 300) statsMqtt.passerelles.delete(statsMqtt.passerelles.keys().next().value);
+  }
+  const i = parts.indexOf('e') >= 0 ? parts.indexOf('e') : parts.indexOf('json');
+  if (i >= 0 && parts[i + 1] && parts[i + 1] !== gw) statsMqtt.canaux.set(parts[i + 1], (statsMqtt.canaux.get(parts[i + 1]) || 0) + 1);
+}
 const clientMqtt = mqtt.connect(config.mqtt.url, {
   username: config.mqtt.utilisateur || undefined,
   password: config.mqtt.motDePasse || undefined,
@@ -678,14 +755,17 @@ const clientMqtt = mqtt.connect(config.mqtt.url, {
 });
 const sujets = [config.mqtt.racine + '/#', ...config.mqtt.sujetsSupplementaires];
 clientMqtt.on('connect', () => {
+  statsMqtt.depuis = Date.now();
   journal(`MQTT connecté à ${config.mqtt.url.replace(/\/\/[^@]*@/, '//')}, abonnement à ${sujets.join(', ')}`);
   clientMqtt.subscribe(sujets, { qos: 0 });
   diffuser({ genre: 'mqtt', connecte: true });
 });
-clientMqtt.on('close', () => diffuser({ genre: 'mqtt', connecte: false }));
-clientMqtt.on('error', (e) => journal('Erreur MQTT :', e.message));
+clientMqtt.on('close', () => { statsMqtt.depuis = null; diffuser({ genre: 'mqtt', connecte: false }); });
+clientMqtt.on('reconnect', () => { statsMqtt.reconnexions++; });
+clientMqtt.on('error', (e) => { statsMqtt.derniereErreur = { message: e.message, heure: Date.now() }; journal('Erreur MQTT :', e.message); });
 clientMqtt.on('message', (topic, message) => {
   compteur.recus++;
+  noterMessageMqtt(topic);
   try {
     const evt = decoderMessage(topic, message, canaux);
     if (!evt) return;

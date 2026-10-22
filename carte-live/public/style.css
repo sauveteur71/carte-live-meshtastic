@@ -585,3 +585,15 @@ body.redim, body.redim * { cursor: ew-resize !important; user-select: none !impo
 .message.choisi { outline: 1px solid var(--accent, #2dd4bf); border-radius: 6px; }
 @keyframes flash-canal { 0% { box-shadow: 0 0 0 2px var(--accent, #2dd4bf); } 100% { box-shadow: 0 0 0 0 transparent; } }
 select.flash { animation: flash-canal 1.2s ease-out; }
+.ligne.cliquable { cursor: pointer; } .ligne.cliquable:hover { background: rgba(255,255,255,.04); }
+.defil-gw { max-height: 260px; overflow-y: auto; }
+.petit { font-size: 11px; }
+
+/* Relier deux lieux */
+.bond-relier { border-left: 3px solid; margin: 2px 0 2px 14px; padding: 2px 8px; font-size: 12px; color: var(--doux); }
+.etape-relier.existant { border-left-color: #60a5fa; } .etape-relier.nouveau { border-left-color: #f4c542; }
+.etape-relier.depart, .etape-relier.arrivee { border-left-color: #2dd4bf; }
+.alt-relier summary { cursor: pointer; font-size: 12px; color: var(--doux); }
+.ligne-alt { font-size: 12px; padding: 3px 0; cursor: pointer; border-bottom: 1px solid var(--bord); }
+.ligne-alt:hover { color: var(--texte); }
+.sommet.plan.existant-relier span { background: #60a5fa; }
