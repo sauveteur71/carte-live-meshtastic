@@ -740,3 +740,10 @@ body[data-reseau="les-deux"] .titre-reseau { display: inline-block; background: 
 body[data-reseau="les-deux"] .mc-seul-bloc .titre-reseau { background: rgba(249,115,22,.15); color: #fdba74; }
 /* Vue MeshCore seule : on masque ce qui ne concerne que Meshtastic */
 body[data-reseau="meshcore"] #sources .ligne:not(#ligne-mc):not(#ligne-broker) { display: none; }
+/* Animations : comète, liaisons allumées, axes actifs */
+.comete-tete { filter: drop-shadow(0 0 6px currentColor) drop-shadow(0 0 3px #fff); }
+.leaflet-interactive.comete-trace, .comete-trace { stroke-linecap: round; filter: drop-shadow(0 0 3px rgba(255,255,255,.35)); transition: opacity 1.1s ease-out; }
+.comete-fin { opacity: 0 !important; }
+.lien-allume { animation: lien-allume 1.6s ease-out forwards; filter: blur(.4px); }
+@keyframes lien-allume { 0% { opacity: .85; } 100% { opacity: 0; } }
+.axe-actif { mix-blend-mode: screen; }

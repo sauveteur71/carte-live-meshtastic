@@ -333,21 +333,14 @@ function animerPaquet(p, depuisRejeu) {
   if (!etat.couches.animations || !etat.filtresPorts.has(p.port) || etat.vueReseau === 'meshcore') return;
   if (etat.rejeu && etat.rejeu.actif && !depuisRejeu) return;
   if (etat.zone && !dansZoneNum(p.passerelle) && !dansZoneNum(p.de)) return;
-  const gw = etat.noeuds.get(p.passerelle);
-  const source = etat.noeuds.get(p.relais != null ? p.relais : p.de);
   flasher(p.de);
+  const gw = etat.noeuds.get(p.passerelle);
   if (!gw || gw.lat == null) return;
-  if (source && source.lat != null && source.num !== gw.num) {
-    const couleur = portInfo(p.port).hex;
-    const trace = L.polyline([[source.lat, source.lon], [gw.lat, gw.lon]], {
-      pane: 'traces', color: couleur, weight: 3, opacity: 1, className: 'trace',
-      dashArray: p.relais == null && p.sauts > 0 ? '2 8' : null,
-    }).addTo(carte);
-    setTimeout(() => trace.remove(), 1700);
-    if (p.relais != null) flasher(p.relais);
-  }
+  const couleur = portInfo(p.port).hex;
+  // Comète émetteur → relais → passerelle (une par passerelle qui a entendu le paquet : effet d'éventail)
+  if (typeof animerPaquetMt === 'function') animerPaquetMt(p, couleur);
   const onde = L.marker([gw.lat, gw.lon], {
-    icon: L.divIcon({ className: '', html: `<div class="onde" style="border-color:${portInfo(p.port).hex}"></div>`, iconSize: [10, 10], iconAnchor: [5, 5] }),
+    icon: L.divIcon({ className: '', html: `<div class="onde" style="border-color:${couleur}"></div>`, iconSize: [10, 10], iconAnchor: [5, 5] }),
     interactive: false, pane: 'traces',
   }).addTo(carte);
   setTimeout(() => onde.remove(), 1500);
@@ -2577,7 +2570,7 @@ function brancherInterface() {
     const c = b.dataset.couche;
     etat.couches[c] = !etat.couches[c];
     b.classList.toggle('actif', etat.couches[c]);
-    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c !== 'animations') dessinerLiens();
+    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else dessinerLiens();
   }));
   $('#filtres').onclick = (e) => {
     const b = e.target.closest('button[data-port]');

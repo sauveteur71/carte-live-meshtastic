@@ -163,22 +163,22 @@ function mcRedessiner() { mcDessinerNoeuds(); mcDessinerLiens(); }
 function mcAnimer(p) {
   if (!mcAffiche() || !etat.couches.animations || !mc.filtresTypes.has(MC_CLE_TYPE[p.type] || 'autre')) return;
   if (etat.rejeu && etat.rejeu.actif) return;
-  const pts = [];
-  const ajouter = (cle) => { const n = cle && mc.noeuds.get(cle); if (n && n.lat != null) { pts.push([n.lat, n.lon]); mcFlasher(cle); } };
-  if (p.chemin && p.chemin.length && p.cheminResolu) {
-    if (p.de) ajouter(p.de);
-    for (const c of p.cheminResolu) ajouter(c);
-  } else if (p.sauts === 0 && p.de) ajouter(p.de);
-  ajouter(p.observateur);
-  if (etat.zone && !pts.some(([lat, lon]) => { const z = etat.config.zone; return lat >= z[0] && lat <= z[2] && lon >= z[1] && lon <= z[3]; })) return;
+  const pt = (cle) => { const n = cle && mc.noeuds.get(cle); return n && n.lat != null ? { lat: n.lat, lon: n.lon, cle } : null; };
+  // Trajet : origine (si connue) → répéteurs identifiés → observateur. Un répéteur non identifié interrompt le tracé.
+  const cles = [];
+  if (p.chemin && p.chemin.length && p.cheminResolu) { if (p.de) cles.push(p.de); cles.push(...p.cheminResolu); }
+  else if (p.sauts === 0 && p.de) cles.push(p.de);
+  cles.push(p.observateur);
+  const pts = cles.map(pt);
+  const estime = pts.some((x) => !x);
+  const connus = pts.filter(Boolean);
+  if (etat.zone && !connus.some((x) => { const z = etat.config.zone; return x.lat >= z[0] && x.lat <= z[2] && x.lon >= z[1] && x.lon <= z[3]; })) return;
   const coul = mcType(p.type).hex;
-  if (pts.length >= 2) {
-    const t = L.polyline(pts, { pane: 'traces', color: coul, weight: 3, opacity: 1, className: 'trace' }).addTo(carte);
-    setTimeout(() => t.remove(), 1900);
-  }
-  const fin = pts[pts.length - 1];
+  if (connus[0]) mcFlasher(connus[0].cle);
+  animerTrajet(connus, { couleur: coul, estime, auFil: (i) => mcFlasher(connus[i].cle) });
+  const fin = connus[connus.length - 1];
   if (fin) {
-    const onde = L.marker(fin, { icon: L.divIcon({ className: '', html: `<div class="onde" style="border-color:${coul}"></div>`, iconSize: [10, 10], iconAnchor: [5, 5] }), interactive: false, pane: 'traces' }).addTo(carte);
+    const onde = L.marker([fin.lat, fin.lon], { icon: L.divIcon({ className: '', html: `<div class="onde" style="border-color:${coul}"></div>`, iconSize: [10, 10], iconAnchor: [5, 5] }), interactive: false, pane: 'traces' }).addTo(carte);
     setTimeout(() => onde.remove(), 1500);
   }
 }
