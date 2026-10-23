@@ -56,8 +56,20 @@ function mcVisible(n) {
   if (!mcAffiche() || n.lat == null || n.lon == null) return false;
   if (!mc.roles[n.role in MC_ROLES ? n.role : 'inconnu']) return false;
   if (!mcDansZone(n)) return false;
-  return etat.couches.inactifs || n.statut !== 'inactif' || n.infrastructure;
+  if (!mcDansVue(n)) return false;
+  // Répéteurs inactifs : gardés seulement dans la zone surveillée (sinon, flux national = des milliers de points morts)
+  return etat.couches.inactifs || n.statut !== 'inactif' || (n.infrastructure && !!etat.zone);
 }
+// Avec beaucoup de nœuds (flux national), on ne dessine que ce qui est autour de la vue
+function mcDansVue(n) {
+  if (mc.noeuds.size < 400 || typeof carte === 'undefined' || !carte) return true;
+  if (!mc.vue) mc.vue = carte.getBounds().pad(0.3);
+  return mc.vue.contains([n.lat, n.lon]);
+}
+// Liaisons invraisemblables : un chemin déduit des empreintes de répéteurs (1 octet = collisions fréquentes)
+// au-delà de 60 km est presque toujours une mauvaise identification ; au-delà de 150 km pour une mesure.
+const MC_DIST_MAX = { chemin: 60, rf: 150, trace: 150, voisinage: 150 };
+const MC_LIENS_MAX = 500;
 
 // ---- Choix du réseau affiché : Meshtastic, MeshCore ou les deux ------------------------------------
 etat.vueReseau = (() => { try { return localStorage.getItem('gaulix_reseau') || 'les-deux'; } catch { return 'les-deux'; } })();
@@ -137,12 +149,19 @@ function mcDessinerLiens() {
     const a = mc.noeuds.get(l.a), b = mc.noeuds.get(l.b);
     if (!a || !b || a.lat == null || b.lat == null) continue;
     if (etat.zone && !mcDansZone(a) && !mcDansZone(b)) continue;
+    if (!mcDansVue(a) && !mcDansVue(b)) continue;
+    // Vue large : seulement les liaisons mesurées (les chemins déduits surchargent la carte)
+    if (l.source === 'chemin' && carte.getZoom() < 9) continue;
+    const dkm = distanceKm(a, b);
+    if (dkm != null && dkm > (MC_DIST_MAX[l.source] || 150)) continue;
     const cle = [l.a < l.b ? l.a : l.b, l.a < l.b ? l.b : l.a, l.source].join(':');
     const f = fusion.get(cle);
     if (!f) fusion.set(cle, { ...l, na: a, nbN: b });
     else { f.nb += l.nb; f.dernierVu = Math.max(f.dernierVu, l.dernierVu); if (l.snr != null && (f.snr == null || l.snr > f.snr)) f.snr = l.snr; }
   }
-  for (const l of fusion.values()) {
+  // Au plus MC_LIENS_MAX liaisons : les plus observées d'abord
+  const retenus = [...fusion.values()].sort((x, y) => y.nb - x.nb).slice(0, MC_LIENS_MAX);
+  for (const l of retenus) {
     const age = (maintenant - l.dernierVu) / fenetre;
     const ligne = L.polyline([[l.na.lat, l.na.lon], [l.nbN.lat, l.nbN.lon]], {
       pane: 'liens', color: l.source === 'chemin' && l.snr == null ? '#fb923c' : couleurSnr(l.snr),
@@ -603,7 +622,9 @@ function mcMajAlertes() {
   $('#resume-alertes-mc').textContent = resumeAlertes(a);
   z.innerHTML = a.length ? a.map((x) => `<div class="alerte ${x.niveau}" data-mc-alerte="${x.noeud || ''}">${esc(x.message)}<small>${x.niveau === 'critique' ? 'Critique' : 'Attention'} · depuis ${ilYa(x.depuis).replace('il y a ', '')}</small></div>`).join('') : '<div class="vide">Aucune alerte MeshCore.</div>';
   // Répéteurs et room servers de la zone
-  const rep = [...mc.noeuds.values()].filter((n) => ['repeteur', 'salon'].includes(n.role) && mcDansZone(n)).sort((x, y) => (x.nom || '').localeCompare(y.nom || ''));
+  const vueCarte = !etat.zone && typeof carte !== 'undefined' && carte ? carte.getBounds() : null;
+  const titreInfra = $('#titre-infra-mc'); if (titreInfra) titreInfra.textContent = vueCarte ? 'Répéteurs MeshCore visibles sur la carte' : 'Répéteurs MeshCore de la zone';
+  const rep = [...mc.noeuds.values()].filter((n) => ['repeteur', 'salon'].includes(n.role) && mcDansZone(n) && (!vueCarte || (n.lat != null && vueCarte.contains([n.lat, n.lon])))).sort((x, y) => (x.nom || '').localeCompare(y.nom || ''));
   const enAlerte = new Set(a.map((x) => x.noeud));
   $('#infra-mc').innerHTML = rep.length ? rep.map((n) => `<div class="ligne" data-mc="${n.cle}"><span class="point ${enAlerte.has(n.cle) ? 'alerte' : n.statut}"></span><span class="titre"><i class="role-mc ${n.role}" style="--mcc:${mcRole(n.role).hex}"></i>${esc(n.nom || n.id)}<small>${esc(mcRole(n.role).un)}</small></span><span class="meta">${ilYa(n.dernierVu)}</span></div>`).join('')
     : '<div class="vide">Aucun répéteur MeshCore connu dans la zone (reliez votre companion pour entendre ceux du coin).</div>';
@@ -1072,7 +1093,8 @@ function demarrerMeshcore() {
       mcOuvrirFiche(l.dataset.mc);
     }
   });
-  carte.on('zoomend', mcDessinerNoeuds);
+  let minuterieVue = null;
+  carte.on('moveend', () => { clearTimeout(minuterieVue); minuterieVue = setTimeout(() => { mc.vue = null; mcDessinerNoeuds(); mcDessinerLiens(); if (!etat.zone) mcMajAlertes(); }, 250); });
   $('#fenetre').addEventListener('change', () => mcChargerLiens().catch(() => {}));
   $('#fermer-fiche').addEventListener('click', () => { mc.selection = null; });
   Promise.all([mcChargerNoeuds(), mcChargerLiens(), mcChargerEtat()]).then(() => { appliquerVueReseau(); }).catch(() => appliquerVueReseau());

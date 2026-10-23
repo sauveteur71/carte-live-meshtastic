@@ -2345,6 +2345,17 @@ function appliquerZone(recadrer) {
 }
 
 // ---- Légende ---------------------------------------------------------------------
+// Tous les liens (Meshtastic et MeshCore) d'un seul clic
+const CLES_LIENS_MT = ['rf', 'voisinage', 'traceroute'];
+function liensAffiches() { return CLES_LIENS_MT.some((k) => etat.couches[k]) || (typeof mc !== 'undefined' && Object.values(mc.couches).some(Boolean)); }
+function boutonLiens() { const on = liensAffiches(); return `<button class="pilule tout${on ? '' : ' on'}" data-tous-liens title="Masquer ou réafficher toutes les lignes de liaison des deux réseaux">${on ? 'Masquer tous les liens' : 'Réafficher les liens'}</button>`; }
+function basculerTousLiens() {
+  const val = !liensAffiches();
+  for (const k of CLES_LIENS_MT) { etat.couches[k] = val; const b = document.querySelector(`.bascule[data-couche="${k}"]`); if (b) b.classList.toggle('actif', val); }
+  if (typeof mc !== 'undefined') { for (const k of Object.keys(mc.couches)) mc.couches[k] = val; if (typeof mcDessinerLiens === 'function') mcDessinerLiens(); }
+  dessinerLiens();
+  rendreLegende();
+}
 function rendreLegende() {
   const lg = etat.legende;
   const tous = CATEGORIES.every((c) => lg.cat[c.cle]);
@@ -2356,7 +2367,7 @@ function rendreLegende() {
   $('#legende').innerHTML = `
     <details class="leg-pli" ${lg.replie ? '' : 'open'}>
       <summary>Légende et filtres</summary>
-      ${mcSeul ? `<div class="leg-ligne"><span class="pastille-leg chaleur"></span><span class="leg-nom">Activité (10 dernières min)</span>${bouton(lg.chaleur, 'data-leg="chaleur"', lg.chaleur ? 'Affiché' : 'Masqué')}</div>` + htmlMc.replace('<div class="leg-sep"></div>', '') + `<div class="leg-ligne"><span class="pastille-leg inactif"></span><span class="leg-nom">Inactifs (plus de ${etat.config.seuils.inactifHeures} h)</span>${bouton(etat.couches.inactifs, 'data-leg="inactifs"', etat.couches.inactifs ? 'Affiché' : 'Masqué')}</div><div class="rang">Liens (SNR) : ${SNR.map((x) => `<span><i class="trait" style="background:${x.hex}"></i>${x.nom}</span>`).join('')}</div>` : `
+      ${mcSeul ? `<div class="leg-ligne"><span class="pastille-leg chaleur"></span><span class="leg-nom">Activité (10 dernières min)</span>${bouton(lg.chaleur, 'data-leg="chaleur"', lg.chaleur ? 'Affiché' : 'Masqué')}</div>` + htmlMc.replace('<div class="leg-sep"></div>', '') + `<div class="leg-ligne"><span class="pastille-leg inactif"></span><span class="leg-nom">Inactifs (plus de ${etat.config.seuils.inactifHeures} h)</span>${bouton(etat.couches.inactifs, 'data-leg="inactifs"', etat.couches.inactifs ? 'Affiché' : 'Masqué')}</div><div class="leg-ligne">${boutonLiens()}</div><div class="rang">Liens (SNR) : ${SNR.map((x) => `<span><i class="trait" style="background:${x.hex}"></i>${x.nom}</span>`).join('')}</div>` : `
       <div class="leg-ligne"><span class="pastille-leg chaleur"></span><span class="leg-nom">Activité (10 dernières min)</span>${bouton(lg.chaleur, 'data-leg="chaleur"', lg.chaleur ? 'Affiché' : 'Masqué')}</div>
       <div class="leg-ligne"><span class="pastille-leg anneau"></span><span class="leg-nom">Passerelles MQTT en ligne (5 min) <small>${nbMqtt}</small></span>${bouton(lg.seulMqtt, 'data-leg="seulMqtt"', 'Seules')}</div>
       ${CATEGORIES.map((c) => {
@@ -2366,7 +2377,7 @@ function rendreLegende() {
       }).join('')}
       <div class="leg-ligne"><span class="pastille-leg inactif"></span><span class="leg-nom">Inactifs (plus de ${etat.config.seuils.inactifHeures} h)</span>${bouton(etat.couches.inactifs, 'data-leg="inactifs"', etat.couches.inactifs ? 'Affiché' : 'Masqué')}</div>
       <div class="leg-ligne"><span class="pastille-leg alerte"></span><span class="leg-nom">Nœuds en alerte</span>${bouton(lg.alertes, 'data-leg="alertes"', lg.alertes ? 'Signalés' : 'Normaux')}</div>
-      ${tous ? '' : '<div class="leg-ligne"><button class="pilule tout" data-tout>Tout réafficher</button></div>'}
+      <div class="leg-ligne">${tous ? '' : '<button class="pilule tout" data-tout>Tout réafficher</button>'}${boutonLiens()}</div>
       <div class="leg-sep"></div>
       <div class="rang">◆ relais · ● nœud · halo = actif, pâle = inactif</div>
       <div class="rang">Liens (SNR) : ${SNR.map((x) => `<span><i class="trait" style="background:${x.hex}"></i>${x.nom}</span>`).join('')}</div>
@@ -2389,6 +2400,8 @@ function rendreLegende() {
     else lg[k] = !lg[k];
     appliquer();
   }));
+  const tl = z.querySelector('[data-tous-liens]');
+  if (tl) tl.onclick = () => basculerTousLiens();
   const t = z.querySelector('[data-tout]');
   if (t) t.onclick = () => { for (const c of CATEGORIES) lg.cat[c.cle] = true; lg.seulMqtt = false; appliquer(); };
 }
