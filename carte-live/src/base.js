@@ -138,7 +138,12 @@ function creerStockage(fichier) {
     histoSauts: db.prepare(`SELECT sauts, COUNT(*) AS nb FROM paquets WHERE heure >= ? GROUP BY sauts`),
     histoCanaux: db.prepare(`SELECT canal, COUNT(*) AS nb, SUM(dechiffre) AS dechiffres FROM paquets WHERE heure >= ? GROUP BY canal ORDER BY nb DESC`),
     positionsNoeud24h: db.prepare('SELECT lat, lon FROM positions WHERE num = ? AND heure >= ?'),
-    messages: db.prepare(`SELECT rowid, de, vers, canal, heure, texte, sauts FROM paquets WHERE port = 'texte' ORDER BY heure DESC LIMIT ?`),
+    messages: db.prepare(`SELECT p.rowid, p.de, p.vers, p.canal, p.heure, p.texte, p.sauts, p.via_mqtt AS viaMqtt,
+        (SELECT COUNT(*) FROM receptions r WHERE r.paquet = p.rowid AND r.sujet LIKE 'radio%') AS radio,
+        (SELECT r.snr FROM receptions r WHERE r.paquet = p.rowid AND r.sujet LIKE 'radio%' LIMIT 1) AS snrRadio,
+        (SELECT r.sauts FROM receptions r WHERE r.paquet = p.rowid AND r.sujet LIKE 'radio%' LIMIT 1) AS sautsRadio,
+        (SELECT COUNT(*) FROM receptions r WHERE r.paquet = p.rowid AND (r.sujet IS NULL OR r.sujet NOT LIKE 'radio%')) AS mqtt
+      FROM paquets p WHERE p.port = 'texte' ORDER BY p.heure DESC LIMIT ?`),
   };
 
   const purges = [

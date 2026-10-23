@@ -550,12 +550,22 @@ function suivreEnvoi(id, direct) {
   }, 2000);
 }
 
+// Comment le message est arrivé : par LoRa sur mon module, par le broker MQTT (passerelles), et s'il a transité par internet
+function origineMessage(m) {
+  const local = etat.radio ? etat.radio.noeudLocal : null;
+  const b = [];
+  if (local != null && m.de === local) b.push('<span class="orig lora" title="Message émis par votre module radio">📡 Émis par mon module</span>');
+  else if (m.radio) b.push(`<span class="orig lora" title="Reçu en radio LoRa par votre module${m.sautsRadio != null ? ' après ' + m.sautsRadio + ' saut(s)' : ''}">📻 LoRa${m.sautsRadio === 0 ? ' direct' : m.sautsRadio != null ? ' · ' + m.sautsRadio + ' saut' + (m.sautsRadio > 1 ? 's' : '') : ''}${m.snrRadio != null ? ' · ' + fmt(m.snrRadio, 1, ' dB') : ''}</span>`);
+  if (m.mqtt) b.push(`<span class="orig mqtt" title="Publié sur le broker MQTT par ${m.mqtt} passerelle(s) qui l’ont entendu">🌐 MQTT · ${m.mqtt} passerelle${m.mqtt > 1 ? 's' : ''}</span>`);
+  if (m.viaMqtt) b.push('<span class="orig internet" title="Le message a été réinjecté sur le maillage par une passerelle MQTT : il a traversé internet avant d’arriver en radio (pont, autre région…)">⚠ Passé par internet</span>');
+  return b.length ? `<div class="origines">${b.join('')}</div>` : '';
+}
 async function chargerMessages() {
   if (!etat.membre) return;
   if (etat.admin && ($('#form-envoi').hidden || !$('#form-envoi').vers.querySelector('option[data-nom]'))) preparerEnvoi();
   const msgs = await api('/api/messages?limite=300');
   $('#messages').innerHTML = msgs.length
-    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b> · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${esc(m.texte || '(non conservé)')}</div></div>`).join('')
+    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b> · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${esc(m.texte || '(non conservé)')}</div>${origineMessage(m)}</div>`).join('')
     : '<div class="vide">Aucun message texte sur la période.</div>';
   if (etat.admin) $('#messages').querySelectorAll('.message[data-de]').forEach((el) => (el.onclick = () => repondreA(el)));
 }
