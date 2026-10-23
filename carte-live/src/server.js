@@ -10,6 +10,16 @@ const { WebSocketServer } = require('ws');
 
 const config = require('./config');
 const VERSION = require('../package.json').version;
+const { calculerVoisins } = require('./voisins');
+// Zone « département + voisins », recalculée si le département ou sa zone changent (installation, réglages)
+let cacheVoisins = { cle: null, val: null };
+function zoneVoisins() {
+  const cle = `${config.departement.code}|${config.zone.join(',')}`;
+  if (cacheVoisins.cle !== cle) cacheVoisins = { cle, val: calculerVoisins(config.departement.code, config.zone) };
+  return cacheVoisins.val;
+}
+// Paramètre ?zone= : 1 = département, v = département + voisins, sinon toute la carte
+const bboxZone = (q) => (q === '1' ? config.zone : q === 'v' ? (zoneVoisins() || {}).bbox || config.zone : null);
 const { decoderMessage, preparerCanaux } = require('./decodeur');
 const { creerStockage } = require('./base');
 const { creerReseau } = require('./reseau');
@@ -118,6 +128,7 @@ app.get('/api/config', (req, res) => {
     inscriptions: config.inscriptions,
     departement: config.departement,
     zone: config.zone,
+    zoneVoisins: zoneVoisins(),
     zoneNom: config.zoneNom,
     radio: true,
     meshcore: config.meshcore.actif,
@@ -142,7 +153,7 @@ app.get('/api/noeuds/:num', (req, res) => {
 
 app.get('/api/analyse', (req, res) => {
   const heures = Math.min(Math.max(Number(req.query.heures) || 24, 1), config.retentionJours * 24);
-  res.json(analyse.analyse(heures, req.query.zone === '1' ? config.zone : null));
+  res.json(analyse.analyse(heures, bboxZone(req.query.zone)));
 });
 
 app.get('/api/profil', async (req, res) => {
@@ -780,7 +791,7 @@ app.get('/api/mc/paquets/:id', (req, res) => {
 app.get('/api/mc/analyse', (req, res) => {
   if (!exigerMc(res)) return;
   const heures = Math.min(Math.max(Number(req.query.heures) || 24, 1), config.retentionJours * 24);
-  res.json(reseauMc.analyse(heures, require('./analyse').tempsEmission, req.query.zone === '1'));
+  res.json(reseauMc.analyse(heures, require('./analyse').tempsEmission, bboxZone(req.query.zone)));
 });
 // QR codes au format de l'appli MeshCore : contact (public) ou canal du companion (admin : contient le secret)
 app.get('/api/mc/qr', async (req, res) => {

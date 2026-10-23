@@ -13,6 +13,7 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 **Carte et supervision**
 - Nœuds en direct (relais, clients, passerelles MQTT…), légende et filtres façon MeshCore, couches IGN (plan, photos, relief ombré, toponymes) ou OpenStreetMap
 - Liaisons radio mesurées (SNR, voisinage, traceroutes), trajets GPS, télémétrie (batterie, tension, occupation du canal…)
+- Secteur affiché au choix : votre département, le département et ses voisins (calculés automatiquement d'après le département choisi à l'installation), ou toute la France
 - Paquets animés en direct : une comète parcourt le trajet saut par saut (émetteur → relais → récepteur), une par récepteur ; les liaisons empruntées s'allument et les axes les plus utilisés depuis 10 min sont soulignés. Pour Meshtastic, quand les relais intermédiaires ne sont pas connus, le trajet le plus probable est déduit des liaisons observées (tracé en pointillé)
 - Fiche détaillée de chaque nœud : informations, télémétries, voisins (« entendu par »), configuration déduite, toutes les trames avec filtres
 - Alertes : nœud muet, batterie faible, canal saturé, passerelle hors ligne…

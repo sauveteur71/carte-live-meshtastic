@@ -38,6 +38,8 @@ const etat = {
   filtresPorts: new Set(Object.keys(PORTS)),
   selection: null,
   trajet: null,
+  // Secteur : 'dep' (département configuré), 'voisins' (département + limitrophes) ou 'france'
+  zoneMode: (() => { try { const v = localStorage.getItem('gaulix_zone'); return v === 'france' || v === 'voisins' ? v : 'dep'; } catch { return 'dep'; } })(),
   zone: (() => { try { return localStorage.getItem('gaulix_zone') !== 'france'; } catch { return true; } })(),
   radio: null,
   modeProfil: null,
@@ -1044,7 +1046,7 @@ async function chargerAnalyse() {
   const zone = $('#analyse');
   zone.innerHTML = '<div class="vide">Analyse en cours…</div>';
   let r;
-  try { r = await api(`/api/analyse?heures=${$('#analyse-periode').value}&zone=${etat.zone ? 1 : 0}`); } catch (e) { zone.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  try { r = await api(`/api/analyse?heures=${$('#analyse-periode').value}&zone=${etat.zoneMode === 'voisins' ? 'v' : etat.zone ? 1 : 0}`); } catch (e) { zone.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
   const max = Math.max(1, ...r.sauts.map((x) => x.nb));
   const signalements = r.noeuds.filter((n) => n.alertes.length);
   zone.innerHTML = `
@@ -2386,9 +2388,21 @@ async function voirTache(id) {
 
 // ---- Vue zone ----------------------------------------------------------------------------
 function appliquerZone(recadrer) {
-  try { localStorage.setItem('gaulix_zone', etat.zone ? '43' : 'france'); } catch { /* stockage indisponible */ }
-  const b = $('#btn-zone');
-  b.textContent = etat.zone ? etat.config.zoneNom : 'France';
+  const v = etat.config.zoneVoisins;
+  if (!etat.config.zoneDep) etat.config.zoneDep = etat.config.zone;
+  if (etat.zoneMode === 'voisins' && !v) etat.zoneMode = 'dep';
+  etat.zone = etat.zoneMode !== 'france';
+  // Le reste de l'application lit etat.config.zone : on y place le rectangle du secteur choisi
+  etat.config.zone = etat.zoneMode === 'voisins' ? v.bbox : etat.config.zoneDep;
+  try { localStorage.setItem('gaulix_zone', etat.zoneMode); } catch { /* stockage indisponible */ }
+  const b = $('#sel-zone');
+  const nom = etat.config.zoneNom;
+  b.options[0].textContent = nom;
+  b.options[1].textContent = `${nom} + voisins`;
+  b.options[1].title = v ? v.departements.map((d) => `${d.code} ${d.nom}`).join(', ') : '';
+  b.options[1].hidden = !v;
+  b.value = etat.zoneMode;
+  b.title = etat.zoneMode === 'voisins' && v ? `${nom} et départements voisins : ${v.departements.map((d) => d.nom).join(', ')}` : 'Secteur affiché : votre département, avec ses voisins, ou toute la France';
   b.classList.toggle('actif', etat.zone);
   if (recadrer) {
     const z = etat.config.zone;
@@ -2733,7 +2747,7 @@ function brancherInterface() {
     };
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && etat.modeCarte) basculerMode(null); });
-  $('#btn-zone').onclick = () => { etat.zone = !etat.zone; appliquerZone(true); };
+  $('#sel-zone').onchange = (e) => { etat.zoneMode = e.target.value; appliquerZone(true); if (typeof mcRedessiner === 'function') { mc.vue = null; mcRedessiner(); mcMajAlertes(); } };
   $('#btn-profil').onclick = () => {
     const actif = !etat.modeProfil;
     if (actif && etat.modeCarte) basculerMode(null);

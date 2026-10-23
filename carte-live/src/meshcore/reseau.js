@@ -450,9 +450,10 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
   }
 
   // Analyse du trafic : types, émetteurs, sauts, observateurs, temps d'antenne estimé
-  function analyse(heures, tempsEmission, zone = false) {
+  function analyse(heures, tempsEmission, zoneBbox = null) {
     const depuis = Date.now() - heures * 3600000;
-    const z = config.zone;
+    const zone = Array.isArray(zoneBbox) ? zoneBbox : zoneBbox ? config.zone : null;
+    const z = zone || config.zone;
     // Zone : paquets entendus par au moins un observateur situé dans la zone
     const filtre = zone ? ` AND p.rowid IN (SELECT r.paquet FROM mc_receptions r JOIN mc_noeuds o ON o.cle = r.observateur WHERE r.heure >= @d AND o.lat BETWEEN ${z[0]} AND ${z[2]} AND o.lon BETWEEN ${z[1]} AND ${z[3]})` : '';
     const P = { d: depuis };
