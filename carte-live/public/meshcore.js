@@ -141,7 +141,7 @@ function mcDessinerLiens() {
   if (!mc.coucheLiens) return;
   mc.coucheLiens.clearLayers();
   if (!mcAffiche()) return;
-  const maintenant = Date.now(), fenetre = Number($('#fenetre').value) * 3600000;
+  const maintenant = Date.now(), fenetre = mcFenetreHeures() * 3600000;
   const fusion = new Map();
   for (const l of mc.liens) {
     if (!mc.couches[l.source]) continue;
@@ -215,6 +215,7 @@ function mcHtmlLegende() {
   const b = (actif, attr, txt) => `<button class="pilule ${actif ? 'on' : ''}" ${attr}>${txt}</button>`;
   return `<div class="leg-sep"></div><div class="leg-titre-mc">MeshCore</div>
     ${Object.entries(MC_ROLES).map(([k, r]) => `<div class="leg-ligne"><span class="pastille-leg mc ${k}" style="--mcc:${r.hex}"></span><span class="leg-nom">${r.nom} <small>${nb(k)}</small></span>${b(mc.roles[k], `data-mc-role="${k}"`, mc.roles[k] ? 'Affiché' : 'Masqué')}</div>`).join('')}
+    <div class="leg-ligne"><span class="leg-nom">Liens vus depuis</span><select id="mc-fenetre" class="mini-select" title="Durée pendant laquelle un lien MeshCore reste affiché après sa dernière observation">${[[0.25, '15 min'], [0.5, '30 min'], [1, '1 h'], [3, '3 h'], [6, '6 h'], [24, '24 h']].map(([v, t]) => `<option value="${v}" ${mcFenetreHeures() === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
     <div class="leg-ligne"><span class="leg-nom">Liens</span>${b(mc.couches.rf, 'data-mc-couche="rf"', 'Mesurés')}${b(mc.couches.chemin, 'data-mc-couche="chemin"', 'Chemins')}${b(mc.couches.trace, 'data-mc-couche="trace"', 'Traces')}${b(mc.couches.voisinage, 'data-mc-couche="voisinage"', 'Voisins')}</div>
     <div class="rang">◆ répéteur · ■ room server · ◯ companion · ▲ capteur · anneau = observateur</div>
     <div class="rang">— mesuré (SNR) · - - chemin d’un paquet · ··· trace · -·- voisin déclaré</div>`;
@@ -225,6 +226,8 @@ function mcBrancherLegende(z) {
     try { localStorage.setItem('gaulix_mc_roles', JSON.stringify(mc.roles)); } catch { /* idem */ }
     mcDessinerNoeuds(); rendreLegende();
   }));
+  const sf = z.querySelector('#mc-fenetre');
+  if (sf) sf.onchange = () => { try { localStorage.setItem('gaulix_mc_fenetre', sf.value); } catch { /* ignoré */ } mcChargerLiens().catch(() => {}); };
   z.querySelectorAll('[data-mc-couche]').forEach((b) => (b.onclick = () => { mc.couches[b.dataset.mcCouche] = !mc.couches[b.dataset.mcCouche]; mcDessinerLiens(); rendreLegende(); }));
 }
 
@@ -1002,8 +1005,10 @@ async function mcChargerNoeuds() {
   mcMajKpis();
   mcMajAlertes();
 }
+// Durée d'affichage des liens MeshCore, distincte de celle de Meshtastic (le flux national accumule vite) : 1 h par défaut
+function mcFenetreHeures() { try { return Number(localStorage.getItem('gaulix_mc_fenetre')) || 1; } catch { return 1; } }
 async function mcChargerLiens() {
-  mc.liens = await api('/api/mc/liens?heures=' + $('#fenetre').value);
+  mc.liens = await api('/api/mc/liens?heures=' + mcFenetreHeures());
   mcDessinerLiens();
 }
 let mcRafraichir = null, mcMinuterieMsg = null;
@@ -1095,7 +1100,6 @@ function demarrerMeshcore() {
   });
   let minuterieVue = null;
   carte.on('moveend', () => { clearTimeout(minuterieVue); minuterieVue = setTimeout(() => { mc.vue = null; mcDessinerNoeuds(); mcDessinerLiens(); if (!etat.zone) mcMajAlertes(); }, 250); });
-  $('#fenetre').addEventListener('change', () => mcChargerLiens().catch(() => {}));
   $('#fermer-fiche').addEventListener('click', () => { mc.selection = null; });
   Promise.all([mcChargerNoeuds(), mcChargerLiens(), mcChargerEtat()]).then(() => { appliquerVueReseau(); }).catch(() => appliquerVueReseau());
   setInterval(() => mcChargerLiens().catch(() => {}), 120000);

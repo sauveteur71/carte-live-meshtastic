@@ -425,6 +425,13 @@ function preparerTrame(p, membre) {
     receptions: JSON.parse(p.receptions || '[]').sort((a, b) => a.heure - b.heure),
   };
 }
+// Parcours d'un message : toutes ses réceptions (passerelles MQTT et module radio), pour tracer le chemin
+app.get('/api/messages/:rowid/parcours', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  const p = stockage.db.prepare(`SELECT p.rowid, p.*, ${COLONNES_RECEPTIONS} FROM paquets p WHERE p.rowid = ?`).get(Number(req.params.rowid) || 0);
+  if (!p) return res.status(404).json({ erreur: 'Message introuvable' });
+  res.json(preparerTrame(p, true));
+});
 app.get('/api/noeuds/:num/trames', (req, res) => {
   const n = Number(req.params.num) >>> 0;
   const filtre = FILTRES_TRAMES[req.query.filtre] ? req.query.filtre : 'emis';

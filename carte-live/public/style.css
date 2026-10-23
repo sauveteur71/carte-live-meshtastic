@@ -782,3 +782,7 @@ body[data-reseau="meshcore"] #sources .ligne:not(#ligne-mc):not(#ligne-broker) {
 .orig.lora { color: #7cf0d6; border-color: rgba(62,230,196,.45); background: rgba(62,230,196,.08); }
 .orig.mqtt { color: #a9c7ff; border-color: rgba(96,165,250,.45); background: rgba(96,165,250,.08); }
 .orig.internet { color: #ffd08a; border-color: rgba(255,181,71,.5); background: rgba(255,181,71,.1); }
+.message .origines { cursor: pointer; }
+.message .origines:hover .orig { filter: brightness(1.25); }
+.texte-parcours { font-style: italic; color: var(--texte); margin: 6px 0 10px; }
+.mini-select { margin-left: auto; background: var(--fond); color: var(--texte); border: 1px solid var(--bord); border-radius: 6px; padding: 2px 6px; font-size: 12px; }

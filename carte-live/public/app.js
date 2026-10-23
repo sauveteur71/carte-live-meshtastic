@@ -560,14 +560,75 @@ function origineMessage(m) {
   if (m.viaMqtt) b.push('<span class="orig internet" title="Le message a été réinjecté sur le maillage par une passerelle MQTT : il a traversé internet avant d’arriver en radio (pont, autre région…)">⚠ Passé par internet</span>');
   return b.length ? `<div class="origines">${b.join('')}</div>` : '';
 }
+// Parcours d'un message : pour chaque réception, émetteur → relais (connu ou probable) → passerelle / module
+async function afficherParcours(rowid) {
+  let t;
+  try { t = await api(`/api/messages/${rowid}/parcours`); } catch (e) { return; }
+  const local = etat.radio ? etat.radio.noeudLocal : null;
+  const pt = (num) => { const n = etat.noeuds.get(num); return n && n.lat != null ? n : null; };
+  if (etat.coucheCouvrir) etat.coucheCouvrir.remove();
+  const g = L.layerGroup().addTo(carte);
+  etat.coucheCouvrir = g;
+  $('#btn-effacer').hidden = false;
+  const pts = [];
+  const src = pt(t.de);
+  if (src) { pts.push([src.lat, src.lon]); L.marker([src.lat, src.lon], { icon: L.divIcon({ className: 'sommet plan', html: '<span>E</span>', iconSize: [22, 22], iconAnchor: [11, 11] }), pane: 'traces', zIndexOffset: 900 }).bindTooltip(`<b>Émetteur</b> · ${esc(nomNoeud(t.de))}`, { className: 'info' }).addTo(g); }
+  const lignes = t.receptions.map((r, i) => {
+    const gw = pt(r.passerelle);
+    const radio = /^radio/.test(r.sujet || '');
+    const propre = r.passerelle === t.de;
+    let chemin = null, estime = false;
+    if (!propre && r.sauts != null) {
+      if (r.sauts === 0) chemin = [t.de, r.passerelle];
+      else if (r.relais != null && r.sauts === 1) chemin = [t.de, r.relais, r.passerelle];
+      else {
+        const avant = r.relais != null ? cheminProbableMt(t.de, r.relais, r.sauts) : cheminProbableMt(t.de, r.passerelle, r.sauts + 1);
+        chemin = avant ? (r.relais != null ? [...avant, r.passerelle] : avant) : (r.relais != null ? [t.de, r.relais, r.passerelle] : null);
+        estime = true;
+      }
+    }
+    const couleur = radio ? '#3ee6c4' : '#60a5fa';
+    if (chemin && chemin.every((n) => pt(n))) {
+      const ll = chemin.map((n) => { const x = pt(n); return [x.lat, x.lon]; });
+      ll.forEach((x) => pts.push(x));
+      L.polyline(ll, { color: couleur, weight: 4, opacity: 0.9, dashArray: estime ? '6 7' : null, pane: 'traces' }).bindTooltip(`Vers ${esc(nomNoeud(r.passerelle))}${estime ? ' (trajet probable)' : ''}`, { className: 'info', sticky: true }).addTo(g);
+      chemin.slice(1, -1).forEach((n) => { const x = pt(n); L.circleMarker([x.lat, x.lon], { radius: 7, color: '#fff', weight: 2, fillColor: couleur, fillOpacity: 1, pane: 'traces' }).bindTooltip(`<b>Relais</b> · ${esc(nomNoeud(n))}`, { className: 'info' }).addTo(g); });
+    } else if (gw && src && !propre) {
+      pts.push([gw.lat, gw.lon]);
+      L.polyline([[src.lat, src.lon], [gw.lat, gw.lon]], { color: couleur, weight: 2, opacity: 0.6, dashArray: '2 8', pane: 'traces' }).addTo(g);
+    }
+    if (gw) L.marker([gw.lat, gw.lon], { icon: L.divIcon({ className: 'sommet plan existant-relier', html: `<span>${i + 1}</span>`, iconSize: [22, 22], iconAnchor: [11, 11] }), pane: 'traces', zIndexOffset: 800 }).bindTooltip(`<b>${radio ? 'Mon module' : 'Passerelle'}</b> · ${esc(nomNoeud(r.passerelle))}`, { className: 'info' }).addTo(g);
+    const etapes = chemin ? chemin.slice(1, -1).map((n) => esc(nomNoeud(n))).join(' → ') : '';
+    return `<div class="proposition etape-relier ${radio ? 'depart' : 'existant'}">
+      <div class="entete-prop"><span class="lettre">${i + 1}</span><b>${esc(nomNoeud(r.passerelle))}</b><span class="marge">${radio ? '📻 Mon module (LoRa)' : propre ? '🌐 Publié par l’émetteur' : '🌐 Passerelle MQTT'}</span></div>
+      <div class="meta-longue">${propre ? 'L’émetteur est lui-même passerelle : il a publié son propre message sur MQTT, ce qui ne prouve pas qu’il a été entendu en radio.' : `${r.sauts == null ? 'sauts inconnus' : r.sauts === 0 ? 'Reçu <b>en direct</b> (aucun relais)' : `<b>${r.sauts} saut${r.sauts > 1 ? 's' : ''}</b>`}${r.snr != null ? ` · SNR ${fmt(r.snr, 1, ' dB')}` : ''}${r.rssi != null ? ` · RSSI ${fmt(r.rssi, 0, ' dBm')}` : ''}`}</div>
+      ${!propre && r.sauts > 0 ? `<div class="meta-longue">Dernier relais : <b>${r.relais != null ? esc(nomNoeud(r.relais)) : 'non identifié'}</b>${etapes ? `<br>${estime ? 'Trajet probable' : 'Trajet'} : ${esc(nomNoeud(t.de))} → ${etapes} → ${esc(nomNoeud(r.passerelle))}` : ''}</div>` : ''}
+    </div>`;
+  });
+  const autres = t.receptions.filter((r) => r.passerelle !== t.de);
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  $('#fiche-contenu').innerHTML = `<h2>Parcours du message</h2>
+    <div class="ident">${esc(nomNoeud(t.de))} · ${heure(t.heure)} · ${esc(t.canal || (t.vers !== 0xffffffff ? 'Direct' : ''))}${t.hopDepart != null ? ` · limite de sauts au départ : ${t.hopDepart}` : ''}</div>
+    ${t.texte ? `<div class="texte-parcours">« ${esc(t.texte)} »</div>` : ''}
+    ${t.viaMqtt ? '<div class="alerte attention">⚠ Ce message a traversé internet : une passerelle MQTT l’a réinjecté en radio.</div>' : ''}
+    ${!autres.length ? `<div class="alerte attention">Aucun récepteur autre que l’émetteur ne l’a remonté : ${t.de === local ? 'ton message n’a été entendu en LoRa par aucune passerelle du réseau.' : 'pas de preuve de réception radio.'}</div>` : ''}
+    ${lignes.join('')}
+    <p class="note">Meshtastic ne transmet que le nombre de sauts et le dernier octet du dernier relais : les relais intermédiaires sont déduits des liaisons déjà observées (tracé en pointillé, « trajet probable »). Vert = reçu par ton module, bleu = passerelle MQTT.</p>`;
+  if (pts.length) carte.fitBounds(L.latLngBounds(pts), { padding: [80, 80], maxZoom: 12 });
+}
 async function chargerMessages() {
   if (!etat.membre) return;
   if (etat.admin && ($('#form-envoi').hidden || !$('#form-envoi').vers.querySelector('option[data-nom]'))) preparerEnvoi();
   const msgs = await api('/api/messages?limite=300');
   $('#messages').innerHTML = msgs.length
-    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b> · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${esc(m.texte || '(non conservé)')}</div>${origineMessage(m)}</div>`).join('')
+    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-rowid="${m.rowid}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b> · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${esc(m.texte || '(non conservé)')}</div>${origineMessage(m)}</div>`).join('')
     : '<div class="vide">Aucun message texte sur la période.</div>';
   if (etat.admin) $('#messages').querySelectorAll('.message[data-de]').forEach((el) => (el.onclick = () => repondreA(el)));
+  $('#messages').querySelectorAll('.origines').forEach((el) => {
+    el.title = 'Voir le parcours du message sur la carte';
+    el.onclick = (e) => { e.stopPropagation(); afficherParcours(Number(el.closest('.message').dataset.rowid)); };
+  });
 }
 
 // Clic sur un message : le formulaire bascule sur le bon canal (ou en direct vers l'expéditeur) pour répondre
