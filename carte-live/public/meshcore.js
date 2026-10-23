@@ -629,6 +629,8 @@ function mcMajAlertes() {
   const titreInfra = $('#titre-infra-mc'); if (titreInfra) titreInfra.textContent = vueCarte ? 'Répéteurs MeshCore visibles sur la carte' : 'Répéteurs MeshCore de la zone';
   const rep = [...mc.noeuds.values()].filter((n) => ['repeteur', 'salon'].includes(n.role) && mcDansZone(n) && (!vueCarte || (n.lat != null && vueCarte.contains([n.lat, n.lon])))).sort((x, y) => (x.nom || '').localeCompare(y.nom || ''));
   const enAlerte = new Set(a.map((x) => x.noeud));
+  const nbActifsMc = rep.filter((n) => n.statut !== 'inactif').length;
+  $('#resume-infra-mc').textContent = rep.length ? `${nbActifsMc} actif${nbActifsMc > 1 ? 's' : ''} / ${rep.length}` : 'aucun';
   $('#infra-mc').innerHTML = rep.length ? rep.map((n) => `<div class="ligne" data-mc="${n.cle}"><span class="point ${enAlerte.has(n.cle) ? 'alerte' : n.statut}"></span><span class="titre"><i class="role-mc ${n.role}" style="--mcc:${mcRole(n.role).hex}"></i>${esc(n.nom || n.id)}<small>${esc(mcRole(n.role).un)}</small></span><span class="meta">${ilYa(n.dernierVu)}</span></div>`).join('')
     : '<div class="vide">Aucun répéteur MeshCore connu dans la zone (reliez votre companion pour entendre ceux du coin).</div>';
 }

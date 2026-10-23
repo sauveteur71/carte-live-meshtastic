@@ -103,14 +103,20 @@
           <summary><h3>Alertes <span class="titre-reseau">MeshCore</span> <span id="nb-alertes-mc" class="pastille">0</span> <span id="resume-alertes-mc" class="resume-alertes"></span></h3></summary>
           <div id="alertes-mc" class="liste-alertes"></div>
         </details>
-        <h3 id="titre-infra-mc">Répéteurs MeshCore de la zone</h3>
-        <div id="infra-mc" class="liste"></div>
+        <details class="pli-alertes" data-pli="infra-mc">
+          <summary><h3><span id="titre-infra-mc">Répéteurs MeshCore de la zone</span> <span id="resume-infra-mc" class="resume-alertes"></span></h3></summary>
+          <div id="infra-mc" class="liste"></div>
+        </details>
       </div>
       <div class="mt-seul">
-        <h3>Passerelles <span class="titre-reseau">Meshtastic</span></h3>
-        <div id="passerelles" class="liste"></div>
-        <h3>Relais et infrastructure <span class="titre-reseau">Meshtastic</span></h3>
-        <div id="infra" class="liste"></div>
+        <details class="pli-alertes" data-pli="passerelles">
+          <summary><h3>Passerelles <span class="titre-reseau">Meshtastic</span> <span id="resume-passerelles" class="resume-alertes"></span></h3></summary>
+          <div id="passerelles" class="liste"></div>
+        </details>
+        <details class="pli-alertes" data-pli="infra">
+          <summary><h3>Relais et infrastructure <span class="titre-reseau">Meshtastic</span> <span id="resume-infra" class="resume-alertes"></span></h3></summary>
+          <div id="infra" class="liste"></div>
+        </details>
       </div>
       <h3>Sources de données</h3>
       <div id="sources" class="liste"></div>

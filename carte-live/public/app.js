@@ -390,15 +390,20 @@ function rendreReseau() {
   const tous = [...etat.noeuds.values()].filter(dansZone);
   const passerelles = tous.filter((n) => n.passerelle).sort((x, y) => (y.dernierVuPasserelle || 0) - (x.dernierVuPasserelle || 0));
   const seuilMuet = etat.config.seuils.muetMinutes * 60000;
+  const gwEnLigne = (n) => n.etatPasserelle !== 'offline' && Date.now() - (n.dernierVuPasserelle || 0) < seuilMuet;
+  const nbGw = passerelles.filter(gwEnLigne).length;
+  $('#resume-passerelles').innerHTML = passerelles.length ? `${nbGw}/${passerelles.length} en ligne` : 'aucune';
   $('#passerelles').innerHTML = passerelles.length
     ? passerelles.map((n) => {
-        const enLigne = n.etatPasserelle !== 'offline' && Date.now() - (n.dernierVuPasserelle || 0) < seuilMuet;
+        const enLigne = gwEnLigne(n);
         return ligneNoeud(n, enLigne ? 'actif' : 'alerte', `${enLigne ? 'En ligne' : 'Hors ligne'} · ${ilYa(n.dernierVuPasserelle)}`);
       }).join('')
     : '<div class="vide">Aucune passerelle n’a encore publié sur le broker.</div>';
 
   const infra = tous.filter((n) => n.infrastructure && !n.passerelle).sort((x, y) => (x.nomLong || '').localeCompare(y.nomLong || ''));
   const alertes = numAlerte();
+  const nbInfraAlerte = infra.filter((n) => alertes.has(n.num)).length;
+  $('#resume-infra').textContent = infra.length ? `${infra.length}${nbInfraAlerte ? ` · ${nbInfraAlerte} ⚠` : ''}` : 'aucun';
   $('#infra').innerHTML = infra.length
     ? infra.map((n) => ligneNoeud(n, alertes.has(n.num) ? 'alerte' : n.statut, ilYa(n.dernierVu), true)).join('')
     : '<div class="vide">Aucun relais identifié (rôle ROUTER, REPEATER, CLIENT_BASE ou liste NOEUDS_SURVEILLES).</div>';

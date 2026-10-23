@@ -791,3 +791,4 @@ body[data-reseau="meshcore"] #sources .ligne:not(#ligne-mc):not(#ligne-broker) {
 .outils select.vue-zone { background-color: transparent; color: var(--doux); }
 .outils select.vue-zone.actif { background-color: var(--accent); color: #062019; font-weight: 600; border-color: var(--accent); }
 .outils select.vue-zone option { background: var(--surface); color: var(--texte); font-weight: 400; }
+.resume-alertes { white-space: nowrap; }
