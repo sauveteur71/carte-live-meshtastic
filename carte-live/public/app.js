@@ -1332,7 +1332,24 @@ async function relierPoints(a, b, opts = {}) {
     r.chemin.forEach((c, k) => {
       pts.push([c.lat, c.lon]);
       const nouveau = c.type === 'nouveau';
-      L.marker([c.lat, c.lon], { icon: L.divIcon({ className: 'sommet plan' + (nouveau ? '' : ' existant-relier'), html: `<span>${k === 0 ? 'A' : k === r.chemin.length - 1 ? 'B' : k}</span>`, iconSize: [22, 22], iconAnchor: [11, 11] }), pane: 'traces', zIndexOffset: 800 })
+      const lettre = k === 0 ? 'A' : k === r.chemin.length - 1 ? 'B' : k;
+      if (nouveau) {
+        // Emplacement du relais à installer : zone de recherche (~400 m), épingle bien visible et étiquette permanente
+        L.circle([c.lat, c.lon], { radius: 400, color: '#ff6bd6', weight: 2, dashArray: '5 5', fillColor: '#ff6bd6', fillOpacity: 0.12, pane: 'couverture', interactive: false, className: 'zone-relais' }).addTo(g);
+        // Autres emplacements possibles pour ce relais : petits repères creux reliés au site principal
+        const alt = (r.alternatives || []).find((x) => x.etape === k);
+        (alt ? alt.options : []).forEach((o, j) => {
+          L.polyline([[c.lat, c.lon], [o.lat, o.lon]], { color: '#ff6bd6', weight: 1.2, opacity: 0.6, dashArray: '2 6', pane: 'traces', interactive: false }).addTo(g);
+          L.marker([o.lat, o.lon], { icon: L.divIcon({ className: 'relais-alt', html: `<span>${lettre}${String.fromCharCode(97 + j)}</span>`, iconSize: [20, 20], iconAnchor: [10, 10] }), pane: 'traces', zIndexOffset: 700 })
+            .bindTooltip(`<b>Variante ${lettre}${String.fromCharCode(97 + j)} pour le relais ${lettre}</b><br>${esc(o.nom || nomSommet(o))} · ${o.alt} m${o.commune ? ' · ' + esc(o.commune) : ''}<br>marge mini ${fmt(o.margeMin, 1, ' dB')}${o.acces ? ' · ' + ACCES[o.acces.type].nom : ''}`, { className: 'info' }).addTo(g);
+        });
+        L.marker([c.lat, c.lon], { icon: L.divIcon({ className: 'relais-a-installer', html: `<div class="epingle"><b>${lettre}</b></div><i class="pulsation"></i>`, iconSize: [34, 44], iconAnchor: [17, 42] }), pane: 'traces', zIndexOffset: 900 })
+          .bindTooltip(`<b>Relais ${lettre} à installer</b> · ${esc(c.nom || nomSommet(c))}<br>${c.alt} m · antenne ${c.hauteur} m${c.acces ? ' · ' + texteAcces(c.acces) : ''}`, { className: 'info etiquette-relais', permanent: true, direction: 'top', offset: [0, -46] })
+          .on('click', () => { const el = document.querySelector(`.etape-relier[data-etape="${k}"]`); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('surbrillance'); setTimeout(() => el.classList.remove('surbrillance'), 1500); } })
+          .addTo(g);
+        return;
+      }
+      L.marker([c.lat, c.lon], { icon: L.divIcon({ className: 'sommet plan existant-relier', html: `<span>${lettre}</span>`, iconSize: [22, 22], iconAnchor: [11, 11] }), pane: 'traces', zIndexOffset: 800 })
         .bindTooltip(`<b>${esc(c.nom || nomSommet(c))}</b><br>${{ depart: 'Départ', arrivee: 'Arrivée', existant: 'Relais existant', nouveau: 'Relais à installer' }[c.type]} · ${c.alt} m`, { className: 'info' }).addTo(g);
     });
   } else {
@@ -1344,11 +1361,11 @@ async function relierPoints(a, b, opts = {}) {
     const titre = { depart: 'Départ', arrivee: 'Arrivée', existant: 'Relais existant', nouveau: 'Nouveau relais à installer' }[c.type];
     const alt = (r.alternatives || []).find((x) => x.etape === k);
     return `${l ? `<div class="bond-relier" style="border-color:${couleurMarge(l.marge)}">↓ ${fmt(l.distance / 1000, 1, ' km')} · marge <b style="color:${couleurMarge(l.marge)}">${l.marge >= 0 ? '+' : ''}${fmt(l.marge, 1, ' dB')}</b> · ${l.obstacle ? `obstacle à ${fmt(l.obstacle.distanceKm, 1, ' km')}` : 'visibilité directe'}</div>` : ''}
-      <div class="proposition etape-relier ${c.type}">
+      <div class="proposition etape-relier ${c.type}" data-etape="${k}" data-lat="${c.lat}" data-lon="${c.lon}">
         <div class="entete-prop"><span class="lettre">${k === 0 ? 'A' : k === r.chemin.length - 1 ? 'B' : k}</span><b>${esc(c.nom || nomSommet(c))}</b><span class="marge">${titre}</span></div>
         <div class="meta-longue">${c.alt} m${c.commune ? ' · ' + esc(c.commune) : ''} · antenne ${c.hauteur} m${c.type === 'nouveau' ? ` · Accès : ${texteAcces(c.acces)}` : ''}</div>
         ${c.type === 'nouveau' ? blocCoords(c.lat, c.lon, { alt: c.alt }) : ''}
-        ${alt && alt.options.length ? `<details class="alt-relier"><summary>Autres emplacements possibles (${alt.options.length})</summary>${alt.options.map((o) => `<div class="ligne-alt" data-lat="${o.lat}" data-lon="${o.lon}">${esc(o.nom || nomSommet(o))} · ${o.alt} m${o.commune ? ' · ' + esc(o.commune) : ''} · marge mini ${fmt(o.margeMin, 1, ' dB')} ${o.acces ? ACCES[o.acces.type].icone : ''}</div>`).join('')}</details>` : ''}
+        ${alt && alt.options.length ? `<details class="alt-relier"><summary>Autres emplacements possibles (${alt.options.length})</summary>${alt.options.map((o, j) => `<div class="ligne-alt" data-lat="${o.lat}" data-lon="${o.lon}"><b class="repere-alt">${k}${String.fromCharCode(97 + j)}</b> ${esc(o.nom || nomSommet(o))} · ${o.alt} m${o.commune ? ' · ' + esc(o.commune) : ''} · marge mini ${fmt(o.margeMin, 1, ' dB')} ${o.acces ? ACCES[o.acces.type].icone : ''}</div>`).join('')}</details>` : ''}
       </div>`;
   };
   $('#fiche-contenu').innerHTML = `<h2>Relier ${esc(a.nom)} → ${esc(b.nom)}</h2>
@@ -1366,7 +1383,9 @@ async function relierPoints(a, b, opts = {}) {
     ${r.possible && r.nouveaux ? '<div class="actions-prop"><button id="gpx-relier">Télécharger les points (GPX)</button></div>' : ''}
     <p class="note">Chaque bond doit garder au moins 0 dB de marge après ${r.parametres.margeSecurite} dB de marge de sécurité et ${r.parametres.env} dB de pertes de végétation et bâti (calibrées sur vos liaisons mesurées). Le chemin privilégie les relais existants, puis le moins de nouveaux sites possible, puis les bonds les plus confortables.${r.evalues ? ` ${r.evalues} sites évalués${r.dureeMs ? ' en ' + fmt(r.dureeMs / 1000, 1, ' s') : ''}.` : ''}</p>`;
   $('#relier-recalc').onclick = () => relierPoints(a, b, { hA: Number($('#relier-ha').value) || 2, hB: Number($('#relier-hb').value) || 2 });
-  $('#fiche-contenu').querySelectorAll('.ligne-alt').forEach((el) => (el.onclick = () => carte.flyTo([Number(el.dataset.lat), Number(el.dataset.lon)], 13)));
+  $('#fiche-contenu').querySelectorAll('.ligne-alt').forEach((el) => (el.onclick = () => carte.flyTo([Number(el.dataset.lat), Number(el.dataset.lon)], 14)));
+  // Clic sur une étape « relais à installer » : la carte se centre sur l'emplacement
+  $('#fiche-contenu').querySelectorAll('.etape-relier.nouveau .entete-prop').forEach((el) => { el.style.cursor = 'pointer'; el.title = 'Centrer la carte sur cet emplacement'; el.onclick = () => { const d = el.closest('.etape-relier').dataset; carte.flyTo([Number(d.lat), Number(d.lon)], 14); }; });
   const gx = $('#gpx-relier');
   if (gx) gx.onclick = () => telechargerGpx('relier.gpx', r.chemin.map((c, k) => ({ lat: c.lat, lon: c.lon, alt: c.alt, nom: `${k === 0 ? 'A' : k === r.chemin.length - 1 ? 'B' : k} - ${c.nom || nomSommet(c)}`, desc: c.type === 'nouveau' ? 'Relais à installer' : c.type === 'existant' ? 'Relais existant' : '' })));
 }
