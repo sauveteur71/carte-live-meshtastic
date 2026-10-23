@@ -747,3 +747,12 @@ body[data-reseau="meshcore"] #sources .ligne:not(#ligne-mc):not(#ligne-broker) {
 .lien-allume { animation: lien-allume 1.6s ease-out forwards; filter: blur(.4px); }
 @keyframes lien-allume { 0% { opacity: .85; } 100% { opacity: 0; } }
 .axe-actif { mix-blend-mode: screen; }
+/* Alertes en menu dépliant */
+.pli-alertes > summary { list-style: none; cursor: pointer; color: inherit; font-size: inherit; }
+.pli-alertes > summary::-webkit-details-marker { display: none; }
+.pli-alertes > summary h3::before { content: "▸"; font-size: 11px; color: var(--doux); width: 10px; transition: transform .15s; }
+.pli-alertes[open] > summary h3::before { transform: rotate(90deg); }
+.pli-alertes > summary:hover h3 { color: var(--texte); }
+.resume-alertes { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--doux); margin-left: auto; }
+.pli-alertes[open] .resume-alertes { display: none; }
+.pli-alertes .liste-alertes { max-height: 300px; overflow-y: auto; padding-right: 2px; }

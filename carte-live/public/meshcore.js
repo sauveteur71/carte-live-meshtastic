@@ -600,6 +600,7 @@ function mcMajAlertes() {
   const p = $('#nb-alertes-mc');
   p.textContent = a.length;
   p.className = 'pastille' + (a.some((x) => x.niveau === 'critique') ? ' critique' : a.length ? ' attention' : '');
+  $('#resume-alertes-mc').textContent = resumeAlertes(a);
   z.innerHTML = a.length ? a.map((x) => `<div class="alerte ${x.niveau}" data-mc-alerte="${x.noeud || ''}">${esc(x.message)}<small>${x.niveau === 'critique' ? 'Critique' : 'Attention'} · depuis ${ilYa(x.depuis).replace('il y a ', '')}</small></div>`).join('') : '<div class="vide">Aucune alerte MeshCore.</div>';
   // Répéteurs et room servers de la zone
   const rep = [...mc.noeuds.values()].filter((n) => ['repeteur', 'salon'].includes(n.role) && mcDansZone(n)).sort((x, y) => (x.nom || '').localeCompare(y.nom || ''));

@@ -354,12 +354,23 @@ function flasher(num) {
   el.classList.add('flash');
 }
 
+function resumeAlertes(a) {
+  const c = a.filter((x) => x.niveau === 'critique').length, w = a.length - c;
+  return a.length ? [c ? `${c} critique${c > 1 ? 's' : ''}` : '', w ? `${w} attention` : ''].filter(Boolean).join(' · ') : 'aucune';
+}
+// Menus dépliants des alertes : fermés par défaut, état retenu dans ce navigateur
+document.querySelectorAll('details.pli-alertes').forEach((d) => {
+  try { d.open = localStorage.getItem('pli-' + d.dataset.pli) === '1'; } catch { /* stockage indisponible */ }
+  d.addEventListener('toggle', () => { try { localStorage.setItem('pli-' + d.dataset.pli, d.open ? '1' : '0'); } catch { /* ignoré */ } });
+});
+
 // ---- Panneau : réseau --------------------------------------------------------
 function rendreReseau() {
   const a = etat.alertes.filter((x) => dansZoneNum(x.num));
   const pastille = $('#nb-alertes');
   pastille.textContent = a.length;
   pastille.className = 'pastille' + (a.some((x) => x.niveau === 'critique') ? ' critique' : a.length ? ' attention' : '');
+  $('#resume-alertes').textContent = resumeAlertes(a);
   $('#alertes').innerHTML = a.length
     ? a.map((x) => `<div class="alerte ${x.niveau}" data-num="${x.num}">${esc(x.message)}<small>${x.niveau === 'critique' ? 'Critique' : 'Attention'} · depuis ${ilYa(x.depuis).replace('il y a ', '')}</small></div>`).join('')
     : '<div class="vide">Aucune alerte, le réseau est en bonne santé.</div>';

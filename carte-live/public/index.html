@@ -92,12 +92,16 @@
 
     <section data-vue="reseau" class="vue actif">
       <div class="mt-seul">
-        <h3>Alertes <span class="titre-reseau">Meshtastic</span> <span id="nb-alertes" class="pastille">0</span></h3>
-        <div id="alertes" class="liste-alertes"></div>
+        <details class="pli-alertes" data-pli="alertes-mt">
+          <summary><h3>Alertes <span class="titre-reseau">Meshtastic</span> <span id="nb-alertes" class="pastille">0</span> <span id="resume-alertes" class="resume-alertes"></span></h3></summary>
+          <div id="alertes" class="liste-alertes"></div>
+        </details>
       </div>
       <div class="mc-seul-bloc" hidden>
-        <h3>Alertes <span class="titre-reseau">MeshCore</span> <span id="nb-alertes-mc" class="pastille">0</span></h3>
-        <div id="alertes-mc" class="liste-alertes"></div>
+        <details class="pli-alertes" data-pli="alertes-mc">
+          <summary><h3>Alertes <span class="titre-reseau">MeshCore</span> <span id="nb-alertes-mc" class="pastille">0</span> <span id="resume-alertes-mc" class="resume-alertes"></span></h3></summary>
+          <div id="alertes-mc" class="liste-alertes"></div>
+        </details>
         <h3>Répéteurs MeshCore de la zone</h3>
         <div id="infra-mc" class="liste"></div>
       </div>
