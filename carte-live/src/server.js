@@ -196,6 +196,14 @@ app.get('/api/relief/couvrir', (req, res) => {
   if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
   try { res.json(relief.couvrirPoint({ lat, lon }, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
 });
+// Un seul site pour plusieurs points : ?pts=lat,lon;lat,lon;…
+app.get('/api/relief/couvrir-points', (req, res) => {
+  const cibles = String(req.query.pts || '').split(';').map((x) => x.split(',').map(Number)).filter((x) => x.length === 2 && x.every(Number.isFinite)).slice(0, 5).map(([lat, lon], i) => ({ lat, lon, nom: `Point ${i + 1}` }));
+  if (cibles.length < 2) return res.status(400).json({ erreur: 'Indiquer au moins deux points' });
+  const o = optsRelief(req.query);
+  if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
+  try { res.json(relief.couvrirPoints(cibles, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
+});
 // Répéteurs MeshCore positionnés et entendus depuis 24 h (relais existants pour « Relier » et « Couvrir »)
 const repeteursMc = () => { const lim = Date.now() - 24 * 3600000; return reseauMc.q.noeuds.all().filter((n) => n.lat != null && ['repeteur', 'salon'].includes(n.role) && (n.dernier_vu || 0) >= lim).map((n) => ({ num: n.cle, nom: n.nom || n.cle.slice(0, 8), lat: n.lat, lon: n.lon })); };
 app.get('/api/relief/relier', (req, res) => {

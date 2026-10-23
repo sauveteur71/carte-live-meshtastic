@@ -792,3 +792,12 @@ body[data-reseau="meshcore"] #sources .ligne:not(#ligne-mc):not(#ligne-broker) {
 .outils select.vue-zone.actif { background-color: var(--accent); color: #062019; font-weight: 600; border-color: var(--accent); }
 .outils select.vue-zone option { background: var(--surface); color: var(--texte); font-weight: 400; }
 .resume-alertes { white-space: nowrap; }
+/* Couvrir plusieurs points */
+.cible-multi { display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #0b1118; border: 2.5px solid #fff; color: #fff; font: 800 12px/1 var(--police, system-ui); box-shadow: 0 0 0 3px rgba(255,255,255,.25), 0 2px 6px rgba(0,0,0,.6); }
+.cible-multi.petit { display: inline-flex; width: 20px; height: 20px; font-size: 11px; border-width: 2px; margin-right: 6px; }
+.liste-cibles { margin: 6px 0; }
+.ligne-cible { display: flex; align-items: center; gap: 4px; font-size: 12px; padding: 3px 0; color: var(--doux); }
+.ligne-cible .mini { margin-left: auto; }
+.points-couverts { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.pastille-point { font-size: 11px; border: 1.5px solid; border-radius: 99px; padding: 1px 7px; color: var(--texte); }
+.actions-prop .principal { background: var(--accent); color: #062019; border-color: var(--accent); font-weight: 600; }

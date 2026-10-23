@@ -25,7 +25,7 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 
 **Relief et sites**
 - Modèle de terrain IGN (RGE ALTI), couverture estimée d'un nœud ou de n'importe quel point de la carte, calibrée sur les liaisons réellement mesurées
-- Points hauts du département, classement des **meilleurs sites à ajouter**, « couvrir un point » (4 sites capables de le desservir)
+- Points hauts du département, classement des **meilleurs sites à ajouter**, « couvrir un point » (4 sites capables de le desservir) ou **plusieurs points (2 à 5) avec un seul site relais** — à défaut, la meilleure paire de sites
 - **Accès aux sites** d'après OpenStreetMap : en voiture, en 4×4, à pied ou hors chemin
 - Export GPX, coordonnées GPS et liens Géoportail / Google Maps pour chaque point
 

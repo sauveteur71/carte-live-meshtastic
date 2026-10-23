@@ -691,6 +691,73 @@ function creerRelief(config, journal, fournisseurs) {
     };
   }
 
+  // ---- Un seul site pour couvrir plusieurs points (2 à 5) ----------------------------------
+  // Chaque point haut est évalué vers tous les points ; on classe par nombre de points couverts (marge >= 0),
+  // puis par la plus faible des marges (le point le plus difficile). Si aucun site ne les couvre tous,
+  // on propose la meilleure paire de sites qui se partagent les points.
+  function couvrirPoints(cibles, opts = {}) {
+    if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
+    for (const c of cibles) if (Number.isNaN(alt(c.lat, c.lon))) throw new Error('Un des points est hors de la zone du modèle de relief (département et ses abords)');
+    const P = parametres(opts);
+    const reseau = opts.noeuds || fournisseurs.noeudsReseau();
+    const min = niveauMin(opts.acces);
+    const evalues = [];
+    for (const s of sommets) {
+      if (!accessible(s, min)) continue;
+      const liens = cibles.map((c) => {
+        const d = distanceM(s, c);
+        if (d > P.rayonMax || d < 300) return null;
+        return liaison(s, c, P, P.hs, P.ht);
+      });
+      const marges = liens.map((l) => (l ? l.marge : -99));
+      const couverts = marges.filter((m) => m >= 0).length;
+      if (!couverts) continue;
+      evalues.push({ s, liens, marges, couverts, margeMin: Math.min(...marges) });
+    }
+    const raccord = (s) => {
+      let r = null;
+      for (const n of reseau) {
+        const dn = distanceM(s, n);
+        if (dn > P.rayonMax || dn < 200) continue;
+        const ln = liaison(s, n, P, P.hs, 4);
+        if (ln && (!r || ln.marge > r.marge)) r = { nom: n.nom, num: n.num, lat: n.lat, lon: n.lon, marge: ln.marge, distanceKm: +(ln.distance / 1000).toFixed(1) };
+      }
+      return r;
+    };
+    const fiche = (e) => ({
+      id: e.s.id, nom: e.s.nom, commune: e.s.commune, lat: e.s.lat, lon: e.s.lon, alt: e.s.alt, acces: e.s.acces || null, couverturePct: e.s.couverturePct,
+      couverts: e.couverts, margeMin: e.margeMin,
+      liaisons: e.liens.map((l) => (l ? { marge: l.marge, distanceKm: +(l.distance / 1000).toFixed(1), obstacle: l.obstacle } : null)),
+      raccord: raccord(e.s),
+    });
+    evalues.sort((a, b) => b.couverts - a.couverts || b.margeMin - a.margeMin || (b.s.couverturePct || 0) - (a.s.couverturePct || 0));
+    const choisis = [];
+    for (const e of evalues) {
+      if (choisis.length >= 4) break;
+      if (choisis.some((x) => distanceM(x.s, e.s) < 3000)) continue;
+      choisis.push(e);
+    }
+    const complet = !!(choisis[0] && choisis[0].couverts === cibles.length);
+    // Pas de site unique : meilleure paire (les deux sites se partagent les points)
+    let paire = null;
+    if (!complet && cibles.length > 1) {
+      const top = evalues.slice(0, 150);
+      for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) {
+        const m = cibles.map((_, k) => Math.max(top[i].marges[k], top[j].marges[k]));
+        if (m.some((x) => x < 0)) continue;
+        const score = Math.min(...m);
+        if (!paire || score > paire.score) paire = { score, a: top[i], b: top[j] };
+      }
+      if (paire) paire = { margeMin: paire.score, sites: [fiche(paire.a), fiche(paire.b)], liaison: (() => { const l = liaison(paire.a.s, paire.b.s, P, P.hs, P.hs); return l ? { marge: l.marge, distanceKm: +(l.distance / 1000).toFixed(1) } : null; })() };
+    }
+    return {
+      cibles: cibles.map((c) => { const z = alt(c.lat, c.lon); return { ...c, alt: Number.isNaN(z) ? null : Math.round(z) }; }),
+      parametres: { preset: P.preset, hs: P.hs, ht: P.ht, margeSecurite: P.margeSecurite, env: P.env, rayonKm: P.rayonMax / 1000 },
+      complet, propositions: choisis.map(fiche), paire,
+      filtreAcces: opts.acces || 'tous', evalues: evalues.length,
+    };
+  }
+
   // ---- Démarrage ---------------------------------------------------------------------
   async function demarrer() {
     try {
@@ -719,6 +786,7 @@ function creerRelief(config, journal, fournisseurs) {
     },
     couverturePng,
     couvrirPoint,
+    couvrirPoints,
     relierPoints,
     calculerClassement,
     classementAcces,

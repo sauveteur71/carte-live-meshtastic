@@ -1508,8 +1508,11 @@ async function couvrirPoint(latlng) {
     <h2>Couvrir ce point</h2>
     ${blocCoords(c.lat, c.lon, { alt: c.alt })}
     <div class="meta-longue">antenne à ${r.parametres.ht} m · sites à ${r.parametres.hs} m · ${esc(r.parametres.preset)}</div>
+    <div class="actions-prop"><button id="ajout-cible" class="principal">＋ Ajouter un autre point à couvrir</button></div>
+    <p class="note">Ajoutez 1 à 4 autres points : la carte cherche alors <b>un seul site relais</b> qui les couvre tous.</p>
     ${r.propositions.length ? r.propositions.map(carteProp).join('') + '<div class="actions-prop"><button id="gpx-couvrir">Télécharger les 5 points (GPX)</button></div>' : '<div class="vide">Aucun point haut à portée.</div>'}
     <p class="note">Classement : marge de liaison vers le point, puis qualité du raccord à un relais existant, puis couverture générale du site. ${r.evalues} points hauts évalués. La marge inclut ${r.parametres.margeSecurite} dB de sécurité et ${r.parametres.env} dB de pertes d'environnement : au-dessus de 0 dB la liaison est probable, au-dessus de 10 dB elle est confortable.</p>`;
+  $('#ajout-cible').onclick = () => { etat.ciblesMulti = [{ lat: c.lat, lon: c.lon }]; basculerMode('couvrir-plus'); };
   const bg = $('#gpx-couvrir');
   if (bg) bg.onclick = () => telechargerGpx('couvrir-point.gpx', [
     { lat: c.lat, lon: c.lon, alt: c.alt, nom: 'Point à couvrir' },
@@ -1520,6 +1523,71 @@ async function couvrirPoint(latlng) {
     const p = r.propositions[Number(b.dataset.prof)];
     ouvrirProfilCoords({ lat: p.lat, lon: p.lon, nom: nomSommet(p), h: Number(hs) }, { lat: c.lat, lon: c.lon, nom: 'Point à couvrir', h: Number(ht) });
   }));
+}
+
+// ---- Un seul site relais pour couvrir plusieurs points (2 à 5) ---------------------------------
+function ajouterCible(latlng) {
+  etat.ciblesMulti = [...(etat.ciblesMulti || []), { lat: latlng.lat, lon: latlng.lng }].slice(0, 5);
+  couvrirPoints(etat.ciblesMulti);
+}
+async function couvrirPoints(cibles) {
+  const hs = $('#relief-hs') ? $('#relief-hs').value : 6, ht = $('#relief-ht') ? $('#relief-ht').value : 2;
+  if (etat.coucheCouvrir) etat.coucheCouvrir.remove();
+  const g = L.layerGroup().addTo(carte);
+  etat.coucheCouvrir = g;
+  $('#btn-effacer').hidden = false;
+  const marqueCible = (c, i) => L.marker([c.lat, c.lon], { icon: L.divIcon({ className: 'cible-multi', html: `<span>${i + 1}</span>`, iconSize: [24, 24], iconAnchor: [12, 12] }), pane: 'traces', zIndexOffset: 900 })
+    .bindTooltip(`Point ${i + 1} à couvrir`, { className: 'info' }).addTo(g);
+  cibles.forEach(marqueCible);
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  $('#fiche-contenu').innerHTML = `<h2>Couvrir ${cibles.length} points</h2><div class="alerte info-lecture"><span class="sablier"></span> Recherche d’un site relais qui couvre les ${cibles.length} points…</div>`;
+  const q = new URLSearchParams({ pts: cibles.map((c) => `${c.lat.toFixed(5)},${c.lon.toFixed(5)}`).join(';'), hs, ht, acces: etat.filtreAcces || 'tous', ...(etat.vueReseau === 'meshcore' ? { reseau: 'meshcore', preset: 'MESHCORE_FR' } : {}) });
+  let r;
+  try { r = await api('/api/relief/couvrir-points?' + q); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Couvrir ${cibles.length} points</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  const pts = cibles.map((c) => [c.lat, c.lon]);
+  const tracer = (site, lettre, principal) => {
+    pts.push([site.lat, site.lon]);
+    site.liaisons.forEach((l, k) => {
+      if (!l) return;
+      L.polyline([[site.lat, site.lon], [r.cibles[k].lat, r.cibles[k].lon]], { color: hexMarge(l.marge), weight: principal ? 3.5 : 1.5, opacity: principal ? 0.95 : 0.5, dashArray: l.marge >= 0 ? null : '6 6', pane: 'traces' })
+        .bindTooltip(`${lettre} → point ${k + 1} : ${fmt(l.distanceKm, 1, ' km')} · marge ${l.marge >= 0 ? '+' : ''}${fmt(l.marge, 1, ' dB')}`, { className: 'info', sticky: true }).addTo(g);
+    });
+    if (principal && site.raccord) L.polyline([[site.lat, site.lon], [site.raccord.lat, site.raccord.lon]], { color: hexMarge(site.raccord.marge), weight: 1.5, opacity: 0.7, dashArray: '2 6', pane: 'traces' }).addTo(g);
+    L.marker([site.lat, site.lon], { icon: principal ? L.divIcon({ className: 'relais-a-installer', html: `<div class="epingle"><b>${lettre}</b></div><i class="pulsation"></i>`, iconSize: [34, 44], iconAnchor: [17, 42] }) : L.divIcon({ className: 'sommet propose', html: `<span>${lettre}</span>`, iconSize: [24, 24], iconAnchor: [12, 12] }), pane: 'traces', zIndexOffset: principal ? 950 : 700 })
+      .bindTooltip(`<b>${lettre} · ${esc(nomSommet(site))}</b><br>${site.alt} m · couvre ${site.couverts}/${r.cibles.length} points · marge mini ${fmt(site.margeMin, 1, ' dB')}`, { className: 'info' + (principal ? ' etiquette-relais' : ''), permanent: principal, direction: 'top', offset: principal ? [0, -46] : [0, -12] }).addTo(g);
+  };
+  if (r.complet) r.propositions.forEach((p, i) => tracer(p, String.fromCharCode(65 + i), i === 0));
+  else if (r.paire) r.paire.sites.forEach((p, i) => tracer(p, String(i + 1), true));
+  else if (r.propositions[0]) tracer(r.propositions[0], 'A', true);
+  carte.fitBounds(L.latLngBounds(pts), { padding: [90, 90], maxZoom: 12 });
+
+  const ligneLiaisons = (site) => site.liaisons.map((l, k) => `<span class="pastille-point" style="border-color:${l ? couleurMarge(l.marge) : 'var(--critique)'}">${k + 1} : ${l ? `${l.marge >= 0 ? '+' : ''}${fmt(l.marge, 1, ' dB')} · ${fmt(l.distanceKm, 1, ' km')}` : 'hors portée'}</span>`).join('');
+  const carteSite = (p, lettre, titre) => `<div class="proposition" style="border-left-color:${couleurMarge(p.margeMin)}">
+      <div class="entete-prop"><span class="lettre">${lettre}</span><b>${esc(nomSommet(p))}</b><span class="marge" style="color:${couleurMarge(p.margeMin)}">${titre || `${p.couverts}/${r.cibles.length} points`}</span></div>
+      <div class="meta-longue">${p.alt} m${p.commune ? ' · ' + esc(p.commune) : ''} · marge du point le plus difficile : <b style="color:${couleurMarge(p.margeMin)}">${p.margeMin >= 0 ? '+' : ''}${fmt(p.margeMin, 1, ' dB')}</b></div>
+      <div class="points-couverts">${ligneLiaisons(p)}</div>
+      <div class="meta-longue">Accès : ${texteAcces(p.acces)}</div>
+      <div class="meta-longue">${p.raccord ? `Raccord au réseau : <b>${esc(p.raccord.nom)}</b> à ${fmt(p.raccord.distanceKm, 1, ' km')}, marge <span style="color:${couleurMarge(p.raccord.marge)}">${fmt(p.raccord.marge, 1, ' dB')}</span>` : '<span style="color:var(--critique)">Aucun relais existant joignable depuis ce site</span>'}</div>
+      ${blocCoords(p.lat, p.lon, { alt: p.alt })}
+    </div>`;
+  const listeCibles = r.cibles.map((c, i) => `<div class="ligne-cible"><span class="cible-multi petit"><span>${i + 1}</span></span><span class="mono">${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}</span>${c.alt != null ? ` · ${c.alt} m` : ''}${cibles.length > 2 ? `<button class="mini" data-retirer="${i}" title="Retirer ce point">✕</button>` : ''}</div>`).join('');
+  $('#fiche-contenu').innerHTML = `<h2>Couvrir ${r.cibles.length} points avec un seul site</h2>
+    <div class="liste-cibles">${listeCibles}</div>
+    <div class="actions-prop">${cibles.length < 5 ? '<button id="ajout-cible-multi">＋ Ajouter un point</button>' : ''}<button id="gpx-multi">Télécharger (GPX)</button></div>
+    <div class="meta-longue">antenne ${r.parametres.ht} m aux points · site à ${r.parametres.hs} m · ${esc(r.parametres.preset)}${r.filtreAcces !== 'tous' ? ` · sites ${esc(ACCES[r.filtreAcces] ? ACCES[r.filtreAcces].nom : r.filtreAcces)}` : ''}</div>
+    ${r.complet ? `<div class="alerte info-lecture">✔ <b>${esc(nomSommet(r.propositions[0]))}</b> couvre les ${r.cibles.length} points à lui seul.</div>${r.propositions.map((p, i) => carteSite(p, String.fromCharCode(65 + i), i === 0 ? 'Meilleur site' : null)).join('')}`
+      : r.paire ? `<div class="alerte attention">Aucun site unique ne couvre les ${r.cibles.length} points. Meilleure solution : <b>2 sites</b> qui se partagent les points${r.paire.liaison ? ` (liaison entre eux : marge ${fmt(r.paire.liaison.marge, 1, ' dB')})` : ''}.</div>${r.paire.sites.map((p, i) => carteSite(p, String(i + 1), `Site ${i + 1} sur 2`)).join('')}${r.propositions.length ? `<details class="alt-relier"><summary>Meilleurs sites uniques (couverture partielle)</summary>${r.propositions.map((p, i) => carteSite(p, String.fromCharCode(65 + i))).join('')}</details>` : ''}`
+      : r.propositions.length ? `<div class="alerte attention">Aucun site, ni seul ni à deux, ne couvre tous les points. Meilleure couverture partielle :</div>${r.propositions.map((p, i) => carteSite(p, String.fromCharCode(65 + i))).join('')}`
+      : '<div class="vide">Aucun point haut ne couvre ces points.</div>'}
+    <p class="note">Classement : nombre de points couverts, puis marge du point le plus difficile (au-dessus de 0 dB la liaison est probable, au-dessus de 10 dB confortable). ${r.evalues} points hauts évalués, rayon ${r.parametres.rayonKm} km. Marge de sécurité ${r.parametres.margeSecurite} dB et pertes d’environnement ${r.parametres.env} dB incluses.</p>`;
+  const ba = $('#ajout-cible-multi');
+  if (ba) ba.onclick = () => basculerMode('couvrir-plus');
+  $('#fiche-contenu').querySelectorAll('[data-retirer]').forEach((b) => (b.onclick = () => { etat.ciblesMulti = cibles.filter((_, i) => i !== Number(b.dataset.retirer)); couvrirPoints(etat.ciblesMulti); }));
+  $('#gpx-multi').onclick = () => {
+    const sites = r.complet ? r.propositions.slice(0, 1) : r.paire ? r.paire.sites : r.propositions.slice(0, 1);
+    telechargerGpx('couvrir-points.gpx', [...r.cibles.map((c, i) => ({ lat: c.lat, lon: c.lon, alt: c.alt, nom: `Point ${i + 1}` })), ...sites.map((p, i) => ({ lat: p.lat, lon: p.lon, alt: p.alt, nom: `Relais ${i + 1} - ${nomSommet(p)}`, desc: `Marge mini ${p.margeMin} dB` }))]);
+  };
 }
 
 async function ouvrirProfilCoords(a, b, preset) {
@@ -1538,7 +1606,8 @@ async function ouvrirProfilCoords(a, b, preset) {
 function basculerMode(mode) {
   etat.modeCarte = mode;
   $('#btn-couvrir').classList.toggle('actif', mode === 'couvrir');
-  $('#btn-couvrir').textContent = mode === 'couvrir' ? 'Cliquez le point à couvrir…' : 'Couvrir';
+  $('#btn-couvrir').classList.toggle('actif', mode === 'couvrir' || mode === 'couvrir-plus');
+  $('#btn-couvrir').textContent = mode === 'couvrir' ? 'Cliquez le point à couvrir…' : mode === 'couvrir-plus' ? `Cliquez le point ${(etat.ciblesMulti || []).length + 1}…` : 'Couvrir';
   $('#btn-couv-ici').classList.toggle('actif', mode === 'ici');
   $('#btn-couv-ici').textContent = mode === 'ici' ? 'Cliquez l’emplacement…' : 'Couverture';
   $('#btn-relier').classList.toggle('actif', mode === 'relier');
@@ -1645,7 +1714,7 @@ function placerLieu(l) {
   div.className = 'popup-lieu';
   div.innerHTML = `<b>${esc(l.nom)}</b>${l.detail ? `<div class="meta-longue">${esc(l.detail)}</div>` : ''}
     ${blocCoords(l.lat, l.lon, { alt: l.alt })}
-    <div class="menu-contexte"><button data-a="ici">Couverture depuis ici</button><button data-a="couvrir">Couvrir ce point (4 points hauts)</button>${l.num != null ? '<button data-a="fiche">Fiche du nœud</button>' : ''}</div>`;
+    <div class="menu-contexte"><button data-a="ici">Couverture depuis ici</button><button data-a="couvrir">Couvrir ce point (4 points hauts)</button>${etat.ciblesMulti && etat.ciblesMulti.length && etat.ciblesMulti.length < 5 ? `<button data-a="couvrir-plus">Ajouter aux points à couvrir (${etat.ciblesMulti.length + 1})</button>` : ''}${l.num != null ? '<button data-a="fiche">Fiche du nœud</button>' : ''}</div>`;
   div.onclick = (ev) => {
     const a = ev.target.closest('button[data-a]');
     if (!a) return;
@@ -2731,8 +2800,9 @@ function brancherInterface() {
     const m = etat.modeCarte;
     if (!m) return;
     if (m === 'relier') { choisirPointRelier(e.latlng); return; }
+    if (m === 'couvrir-plus') { basculerMode(null); ajouterCible(e.latlng); return; }
     basculerMode(null);
-    if (m === 'couvrir') couvrirPoint(e.latlng); else couvertureIci(e.latlng, Number($('#relief-hs') ? $('#relief-hs').value : 6) || 6);
+    if (m === 'couvrir') { etat.ciblesMulti = null; couvrirPoint(e.latlng); } else couvertureIci(e.latlng, Number($('#relief-hs') ? $('#relief-hs').value : 6) || 6);
   });
   // Clic droit : menu rapide sur n'importe quel lieu
   carte.on('contextmenu', (e) => {
@@ -2748,7 +2818,8 @@ function brancherInterface() {
         if (!etat.modeProfil) $('#btn-profil').click();
         choisirPointProfil({ lat: e.latlng.lat, lon: e.latlng.lng, nom: `Point ${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`, h: 3 });
       } else if (a.dataset.a === 'relier') { if (etat.modeCarte !== 'relier') { etat.relierA = null; basculerMode('relier'); } choisirPointRelier(e.latlng); }
-      else if (a.dataset.a === 'ici') couvertureIci(e.latlng, 6); else couvrirPoint(e.latlng);
+      else if (a.dataset.a === 'couvrir-plus') ajouterCible(e.latlng);
+      else if (a.dataset.a === 'ici') couvertureIci(e.latlng, 6); else { etat.ciblesMulti = null; couvrirPoint(e.latlng); }
     };
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && etat.modeCarte) basculerMode(null); });
@@ -2772,6 +2843,7 @@ function brancherInterface() {
   $('#rejeu-fermer').onclick = fermerRejeu;
   $('#rejeu-curseur').oninput = (e) => placerRejeu(Number(e.target.value));
   $('#btn-effacer').onclick = () => {
+    etat.ciblesMulti = null;
     if (etat.coucheCouverture) etat.coucheCouverture.remove();
     if (etat.coucheCouvrir) etat.coucheCouvrir.remove();
     etat.coucheCouverture = null; etat.coucheCouvrir = null; $('#btn-effacer').hidden = true;
