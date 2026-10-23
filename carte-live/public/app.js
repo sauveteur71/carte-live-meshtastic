@@ -354,6 +354,16 @@ function flasher(num) {
   el.classList.add('flash');
 }
 
+// Version installée, et la dernière publiée sur GitHub si elle est plus récente
+function afficherVersion(v) {
+  const el = $('#version');
+  if (!el || !v || !v.version) return;
+  el.hidden = false;
+  el.href = v.url;
+  el.classList.toggle('maj', !!v.majDisponible);
+  el.textContent = v.majDisponible ? `v${v.version} · v${v.derniere} disponible` : `v${v.version}${v.derniere ? ' · à jour' : ''}`;
+  el.title = v.majDisponible ? `Nouvelle version v${v.derniere} publiée sur GitHub : cliquez pour voir les nouveautés. Mise à jour : docker compose pull && docker compose up -d` : v.derniere ? `Version installée v${v.version} — c'est la dernière publiée sur GitHub` : `Version installée v${v.version}`;
+}
 function resumeAlertes(a) {
   const c = a.filter((x) => x.niveau === 'critique').length, w = a.length - c;
   return a.length ? [c ? `${c} critique${c > 1 ? 's' : ''}` : '', w ? `${w} attention` : ''].filter(Boolean).join(' · ') : 'aucune';
@@ -2871,6 +2881,8 @@ async function demarrer() {
   if (nomMarque) nomMarque.textContent = etat.config.titre.split(' · ')[0];
   const marque = document.querySelector('.marque .sous');
   if (marque) marque.textContent = `Carte live · ${etat.config.zoneNom}`;
+  afficherVersion(etat.config.version);
+  setInterval(() => fetch('/api/version').then((r) => r.json()).then(afficherVersion).catch(() => {}), 3600000);
   if (etat.membre) {
     const c = etat.config.compte;
     $('#btn-admin').textContent = `${c.indicatif || c.identifiant}${etat.admin ? ' · admin' : ''}`;

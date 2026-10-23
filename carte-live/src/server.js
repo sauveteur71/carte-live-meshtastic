@@ -9,6 +9,7 @@ const mqtt = require('mqtt');
 const { WebSocketServer } = require('ws');
 
 const config = require('./config');
+const VERSION = require('../package.json').version;
 const { decoderMessage, preparerCanaux } = require('./decodeur');
 const { creerStockage } = require('./base');
 const { creerReseau } = require('./reseau');
@@ -79,8 +80,30 @@ app.use((req, res, next) => {
 app.use('/vendor/leaflet', express.static(path.join(path.dirname(require.resolve('leaflet/package.json')), 'dist'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '5m' }));
 
+// Version installée et dernière version publiée sur GitHub (vérifiée toutes les 6 h)
+const DEPOT = process.env.DEPOT_GITHUB || 'sauveteur71/carte-live-meshtastic';
+const majDispo = { version: null, url: null, verifie: 0, erreur: null };
+const comparerVersions = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); } return 0; };
+async function verifierDerniereVersion() {
+  if (process.env.VERIFIER_MAJ === '0') return;
+  try {
+    const r = await fetch(`https://api.github.com/repos/${DEPOT}/releases/latest`, { headers: { 'User-Agent': 'carte-live/' + VERSION, Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10000) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    majDispo.version = String(j.tag_name || '').replace(/^v/i, '') || null;
+    majDispo.url = j.html_url || null;
+    majDispo.erreur = null;
+  } catch (e) { majDispo.erreur = e.message; }
+  majDispo.verifie = Date.now();
+}
+setTimeout(verifierDerniereVersion, 15000);
+setInterval(verifierDerniereVersion, 6 * 3600000).unref();
+const infosVersion = () => ({ version: VERSION, derniere: majDispo.version, url: majDispo.url || `https://github.com/${DEPOT}/releases`, majDisponible: !!(majDispo.version && comparerVersions(majDispo.version, VERSION) > 0), verifie: majDispo.verifie || null });
+app.get('/api/version', (req, res) => res.json(infosVersion()));
+
 app.get('/api/config', (req, res) => {
   res.json({
+    version: infosVersion(),
     titre: config.carte.titre,
     outils: { client: config.urlClient || '', flasher: config.urlFlasher || '' },
     centre: [config.carte.centreLat, config.carte.centreLon],

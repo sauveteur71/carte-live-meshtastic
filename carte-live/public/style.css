@@ -756,3 +756,8 @@ body[data-reseau="meshcore"] #sources .ligne:not(#ligne-mc):not(#ligne-broker) {
 .resume-alertes { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--doux); margin-left: auto; }
 .pli-alertes[open] .resume-alertes { display: none; }
 .pli-alertes .liste-alertes { max-height: 300px; overflow-y: auto; padding-right: 2px; }
+/* Numéro de version sous le titre */
+.version { display: block; font-size: 11px; color: var(--tres-doux); text-decoration: none; margin-top: 1px; }
+.version:hover { color: var(--texte); }
+.version.maj { color: #1b1300; background: var(--attention); border-radius: 99px; padding: 0 7px; display: inline-block; font-weight: 600; }
+.version.maj:hover { filter: brightness(1.1); color: #1b1300; }
