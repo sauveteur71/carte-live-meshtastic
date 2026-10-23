@@ -1,5 +1,9 @@
 # Carte live Meshtastic
 
+[![Dernière version](https://img.shields.io/github/v/release/sauveteur71/carte-live-meshtastic?label=derni%C3%A8re%20version)](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest)
+
+**Version actuelle : 1.2.0** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/tag/v1.2.0) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
+
 Carte en temps réel, supervision et **administration à distance** d'un réseau [Meshtastic](https://meshtastic.org) — et désormais [MeshCore](https://meshcore.co.uk) — local ou départemental : elle écoute votre broker MQTT et/ou un module radio, décode les paquets, garde l'historique et permet de programmer vos nœuds par LoRa.
 
 Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour n'importe quel département : tout se règle depuis l'assistant d'installation.

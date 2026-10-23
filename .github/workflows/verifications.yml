@@ -16,6 +16,10 @@ jobs:
           node-version: '22'
       - name: Syntaxe JavaScript
         run: for f in carte-live/src/*.js carte-live/src/meshcore/*.js carte-live/public/*.js carte-live/outils/*.js; do node --check "$f"; done
+      - name: Version du README à jour
+        run: |
+          v=$(node -p "require('./carte-live/package.json').version")
+          grep -q "Version actuelle : $v" README.md || { echo "README.md : indiquer « Version actuelle : $v »"; exit 1; }
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24'
