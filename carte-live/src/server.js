@@ -19,7 +19,9 @@ const { creerSauvegardes } = require('./sauvegardes');
 const { creerSanteCarte } = require('./sante-carte');
 const { creerMaintenance } = require('./maintenance');
 const { creerExports } = require('./exports');
+const { creerFederation } = require('./federation');
 const installations = creerInstallations(path.dirname(config.fichierBase));
+let federation = null; // créée une fois le réseau prêt (voir plus bas)
 // Zone « département + voisins », recalculée si le département ou sa zone changent (installation, réglages)
 let cacheVoisins = { cle: null, val: null };
 function zoneVoisins() {
@@ -1417,7 +1419,8 @@ const fournisseursRelief = {
     const limite = Date.now() - 24 * 3600000;
     return stockage.q.noeuds.all()
       .filter((n) => n.lat != null && (n.vu || n.dernier_vu || 0) >= limite && reseau.estSurveille(n))
-      .map((n) => ({ num: n.num, nom: n.nom_long || n.nom_court || n.id, lat: n.lat, lon: n.lon, ...installations.radio(n.num) }));
+      .map((n) => ({ num: n.num, nom: n.nom_long || n.nom_court || n.id, lat: n.lat, lon: n.lon, ...installations.radio(n.num) }))
+      .concat(federation ? federation.noeudsCalcul() : []); // relais des bulles voisines (près des limites du département)
   },
   // Liaisons radio directes avec SNR mesuré (pour calibrer le modèle)
   liensMesures: () => [...liensMesuresNoeuds(), ...(() => { try { return mesures().liensCalibration(); } catch { return []; } })()],
@@ -1431,6 +1434,7 @@ const fournisseursRelief = {
       });
   },
 };
+federation = creerFederation({ config, stockage, reseau, installations, journal, version: VERSION });
 const relief = creerRelief(config, journal, fournisseursRelief);
 
 // ---- Maintenance : charge radio, autonomie, firmwares, rôles -------------------------------------
@@ -1450,6 +1454,16 @@ app.get('/api/maintenance/:quoi', (req, res) => {
     res.status(404).json({ erreur: 'Inconnu' });
   } catch (e) { res.status(500).json({ erreur: e.message }); }
 });
+
+// ---- Fédération avec les bulles voisines ---------------------------------------------------------
+app.get('/api/federation', (req, res) => { res.setHeader('Access-Control-Allow-Origin', '*'); res.json(federation.publier()); });
+app.get('/api/federation/voisins', (req, res) => res.json(federation.voisins()));
+app.get('/api/federation/partenaires', (req, res) => { if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); res.json(federation.partenaires()); });
+app.post('/api/federation/partenaires', async (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { const e = await federation.ajouter(String((req.body || {}).url || ''), (req.body || {}).nom); res.json({ ok: !e.erreur, erreur: e.erreur, relais: e.relais ? e.relais.length : 0 }); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.delete('/api/federation/partenaires', (req, res) => { if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); federation.retirer(String(req.query.url || '')); res.json({ ok: true }); });
 
 // ---- Exports et intégrations (GeoJSON, Prometheus/Grafana, Home Assistant) ------------------------
 const exportsCarte = creerExports({ config, stockage, reseau, reseauMc, maintenance, santeCarte: { etat: () => santeCarte.etat() }, relief, alertes: () => dernieresAlertes });

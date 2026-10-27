@@ -34,7 +34,7 @@ const etat = {
   coucheLiens: null,
   alertes: [],
   stats: null,
-  couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true },
+  couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true, federation: true },
   filtresPorts: new Set(Object.keys(PORTS)),
   selection: null,
   trajet: null,
@@ -1761,7 +1761,40 @@ function ajouterRelaisSimulation(latlng) {
   etat.simu.ajouter.push({ lat: lieu.lat, lon: lieu.lon, h: Number($('#relief-hs') ? $('#relief-hs').value : 6) || 6, nom: lieu.nom });
   simulation();
 }
+// ---- Bulles voisines (cartes fédérées) -----------------------------------------------------------------
+async function chargerFederation() {
+  try { etat.federation = await api('/api/federation/voisins'); } catch { etat.federation = []; }
+  dessinerFederation();
+}
+function dessinerFederation() {
+  if (etat.coucheFederation) etat.coucheFederation.remove();
+  etat.coucheFederation = null;
+  if (!etat.couches.federation || !(etat.federation || []).length) return;
+  const g = L.layerGroup();
+  for (const b of etat.federation) {
+    const pos = new Map(b.relais.map((r) => [r.num, r]));
+    for (const l of b.liens) {
+      const a = pos.get(l.a), c = pos.get(l.b);
+      if (a && c) L.polyline([[a.lat, a.lon], [c.lat, c.lon]], { color: couleurSnr(l.snr), weight: 1.5, opacity: 0.55, dashArray: '3 6', pane: 'liens', interactive: false }).addTo(g);
+    }
+    for (const r of b.relais) {
+      L.marker([r.lat, r.lon], { icon: L.divIcon({ className: '', html: `<div class="mk-federation ${r.passerelle ? 'gw' : ''}"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] }), zIndexOffset: 300 })
+        .bindTooltip(`<b>${esc(r.nom)}</b> <small>bulle voisine</small><br>${esc(b.nom)}${b.departement ? ' (' + esc(b.departement.code) + ')' : ''}<br>${esc(r.role || '')}${r.passerelle ? ' · passerelle MQTT' : ''}${r.hauteur ? ' · antenne ' + r.hauteur + ' m' : ''}<br><small>vu ${ilYa(r.dernierVu)}${b.perime ? ' · données anciennes (bulle injoignable)' : ''}</small>`, { className: 'info' }).addTo(g);
+    }
+  }
+  g.addTo(carte);
+  etat.coucheFederation = g;
+}
+
 // ---- Partager : carte publique intégrable et exports ---------------------------------------------------
+async function rendreFederationAdmin() {
+  const z = $('#liste-federation');
+  if (!z) return;
+  let l = [];
+  try { l = await api('/api/federation/partenaires'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  z.innerHTML = l.map((p) => `<div class="ligne"><span class="point ${p.erreur ? (p.relais ? 'attention' : 'alerte') : 'actif'}"></span><span class="titre">${esc(p.nom || p.url)}<small>${esc(p.url)}${p.departement ? ' · ' + esc(p.departement.code + ' ' + (p.departement.nom || '')) : ''} · ${p.relais} relais, ${p.liens} liaisons${p.heure ? ' · ' + ilYa(p.heure) : ''}${p.erreur ? ' · <b style="color:var(--attention)">' + esc(p.erreur) + '</b>' : ''}</small></span><span class="meta"><button class="mini" data-retirer-fed="${esc(p.url)}">✕</button></span></div>`).join('') || '<div class="vide">Aucune bulle voisine déclarée.</div>';
+  z.querySelectorAll('[data-retirer-fed]').forEach((b) => (b.onclick = async () => { if (!confirm('Retirer cette bulle voisine ?')) return; await api('/api/federation/partenaires?url=' + encodeURIComponent(b.dataset.retirerFed), { method: 'DELETE' }); rendreFederationAdmin(); chargerFederation(); }));
+}
 function fichePartager() {
   const base = location.origin;
   const iframe = `<iframe src="${base}/publique" width="100%" height="520" style="border:0;border-radius:8px" title="Carte du réseau" loading="lazy"></iframe>`;
@@ -1783,7 +1816,21 @@ function fichePartager() {
     ${lien(base + '/metrics', 'Métriques Prometheus', 'à ajouter comme cible dans Prometheus, puis tableaux Grafana')}
     <h3>Home Assistant</h3>
     <label class="bloc-code">Dans configuration.yaml<textarea readonly rows="11">${esc(ha)}</textarea></label>
+    ${etat.admin ? `<h3>Bulles voisines (fédération)</h3>
+    <p class="note">Déclarez les cartes live des départements voisins : leurs relais s’affichent (couche « Bulles voisines ») et comptent dans les calculs de couverture près des limites. Votre propre carte publie ses relais à l’adresse <span class="mono">${esc(base)}/api/federation</span> : donnez votre adresse aux autres bulles.</p>
+    <div id="liste-federation"><div class="vide">Chargement…</div></div>
+    <form id="f-federation" class="parametres compact"><label>Adresse de la carte voisine <input name="url" placeholder="https://carte-42.exemple.fr" required></label><label>Nom (facultatif) <input name="nom" placeholder="Loire"></label><button type="submit" class="principal">Ajouter</button></form>
+    <p class="erreur" id="federation-retour"></p>` : ''}
     <p class="note">Ces exports suivent les mêmes règles de confidentialité que la carte publique. Pour les protéger, définissez <span class="mono">EXPORT_JETON</span> dans le fichier .env : il faut alors ajouter <span class="mono">?jeton=…</span> aux adresses (ou l’en-tête « Authorization: Bearer … »).</p>`;
+  if (etat.admin) {
+    rendreFederationAdmin();
+    $('#f-federation').onsubmit = async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      $('#federation-retour').textContent = 'Connexion à la carte voisine…';
+      try { const r = await postJson('/api/federation/partenaires', { url: f.url.value.trim(), nom: f.nom.value.trim() }); $('#federation-retour').textContent = r.erreur ? `Ajoutée, mais injoignable pour l’instant : ${r.erreur}` : `✔ Ajoutée : ${r.relais} relais récupérés.`; f.reset(); rendreFederationAdmin(); chargerFederation(); } catch (err) { $('#federation-retour').textContent = err.message; }
+    };
+  }
 }
 function allerPlan() {
   const b = document.querySelector('.onglets button[data-onglet="sites"]');
@@ -3457,7 +3504,7 @@ function brancherInterface() {
     const c = b.dataset.couche;
     etat.couches[c] = !etat.couches[c];
     b.classList.toggle('actif', etat.couches[c]);
-    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else dessinerLiens();
+    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else dessinerLiens();
   }));
   $('#filtres').onclick = (e) => {
     const b = e.target.closest('button[data-port]');
@@ -3825,6 +3872,7 @@ async function demarrer() {
   chargerAsymetrie(); setInterval(chargerAsymetrie, 120000);
   chargerChemins(); setInterval(chargerChemins, 300000);
   chargerSanteCarte(); setInterval(chargerSanteCarte, 60000);
+  chargerFederation(); setInterval(chargerFederation, 600000);
   chargerActiviteInitiale();
   setInterval(rendreLegende, 60000);
   if (etat.config.installation) installation();
