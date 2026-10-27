@@ -176,18 +176,42 @@ const optsRelief = (q) => {
   const nb = (v, min, max) => { const n = Number(v); return v === undefined || v === '' || !Number.isFinite(n) ? undefined : Math.min(max, Math.max(min, n)); };
   return { hs: nb(q.hs, 0, 100), ht: nb(q.ht, 0, 50), ptx: nb(q.ptx, 0, 30), marge: nb(q.marge, 0, 30), rayonKm: nb(q.rayon, 5, 60), env: nb(q.env, 0, 40), preset: q.preset, acces: ['voiture', '4x4', 'pied'].includes(q.acces) ? q.acces : undefined };
 };
-app.get('/api/relief/etat', (req, res) => res.json({ ...relief.etat(), emprise: relief.emprise() }));
+// Relief d'un autre département (?dep=25) : instance séparée, créée à la demande (2 au plus en mémoire)
+const reliefsEtude = new Map();
+function R(req, ...pts) {
+  const r = Rdep(req);
+  // Un point hors du département étudié mais dans celui de la carte : on garde le relief de la carte
+  if (r !== relief && pts.length) {
+    const dans = (x, e) => x && Number.isFinite(x.lat) && x.lat >= e.sud && x.lat <= e.nord && x.lon >= e.ouest && x.lon <= e.est;
+    const eR = r.emprise(), eC = relief.emprise();
+    if (pts.some((x) => !dans(x, eR)) && pts.every((x) => dans(x, eC))) return relief;
+  }
+  return r;
+}
+function Rdep(req) {
+  const dep = String(req.query.dep || (req.body && req.body.dep) || '').toUpperCase();
+  if (!dep || dep === String(config.departement.code).toUpperCase() || !/^(\d{2}|2A|2B)$/.test(dep)) return relief;
+  if (!reliefsEtude.has(dep)) {
+    if (!listeDepartements.some((d) => d.code === dep)) return relief;
+    if (reliefsEtude.size >= 2) { const [k, v] = reliefsEtude.entries().next().value; v.arreter(); reliefsEtude.delete(k); }
+    journal(`[Relief] étude du département ${dep} : chargement du relief IGN et des points hauts`);
+    reliefsEtude.set(dep, creerRelief(config, journal, { ...fournisseursRelief, envDefaut: () => { const c = relief.calibration(); return c && c.perteEnvironnementDb != null ? c.perteEnvironnementDb : null; } }, { code: dep }));
+  } else { const v = reliefsEtude.get(dep); reliefsEtude.delete(dep); reliefsEtude.set(dep, v); }
+  return reliefsEtude.get(dep);
+}
+
+app.get('/api/relief/etat', (req, res) => res.json({ ...R(req).etat(), emprise: R(req).emprise() }));
 app.get('/api/relief/sommets', (req, res) => {
-  res.json(relief.sommets().map((s) => ({ id: s.id, nom: s.nom, lat: s.lat, lon: s.lon, alt: s.alt, source: s.source, dominance: s.dominance, dansZone: s.dansZone, couverturePct: s.couverturePct, couvertureKm2: s.couvertureKm2, rang: s.rang, rangPlan: s.rangPlan, acces: s.acces || null })));
+  res.json(R(req).sommets().map((s) => ({ id: s.id, nom: s.nom, lat: s.lat, lon: s.lon, alt: s.alt, source: s.source, dominance: s.dominance, dansZone: s.dansZone, couverturePct: s.couverturePct, couvertureKm2: s.couvertureKm2, rang: s.rang, rangPlan: s.rangPlan, acces: s.acces || null })));
 });
-app.get('/api/relief/calibration', (req, res) => res.json(relief.calibration()));
+app.get('/api/relief/calibration', (req, res) => res.json(R(req).calibration()));
 app.get('/api/relief/classement', (req, res) => {
   const filtre = ['voiture', '4x4', 'pied'].includes(req.query.acces) ? req.query.acces : null;
-  res.json((filtre ? relief.classementAcces(filtre) : relief.classementAcces(null)) || relief.classement() || { attente: true, etat: relief.etat() });
+  res.json((filtre ? R(req).classementAcces(filtre) : R(req).classementAcces(null)) || R(req).classement() || { attente: true, etat: R(req).etat() });
 });
 app.post('/api/relief/recalculer', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
-  relief.calculerClassement(optsRelief(req.body || {}));
+  R(req).calculerClassement(optsRelief(req.body || {}));
   res.json({ ok: true });
 });
 app.get('/api/relief/couvrir', (req, res) => {
@@ -195,7 +219,7 @@ app.get('/api/relief/couvrir', (req, res) => {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ erreur: 'Point invalide' });
   const o = optsRelief(req.query);
   if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
-  try { res.json(relief.couvrirPoint({ lat, lon }, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
+  try { res.json(R(req, { lat, lon }).couvrirPoint({ lat, lon }, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
 });
 // Un seul site pour plusieurs points : ?pts=lat,lon;lat,lon;…
 app.get('/api/relief/couvrir-points', (req, res) => {
@@ -203,7 +227,7 @@ app.get('/api/relief/couvrir-points', (req, res) => {
   if (cibles.length < 2) return res.status(400).json({ erreur: 'Indiquer au moins deux points' });
   const o = optsRelief(req.query);
   if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
-  try { res.json(relief.couvrirPoints(cibles, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
+  try { res.json(R(req, ...cibles).couvrirPoints(cibles, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
 });
 // Répéteurs MeshCore positionnés et entendus depuis 24 h (relais existants pour « Relier » et « Couvrir »)
 const repeteursMc = () => { const lim = Date.now() - 24 * 3600000; return reseauMc.q.noeuds.all().filter((n) => n.lat != null && ['repeteur', 'salon'].includes(n.role) && (n.dernier_vu || 0) >= lim).map((n) => ({ num: n.cle, nom: n.nom || n.cle.slice(0, 8), lat: n.lat, lon: n.lon })); };
@@ -215,51 +239,53 @@ app.get('/api/relief/relier', (req, res) => {
   if (q.hA) o.hauteurA = Math.min(Math.max(Number(q.hA) || 2, 0.5), 60);
   if (q.hB) o.hauteurB = Math.min(Math.max(Number(q.hB) || 2, 0.5), 60);
   if (q.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
-  try { res.json(relief.relierPoints(a, b, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
+  try { res.json(R(req, a, b).relierPoints(a, b, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
 });
 const cacheCouverture = new Map();
 app.get('/api/relief/couverture', (req, res) => {
   const lat = Number(req.query.lat), lon = Number(req.query.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ erreur: 'Point invalide' });
-  if (!relief.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
+  const RR = R(req, { lat, lon });
+  if (!RR.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
   const o = optsRelief(req.query);
-  const cle = JSON.stringify([lat.toFixed(4), lon.toFixed(4), o]);
+  const cle = JSON.stringify([RR.code, lat.toFixed(4), lon.toFixed(4), o]);
   let r = cacheCouverture.get(cle);
   if (!r) {
-    r = relief.couverturePng({ lat, lon }, o);
+    r = RR.couverturePng({ lat, lon }, o);
     r.id = crypto.randomBytes(6).toString('hex');
     cacheCouverture.set(cle, r);
     cacheCouverture.set(r.id, r);
     if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
   }
-  res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: relief.emprise(), surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sol: r.sol, env: r.env, rayonKm: r.rayonKm });
+  res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sol: r.sol, env: r.env, rayonKm: r.rayonKm });
 });
 // Couverture cumulée : ?pts=lat,lon[,hauteur];lat,lon[,hauteur];… (2 à 10 sites)
 app.get('/api/relief/couverture-multi', (req, res) => {
   const sites = String(req.query.pts || '').split(';').map((x) => x.split(',').map(Number)).filter((x) => x.length >= 2 && x.slice(0, 2).every(Number.isFinite)).slice(0, 10)
     .map(([lat, lon, h]) => ({ lat, lon, h: Number.isFinite(h) ? Math.min(Math.max(h, 0.5), 100) : undefined }));
   if (!sites.length) return res.status(400).json({ erreur: 'Aucun site' });
-  if (!relief.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
+  const RR = R(req, ...sites);
+  if (!RR.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
   const o = optsRelief(req.query);
-  const cle = JSON.stringify(['multi', sites, o]);
+  const cle = JSON.stringify(['multi', RR.code, sites, o]);
   let r = cacheCouverture.get(cle);
   if (!r) {
-    r = relief.couverturePngMulti(sites, o);
+    r = RR.couverturePngMulti(sites, o);
     r.id = crypto.randomBytes(6).toString('hex');
     cacheCouverture.set(cle, r); cacheCouverture.set(r.id, r);
     if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
   }
-  res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: relief.emprise(), surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sites: r.sites, env: r.env, rayonKm: r.rayonKm });
+  res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sites: r.sites, env: r.env, rayonKm: r.rayonKm });
 });
 // Plan pour couvrir le département : ?objectif=95&max=15&acces=voiture&reseau=1
 app.get('/api/relief/plan', (req, res) => {
   const filtre = ['voiture', '4x4', 'pied'].includes(req.query.acces) ? req.query.acces : null;
-  const r = relief.planDepartement({ objectifPct: Number(req.query.objectif) || 95, max: Number(req.query.max) || 15, acces: filtre, avecReseau: req.query.reseau !== '0' });
+  const r = R(req).planDepartement({ objectifPct: Number(req.query.objectif) || 95, max: Number(req.query.max) || 15, acces: filtre, avecReseau: req.query.reseau !== '0' });
   if (!r) return res.status(503).json({ erreur: 'Le classement des sites est en cours de calcul, réessayez dans une minute' });
   const id = crypto.randomBytes(6).toString('hex');
   cacheCouverture.set(id, { image: r.image });
   if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
-  res.json({ ...r, image: `/api/relief/couverture/${id}.png`, emprise: relief.emprise() });
+  res.json({ ...r, image: `/api/relief/couverture/${id}.png`, emprise: R(req).emprise() });
 });
 app.get('/api/relief/couverture/:id.png', (req, res) => {
   const r = cacheCouverture.get(req.params.id);
@@ -1200,7 +1226,7 @@ const sourceRadio = creerSourceRadio(stockage, config, canaux, {
 }, agents);
 const administration = creerAdministration(sourceRadio, stockage);
 const analyse = creerAnalyse(stockage, config, reseau, () => (sourceRadio ? sourceRadio.etat().preset : null));
-const relief = creerRelief(config, journal, {
+const fournisseursRelief = {
   presetCourant: () => (sourceRadio ? sourceRadio.etat().preset : null),
   // Relais / passerelles positionnés et entendus dans les dernières 24 h (un relais muet ne couvre plus rien)
   noeudsReseau: () => {
@@ -1219,7 +1245,9 @@ const relief = creerRelief(config, journal, {
         return { a: { lat: a.lat, lon: a.lon }, b: { lat: b.lat, lon: b.lon }, snr: l.snr, nom: `${a.nom_court || a.id} → ${b.nom_court || b.id}` };
       });
   },
-});
+};
+const relief = creerRelief(config, journal, fournisseursRelief);
+
 { const m = sourceRadio.modules(); journal(m.actif ? `Module radio actif : ${m.actif.hote}:${m.actif.port}` : 'Aucun module radio actif (choix depuis la carte, onglet Réseau)'); }
 setTimeout(rafraichirEtat, 2000);
 

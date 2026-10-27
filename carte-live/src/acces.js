@@ -67,8 +67,8 @@ function evaluer(p, voies) {
   return { type, niveau: NIVEAUX[type], distances: dist, prive: r.prive, nomVoie: r.nomVoie };
 }
 
-function creerAcces(dossier, journal) {
-  const fichier = path.join(dossier, 'acces-sommets.json');
+function creerAcces(dossier, journal, suffixe = '') {
+  const fichier = path.join(dossier, `acces-sommets${suffixe}.json`);
   let cache = {};
   try { cache = JSON.parse(fs.readFileSync(fichier, 'utf8')); } catch { /* vide */ }
   const cle = (p) => p.lat.toFixed(4) + ',' + p.lon.toFixed(4);

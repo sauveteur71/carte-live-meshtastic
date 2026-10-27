@@ -80,6 +80,8 @@ function duree(sec) {
   return j ? `${j} j ${h} h` : `${h} h ${Math.floor((sec % 3600) / 60)} min`;
 }
 async function api(url, opts) {
+  // Relief, sites, plan : département étudié (peut différer de celui de la carte)
+  if (etat.depEtude && url.startsWith('/api/relief') && !/[?&]dep=/.test(url)) url += (url.includes('?') ? '&' : '?') + 'dep=' + etat.depEtude;
   const r = await fetch(url, { credentials: 'same-origin', ...opts });
   if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).erreur || r.statusText), { statut: r.status });
   return r.json();
@@ -1165,14 +1167,21 @@ function texteAcces(a) {
   return `<b>${ACCES[a.type].icone} ${ACCES[a.type].nom}</b>${parts.length ? ' · ' + parts.join(' · ') : ' · aucune voie à moins de 400 m'}`;
 }
 
-async function chargerRelief() {
+etat.depEtude = (() => { try { return localStorage.getItem('gaulix_dep_etude') || null; } catch { return null; } })();
+let jetonRelief = 0;
+async function chargerRelief(recadrer) {
+  const jeton = ++jetonRelief;
+  clearTimeout(etat.minuterieRelief);
   let e;
   try { e = await api('/api/relief/etat'); } catch { return; }
+  if (jeton !== jetonRelief) return;
   etat.relief = e;
-  if (e.mnt !== 'pret' || e.classement !== 'pret') setTimeout(chargerRelief, 15000);
-  else if (etat.classement && etat.classement.acces && etat.classement.acces.enCours) setTimeout(chargerRelief, 30000);
+  if (recadrer && e.zone) carte.fitBounds([[e.zone[0], e.zone[1]], [e.zone[2], e.zone[3]]], { padding: [20, 20] });
+  if (e.mnt !== 'pret' || e.classement !== 'pret') etat.minuterieRelief = setTimeout(() => chargerRelief(), e.mnt === 'pret' ? 15000 : 5000);
+  else if (etat.classement && etat.classement.acces && etat.classement.acces.enCours) etat.minuterieRelief = setTimeout(() => chargerRelief(), 30000);
   if (e.mnt === 'pret') {
     const [sommets, classement] = await Promise.all([api('/api/relief/sommets'), api('/api/relief/classement?acces=' + etat.filtreAcces)]).catch(() => [[], null]);
+    if (jeton !== jetonRelief) return;
     etat.sommets = sommets;
     etat.classement = classement && !classement.attente ? classement : null;
     appliquerPlan();
@@ -1379,21 +1388,47 @@ async function planDepartement() {
   const pc = $('#plan-couv'); if (pc) pc.onclick = () => couvertureMulti(r.sites.map((x) => ({ lat: x.lat, lon: x.lon, h: (r.parametres && r.parametres.hs) || 6, nom: nomSommet(x) })));
 }
 
-function rendreSites() {
+// Département étudié (relief, points hauts, plan) : celui de la carte ou n'importe quel autre
+async function htmlChoixDepartement() {
+  if (!etat.listeDeps) { try { etat.listeDeps = await api('/api/departements'); } catch { etat.listeDeps = []; } }
+  const carteDep = etat.config.departement && etat.config.departement.code;
+  const actuel = etat.depEtude || carteDep;
+  return `<div class="choix-dep"><label>Département étudié <select id="dep-etude">${etat.listeDeps.map((d) => `<option value="${d.code}" ${d.code === actuel ? 'selected' : ''}>${d.code} · ${esc(d.nom)}${d.code === carteDep ? ' (carte)' : ''}</option>`).join('')}</select></label>${etat.depEtude ? '<button class="mini" id="dep-retour" title="Revenir au département de la carte">↩ département de la carte</button>' : ''}</div>`;
+}
+function brancherChoixDepartement() {
+  const sel = $('#dep-etude');
+  if (!sel) return;
+  const changer = (code) => {
+    const carteDep = etat.config.departement && etat.config.departement.code;
+    etat.depEtude = code === carteDep ? null : code;
+    try { if (etat.depEtude) localStorage.setItem('gaulix_dep_etude', etat.depEtude); else localStorage.removeItem('gaulix_dep_etude'); } catch { /* ignoré */ }
+    etat.sommets = []; etat.classement = null; etat.relief = null;
+    if (etat.coucheCouverture) { etat.coucheCouverture.remove(); etat.coucheCouverture = null; }
+    dessinerSommets();
+    $('#sites').innerHTML = '<div class="vide">Chargement du département…</div>';
+    chargerRelief(true);
+  };
+  sel.onchange = () => changer(sel.value);
+  const r = $('#dep-retour'); if (r) r.onclick = () => changer(etat.config.departement.code);
+}
+async function rendreSites() {
   const z = $('#sites');
   if (!z) return;
   const e = etat.relief;
-  if (!e) { z.innerHTML = '<div class="vide">Modèle de relief indisponible.</div>'; return; }
+  const choix = await htmlChoixDepartement();
+  if (!e) { z.innerHTML = choix + '<div class="vide">Modèle de relief indisponible.</div>'; brancherChoixDepartement(); return; }
+  const nomDep = e.departement ? `${e.departement.nom || ''} (${e.departement.code})` : '';
   if (e.mnt !== 'pret') {
-    z.innerHTML = `<div class="vide">${e.mnt === 'erreur' ? 'Erreur : ' + esc(e.erreur) : `Chargement du relief IGN… ${e.progression || 0} %`}<br><small>Première mise en route : quelques minutes, ensuite le modèle est gardé en mémoire.</small></div>`;
+    z.innerHTML = choix + `<div class="vide">${e.mnt === 'erreur' ? 'Erreur : ' + esc(e.erreur) : `Chargement du relief IGN ${esc(nomDep)}… ${e.progression || 0} %`}<br><small>Premier chargement d’un département : quelques minutes (relief IGN, points hauts OpenStreetMap, puis classement des sites). Ensuite il est gardé sur le disque.</small></div>`;
+    brancherChoixDepartement();
     return;
   }
   const c = etat.classement;
   const avecCoords = (s, sous) => `${sous || ''} · <span class="mono">${s.lat.toFixed(5)}, ${s.lon.toFixed(5)}</span>`;
   const ligneSite = (s, droite, sous, badge, or) => `<div class="ligne site" data-site="${s.id}"><span class="rang-site${or ? ' or' : ''}">${badge ?? ''}</span><span class="titre">${esc(nomSommet(s))} ${badgeAcces(s)}<small>${s.alt} m${s.commune && s.nom ? ' · ' + esc(s.commune) : ''}</small></span><span class="meta">${droite}</span><span class="sous-ligne meta-longue">${avecCoords(s, sous)}</span></div>`;
   const parId = new Map(etat.sommets.map((s) => [s.id, s]));
-  let h = `<div class="bloc-plan" id="bloc-plan">
-      <h3>🎯 Plan pour couvrir le département</h3>
+  let h = choix + `<div class="bloc-plan" id="bloc-plan">
+      <h3>🎯 Plan pour couvrir ${e.departement ? esc(e.departement.nom || 'le département') : 'le département'}</h3>
       <div class="parametres compact">
         <label>Objectif (%) <input id="plan-objectif" type="number" min="10" max="100" step="1" value="95"></label>
         <label>Sites au plus <input id="plan-max" type="number" min="1" max="40" step="1" value="15"></label>
@@ -1431,6 +1466,7 @@ function rendreSites() {
   if (c) h += `<div class="actions-prop"><button id="gpx-sites">Télécharger les sites recommandés (GPX)</button><button id="gpx-sommets">Tous les points hauts (GPX)</button></div>`;
   h += `<div id="couverture-info" class="note"></div>`;
   z.innerHTML = h;
+  brancherChoixDepartement();
   const pc = $('#plan-calculer');
   if (pc) {
     try { const v = localStorage.getItem('gaulix_plan'); if (v) { const o = JSON.parse(v); $('#plan-objectif').value = o.objectif; $('#plan-max').value = o.max; $('#plan-acces').value = o.acces; $('#plan-reseau').checked = o.reseau; } } catch { /* ignoré */ }
@@ -1451,11 +1487,11 @@ function rendreSites() {
     };
   }
   const g1 = $('#gpx-sites'), g2 = $('#gpx-sommets');
-  if (g1) g1.onclick = () => telechargerGpx('sites-recommandes-43.gpx', c.plan.map((p) => {
+  if (g1) g1.onclick = () => telechargerGpx(`sites-recommandes-${(e.departement && e.departement.code) || ''}.gpx`, c.plan.map((p) => {
     const s = parId.get(p.id) || p;
     return { lat: s.lat, lon: s.lon, alt: s.alt, nom: `${p.rang} - ${nomSommet(s)}`, desc: `+${p.gainKm2} km², cumul ${p.totalPct} %` };
   }));
-  if (g2) g2.onclick = () => telechargerGpx('points-hauts-43.gpx', etat.sommets.filter((s) => s.dansZone && accesOk(s)).map((s) => ({ lat: s.lat, lon: s.lon, alt: s.alt, nom: nomSommet(s), desc: [s.couverturePct != null ? `Couverture ${s.couverturePct} %` : '', s.acces ? 'Accès ' + ACCES[s.acces.type].nom : ''].filter(Boolean).join(' · ') })));
+  if (g2) g2.onclick = () => telechargerGpx(`points-hauts-${(e.departement && e.departement.code) || ''}.gpx`, etat.sommets.filter((s) => s.dansZone && accesOk(s)).map((s) => ({ lat: s.lat, lon: s.lon, alt: s.alt, nom: nomSommet(s), desc: [s.couverturePct != null ? `Couverture ${s.couverturePct} %` : '', s.acces ? 'Accès ' + ACCES[s.acces.type].nom : ''].filter(Boolean).join(' · ') })));
   z.querySelectorAll('[data-site]').forEach((el) => (el.onclick = () => {
     const s = parId.get(Number(el.dataset.site));
     if (s) ficheSommet(s);

@@ -75,16 +75,44 @@ function contourDepartement(code) {
 
 const { creerAcces, NIVEAUX: NIVEAUX_ACCES } = require('./acces');
 
-function creerRelief(config, journal, fournisseurs) {
+// Rectangle englobant [sud, ouest, nord, est] d'un département (contour national)
+function rectangleDepartement(code) {
+  const g = contourDepartement(code);
+  if (!g) return null;
+  const anneauxG = g.type === 'Polygon' ? g.coordinates : g.coordinates.flat();
+  let sud = 90, ouest = 180, nord = -90, est = -180;
+  for (const a of anneauxG) for (const [lon, lat] of a) { sud = Math.min(sud, lat); nord = Math.max(nord, lat); ouest = Math.min(ouest, lon); est = Math.max(est, lon); }
+  return [sud, ouest, nord, est];
+}
+function nomDepartement(code) {
+  try {
+    const g = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'), 'utf8'));
+    const f = g.features.find((x) => x.properties.code === code);
+    return f ? f.properties.nom : null;
+  } catch { return null; }
+}
+function listeDepartements() {
+  try {
+    const g = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'), 'utf8'));
+    return g.features.map((f) => ({ code: f.properties.code, nom: f.properties.nom })).sort((a, b) => a.code.localeCompare(b.code));
+  } catch { return []; }
+}
+
+// options.code : étudier un autre département que celui de la carte (relief, sites, plan), avec ses propres fichiers en cache
+function creerRelief(config, journal, fournisseurs, options = {}) {
   const dossier = path.dirname(config.fichierBase);
-  const fMnt = path.join(dossier, 'mnt.bin');
-  const fMntInfo = path.join(dossier, 'mnt.json');
-  const fSommets = path.join(dossier, 'sommets-osm.json');
-  const acces = creerAcces(dossier, journal);
+  const codeDep = String(options.code || (config.departement && config.departement.code) || '43');
+  const suffixe = options.code ? '-' + codeDep : '';
+  const fMnt = path.join(dossier, `mnt${suffixe}.bin`);
+  const fMntInfo = path.join(dossier, `mnt${suffixe}.json`);
+  const fSommets = path.join(dossier, `sommets-osm${suffixe}.json`);
+  const acces = creerAcces(dossier, journal, suffixe);
+  const minuteries = [];
   const niveauMin = (filtre) => NIVEAUX_ACCES[filtre] || 0; // tous = 0
   const accessible = (s, min) => !min || (s.acces && s.acces.niveau >= min);
   const marge = 0.2; // degrés autour de la zone
-  const z0 = config.zone; // [sud, ouest, nord, est]
+  const z0 = options.code ? rectangleDepartement(codeDep) : config.zone; // [sud, ouest, nord, est]
+  if (!z0) throw new Error(`Département ${codeDep} inconnu`);
   const emprise = { sud: z0[0] - marge, ouest: z0[1] - marge, nord: z0[2] + marge, est: z0[3] + marge };
   const pasLat = 250 / M_PAR_DEG;
   const latMoy = ((emprise.sud + emprise.nord) / 2) * (Math.PI / 180);
@@ -104,7 +132,7 @@ function creerRelief(config, journal, fournisseurs) {
   // ---- Contour du département -----------------------------------------------------
   let anneaux = [];
   try {
-    const geom = contourDepartement((config.departement && config.departement.code) || '43');
+    const geom = contourDepartement(codeDep);
     if (!geom) throw new Error('contour inconnu');
     anneaux = geom.type === 'Polygon' ? [geom.coordinates[0]] : geom.coordinates.map((p) => p[0]);
   } catch {
@@ -348,7 +376,7 @@ function creerRelief(config, journal, fournisseurs) {
       gains: (opts.ga ?? 2.15) + (opts.gb ?? 2.15),
       pertes: opts.pertes ?? 1.5,
       margeSecurite: opts.marge ?? 6, // évanouissements
-      env: opts.env ?? (calibration && calibration.perteEnvironnementDb != null ? calibration.perteEnvironnementDb : 12), // végétation, bâti
+      env: opts.env ?? (calibration && calibration.perteEnvironnementDb != null ? calibration.perteEnvironnementDb : (fournisseurs.envDefaut && fournisseurs.envDefaut()) ?? 12), // végétation, bâti (autre département : calibration de la carte)
       seuil: bruit + SNR_LIMITE[p.sf], // sensibilité
       rayonMax: (opts.rayonKm ?? 40) * 1000,
     };
@@ -851,12 +879,14 @@ function creerRelief(config, journal, fournisseurs) {
       journal('[Relief] erreur :', e.message);
     }
   }
-  setTimeout(demarrer, 5000);
+  minuteries.push(setTimeout(demarrer, options.code ? 100 : 5000));
   // Classement recalculé chaque nuit (le réseau existant évolue)
-  setInterval(() => { if (new Date().getHours() === 4) { calculerClassement(); acces.completer(sommets.filter((x) => x.dansZone || distanceAuDepartement(x) < 10000)).catch(() => {}); } }, 3600000);
+  minuteries.push(setInterval(() => { if (new Date().getHours() === 4) { calculerClassement(); acces.completer(sommets.filter((x) => x.dansZone || distanceAuDepartement(x) < 10000)).catch(() => {}); } }, 3600000));
 
   return {
-    etat: () => ({ ...etat, grille: { nLat, nLon, pasM: 250 }, calibration: calibration && { liaisons: calibration.liaisons, ecartMedianDb: calibration.ecartMedianDb, perteEnvironnementDb: calibration.perteEnvironnementDb } }),
+    code: codeDep,
+    arreter: () => { for (const m of minuteries) { clearTimeout(m); clearInterval(m); } },
+    etat: () => ({ ...etat, departement: { code: codeDep, nom: options.nom || (options.code ? nomDepartement(codeDep) : config.zoneNom) }, zone: z0, grille: { nLat, nLon, pasM: 250 }, calibration: calibration && { liaisons: calibration.liaisons, ecartMedianDb: calibration.ecartMedianDb, perteEnvironnementDb: calibration.perteEnvironnementDb } }),
     calibration: () => calibration,
     emprise: () => ({ sud: emprise.sud - pasLat / 2, ouest: emprise.ouest - pasLon / 2, nord: emprise.sud + (nLat - 0.5) * pasLat, est: emprise.ouest + (nLon - 0.5) * pasLon }),
     sommets: () => sommets,
@@ -878,4 +908,4 @@ function creerRelief(config, journal, fournisseurs) {
   };
 }
 
-module.exports = { creerRelief, contourDepartement };
+module.exports = { listeDepartements, nomDepartement, creerRelief, contourDepartement };
