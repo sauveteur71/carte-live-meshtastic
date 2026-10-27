@@ -55,7 +55,8 @@ function creerRealisme(dossier, journal, suffixe, emprise) {
   // Trois requêtes indépendantes (Overpass est souvent chargé) : chaque partie obtenue est gardée,
   // les parties manquantes sont redemandées 15 min plus tard (5 essais par démarrage).
   const PARTIES = {
-    supports: (b) => `[out:json][timeout:180];(nwr["man_made"~"^(water_tower|mast|tower|communications_tower)$"](${b});nwr["tower:type"="communication"](${b}););out center tags;`,
+    // Étiquettes exactes (bien plus rapides qu'une expression régulière pour Overpass)
+    supports: (b) => `[out:json][timeout:180];(nwr["man_made"="water_tower"](${b});nwr["man_made"="mast"](${b});nwr["man_made"="communications_tower"](${b});nwr["tower:type"="communication"](${b}););out center tags;`,
     zones: (b) => `[out:json][timeout:180];(relation["leisure"="nature_reserve"](${b});way["leisure"="nature_reserve"](${b});relation["boundary"="national_park"](${b});relation["boundary"="protected_area"]["protect_class"~"^(1a|1b|2|4)$"](${b});way["boundary"="protected_area"]["protect_class"~"^(1a|1b|2|4)$"](${b}););out tags geom;`,
     habitations: (b) => `[out:json][timeout:180];node["place"~"^(city|town|village|hamlet|isolated_dwelling|farm)$"](${b});out;`,
   };
