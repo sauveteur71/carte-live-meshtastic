@@ -108,8 +108,8 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
   };
   // Paquets et réceptions (le gros du volume avec le flux national) : rétention courte, suppression par lots
   const purgesPaquets = [
-    db.prepare('DELETE FROM mc_receptions WHERE rowid IN (SELECT rowid FROM mc_receptions WHERE heure < ? LIMIT 20000)'),
-    db.prepare('DELETE FROM mc_paquets WHERE rowid IN (SELECT rowid FROM mc_paquets WHERE heure < ? LIMIT 20000)'),
+    db.prepare('DELETE FROM mc_receptions WHERE rowid IN (SELECT rowid FROM mc_receptions WHERE heure < ? LIMIT 2000)'),
+    db.prepare('DELETE FROM mc_paquets WHERE rowid IN (SELECT rowid FROM mc_paquets WHERE heure < ? LIMIT 2000)'),
   ];
   const purges = [
     db.prepare('DELETE FROM mc_liens WHERE dernier_vu < ?'),
@@ -427,7 +427,7 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     purgerPaquets(Date.now() - Math.min(jours, joursPaquets) * 86400000);
     return n;
   }
-  // Lots de 20 000 lignes, rendus à la boucle d'événements entre deux lots (la carte reste réactive)
+  // Petits lots (2 000 lignes) espacés d'une seconde : sur un disque de NAS, un gros DELETE bloque la carte plusieurs secondes
   let purgeEnCours = false;
   function purgerPaquets(limite) {
     if (purgeEnCours) return;
@@ -435,7 +435,7 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     const lot = () => {
       let n = 0;
       try { for (const st of purgesPaquets) n += st.run(limite).changes; } catch { n = 0; }
-      if (n > 0) setTimeout(lot, 200); else purgeEnCours = false;
+      if (n > 0) setTimeout(lot, 1000); else purgeEnCours = false;
     };
     lot();
   }
