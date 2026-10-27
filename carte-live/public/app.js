@@ -832,7 +832,7 @@ const LIB_ALIM = { secteur: 'Secteur', solaire: 'Solaire', batterie: 'Batterie s
 function htmlInstallation(n, f) {
   f = f || {};
   const v = (k) => (f[k] != null ? esc(String(f[k])) : '');
-  if (!etat.admin) {
+  if (!gerable(n.num)) {
     if (!Object.keys(f).length) return '<div class="vide">Aucune fiche d’installation pour ce nœud.</div>';
     const l = [['Hauteur d’antenne', f.hauteur != null ? f.hauteur + ' m' : null], ['Antenne', f.antenne], ['Gain', f.gain != null ? f.gain + ' dBi' : null], ['Pertes câble', f.pertesCable != null ? f.pertesCable + ' dB' : null], ['Puissance', f.puissance != null ? f.puissance + ' dBm' : null], ['Alimentation', LIB_ALIM[f.alimentation]], ['Batterie', f.batterieAh != null ? f.batterieAh + ' Ah' : null], ['Panneau', f.panneauW != null ? f.panneauW + ' W' : null], ['Site', f.site], ['Mise en service', f.miseEnService]];
     return `<div class="grille">${l.filter((x) => x[1] != null && x[1] !== '').map(([a, b]) => `<div class="mesure"><span>${a}</span><b>${esc(String(b))}</b></div>`).join('')}</div>${f.notes ? `<p class="note">${esc(f.notes)}</p>` : ''}`;
@@ -934,8 +934,8 @@ async function ouvrirFiche(num) {
       ${n.lat != null ? '<button id="mes-noeud" title="D’où ce nœud a réellement été reçu, par quelles passerelles et avec quel SNR">📶 Couverture mesurée de ce nœud</button>' : ''}
       ${n.lat != null && d.voisins.length ? '<button id="couverture">Liaisons mesurées</button>' : ''}
       ${n.lat != null ? `<button id="couv-relief">Couverture selon le relief</button><label class="champ-mini">antenne <input id="h-relief" type="number" min="0.5" max="80" step="0.5" value="${d.installation && d.installation.hauteur ? d.installation.hauteur : n.infrastructure ? 6 : 2}"> m</label>` : ''}
-      ${etat.admin && etat.config.radio && etat.radio && etat.radio.noeudLocal !== n.num ? '<button id="tester">Tester (traceroute)</button>' : ''}
-      ${etat.admin ? '<button id="modifier-reglages">✏️ Modifier ses réglages</button><button id="administrer">Programmer ce nœud</button><button id="ecrire">✉️ Message direct</button><button data-qr-reglages>🔳 QR code des réglages</button>' : ''}
+      ${gerable(n.num) && etat.config.radio && (!etat.radio || etat.radio.noeudLocal !== n.num) ? '<button id="tester">Tester (traceroute)</button>' : ''}
+      ${gerable(n.num) ? '<button id="modifier-reglages">✏️ Modifier ses réglages</button><button id="administrer">Programmer ce nœud</button>' : ''}${etat.admin ? '<button id="ecrire">✉️ Message direct</button><button data-qr-reglages>🔳 QR code des réglages</button>' : ''}
     </div>
     <div id="retour-test" class="vide" hidden></div>
     </div>
@@ -2616,16 +2616,23 @@ const gestion = { selection: new Set(), info: null, suivi: null, filtre: '', mar
 const STATUTS_TACHE = { en_attente: 'en attente', en_cours: 'en cours…', ok: 'réussi', echec: 'échec', annule: 'arrêté' };
 const ROLES_FR_ADMIN = { CLIENT: 'Client', CLIENT_MUTE: 'Client muet', CLIENT_HIDDEN: 'Client caché', CLIENT_BASE: 'Client de base', ROUTER: 'Routeur', ROUTER_LATE: 'Routeur tardif', ROUTER_CLIENT: 'Routeur-client', REPEATER: 'Répéteur', TRACKER: 'Traceur', SENSOR: 'Capteur', TAK: 'TAK', TAK_TRACKER: 'TAK traceur', LOST_AND_FOUND: 'Objet perdu' };
 
+// Nœud programmable par l'utilisateur connecté : tous pour l'admin, ceux de son secteur pour un gestionnaire
+function gerable(id) {
+  if (etat.admin) return true;
+  if (!etat.gestion) return false;
+  const k = /^[0-9a-f]{64}$/i.test(String(id)) ? String(id).toUpperCase() : String(Number(id) >>> 0);
+  return (etat.secteur || []).includes(k);
+}
 async function rendreGestion() {
   const z = $('#gestion');
-  if (!etat.admin || !z) return;
+  if (!etat.gestion || !z) return;
   try { gestion.info = await api('/api/admin-noeuds'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
   const i = gestion.info;
   const cles = new Set(i.clesConnues);
   const t = gestion.filtre.toLowerCase();
   const limite = Date.now() - 7 * 86400000;
   const liste = [...etat.noeuds.values()]
-    .filter((n) => (n.dernierVu || 0) > limite && dansZone(n))
+    .filter((n) => (etat.admin ? (n.dernierVu || 0) > limite && dansZone(n) : gerable(n.num)))
     .filter((n) => !t || [n.nomLong, n.nomCourt, n.id].some((x) => x && x.toLowerCase().includes(t)))
     .sort((a, b) => (b.num === i.noeudLocal) - (a.num === i.noeudLocal) || (b.infrastructure - a.infrastructure) || (a.nomLong || a.id).localeCompare(b.nomLong || b.id));
   const sel = [...gestion.selection];
@@ -2634,6 +2641,7 @@ async function rendreGestion() {
   const anc = z.querySelector('.liste-gestion');
   const defil = { liste: anc ? anc.scrollTop : 0, panneaux: [...document.querySelectorAll('#panneau, #panneau .contenu-onglet, #gestion')].map((el) => [el, el.scrollTop]) };
   z.innerHTML = `
+    ${!etat.admin ? `<div class="alerte">Compte gestionnaire : vous programmez les ${(etat.secteur || []).length} nœud(s) de votre secteur. Le module radio est géré par les administrateurs.</div>` : ''}
     <div class="titre-programmer"><b>Nœuds Meshtastic</b>${etat.config.meshcore ? '<button class="mini" id="vers-prog-mc">Répéteurs MeshCore →</button>' : ''}</div>
     ${!i.connecte ? '<div class="alerte attention">Le module radio n’est pas connecté : connectez-le dans l’onglet Réseau, section Modules Wi-Fi.</div>' : ''}
     <details class="aide-cle"${i.clePublique ? '' : ' open'}>
@@ -3711,6 +3719,29 @@ function ouvrirGestion() {
   dlg.showModal();
 }
 
+const ROLES_COMPTE = { membre: 'Membre', gestionnaire: 'Gestionnaire de secteur', admin: 'Administrateur' };
+// Choix des nœuds d'un gestionnaire : relais Meshtastic connus et répéteurs MeshCore, ou saisie libre (!a1b2c3d4, clé MeshCore)
+function editerSecteur(c, fini) {
+  const z = $('#edition-secteur');
+  const choisis = new Set(c.noeuds || []);
+  const mt = [...etat.noeuds.values()].filter((n) => n.infrastructure || choisis.has(String(n.num))).map((n) => ({ id: String(n.num), nom: n.nomLong || n.id, info: n.id + (n.role ? ' · ' + n.role : '') }));
+  const mcl = (typeof mc !== 'undefined' && mc.noeuds ? [...mc.noeuds.values()] : []).filter((n) => ['repeteur', 'salon'].includes(n.role) || choisis.has(String(n.cle).toUpperCase())).map((n) => ({ id: String(n.cle).toUpperCase(), nom: n.nom || n.cle.slice(0, 8), info: 'MeshCore · ' + n.cle.slice(0, 8) }));
+  const tous = [...mt, ...mcl].sort((a, b) => a.nom.localeCompare(b.nom));
+  const connus = new Set(tous.map((x) => x.id));
+  const autres = [...choisis].filter((x) => !connus.has(x));
+  z.innerHTML = `<h3>Secteur de ${esc(c.identifiant)}</h3>
+    <div class="recherche"><input id="filtre-secteur" type="search" placeholder="Filtrer…"></div>
+    <div class="liste-gestion" style="max-height:260px">${tous.map((x) => `<label class="ligne-gestion" data-nom="${esc((x.nom + ' ' + x.info).toLowerCase())}"><input type="checkbox" value="${x.id}" ${choisis.has(x.id) ? 'checked' : ''}><span class="titre">${esc(x.nom)} <small>${esc(x.info)}</small></span></label>`).join('') || '<div class="vide">Aucun relais connu.</div>'}</div>
+    <label class="champ-libre">Autres nœuds (identifiants !xxxxxxxx ou clés MeshCore, séparés par des virgules) <input id="secteur-autres" value="${esc(autres.join(', '))}"></label>
+    <div class="actions-prop"><button class="principal" id="secteur-ok">Enregistrer le secteur</button><button id="secteur-annuler">Annuler</button></div>`;
+  z.scrollIntoView({ block: 'nearest' });
+  $('#filtre-secteur').oninput = (e) => { const t = e.target.value.toLowerCase(); z.querySelectorAll('[data-nom]').forEach((l) => (l.hidden = t && !l.dataset.nom.includes(t))); };
+  $('#secteur-annuler').onclick = () => (z.innerHTML = '');
+  $('#secteur-ok').onclick = async () => {
+    const l = [...z.querySelectorAll('input[type=checkbox]:checked')].map((i) => i.value).concat($('#secteur-autres').value.split(/[\s,;]+/).filter(Boolean));
+    try { await postJson(`/api/comptes/${c.id}`, { noeuds: l }); z.innerHTML = ''; fini(); } catch (e) { $('#retour-comptes').textContent = e.message; }
+  };
+}
 async function rendreComptes() {
   const z = $('#pan-comptes');
   let liste;
@@ -3720,7 +3751,7 @@ async function rendreComptes() {
     <table class="voisins comptes"><thead><tr><th>Identifiant</th><th>Indicatif</th><th>Rôle</th><th>Statut</th><th>Dernière connexion</th><th></th></tr></thead><tbody>
     ${liste.map((c) => `<tr data-id="${c.id}">
       <td><b>${esc(c.identifiant)}</b>${c.email ? `<br><small>${esc(c.email)}</small>` : ''}</td><td>${esc(c.indicatif || '–')}</td>
-      <td><select data-role>${['membre', 'admin'].map((r) => `<option value="${r}" ${c.role === r ? 'selected' : ''}>${r === 'admin' ? 'Administrateur' : 'Membre'}</option>`).join('')}</select></td>
+      <td><select data-role>${['membre', 'gestionnaire', 'admin'].map((r) => `<option value="${r}" ${c.role === r ? 'selected' : ''}>${ROLES_COMPTE[r]}</option>`).join('')}</select>${c.role === 'gestionnaire' ? `<br><button class="mini" data-secteur>Secteur : ${(c.noeuds || []).length} nœud(s)…</button>` : ''}</td>
       <td><span class="badge ${c.statut === 'actif' ? 'actif' : c.statut === 'en_attente' ? 'attente' : 'inactif'}">${STATUTS[c.statut] || c.statut}</span></td>
       <td>${c.derniere ? ilYa(c.derniere) : 'jamais'}</td>
       <td class="actions-ligne">${c.statut === 'en_attente' ? '<button data-statut="actif" class="principal">Valider</button>' : c.statut === 'actif' ? '<button data-statut="desactive">Désactiver</button>' : '<button data-statut="actif">Réactiver</button>'}<button data-suppr title="Supprimer">✕</button></td>
@@ -3731,11 +3762,12 @@ async function rendreComptes() {
       <label>Identifiant <input name="identifiant" required minlength="3"></label>
       <label>Indicatif <input name="indicatif"></label>
       <label>Mot de passe provisoire <input name="motDePasse" type="password" required minlength="8" autocomplete="new-password"></label>
-      <label>Rôle <select name="role"><option value="membre">Membre</option><option value="admin">Administrateur</option></select></label>
+      <label>Rôle <select name="role"><option value="membre">Membre</option><option value="gestionnaire">Gestionnaire de secteur</option><option value="admin">Administrateur</option></select></label>
       <button type="submit">Créer</button>
     </form>
     <p class="erreur" id="retour-comptes"></p>
-    <p class="note">Un <b>membre</b> voit les messages texte et les positions exactes. Un <b>administrateur</b> gère en plus les comptes, les réglages, les modules et les traceroutes.</p>`;
+    <div id="edition-secteur"></div>
+    <p class="note">Un <b>membre</b> voit les messages texte et les positions exactes. Un <b>gestionnaire de secteur</b> programme à distance, remplit la fiche d’installation et teste (traceroute) les seuls nœuds de son secteur, Meshtastic ou MeshCore. Un <b>administrateur</b> gère en plus les comptes, les réglages, les modules et tous les nœuds.</p>`;
   const retour = (t) => ($('#retour-comptes').textContent = t);
   const action = async (fn) => { try { await fn(); rendreComptes(); } catch (e) { retour(e.message); } };
   z.querySelectorAll('tr[data-id]').forEach((tr) => {
@@ -3744,6 +3776,8 @@ async function rendreComptes() {
     const bs = tr.querySelector('[data-statut]');
     if (bs) bs.onclick = () => action(() => postJson(`/api/comptes/${id}`, { statut: bs.dataset.statut }));
     tr.querySelector('[data-suppr]').onclick = () => { if (confirm('Supprimer ce compte ?')) action(() => postJson(`/api/comptes/${id}`, {}, 'DELETE')); };
+    const bsec = tr.querySelector('[data-secteur]');
+    if (bsec) bsec.onclick = () => editerSecteur(liste.find((c) => String(c.id) === id), () => rendreComptes());
   });
   $('#form-ajout-compte').onsubmit = (e) => {
     e.preventDefault();
@@ -3833,6 +3867,8 @@ async function installation() {
 async function demarrer() {
   etat.config = await api('/api/config');
   etat.admin = etat.config.admin;
+  etat.gestion = !!etat.config.gestion;
+  etat.secteur = etat.admin ? null : (etat.config.compte && etat.config.compte.noeuds) || [];
   etat.membre = etat.config.membre;
   document.title = etat.config.titre;
   // Liens vers le client et le flasheur officiels (Web Serial / Web Bluetooth : HTTPS et Chrome ou Edge obligatoires)
@@ -3853,11 +3889,12 @@ async function demarrer() {
   setInterval(() => fetch('/api/version').then((r) => r.json()).then(afficherVersion).catch(() => {}), 3600000);
   if (etat.membre) {
     const c = etat.config.compte;
-    $('#btn-admin').textContent = `${c.indicatif || c.identifiant}${etat.admin ? ' · admin' : ''}`;
+    $('#btn-admin').textContent = `${c.indicatif || c.identifiant}${etat.admin ? ' · admin' : etat.gestion ? ' · gestionnaire' : ''}`;
     $('#btn-admin').classList.add('connecte');
     $('#onglet-messages').hidden = false;
   }
-  if (etat.admin) { $('#bloc-modules').hidden = false; $('#onglet-gestion').hidden = false; }
+  if (etat.admin) $('#bloc-modules').hidden = false;
+  if (etat.gestion) $('#onglet-gestion').hidden = false;
   initCarte();
   rendreFiltres();
   rendreLegende();

@@ -69,6 +69,18 @@ const utilisateur = (req) => comptes.lireJeton(lireCookie(req, 'gaulix_session')
 // « Membre » : tout compte connecté (messages texte, positions exactes) ; « admin » : réglages et pilotage
 const estMembre = (req) => !!utilisateur(req);
 const estAdmin = (req) => { const u = utilisateur(req); return !!u && u.role === 'admin'; };
+// Gestion par secteur : l'admin gère tout, un « gestionnaire » seulement les nœuds de sa liste
+const estGestion = (req) => { const u = utilisateur(req); return !!u && (u.role === 'admin' || u.role === 'gestionnaire'); };
+function peutGerer(req, id) {
+  const u = utilisateur(req);
+  if (!u) return false;
+  if (u.role === 'admin') return true;
+  if (u.role !== 'gestionnaire') return false;
+  const k = /^[0-9a-f]{64}$/i.test(String(id)) ? String(id).toUpperCase() : String(Number(id) >>> 0);
+  return (u.noeuds || []).includes(k);
+}
+const peutGererTous = (req, ids) => (ids || []).every((x) => peutGerer(req, x));
+function refuserSecteur(res) { res.status(403).json({ erreur: 'Ce nœud n’est pas dans votre secteur : demandez à un administrateur' }); return false; }
 function ouvrirSession(req, res, compte) {
   const securise = req.secure ? '; Secure' : '';
   res.setHeader('Set-Cookie', `gaulix_session=${encodeURIComponent(comptes.jeton(compte))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${comptes.DUREE_SESSION / 1000}${securise}`);
@@ -136,6 +148,7 @@ app.get('/api/config', (req, res) => {
     retentionJours: config.retentionJours,
     seuils: config.seuils,
     admin: estAdmin(req),
+    gestion: estGestion(req),
     membre: estMembre(req),
     compte: utilisateur(req),
     installation: comptes.installationRequise(),
@@ -162,13 +175,15 @@ app.get('/api/noeuds/:num', (req, res) => {
   const d = reseau.detailNoeud(num, estMembre(req));
   if (!d) return res.status(404).json({ erreur: 'Nœud inconnu' });
   d.sante = analyse.sante(num);
-  if (estMembre(req)) d.installation = installations.lire(num, estAdmin(req));
+  if (estMembre(req)) d.installation = installations.lire(num, peutGerer(req, num));
+  d.gerable = peutGerer(req, num);
   res.json(d);
 });
 // Fiche d'installation d'un relais (antenne, hauteur, alimentation, site) : lecture membres, écriture admin
 let minuterieReclassement = null;
 app.put('/api/noeuds/:num/installation', (req, res) => {
-  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!peutGerer(req, req.params.num)) return refuserSecteur(res);
   try {
     const c = utilisateur(req);
     const r = installations.ecrire(Number(req.params.num) >>> 0, req.body || {}, c ? c.indicatif || c.identifiant : null);
@@ -510,38 +525,45 @@ app.post('/api/radio/scanner', async (req, res) => {
 });
 
 // ---- Administration des nœuds par LoRa (admin) ---------------------------------------------
+const tacheDuSecteur = (req, t) => !!t && peutGererTous(req, (t.noeuds || []).map((n) => n.num));
 app.get('/api/admin-noeuds', (req, res) => {
-  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
-  res.json({ ...administration.infos(), taches: administration.taches(), roles: administration.ROLES, presets: administration.PRESETS, rediffusions: administration.REDIFFUSIONS, regions: administration.REGIONS, elements: administration.ELEMENTS, administrables: administration.administrables(), lectures: administration.lecturesConnues() });
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.json({ ...administration.infos(), secteur: estAdmin(req) ? null : utilisateur(req).noeuds, taches: administration.taches().filter((t) => tacheDuSecteur(req, t)), roles: administration.ROLES, presets: administration.PRESETS, rediffusions: administration.REDIFFUSIONS, regions: administration.REGIONS, elements: administration.ELEMENTS, administrables: administration.administrables(), lectures: administration.lecturesConnues() });
 });
 app.post('/api/admin-noeuds/taches', (req, res) => {
   const u = utilisateur(req);
-  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const b = req.body || {};
+  if (!peutGererTous(req, [...(b.cibles || []), ...(b.params && b.params.reference ? [b.params.reference] : [])])) return refuserSecteur(res);
   try { res.json(administration.lancer(String(b.type), b.cibles, b.params || {}, u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 app.get('/api/admin-noeuds/lecture/:num/detail', (req, res) => {
-  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!peutGerer(req, req.params.num)) return refuserSecteur(res);
   res.set('Cache-Control', 'no-store').json(administration.detailLecture(Number(req.params.num)) || { aucune: true });
 });
 app.get('/api/admin-noeuds/lecture/:num', (req, res) => {
-  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!peutGerer(req, req.params.num)) return refuserSecteur(res);
   res.json(administration.etatLecture(Number(req.params.num)) || { aucune: true });
 });
 app.post('/api/admin-noeuds/taches/:id/relancer', (req, res) => {
   const u = utilisateur(req);
-  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!tacheDuSecteur(req, administration.tache(req.params.id))) return refuserSecteur(res);
   try { res.json(administration.relancer(req.params.id, u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 app.post('/api/admin-noeuds/taches/:id/arreter', (req, res) => {
   const u = utilisateur(req);
-  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!tacheDuSecteur(req, administration.tache(req.params.id))) return refuserSecteur(res);
   try { administration.arreter(req.params.id, u.identifiant); res.json({ ok: true }); } catch (e) { res.status(404).json({ erreur: e.message }); }
 });
 app.get('/api/admin-noeuds/taches/:id', (req, res) => {
-  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const t = administration.tache(req.params.id);
   if (!t) return res.status(404).json({ erreur: 'Tâche inconnue' });
+  if (!tacheDuSecteur(req, t)) return refuserSecteur(res);
   res.json(t);
 });
 
@@ -702,7 +724,8 @@ app.get('/api/traceroutes/synthese', (req, res) => {
   res.json({ reglages: { cibles: config.radio.tracerouteCibles, heures: config.radio.tracerouteHeures || 'toujours', intervalle: config.radio.tracerouteIntervalleMinutes }, radio: !!sourceRadio, cibles: sortie });
 });
 app.post('/api/traceroute/:num', (req, res) => {
-  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!peutGerer(req, req.params.num)) return refuserSecteur(res);
   if (!sourceRadio) return res.status(503).json({ erreur: 'Aucun module radio configuré (RADIO_HOTE)' });
   try {
     res.json(sourceRadio.traceroute(Number(req.params.num), 'manuel'));
@@ -787,7 +810,9 @@ app.post('/api/comptes', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   try {
     const b = req.body || {};
-    res.json(comptes.creer(b, b.role === 'admin' ? 'admin' : 'membre', 'actif'));
+    const c = comptes.creer(b, ['admin', 'gestionnaire'].includes(b.role) ? b.role : 'membre', 'actif');
+    if (b.noeuds) comptes.changerNoeuds(c.id, b.noeuds);
+    res.json(comptes.lister().find((x) => x.id === c.id) || c);
   } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 app.post('/api/comptes/:id', (req, res) => {
@@ -796,6 +821,7 @@ app.post('/api/comptes/:id', (req, res) => {
     const id = Number(req.params.id), b = req.body || {};
     if (b.role) comptes.changerRole(id, b.role);
     if (b.statut) comptes.changerStatut(id, b.statut);
+    if (b.noeuds !== undefined) comptes.changerNoeuds(id, b.noeuds);
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
@@ -1108,34 +1134,40 @@ app.post('/api/mc/messages', async (req, res) => {
 });
 
 // ---- Administration des répéteurs MeshCore (admin) ----
+const tacheMcDuSecteur = (req, t) => !!t && peutGererTous(req, t.cles || []);
 app.get('/api/mc/admin', (req, res) => {
-  if (!exigerAdmin(req, res)) return;
-  res.set('Cache-Control', 'no-store').json({ supervision: adminMc.supervision(), params: adminMc.PARAMS, elements: adminMc.ELEMENTS, elementsDefaut: adminMc.ELEMENTS_DEFAUT, taches: adminMc.taches(), memorises: adminMc.memorises(), lectures: adminMc.lectures(), companion: { connecte: companion.etat().connecte, pret: companion.etat().pret } });
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.set('Cache-Control', 'no-store').json({ secteur: estAdmin(req) ? null : utilisateur(req).noeuds, supervision: adminMc.supervision(), params: adminMc.PARAMS, elements: adminMc.ELEMENTS, elementsDefaut: adminMc.ELEMENTS_DEFAUT, taches: adminMc.taches().filter((t) => tacheMcDuSecteur(req, t)), memorises: adminMc.memorises().filter((k) => peutGerer(req, k)), lectures: adminMc.lectures(), companion: { connecte: companion.etat().connecte, pret: companion.etat().pret } });
 });
 app.get('/api/mc/admin/lecture/:cle', (req, res) => {
-  if (!exigerAdmin(req, res)) return;
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!peutGerer(req, req.params.cle)) return refuserSecteur(res);
   res.set('Cache-Control', 'no-store').json({ lecture: adminMc.lecture(req.params.cle), memorise: adminMc.memorises().includes(String(req.params.cle).toUpperCase()) });
 });
 app.post('/api/mc/admin/taches', (req, res) => {
   const u = utilisateur(req);
-  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const b = req.body || {};
+  if (!peutGererTous(req, b.cles || [])) return refuserSecteur(res);
   try { res.json(adminMc.lancer(String(b.type), b.cles, b.params || {}, u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 app.get('/api/mc/admin/taches/:id', (req, res) => {
-  if (!exigerAdmin(req, res)) return;
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const t = adminMc.tache(req.params.id);
   if (!t) return res.status(404).json({ erreur: 'Tâche inconnue' });
+  if (!tacheMcDuSecteur(req, t)) return refuserSecteur(res);
   res.set('Cache-Control', 'no-store').json(t);
 });
 app.post('/api/mc/admin/taches/:id/arreter', (req, res) => {
-  if (!exigerAdmin(req, res)) return;
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!tacheMcDuSecteur(req, adminMc.tache(req.params.id))) return refuserSecteur(res);
   try { adminMc.arreter(req.params.id); res.json({ ok: true }); } catch (e) { res.status(404).json({ erreur: e.message }); }
 });
 app.post('/api/mc/admin/mot-de-passe', (req, res) => {
-  if (!exigerAdmin(req, res)) return;
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const b = req.body || {};
   if (!/^[0-9A-F]{64}$/i.test(String(b.cle || ''))) return res.status(400).json({ erreur: 'Clé invalide' });
+  if (!peutGerer(req, b.cle)) return refuserSecteur(res);
   if (b.motDePasse == null) adminMc.oublierMotDePasse(b.cle); else adminMc.memoriserMotDePasse(b.cle, String(b.motDePasse).slice(0, 15));
   res.json({ ok: true });
 });

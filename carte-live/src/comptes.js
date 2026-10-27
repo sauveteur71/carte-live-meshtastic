@@ -7,7 +7,8 @@ const fs = require('fs');
 const path = require('path');
 
 const DUREE_SESSION = 30 * 86400 * 1000; // 30 jours
-const ROLES = ['admin', 'membre'];
+const ROLES = ['admin', 'gestionnaire', 'membre'];
+// « gestionnaire » : membre qui programme à distance les seuls nœuds de son secteur (liste « noeuds »)
 
 function hacher(motDePasse) {
   const sel = crypto.randomBytes(16);
@@ -30,13 +31,15 @@ function creerComptes(db, config) {
     role TEXT NOT NULL DEFAULT 'membre', statut TEXT NOT NULL DEFAULT 'actif',
     cree INTEGER, derniere INTEGER, version INTEGER NOT NULL DEFAULT 1
   )`);
+  if (!db.prepare('PRAGMA table_info(comptes)').all().some((c) => c.name === 'noeuds')) db.exec('ALTER TABLE comptes ADD COLUMN noeuds TEXT');
   const q = {
     nombre: db.prepare('SELECT COUNT(*) AS n FROM comptes'),
     nbAdmins: db.prepare("SELECT COUNT(*) AS n FROM comptes WHERE role = 'admin' AND statut = 'actif'"),
     parId: db.prepare('SELECT * FROM comptes WHERE id = ?'),
     parIdentifiant: db.prepare('SELECT * FROM comptes WHERE identifiant = ?'),
     inserer: db.prepare('INSERT INTO comptes (identifiant, indicatif, email, hash, role, statut, cree) VALUES (@identifiant, @indicatif, @email, @hash, @role, @statut, @cree)'),
-    tous: db.prepare('SELECT id, identifiant, indicatif, email, role, statut, cree, derniere FROM comptes ORDER BY statut DESC, identifiant'),
+    tous: db.prepare('SELECT id, identifiant, indicatif, email, role, statut, cree, derniere, noeuds FROM comptes ORDER BY statut DESC, identifiant'),
+    noeuds: db.prepare('UPDATE comptes SET noeuds = ? WHERE id = ?'),
     vu: db.prepare('UPDATE comptes SET derniere = ? WHERE id = ?'),
     role: db.prepare('UPDATE comptes SET role = ?, version = version + 1 WHERE id = ?'),
     statut: db.prepare('UPDATE comptes SET statut = ?, version = version + 1 WHERE id = ?'),
@@ -53,9 +56,19 @@ function creerComptes(db, config) {
   }
   const signer = (txt) => crypto.createHmac('sha256', secret).update(txt).digest('hex');
 
+  // Nœuds d'un gestionnaire : numéros Meshtastic (texte) et clés publiques MeshCore (64 hex, majuscules)
+  function lireNoeuds(t) { try { const l = JSON.parse(t || '[]'); return Array.isArray(l) ? l.map(String) : []; } catch { return []; } }
+  function normaliserNoeuds(l) {
+    return [...new Set((Array.isArray(l) ? l : String(l || '').split(/[\s,;]+/)).map((x) => String(x).trim()).filter(Boolean).map((x) => {
+      if (/^[0-9a-f]{64}$/i.test(x)) return x.toUpperCase();
+      if (/^!?[0-9a-f]{8}$/i.test(x) && /[a-f!]/i.test(x)) return String(parseInt(x.replace('!', ''), 16));
+      if (/^\d+$/.test(x)) return String(Number(x) >>> 0);
+      throw new Error(`Nœud invalide : ${x}`);
+    }))].slice(0, 200);
+  }
   function nettoyer(c) {
     if (!c) return null;
-    return { id: c.id, identifiant: c.identifiant, indicatif: c.indicatif, email: c.email, role: c.role, statut: c.statut, cree: c.cree, derniere: c.derniere };
+    return { id: c.id, identifiant: c.identifiant, indicatif: c.indicatif, email: c.email, role: c.role, statut: c.statut, cree: c.cree, derniere: c.derniere, noeuds: lireNoeuds(c.noeuds) };
   }
   function valider({ identifiant, motDePasse, indicatif, email }) {
     identifiant = String(identifiant || '').trim();
@@ -104,7 +117,11 @@ function creerComptes(db, config) {
       if (!c || c.statut !== 'actif' || c.version !== Number(m[2])) return null;
       return nettoyer(c);
     },
-    lister: () => q.tous.all(),
+    lister: () => q.tous.all().map((c) => ({ ...c, noeuds: lireNoeuds(c.noeuds) })),
+    changerNoeuds(id, liste) {
+      if (!q.parId.get(id)) throw new Error('Compte inconnu');
+      q.noeuds.run(JSON.stringify(normaliserNoeuds(liste)), id);
+    },
     changerRole(id, role) {
       if (!ROLES.includes(role)) throw new Error('Rôle inconnu');
       const c = q.parId.get(id);

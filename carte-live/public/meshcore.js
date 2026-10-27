@@ -438,11 +438,11 @@ const MC_TACHES = { lire: 'Lire la configuration', statut: 'État', voisins: 'Vo
 const MC_STATUTS = { en_attente: 'en attente', en_cours: 'en cours…', ok: 'réussi', echec: 'échec', annule: 'arrêté' };
 async function mcRendreGestion() {
   const z = $('#mc-contenu');
-  if (!etat.admin) { z.innerHTML = '<div class="vide">Réservé aux administrateurs.</div>'; return; }
+  if (!etat.gestion) { z.innerHTML = '<div class="vide">Réservé aux administrateurs.</div>'; return; }
   try { mcGestion.info = await api('/api/mc/admin'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
   if (mc.vue !== 'gestion') return;
   const i = mcGestion.info;
-  const liste = [...mc.noeuds.values()].filter((n) => ['repeteur', 'salon', 'capteur'].includes(n.role) && mcDansZone(n)).sort((a, b) => (a.nom || '').localeCompare(b.nom || ''));
+  const liste = [...mc.noeuds.values()].filter((n) => (etat.admin ? ['repeteur', 'salon', 'capteur'].includes(n.role) && mcDansZone(n) : gerable(n.cle))).sort((a, b) => (a.nom || '').localeCompare(b.nom || ''));
   const sel = mcGestion.selection;
   z.innerHTML = `
     ${i.companion.connecte ? '' : '<div class="alerte attention">Aucun companion relié : l’administration passe par lui (onglet Companion).</div>'}
@@ -899,7 +899,7 @@ async function mcOuvrirFiche(cle, ongletInitial) {
       ${n.observateur ? `<span class="badge passerelle">Observateur${obs.carte ? ' de la carte' : obs.iata ? ' · ' + esc(obs.iata) : ''}</span>` : ''}
       <span class="badge reseau-mc">MeshCore</span>
     </div>
-    <nav class="onglets-fiche"><button data-of="infos" class="actif">Informations</button><button data-of="voisins">Voisins (${d.voisins.length})</button><button data-of="trames">Paquets</button>${etat.admin && ['repeteur', 'salon', 'capteur'].includes(n.role) ? '<button data-of="admin">Administration</button>' : ''}</nav>
+    <nav class="onglets-fiche"><button data-of="infos" class="actif">Informations</button><button data-of="voisins">Voisins (${d.voisins.length})</button><button data-of="trames">Paquets</button>${gerable(n.cle) && ['repeteur', 'salon', 'capteur'].includes(n.role) ? '<button data-of="admin">Administration</button>' : ''}</nav>
     <div data-pf="infos">
       <div class="grille">${mesures.map(([l, v]) => `<div class="mesure"><span>${l}</span><b>${esc(v)}</b></div>`).join('')}</div>
       <div class="boutons">
@@ -1105,8 +1105,8 @@ function demarrerMeshcore() {
   if (sv) sv.hidden = !etat.membre;
   if (!etat.membre && mc.vue === 'messages') mc.vue = 'noeuds';
   const sg = document.querySelector('.sous-onglets-mc button[data-mc-vue="gestion"]');
-  if (sg) sg.hidden = !etat.admin;
-  if (!etat.admin && mc.vue === 'gestion') mc.vue = 'noeuds';
+  if (sg) sg.hidden = !etat.gestion;
+  if (!etat.gestion && mc.vue === 'gestion') mc.vue = 'noeuds';
   // Clic sur un message : répondre (message direct reçu) ou écrire sur son canal
   document.body.addEventListener('click', (e) => {
     const r = e.target.closest('[data-mc-repondre], [data-mc-canal]');
