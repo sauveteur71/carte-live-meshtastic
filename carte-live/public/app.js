@@ -932,7 +932,7 @@ async function ouvrirFiche(num) {
         ['Vu la première fois', n.premierVu ? new Date(n.premierVu).toLocaleString('fr-FR') : null],
         ['Dernière position', n.heurePosition ? ilYa(n.heurePosition) : null]].map(([l, v]) => `<div class="mesure"><span>${l}</span><b>${esc(v ?? '–')}</b></div>`).join('')}
     </div>
-    <p class="note">Valeurs déduites des trames entendues. Pour la configuration complète lue dans le nœud lui-même : onglet Gestion › Lire sa configuration (admin).</p>
+    <p class="note">Valeurs déduites des trames entendues. Pour la configuration complète lue dans le nœud lui-même : onglet Programmer › Lire sa configuration (admin).</p>
     ${etat.admin ? '<div class="boutons"><button data-qr-reglages class="principal">🔳 QR code des réglages (canaux + radio)</button></div><p class="note">Le QR code reprend les canaux et le réglage LoRa du nœud : scanné par un autre module, il lui donne exactement la même configuration de canaux.</p>' : ''}
     </div>
     ${etat.membre ? `<div data-pf="install" hidden>${htmlInstallation(n, d.installation)}</div>` : ''}
@@ -1424,7 +1424,7 @@ async function ficheSommet(s) {
       ${s.rang ? `<div class="mesure"><span>Classement individuel</span><b>${s.rang}ᵉ</b></div>` : ''}
     </div>
     <div class="actions-prop"><button id="sommet-couvrir">Couvrir ce point (4 points hauts)</button><button id="sommet-ajout-couv" class="principal">${etat.sitesCouv && etat.sitesCouv.length ? `＋ Ajouter à la couverture totale (${etat.sitesCouv.length + 1} sites)` : '＋ Ajouter un site (couverture totale)'}</button></div>
-    <p class="note">Couverture calculée avec une antenne à ${$('#relief-hs') ? $('#relief-hs').value : 6} m (réglable dans l'onglet Sites).</p>`;
+    <p class="note">Couverture calculée avec une antenne à ${$('#relief-hs') ? $('#relief-hs').value : 6} m (réglable dans l'onglet Couverture).</p>`;
   $('#sommet-couvrir').onclick = () => couvrirPoint(L.latLng(s.lat, s.lon));
   $('#sommet-ajout-couv').onclick = () => {
     const h = Number($('#relief-hs') ? $('#relief-hs').value : 6) || 6;
@@ -1848,7 +1848,7 @@ async function relierPoints(a, b, opts = {}) {
   };
   $('#fiche-contenu').innerHTML = `<h2>Relier ${esc(a.nom)} → ${esc(b.nom)}</h2>
     <div class="ident">${fmt(r.distanceKm, 1, ' km')} à vol d’oiseau · ${esc(r.parametres.preset)} · antennes : relais ${r.parametres.hs} m, extrémités ${hA} / ${hB} m${r.filtreAcces !== 'tous' ? ` · sites ${esc(ACCES[r.filtreAcces] ? ACCES[r.filtreAcces].nom : r.filtreAcces)}` : ''}</div>
-    ${!r.possible ? `<div class="alerte attention">✖ ${esc(r.raison)}</div><p class="note">Essayez des antennes plus hautes aux extrémités, ou retirez le filtre d’accès (onglet Sites).</p>`
+    ${!r.possible ? `<div class="alerte attention">✖ ${esc(r.raison)}</div><p class="note">Essayez des antennes plus hautes aux extrémités, ou retirez le filtre d’accès (onglet Couverture).</p>`
       : r.nouveaux === 0 && r.chemin.length === 2 ? `<div class="alerte info-lecture">✔ <b>Liaison directe possible</b> sans relais (marge ${r.direct.marge >= 0 ? '+' : ''}${fmt(r.direct.marge, 1, ' dB')}).</div>`
       : `<div class="alerte ${r.nouveaux ? 'attention' : 'info-lecture'}">${r.nouveaux ? `⚠ Il faut <b>${r.nouveaux} nouveau${r.nouveaux > 1 ? 'x' : ''} relais</b>` : '✔ Possible avec les relais existants'}${r.chemin.some((c) => c.type === 'existant') ? `, en passant par ${r.chemin.filter((c) => c.type === 'existant').map((c) => esc(c.nom)).join(', ')}` : ''}.</div>
          <p class="note">Liaison directe impossible : marge ${r.direct ? fmt(r.direct.marge, 1, ' dB') : '–'}${r.direct && r.direct.obstacle ? `, relief à ${fmt(r.direct.obstacle.distanceKm, 1, ' km')} (${r.direct.obstacle.hauteur} m au-dessus de la visée)` : ''}.</p>`}
@@ -2928,7 +2928,7 @@ async function voirTache(id) {
   $('#fiche-contenu').innerHTML = `
     <h2>${esc(nom.nomLong)}</h2><div class="ident">${esc(nom.nomCourt)} · ${esc(r0.id)} · ${enCours ? 'lecture en cours' : 'lu ' + ilYa(r0.heure)}</div>
     ${enCours ? `<div class="alerte info-lecture"><span class="sablier"></span> Lecture en cours… <b>${esc(n0.detail || 'demande envoyée')}</b><br><small>Les valeurs s’affichent dès qu’elles arrivent.</small> <button class="mini arreter" data-arreter-tache="${t.id}">■ Arrêter</button></div>` : ''}
-    ${!enCours && r0.complet === false ? `<div class="alerte attention">Lecture incomplète : les valeurs « – » n’ont pas été lues${r0.canauxComplets ? '' : ', liste des canaux incomplète'}. Onglet Gestion › Lire sa configuration › « Reprendre ».</div>` : ''}
+    ${!enCours && r0.complet === false ? `<div class="alerte attention">Lecture incomplète : les valeurs « – » n’ont pas été lues${r0.canauxComplets ? '' : ', liste des canaux incomplète'}. </div><div class="actions-prop"><button class="principal" id="reprendre-lecture" data-num="${r0.num}">↻ Reprendre la lecture</button><span class="note">ne redemande que ce qui manque</span></div>` : ''}
     <h4>Matériel</h4><div class="grille">${lig('Firmware', sec(m, (x) => x.firmwareVersion))}${lig('Matériel', sec(m, (x) => x.hwModel))}${lig('Rôle', sec(d, (x) => ROLES_FR_ADMIN[x.role] || x.role))}</div>
     <h4>LoRa</h4><div class="grille">${lig('Preset', sec(lo, (x) => x.modemPreset))}${lig('Région', sec(lo, (x) => x.region))}${lig('Sauts', sec(lo, (x) => x.hopLimit))}${lig('Puissance', sec(lo, (x) => (x.txPower ? x.txPower + ' dBm' : 'défaut')))}${lig('Emission', sec(lo, (x) => (x.txEnabled ? 'active' : 'coupée')))}${lig('Slot', sec(lo, (x) => x.channelNum || 'auto'))}${lig('Fréquence forcée', sec(lo, (x) => (x.overrideFrequency ? x.overrideFrequency.toFixed(4) + ' MHz' : 'non')))}</div>
     <h4>Position</h4><div class="grille">${lig('Position fixe', sec(po, (x) => (x.fixedPosition ? 'oui' : 'non')))}${lig('Intervalle', sec(po, (x) => x.positionBroadcastSecs + ' s'))}${lig('Mode intelligent', sec(po, (x) => (x.positionBroadcastSmartEnabled ? 'oui' : 'non')))}${lig('GPS', sec(po, (x) => x.gpsMode))}</div>
@@ -3406,6 +3406,16 @@ function brancherComptes() {
   };
 }
 
+// Bouton « Reprendre la lecture » d'une lecture de configuration incomplète
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('#reprendre-lecture');
+  if (!b) return;
+  b.disabled = true; b.textContent = 'Reprise…';
+  try {
+    const t = await postJson('/api/admin-noeuds/taches', { type: 'lire', cibles: [Number(b.dataset.num)], params: { reprendre: true } });
+    gestion.lectureSuivie = t.id; voirTache(t.id); suivreTaches();
+  } catch (err) { b.disabled = false; b.textContent = '↻ Reprendre la lecture'; alert(err.message); }
+});
 function ouvrirGestion() {
   const dlg = $('#dlg-gestion');
   dlg.querySelectorAll('.seul-admin').forEach((b) => (b.hidden = !etat.admin));

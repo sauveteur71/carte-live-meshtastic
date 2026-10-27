@@ -52,7 +52,7 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - Le **companion** de la carte sert d'observateur (Wi-Fi, USB par l'agent, ou USB / Bluetooth depuis le navigateur) ; ses paquets sont republiés sur votre broker au format **meshcoretomqtt** (`meshcore/IATA/CLÉ/packets`), et la carte lit aussi les autres observateurs publiés sur le broker
 - Couverture et profils de relief avec le réglage radio français (869,618 MHz, BW 62,5 kHz, SF8, CR8)
 - **Messages** : envoi sur les canaux du companion et en direct (accusé de réception, « relayé » quand un répéteur a répété votre message), réception des messages directs ; un clic sur un message prépare la réponse
-- **Administration à distance des répéteurs et room servers** (onglet *MeshCore › Gestion* et fiche du nœud) : connexion par mot de passe admin (mémorisable), lecture et modification des réglages (nom, radio, puissance, répétition, sauts max., intervalles d'annonce, délais…), état (batterie, bruit de fond, temps d'émission), voisins déclarés (ajoutés à la carte), mise à l'heure, annonce, redémarrage, console CLI
+- **Administration à distance des répéteurs et room servers** (onglet *MeshCore › Programmer* et fiche du nœud) : connexion par mot de passe admin (mémorisable), lecture et modification des réglages (nom, radio, puissance, répétition, sauts max., intervalles d'annonce, délais…), état (batterie, bruit de fond, temps d'émission), voisins déclarés (ajoutés à la carte), mise à l'heure, annonce, redémarrage, console CLI
 - **Vérification de conformité** de plusieurs répéteurs par rapport à une référence, avec « Aligner sur la référence »
 - *Relier* et *Couvrir* utilisent les répéteurs MeshCore et le réglage radio MeshCore en vue « MeshCore »
 - **Supervision** : état des répéteurs de la zone interrogé automatiquement (toutes les 3 h par défaut, `MESHCORE_SUPERVISION_HEURES`), courbes de tension, d'émission et de bruit de fond ; **alertes** MeshCore (répéteur muet depuis `MESHCORE_MUET_HEURES`, batterie faible, émission excessive, brouillage, companion déconnecté)
@@ -100,7 +100,7 @@ Dans `docker-compose.yml`, remplacez la ligne `image:` par `build: .`, puis `doc
   - **module branché en USB (ou en Bluetooth) sur le PC qui affiche la carte** : bouton *🔌 Brancher en USB* — la page relaie le module, rien à installer (Chrome ou Edge, carte en HTTPS) ;
   - module Wi-Fi joignable depuis le serveur : son adresse IP ;
   - module USB sur un PC, ou module d'un autre réseau : téléchargez l'**agent** depuis cette même page, lancez-le et donnez-lui l'adresse du serveur (port 4404) et le code affiché. **Ne redirigez jamais le port 4404 sur votre box** : utilisez le réseau local ou un VPN comme [Tailscale](https://tailscale.com).
-- **Administration à distance** : sur chaque nœud, ajoutez la clé publique du module (affichée dans l'onglet *Gestion*) dans *Sécurité › Clé d'administration*.
+- **Administration à distance** : sur chaque nœud, ajoutez la clé publique du module (affichée dans l’onglet *Programmer*) dans *Sécurité › Clé d'administration*.
 
 ### MeshCore
 
