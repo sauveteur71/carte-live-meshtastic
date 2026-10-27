@@ -22,7 +22,8 @@ function creerAsymetrie(stockage, config) {
     const liens = stockage.q.liens.all(long);
     // Meilleure observation par sens (toutes sources confondues)
     const sens = new Map(); // "a>b" → { nb, snr, dernierVu, sources }
-    const recepteurs = new Map(); // nœud → nombre d'émetteurs entendus directement depuis 24 h
+    const recepteurs = new Map(); // nœud → émetteurs entendus directement depuis 24 h (passerelle ou voisinage)
+    const rapportsVoisinage = new Set();
     for (const l of liens) {
       if (l.a === l.b) continue;
       const k = l.a + '>' + l.b;
@@ -32,12 +33,18 @@ function creerAsymetrie(stockage, config) {
       if (l.snr != null && (x.snr == null || l.snr > x.snr)) x.snr = l.snr;
       x.sources.add(l.source);
       sens.set(k, x);
-      if ((l.dernier_vu || 0) >= recent) recepteurs.set(l.b, (recepteurs.get(l.b) || new Set()).add(l.a));
+      // Un nœud « rapporte ce qu'il entend » s'il est passerelle MQTT (rf) ou s'il publie son voisinage (NeighborInfo).
+      // Un simple saut de traceroute ne suffit pas : un relais sans voisinage ni MQTT ne dit rien de ce qu'il entend,
+      // et tous les nœuds qu'il entend sans le dire apparaîtraient à tort « à sens unique ».
+      if ((l.dernier_vu || 0) >= recent && (l.source === 'rf' || l.source === 'voisinage')) recepteurs.set(l.b, (recepteurs.get(l.b) || new Set()).add(l.a));
+      if ((l.dernier_vu || 0) >= recent && l.source === 'voisinage') rapportsVoisinage.add(l.b);
     }
     const actif = (num) => { const n = noeuds.get(num); return n && (n.dernier_vu || n.vu || 0) >= recent; };
     const nom = (num) => { const n = noeuds.get(num); return n ? n.nom_long || n.nom_court || n.id : '!' + (num >>> 0).toString(16); };
     const pos = (num) => { const n = noeuds.get(num); return n && n.lat != null ? { lat: n.lat, lon: n.lon } : null; };
     const maxKm = config.lienDistanceMaxKm || 120;
+    const passerelles = new Set(liens.filter((l) => l.source === 'rf' && (l.dernier_vu || 0) >= recent).map((l) => l.b));
+    const estPasserelle = (num) => passerelles.has(num);
 
     const sensUnique = [], desequilibres = [];
     const vus = new Set();
@@ -51,7 +58,9 @@ function creerAsymetrie(stockage, config) {
       if (!inverse) {
         // A rapporte ce qu'il entend, et B émet : A devrait l'entendre
         if (!recepteurs.has(A) || !actif(B)) continue;
-        sensUnique.push({ entend: B, entendu: A, nomEntend: nom(B), nomEntendu: nom(A), snr: x.snr, nb: x.nb, sources: [...x.sources], distanceKm: d != null ? Math.round(d * 10) / 10 : null, a: pos(A), b: pos(B) });
+        // Voisinage plein (10 voisins au plus dans un rapport Meshtastic) : l'absence de B n'est pas une preuve
+        if (!estPasserelle(A) && recepteurs.get(A).size >= 10) continue;
+        sensUnique.push({ preuve: estPasserelle(A) ? 'passerelle' : 'voisinage', entend: B, entendu: A, nomEntend: nom(B), nomEntendu: nom(A), snr: x.snr, nb: x.nb, sources: [...x.sources], distanceKm: d != null ? Math.round(d * 10) / 10 : null, a: pos(A), b: pos(B) });
       } else if (!vus.has(cle) && x.snr != null && inverse.snr != null && Math.abs(x.snr - inverse.snr) >= 10 && inverse.dernierVu >= recent) {
         vus.add(cle);
         const fort = x.snr > inverse.snr ? x : inverse, faible = fort === x ? inverse : x;
