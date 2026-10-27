@@ -69,10 +69,16 @@
     <details class="menu-couches menu-outils">
       <summary>Outils ▾</summary>
       <div class="menu">
-        <button id="outil-usb" class="bascule" title="Brancher sur la carte le module relié en USB à ce PC (Chrome ou Edge)">🔌 Module USB de ce PC</button>
-        <button id="outil-ble" class="bascule" title="Relier à la carte un module Bluetooth proche de ce PC (Chrome ou Edge)">📶 Module Bluetooth</button>
-        <a id="lien-client" class="bascule" target="_blank" rel="noopener" title="Client officiel Meshtastic : gérer un module en USB, Bluetooth ou Wi-Fi depuis ce navigateur">📟 Client Meshtastic</a>
-        <a id="lien-flasher" class="bascule" target="_blank" rel="noopener" title="Flasheur officiel : installer ou mettre à jour le firmware d'un module branché en USB">⚡ Flasher un module</a>
+        <div class="titre-outils outils-mt">Meshtastic</div>
+        <button id="outil-usb" class="bascule outils-mt" title="Brancher sur la carte le module relié en USB à ce PC (Chrome ou Edge)">🔌 Module USB de ce PC</button>
+        <button id="outil-ble" class="bascule outils-mt" title="Relier à la carte un module Bluetooth proche de ce PC (Chrome ou Edge)">📶 Module Bluetooth</button>
+        <a id="lien-client" class="bascule outils-mt" target="_blank" rel="noopener" title="Client officiel Meshtastic : gérer un module en USB, Bluetooth ou Wi-Fi depuis ce navigateur">📟 Client Meshtastic</a>
+        <a id="lien-flasher" class="bascule outils-mt" target="_blank" rel="noopener" title="Flasheur officiel : installer ou mettre à jour le firmware d'un module branché en USB">⚡ Flasher un module Meshtastic</a>
+        <div class="titre-outils outils-mc" hidden>MeshCore</div>
+        <a class="bascule outils-mc" hidden href="https://flasher.meshcore.co.uk" target="_blank" rel="noopener" title="Flasheur officiel MeshCore : installer le firmware companion, répéteur ou room server sur un module branché en USB (Chrome ou Edge)">⚡ Flasher un module MeshCore</a>
+        <a class="bascule outils-mc" hidden href="https://config.meshcore.dev" target="_blank" rel="noopener" title="Outil officiel : configurer en USB un répéteur ou un room server MeshCore (nom, radio, mot de passe…)">🛠️ Configurer un répéteur MeshCore (USB)</a>
+        <a class="bascule outils-mc" hidden href="https://app.meshcore.nz" target="_blank" rel="noopener" title="Application officielle MeshCore dans le navigateur : utiliser un companion en USB ou Bluetooth">📟 Application MeshCore</a>
+        <button class="bascule outils-mc" hidden id="outil-companion-mc" title="Relier à la carte un companion MeshCore branché sur ce PC (onglet MeshCore → Companion)">🔌 Relier un companion MeshCore</button>
         <small id="note-outils" class="note"></small>
       </div>
     </details>

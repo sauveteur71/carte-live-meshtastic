@@ -819,3 +819,5 @@ body[data-reseau="meshcore"] #sources .ligne:not(#ligne-mc):not(#ligne-broker) {
 .outils-couv button small { display: block; font-weight: 400; color: var(--doux); font-size: 11.5px; margin-top: 2px; }
 .bloc-actuel { border-color: #60a5fa; background: rgba(96,165,250,.06); }
 .titre-programmer { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 8px; }
+.titre-outils { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--tres-doux); padding: 4px 6px 0; } .titre-outils[hidden], .menu .bascule[hidden] { display: none; }
+.menu-outils .menu .bascule { padding: 4px 8px; justify-content: flex-start; }

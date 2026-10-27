@@ -74,6 +74,9 @@ const MC_LIENS_MAX = 500;
 // ---- Choix du réseau affiché : Meshtastic, MeshCore ou les deux ------------------------------------
 etat.vueReseau = (() => { try { return localStorage.getItem('gaulix_reseau') || 'les-deux'; } catch { return 'les-deux'; } })();
 function appliquerVueReseau() {
+  // Menu Outils : outils Meshtastic et/ou MeshCore selon le réseau affiché
+  document.querySelectorAll('.outils-mc').forEach((el) => (el.hidden = !etat.config.meshcore || etat.vueReseau === 'meshtastic'));
+  document.querySelectorAll('.outils-mt').forEach((el) => (el.hidden = etat.vueReseau === 'meshcore'));
   if (!mc.actif) etat.vueReseau = 'meshtastic';
   try { localStorage.setItem('gaulix_reseau', etat.vueReseau); } catch { /* stockage indisponible */ }
   document.body.dataset.reseau = etat.vueReseau;

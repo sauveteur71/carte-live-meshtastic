@@ -3086,6 +3086,8 @@ function brancherInterface() {
   document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; if (etat.modeCarte) basculerMode(null); else if (etat.modeProfil) $('#btn-profil').click(); });
   $('#sel-zone').onchange = (e) => { etat.zoneMode = e.target.value; appliquerZone(true); if (typeof mcRedessiner === 'function') { mc.vue = null; mcRedessiner(); mcMajAlertes(); } };
   $('#aller-plan').onclick = allerPlan;
+  const ocm = $('#outil-companion-mc');
+  if (ocm) ocm.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; const o = document.querySelector('.onglets button[data-onglet="meshcore"]'); if (o) o.click(); const c = document.querySelector('.sous-onglets-mc button[data-mc-vue="companion"]'); if (c) c.click(); };
   $('#aller-couv-reseau').onclick = couvertureReseau;
   $('#btn-couv-reseau').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; couvertureReseau(); };
   $('#btn-plan-menu').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; allerPlan(); };
