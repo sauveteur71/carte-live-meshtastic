@@ -54,10 +54,17 @@
       <button class="bascule actif" data-couche="sommets" title="Points hauts du relief et meilleurs sites radio">Points hauts</button>
       </div>
     </details>
-    <button id="btn-profil" title="Profil de relief entre deux points : cliquez A puis B (nœud, sommet ou n’importe quel lieu)">Profil</button>
-    <button id="btn-couvrir" title="Cliquez un lieu sur la carte : la carte propose 4 points hauts capables de le couvrir">Couvrir</button>
-    <button id="btn-relier" title="Cliquez un point de départ puis un point d’arrivée : la carte indique s’il faut des relais, et où les installer">Relier</button>
-    <button id="btn-couv-ici" title="Cliquez n'importe quel lieu : zone couverte par une antenne placée là (clic droit sur la carte : même menu)">Couverture</button>
+    <details class="menu-couches menu-radio" id="menu-radio">
+      <summary>Couverture radio ▾</summary>
+      <div class="menu">
+        <button id="btn-couv-reseau" class="bascule" title="Zone couverte aujourd’hui par les relais et passerelles détectés">📡 Couverture actuelle du réseau</button>
+        <button id="btn-couv-ici" class="bascule" title="Cliquez n'importe quel lieu : zone couverte par une antenne placée là (clic droit sur la carte : même menu)">📍 Couverture depuis un point</button>
+        <button id="btn-couvrir" class="bascule" title="Cliquez un lieu sur la carte : la carte propose 4 points hauts capables de le couvrir (puis d’autres points à couvrir avec un seul site)">🎯 Couvrir un ou plusieurs points</button>
+        <button id="btn-relier" class="bascule" title="Cliquez un point de départ puis un point d’arrivée : la carte indique s’il faut des relais, et où les installer">🔗 Relier deux lieux</button>
+        <button id="btn-profil" class="bascule" title="Profil de relief entre deux points : cliquez A puis B (nœud, sommet ou n’importe quel lieu)">⛰️ Profil entre deux points</button>
+        <button id="btn-plan-menu" class="bascule" title="Où poser des relais pour couvrir tout le département, avec l’accès à chaque site">🗺️ Plan pour couvrir le département</button>
+      </div>
+    </details>
     <button id="btn-rejeu" title="Rejouer les dernières 24 heures">Rejeu</button>
     <details class="menu-couches menu-outils">
       <summary>Outils ▾</summary>
@@ -73,6 +80,8 @@
     <button id="btn-admin" class="admin">Connexion</button>
   </div>
 
+  <div id="consigne-mode" class="consigne-mode" hidden><span></span><button type="button" id="consigne-annuler">Annuler (Échap)</button></div>
+
   <div class="recherche-lieu" role="search">
     <input id="recherche-lieu" type="search" placeholder="Rechercher un lieu, un nœud, un sommet ou des coordonnées…" autocomplete="off" aria-label="Rechercher un lieu">
     <ul id="resultats-lieu" class="resultats-lieu" hidden></ul>
@@ -83,9 +92,9 @@
       <button data-onglet="reseau" class="actif">Réseau</button>
       <button data-onglet="noeuds">Nœuds</button>
       <button data-onglet="trafic">Trafic</button>
-      <button data-onglet="analyse">Analyse</button>
-      <button data-onglet="sites" title="Meilleurs sites radio selon le relief">Sites</button>
-      <button data-onglet="gestion" id="onglet-gestion" hidden title="Programmer les nœuds par LoRa">Gestion</button>
+      <button data-onglet="analyse" title="Statistiques du trafic : occupation du canal, émetteurs, ports">Statistiques</button>
+      <button data-onglet="sites" title="Couverture radio : réseau actuel, plan pour le département, meilleurs sites selon le relief">Couverture</button>
+      <button data-onglet="gestion" id="onglet-gestion" hidden title="Programmer les nœuds à distance par LoRa">Programmer</button>
       <button data-onglet="messages" id="onglet-messages" hidden>Messages</button>
       <button data-onglet="meshcore" class="onglet-mc" hidden title="Réseau MeshCore : nœuds, paquets, companion">MeshCore</button>
       <button class="replier" id="replier" title="Replier le panneau">‹</button>
@@ -148,7 +157,7 @@
     </section>
 
     <section data-vue="analyse" class="vue">
-      <div class="bloc-plan raccourci-plan"><b>🎯 Où poser des nœuds pour couvrir tout le département ?</b><br><small>Liste des emplacements, avec l’accès (voiture, 4×4, à pied) et la couverture obtenue.</small><div class="actions-prop"><button id="aller-plan" class="principal">Préparer le plan</button></div></div>
+      <div class="bloc-plan raccourci-plan"><b>📡 Couverture radio du département</b><br><small>Ce que couvre le réseau aujourd’hui, et où poser des relais (avec l’accès en voiture, 4×4 ou à pied).</small><div class="actions-prop"><button id="aller-couv-reseau" class="principal">Couverture actuelle</button><button id="aller-plan">Préparer le plan</button></div></div>
       <div class="recherche">
         <select id="analyse-periode">
           <option value="6">6 dernières heures</option>

@@ -1353,6 +1353,51 @@ function ajouterSiteCouverture(latlng) {
   couvertureMulti([...(etat.sitesCouv || []), { lat: lieu.lat, lon: lieu.lon, h, nom: lieu.nom }].slice(0, 10));
 }
 
+// ---- Couverture actuelle du réseau (relais et passerelles détectés) ----------------------------------
+async function couvertureReseau() {
+  const hn = Number(localStorage.getItem('gaulix_hn')) || 6;
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  $('#fiche-contenu').innerHTML = '<h2>Couverture actuelle du réseau</h2><div class="alerte info-lecture"><span class="sablier"></span> Calcul de la zone couverte par les relais et passerelles détectés…</div>';
+  let r;
+  try { r = await api(`/api/relief/couverture-reseau?hn=${hn}${etat.vueReseau === 'meshcore' ? '&reseau=meshcore' : ''}`); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Couverture actuelle du réseau</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  const dep = etat.relief && etat.relief.departement ? etat.relief.departement.nom : 'le département';
+  if (r.vide) { $('#fiche-contenu').innerHTML = `<h2>Couverture actuelle du réseau</h2><div class="vide">Aucun relais ni passerelle ${etat.vueReseau === 'meshcore' ? 'MeshCore ' : ''}positionné et entendu depuis 24 h dans ${esc(dep)}.</div>`; return; }
+  if (etat.coucheCouverture) etat.coucheCouverture.remove();
+  const e = r.emprise, g = L.layerGroup();
+  L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.75, pane: 'couverture', className: 'pixelise' }).addTo(g);
+  g.addTo(carte);
+  etat.coucheCouverture = g;
+  $('#btn-effacer').hidden = false;
+  carte.fitBounds(L.latLngBounds(r.noeuds.map((n) => [n.lat, n.lon])).pad(0.4), { maxZoom: 11 });
+  const tries = [...r.noeuds].sort((a, b) => b.propreKm2 - a.propreKm2);
+  $('#fiche-contenu').innerHTML = `<h2>Couverture actuelle du réseau</h2>
+    <div class="ident">${esc(dep)} · ${r.noeuds.length} relais et passerelles ${etat.vueReseau === 'meshcore' ? 'MeshCore ' : ''}détectés (positionnés, entendus depuis 24 h)</div>
+    <div class="grille">
+      <div class="mesure"><span>Part du département</span><b>${fmt(r.pctZone, 1, ' %')}</b></div>
+      <div class="mesure"><span>Dans le département</span><b>${r.surfaceZoneKm2} km²</b></div>
+      <div class="mesure"><span>Surface totale</span><b>${r.surfaceKm2} km²</b></div>
+    </div>
+    <div class="barre-couv"><i style="width:${r.pctZone}%" class="actuel"></i></div>
+    <div class="parametres compact"><label>Hauteur d’antenne supposée (m) <input id="hn-reseau" type="number" min="1" max="60" step="1" value="${hn}"></label><button id="hn-recalc">Recalculer</button></div>
+    <h3>Apport de chaque relais</h3>
+    <p class="note">« Seul à couvrir » : surface du département que ce relais est le seul à desservir. Un relais à 0 km² fait doublon avec les autres ; un relais à forte valeur est un point critique (s’il tombe, cette zone n’est plus couverte).</p>
+    ${tries.map((n) => `<div class="ligne" data-ouvrir-noeud="${esc(String(n.num))}"><span class="point ${n.propreKm2 > 0 ? 'actif' : 'inactif'}"></span><span class="titre">${esc(n.nom || String(n.num))}<small>${n.km2} km² au total</small></span><span class="meta"><b>${n.propreKm2} km²</b> seul</span></div>`).join('')}
+    <div class="actions-prop"><button id="couv-vers-plan" class="principal">🗺️ Où ajouter des relais ? (plan)</button></div>
+    <p class="note">Turquoise : ≥ 10 dB de marge · jaune : 0 à 10 dB · orange : en limite. Hypothèse : antennes à ${hn} m, nœud desservi à 2 m du sol. ${r.env != null ? `Pertes de végétation et bâti : ${r.env} dB.` : ''}</p>`;
+  $('#hn-recalc').onclick = () => { try { localStorage.setItem('gaulix_hn', $('#hn-reseau').value); } catch { /* ignoré */ } couvertureReseau(); };
+  $('#couv-vers-plan').onclick = () => allerPlan();
+  $('#fiche-contenu').querySelectorAll('[data-ouvrir-noeud]').forEach((el) => (el.onclick = () => {
+    const n = r.noeuds.find((x) => String(x.num) === el.dataset.ouvrirNoeud);
+    if (n) carte.flyTo([n.lat, n.lon], 12, { duration: 0.6 });
+  }));
+}
+function allerPlan() {
+  const b = document.querySelector('.onglets button[data-onglet="sites"]');
+  if (b) b.click();
+  setTimeout(() => { const bp = $('#bloc-plan'); if (bp) { bp.scrollIntoView({ behavior: 'smooth', block: 'start' }); bp.classList.add('surbrillance'); setTimeout(() => bp.classList.remove('surbrillance'), 1500); } }, 300);
+}
+
 // ---- Plan pour couvrir le département ------------------------------------------------------------
 async function planDepartement() {
   const objectif = Number($('#plan-objectif').value) || 95, max = Number($('#plan-max').value) || 15;
@@ -1427,7 +1472,12 @@ async function rendreSites() {
   const avecCoords = (s, sous) => `${sous || ''} · <span class="mono">${s.lat.toFixed(5)}, ${s.lon.toFixed(5)}</span>`;
   const ligneSite = (s, droite, sous, badge, or) => `<div class="ligne site" data-site="${s.id}"><span class="rang-site${or ? ' or' : ''}">${badge ?? ''}</span><span class="titre">${esc(nomSommet(s))} ${badgeAcces(s)}<small>${s.alt} m${s.commune && s.nom ? ' · ' + esc(s.commune) : ''}</small></span><span class="meta">${droite}</span><span class="sous-ligne meta-longue">${avecCoords(s, sous)}</span></div>`;
   const parId = new Map(etat.sommets.map((s) => [s.id, s]));
-  let h = choix + `<div class="bloc-plan" id="bloc-plan">
+  let h = choix + `<div class="bloc-plan bloc-actuel">
+      <h3>📡 Couverture actuelle du réseau</h3>
+      <p class="note">Zone desservie aujourd’hui par les relais et passerelles détectés${c && c.reseauActuel ? ` : <b>${fmt(c.reseauActuel.pct, 1, ' %')}</b> du département avec ${c.reseauActuel.relais.length} relais` : ''}.</p>
+      <div class="actions-prop"><button id="sites-couv-reseau" class="principal">Afficher sur la carte</button></div>
+    </div>
+    <div class="bloc-plan" id="bloc-plan">
       <h3>🎯 Plan pour couvrir ${e.departement ? esc(e.departement.nom || 'le département') : 'le département'}</h3>
       <div class="parametres compact">
         <label>Objectif (%) <input id="plan-objectif" type="number" min="10" max="100" step="1" value="95"></label>
@@ -1437,7 +1487,14 @@ async function rendreSites() {
       <label class="case"><input type="checkbox" id="plan-reseau" checked> En complément du réseau actuel</label>
       <div class="actions-prop"><button id="plan-calculer" class="principal">Donner les emplacements</button></div>
     </div>
-    <p class="note">Cliquez un point de la carte avec <b>Couvrir</b> pour obtenir 4 sites capables de le desservir. Cliquez un site pour afficher sa couverture.</p>
+    <h3>🧭 Outils sur la carte</h3>
+    <div class="outils-couv">
+      <button data-outil="btn-couv-ici">📍 Couverture depuis un point<small>zone couverte par une antenne placée où vous cliquez (puis ＋ d’autres sites)</small></button>
+      <button data-outil="btn-couvrir">🎯 Couvrir un ou plusieurs points<small>les points hauts capables de desservir le ou les lieux cliqués</small></button>
+      <button data-outil="btn-relier">🔗 Relier deux lieux<small>faut-il des relais entre A et B, et où ?</small></button>
+      <button data-outil="btn-profil">⛰️ Profil entre deux points<small>relief et dégagement de la liaison</small></button>
+    </div>
+    <h3>Réglages des calculs</h3>
     <div class="parametres compact">
       <label>Antenne des sites (m) <input id="relief-hs" type="number" min="1" max="60" step="1" value="${c ? c.parametres.hs : 6}"></label>
       <label>Antenne à couvrir (m) <input id="relief-ht" type="number" min="0.5" max="20" step="0.5" value="${c ? c.parametres.ht : 2}"></label>
@@ -1467,6 +1524,8 @@ async function rendreSites() {
   h += `<div id="couverture-info" class="note"></div>`;
   z.innerHTML = h;
   brancherChoixDepartement();
+  const bcr = $('#sites-couv-reseau'); if (bcr) bcr.onclick = couvertureReseau;
+  z.querySelectorAll('[data-outil]').forEach((b) => (b.onclick = () => { const t = $('#' + b.dataset.outil); if (t) t.click(); }));
   const pc = $('#plan-calculer');
   if (pc) {
     try { const v = localStorage.getItem('gaulix_plan'); if (v) { const o = JSON.parse(v); $('#plan-objectif').value = o.objectif; $('#plan-max').value = o.max; $('#plan-acces').value = o.acces; $('#plan-reseau').checked = o.reseau; } } catch { /* ignoré */ }
@@ -1737,16 +1796,31 @@ async function ouvrirProfilCoords(a, b, preset) {
 }
 
 // Modes de clic sur la carte : « couvrir » (4 points hauts) ou « ici » (couverture depuis le point)
+// Consigne affichée en haut de la carte tant qu'un mode attend un clic
+const CONSIGNES = {
+  couvrir: 'Cliquez le lieu à couvrir', 'couvrir-plus': () => `Cliquez le point ${(etat.ciblesMulti || []).length + 1} à couvrir`,
+  ici: 'Cliquez l’emplacement de l’antenne', 'couv-plus': () => `Cliquez le site ${(etat.sitesCouv || []).length + 1} à ajouter à la couverture`,
+  relier: () => (etat.relierA ? 'Cliquez le point d’arrivée' : 'Cliquez le point de départ'),
+};
+function majConsigne(texte) {
+  const c = $('#consigne-mode');
+  if (!c) return;
+  c.hidden = !texte;
+  if (texte) c.querySelector('span').textContent = texte;
+}
 function basculerMode(mode) {
   etat.modeCarte = mode;
+  const mr = $('#menu-radio'); if (mr) mr.open = false;
+  const cs = mode && CONSIGNES[mode];
+  majConsigne(cs ? (typeof cs === 'function' ? cs() : cs) : (etat.modeProfil ? (etat.modeProfil.a ? 'Profil : cliquez le point B' : 'Profil : cliquez le point A') : null));
   $('#btn-couvrir').classList.toggle('actif', mode === 'couvrir');
   $('#btn-couvrir').classList.toggle('actif', mode === 'couvrir' || mode === 'couvrir-plus');
-  $('#btn-couvrir').textContent = mode === 'couvrir' ? 'Cliquez le point à couvrir…' : mode === 'couvrir-plus' ? `Cliquez le point ${(etat.ciblesMulti || []).length + 1}…` : 'Couvrir';
+  $('#btn-couvrir').textContent = '🎯 Couvrir un ou plusieurs points';
   $('#btn-couv-ici').classList.toggle('actif', mode === 'ici');
   $('#btn-couv-ici').classList.toggle('actif', mode === 'ici' || mode === 'couv-plus');
-  $('#btn-couv-ici').textContent = mode === 'ici' ? 'Cliquez l’emplacement…' : mode === 'couv-plus' ? `Cliquez le site ${(etat.sitesCouv || []).length + 1}…` : 'Couverture';
+  $('#btn-couv-ici').textContent = '📍 Couverture depuis un point';
   $('#btn-relier').classList.toggle('actif', mode === 'relier');
-  $('#btn-relier').textContent = mode === 'relier' ? (etat.relierA ? 'Cliquez l’arrivée…' : 'Cliquez le départ…') : 'Relier';
+  $('#btn-relier').textContent = '🔗 Relier deux lieux';
   if (mode !== 'relier') { etat.relierA = null; if (etat.repereRelier) { etat.repereRelier.remove(); etat.repereRelier = null; } }
   document.body.classList.toggle('mode-viseur', !!mode);
 }
@@ -1923,14 +1997,14 @@ function choisirPointProfil(p) {
   if (!m) return;
   if (!m.a) {
     m.a = p;
-    $('#btn-profil').textContent = 'Profil : choisir B';
+    majConsigne('Profil : cliquez le point B');
     etat.repereProfil = L.marker([p.lat, p.lon], { icon: L.divIcon({ className: 'repere-lieu', html: '<span></span>', iconSize: [18, 18], iconAnchor: [9, 9] }), pane: 'traces' })
       .addTo(carte).bindTooltip(`A · ${esc(p.nom)}`, { className: 'info', permanent: true, direction: 'top' });
     return;
   }
   const a = m.a;
   etat.modeProfil = null;
-  $('#btn-profil').textContent = 'Profil';
+  majConsigne(null);
   $('#btn-profil').classList.remove('actif');
   document.body.classList.remove('mode-viseur');
   if (etat.repereProfil) { etat.repereProfil.remove(); etat.repereProfil = null; }
@@ -3002,19 +3076,20 @@ function brancherInterface() {
       else if (a.dataset.a === 'ici') couvertureIci(e.latlng, 6); else { etat.ciblesMulti = null; couvrirPoint(e.latlng); }
     };
   });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && etat.modeCarte) basculerMode(null); });
+  document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; if (etat.modeCarte) basculerMode(null); else if (etat.modeProfil) $('#btn-profil').click(); });
   $('#sel-zone').onchange = (e) => { etat.zoneMode = e.target.value; appliquerZone(true); if (typeof mcRedessiner === 'function') { mc.vue = null; mcRedessiner(); mcMajAlertes(); } };
-  $('#aller-plan').onclick = () => {
-    const b = document.querySelector('.onglets button[data-onglet="sites"]');
-    if (b) b.click();
-    setTimeout(() => { const bp = $('#bloc-plan'); if (bp) { bp.scrollIntoView({ behavior: 'smooth', block: 'start' }); bp.classList.add('surbrillance'); setTimeout(() => bp.classList.remove('surbrillance'), 1500); } }, 150);
-  };
+  $('#aller-plan').onclick = allerPlan;
+  $('#aller-couv-reseau').onclick = couvertureReseau;
+  $('#btn-couv-reseau').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; couvertureReseau(); };
+  $('#btn-plan-menu').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; allerPlan(); };
+  $('#consigne-annuler').onclick = () => { if (etat.modeCarte) basculerMode(null); if (etat.modeProfil) $('#btn-profil').click(); };
   $('#btn-profil').onclick = () => {
     const actif = !etat.modeProfil;
     if (actif && etat.modeCarte) basculerMode(null);
     etat.modeProfil = actif ? { a: null } : null;
     $('#btn-profil').classList.toggle('actif', actif);
-    $('#btn-profil').textContent = actif ? 'Profil : choisir A' : 'Profil';
+    majConsigne(actif ? 'Profil : cliquez le point A' : null);
+    const mr = $('#menu-radio'); if (mr) mr.open = false;
     document.body.classList.toggle('mode-viseur', actif);
     if (!actif && etat.repereProfil) { etat.repereProfil.remove(); etat.repereProfil = null; }
   };

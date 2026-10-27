@@ -23,7 +23,8 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - Alertes : nœud muet, batterie faible, canal saturé, passerelle hors ligne…
 - Analyse du trafic, rejeu de l'historique, profils radio entre deux points quelconques
 
-**Relief et sites**
+**Relief et sites** (onglet *Couverture* et menu *Couverture radio*)
+- **Couverture actuelle du réseau** : zone desservie par les relais et passerelles détectés, part du département, et ce que chaque relais est seul à couvrir (doublons, points critiques)
 - **N'importe quel département** : l'onglet Sites permet d'étudier un autre département que celui de la carte (relief IGN, points hauts, accès, plan de couverture) — par exemple savoir où poser des relais pour couvrir le Doubs depuis une carte installée en Haute-Loire
 - **Plan pour couvrir le département** : objectif (%), nombre maximal de sites et accès exigé (voiture, 4×4, à pied) → liste des emplacements avec leur accès, la surface apportée et la carte de ce qui reste à couvrir
 - **Couverture totale de plusieurs sites** (jusqu'à 10) : surface cumulée et apport propre de chaque site

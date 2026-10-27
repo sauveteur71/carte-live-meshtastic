@@ -610,6 +610,15 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     };
   }
 
+  // Couverture actuelle du réseau : relais et passerelles détectés (entendus depuis 24 h) et positionnés dans la zone
+  function couvertureReseau(opts = {}) {
+    if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
+    const noeuds = (opts.noeuds || fournisseurs.noeudsReseau()).filter((n) => celle(n.lat, n.lon) >= 0).slice(0, 60);
+    if (!noeuds.length) return { noeuds: [], vide: true };
+    const r = couverturePngMulti(noeuds.map((n) => ({ lat: n.lat, lon: n.lon, h: opts.hn ?? 6 })), opts);
+    return { ...r, noeuds: noeuds.map((n, i) => ({ num: n.num, nom: n.nom, lat: n.lat, lon: n.lon, ...r.sites[i] })), sites: undefined, surfaceDepartementKm2: Math.round(nbZone * aireCelleKm2) };
+  }
+
   // Couverture cumulée de plusieurs sites (2 à 10) : image commune (meilleure marge par cellule),
   // surface totale et apport propre de chaque site (ce qu'il est seul à couvrir)
   function couverturePngMulti(sites, opts) {
@@ -897,6 +906,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     },
     couverturePng,
     couverturePngMulti,
+    couvertureReseau,
     planDepartement,
     couvrirPoint,
     couvrirPoints,

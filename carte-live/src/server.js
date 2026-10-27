@@ -277,6 +277,25 @@ app.get('/api/relief/couverture-multi', (req, res) => {
   }
   res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sites: r.sites, env: r.env, rayonKm: r.rayonKm });
 });
+// Couverture actuelle du réseau (relais et passerelles détectés) : ?reseau=meshcore pour les répéteurs MeshCore
+app.get('/api/relief/couverture-reseau', (req, res) => {
+  const RR = R(req);
+  if (!RR.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
+  const o = optsRelief(req.query);
+  if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
+  if (req.query.hn) o.hn = Math.min(Math.max(Number(req.query.hn) || 6, 0.5), 60);
+  const cle = JSON.stringify(['reseau', RR.code, req.query.reseau || 'mt', o.hn || 6, Math.floor(Date.now() / 600000)]);
+  let r = cacheCouverture.get(cle);
+  if (!r) {
+    try { r = RR.couvertureReseau(o); } catch (e) { return res.status(503).json({ erreur: e.message }); }
+    if (r.vide) return res.json({ noeuds: [], vide: true });
+    r.id = crypto.randomBytes(6).toString('hex');
+    cacheCouverture.set(cle, r); cacheCouverture.set(r.id, r);
+    if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
+  }
+  const { image, ...reste } = r;
+  res.json({ ...reste, image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise() });
+});
 // Plan pour couvrir le département : ?objectif=95&max=15&acces=voiture&reseau=1
 app.get('/api/relief/plan', (req, res) => {
   const filtre = ['voiture', '4x4', 'pied'].includes(req.query.acces) ? req.query.acces : null;
