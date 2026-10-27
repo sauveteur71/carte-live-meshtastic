@@ -216,6 +216,26 @@ function creerReseau(stockage, config) {
   }
 
   /** Vue d'un nœud (publique ou admin) */
+  /** Trame vue par le public : coordonnées arrondies comme sur la carte (sauf relais et passerelles) */
+  function vueTrame(t, admin) {
+    const dec = config.precisionPublique;
+    if (admin || dec < 0 || !t || (t.port !== 'position' && t.port !== 'mapreport')) return t;
+    if (estSurveille(q.noeud.get(t.de))) return t;
+    const r = { ...t };
+    if (typeof r.resume === 'string') {
+      r.resume = r.resume.replace(/^(-?\d+\.\d+), (-?\d+\.\d+)/, (_, a, b) => `${arrondir(+a, dec).toFixed(dec)}, ${arrondir(+b, dec).toFixed(dec)}`);
+    }
+    if (r.contenu) {
+      const brut = typeof r.contenu === 'string';
+      let c;
+      try { c = brut ? JSON.parse(r.contenu) : { ...r.contenu }; } catch { return { ...r, contenu: null }; }
+      for (const k of ['latitudeI', 'longitudeI']) if (c[k] != null) c[k] = Math.round(arrondir(c[k] / 1e7, dec) * 1e7);
+      for (const k of ['latitude', 'longitude', 'lat', 'lon']) if (typeof c[k] === 'number') c[k] = arrondir(c[k], dec);
+      r.contenu = brut ? JSON.stringify(c) : c;
+    }
+    return r;
+  }
+
   function vueNoeud(n, admin, maintenant = Date.now()) {
     const infra = estSurveille(n);
     const dec = admin || infra ? -1 : config.precisionPublique;
@@ -392,7 +412,7 @@ function creerReseau(stockage, config) {
       }),
       telemetrie: q.histoTelemetrieNoeud.all(num, depuis),
       trajet: admin || estSurveille(n) ? q.histoPositionsNoeud.all(num, depuis) : [],
-      paquets: q.paquetsNoeud.all(num, 50).map((p) => ({ ...p, texte: admin ? p.texte : undefined })),
+      paquets: q.paquetsNoeud.all(num, 50).map((p) => vueTrame({ ...p, texte: admin ? p.texte : undefined }, admin)),
     };
   }
 
@@ -409,7 +429,7 @@ function creerReseau(stockage, config) {
     return { positions: pos, liens };
   }
 
-  return { nettoyer, integrer, vueNoeud, calculerAlertes, statistiques, liens, detailNoeud, estSurveille, ROLES_FR };
+  return { nettoyer, integrer, vueNoeud, vueTrame, calculerAlertes, statistiques, liens, detailNoeud, estSurveille, ROLES_FR };
 }
 
 function formaterDuree(minutes) {

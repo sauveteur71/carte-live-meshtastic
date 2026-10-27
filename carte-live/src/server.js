@@ -100,10 +100,16 @@ function limiter(ip) {
   tentatives.set(ip, t);
   return t.length > 8;
 }
+setInterval(() => {
+  const limite = Date.now() - 15 * 60000;
+  for (const [ip, t] of tentatives) if (!t.some((x) => x > limite)) tentatives.delete(ip);
+}, 15 * 60000).unref();
 
 // ---- Application web ------------------------------------------------------
 const app = express();
-app.set('trust proxy', 1);
+// En-têtes X-Forwarded-* acceptés seulement s'ils viennent d'une adresse locale (proxy inversé de DSM, Tailscale) :
+// un client Internet ne peut pas falsifier son adresse pour contourner la limite de tentatives
+app.set('trust proxy', config.proxyConfiance);
 app.disable('x-powered-by');
 app.use(require('compression')({ threshold: 1024 })); // gzip : pages et API 5 à 10 fois plus légères (accès à distance)
 // Corps JSON : 10 ko, sauf la restauration d'une sauvegarde
@@ -229,6 +235,7 @@ app.get('/api/profil', async (req, res) => {
       ptx: nb(req.query.ptx), ga: nb(req.query.ga), gb: nb(req.query.gb), pertes: nb(req.query.pertes), preset: req.query.preset,
       aLat: nb(req.query.aLat), aLon: nb(req.query.aLon), bLat: nb(req.query.bLat), bLon: nb(req.query.bLon),
       aNom: req.query.aNom ? String(req.query.aNom).slice(0, 60) : undefined, bNom: req.query.bNom ? String(req.query.bNom).slice(0, 60) : undefined,
+      membre: estMembre(req),
     }));
   } catch (e) {
     res.status(400).json({ erreur: e.message });
@@ -617,6 +624,7 @@ const FILTRES_TRAMES = {
 const COLONNES_RECEPTIONS = `(SELECT json_group_array(json_object('passerelle', r.passerelle, 'heure', r.heure, 'snr', r.snr, 'rssi', r.rssi, 'sauts', r.sauts, 'relais', r.relais_num, 'sujet', r.sujet))
   FROM receptions r WHERE r.paquet = p.rowid) AS receptions`;
 function preparerTrame(p, membre) {
+  p = reseau.vueTrame(p, membre);
   return {
     rowid: p.rowid, idPaquet: p.id_paquet, de: p.de, vers: p.vers, canal: p.canal, port: p.port, nomPort: p.nom_port, portnum: p.portnum,
     heure: p.heure, hopDepart: p.hop_depart, sauts: p.sauts, dechiffre: !!p.dechiffre, pki: !!p.pki, viaMqtt: !!p.via_mqtt, taille: p.taille,
@@ -745,11 +753,11 @@ app.get('/api/paquets', (req, res) => {
   const admin = estMembre(req);
   const n = Math.min(Number(req.query.limite) || 200, 1000);
   res.json(
-    stockage.q.paquetsRecents.all(n).map((p) => ({
+    stockage.q.paquetsRecents.all(n).map((p) => reseau.vueTrame({
       ...p,
       receptions: JSON.parse(p.receptions || '[]'),
       texte: admin ? p.texte : undefined,
-    }))
+    }, admin))
   );
 });
 
@@ -982,7 +990,7 @@ app.post('/api/mqtt/tester', async (req, res) => {
   testMqttEnCours = true;
   const debut = Date.now();
   const r = { url: masquerUrl(url), racine, connecte: false, delaiConnexionMs: null, messages: 0, sujets: {}, erreur: null, abonnement: null };
-  const c = mqtt.connect(url, { username: utilisateurTest || undefined, password: mdp || undefined, clientId: 'carte-live-test-' + crypto.randomBytes(3).toString('hex'), reconnectPeriod: 0, connectTimeout: 8000, rejectUnauthorized: false });
+  const c = mqtt.connect(url, { username: utilisateurTest || undefined, password: mdp || undefined, clientId: 'carte-live-test-' + crypto.randomBytes(3).toString('hex'), reconnectPeriod: 0, connectTimeout: 8000, rejectUnauthorized: !config.mqtt.tlsNonVerifie });
   const fin = () => new Promise((ok) => { try { c.end(true, {}, ok); } catch { ok(); } });
   try {
     await new Promise((ok, ko) => {
@@ -1286,7 +1294,8 @@ setInterval(() => {
 }, 30000);
 
 function diffuser(message) {
-  const pub = JSON.stringify(message.texte !== undefined ? { ...message, texte: undefined } : message);
+  // Vue publique : sans texte, positions des nœuds de particuliers arrondies
+  const pub = JSON.stringify(reseau.vueTrame(message.texte !== undefined ? { ...message, texte: undefined } : message, false));
   const adm = JSON.stringify(message);
   for (const ws of wss.clients) if (ws.readyState === 1) ws.send(ws.admin ? adm : pub);
 }
@@ -1315,7 +1324,8 @@ const clientMqtt = mqtt.connect(config.mqtt.url, {
   password: config.mqtt.motDePasse || undefined,
   clientId: 'carte-live-' + crypto.randomBytes(3).toString('hex'),
   reconnectPeriod: 5000,
-  rejectUnauthorized: false,
+  // Certificat du broker vérifié (mqtts://, wss://), sauf si MQTT_TLS_NON_VERIFIE=oui (certificat auto-signé)
+  rejectUnauthorized: !config.mqtt.tlsNonVerifie,
 });
 const sujets = [config.mqtt.racine + '/#', ...config.mqtt.sujetsSupplementaires, ...(config.meshcore.actif ? [config.meshcore.racine + '/#'] : [])];
 const prefixeMc = config.meshcore.racine + '/';

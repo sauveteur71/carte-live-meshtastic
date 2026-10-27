@@ -43,7 +43,7 @@ function creerPublicateurMc(config, journal) {
     cleClient = cle; nomClient = nom || cle.slice(0, 8);
     client = mqtt.connect(config.mqtt.url, {
       username: config.mqtt.utilisateur || undefined, password: config.mqtt.motDePasse || undefined,
-      clientId: 'carte-live-mc-' + crypto.randomBytes(3).toString('hex'), reconnectPeriod: 10000, rejectUnauthorized: false,
+      clientId: 'carte-live-mc-' + crypto.randomBytes(3).toString('hex'), reconnectPeriod: 10000, rejectUnauthorized: !config.mqtt.tlsNonVerifie,
       will: { topic: prefixe(cle) + '/status', payload: Buffer.from(statut('offline', infos)), qos: 0, retain: true },
     });
     let connecteA = 0, coupuresRapides = 0;

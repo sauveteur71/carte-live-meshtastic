@@ -28,8 +28,12 @@ function lireCanaux(valeur) {
 
 const config = {
   port: nombre('PORT', 8095),
+  // Proxys inversés dont on accepte les en-têtes X-Forwarded-* (syntaxe Express « trust proxy »)
+  proxyConfiance: texte('PROXY_CONFIANCE', 'loopback, linklocal, uniquelocal'),
   mqtt: {
     url: texte('MQTT_URL', 'mqtt://localhost:1883'),
+    // mqtts:// / wss:// : certificat vérifié, sauf MQTT_TLS_NON_VERIFIE=oui (certificat auto-signé)
+    tlsNonVerifie: texte('MQTT_TLS_NON_VERIFIE', 'non') === 'oui',
     utilisateur: texte('MQTT_UTILISATEUR'),
     motDePasse: texte('MQTT_MOT_DE_PASSE'),
     racine: texte('MQTT_RACINE', 'msh/EU_868').replace(/\/+$/, ''),

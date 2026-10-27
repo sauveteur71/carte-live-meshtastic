@@ -239,7 +239,11 @@ function creerAnalyse(stockage, config, reseau, presetCourant) {
   async function profil(opts) {
     const point = (num, lat, lon, nom) => {
       if (Number.isFinite(lat) && Number.isFinite(lon)) return { num: null, lat, lon, nom_long: nom || `${lat.toFixed(4)}, ${lon.toFixed(4)}` };
-      return q.noeud.get(num >>> 0);
+      // Position d'un nœud : arrondie comme sur la carte publique si le demandeur n'est pas membre
+      const n = q.noeud.get(num >>> 0);
+      if (!n) return null;
+      const v = reseau.vueNoeud(n, !!opts.membre);
+      return { ...n, lat: v.lat, lon: v.lon };
     };
     const A = point(opts.a, opts.aLat, opts.aLon, opts.aNom), B = point(opts.b, opts.bLat, opts.bLon, opts.bNom);
     if (!A || !B || A.lat == null || B.lat == null) throw new Error('Les deux extrémités doivent avoir une position');

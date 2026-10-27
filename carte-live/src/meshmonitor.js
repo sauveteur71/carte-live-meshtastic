@@ -137,7 +137,15 @@ function creerSourceMeshMonitor(stockage, config, apresMiseAJour) {
     return { nom: src.name || src.id, noeuds: nbNoeuds, liens: nbLiens, local: local != null ? '!' + local.toString(16).padStart(8, '0') : null };
   }
 
+  // Une seule minuterie : la synchronisation suivante est programmée à la fin de chacune (pas de relances cumulées)
+  let minuterie = null;
+  let enCours = false;
+  const planifier = (ms) => { clearTimeout(minuterie); minuterie = setTimeout(synchroniser, ms); };
+
   async function synchroniser() {
+    if (enCours) return;
+    enCours = true;
+    clearTimeout(minuterie);
     try {
       const sources = await listerSources();
       const resultats = [];
@@ -152,15 +160,17 @@ function creerSourceMeshMonitor(stockage, config, apresMiseAJour) {
       };
       journal(`synchronisé : ${resultats.map((r) => `${r.nom} (${r.noeuds} nœuds, ${r.liens} liens, local ${r.local || '?'})`).join(' ; ') || 'aucune source radio'}`);
       if (apresMiseAJour) apresMiseAJour();
+      planifier(Math.max(60, mm.intervalleSecondes) * 1000);
     } catch (e) {
       etat = { ...etat, ok: false, erreur: e.message === 'The operation was aborted due to timeout' ? 'MeshMonitor ne répond pas (délai dépassé)' : e.message };
       journal('erreur :', e.message, '— nouvelle tentative dans 60 s');
-      setTimeout(synchroniser, 60000);
+      planifier(60000);
+    } finally {
+      enCours = false;
     }
   }
 
-  setTimeout(synchroniser, 3000);
-  setInterval(synchroniser, Math.max(60, mm.intervalleSecondes) * 1000);
+  planifier(3000);
   return { etat: () => etat, synchroniser };
 }
 
