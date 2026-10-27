@@ -12,7 +12,7 @@ const CHAMPS_TECHNIQUES = {
   batterieAh: { min: 0, max: 1000 },
   panneauW: { min: 0, max: 2000 },
 };
-const CHAMPS_TEXTE = { antenne: 80, alimentation: 20, site: 120, proprietaire: 120, contact: 160, miseEnService: 10, notes: 1000 };
+const CHAMPS_TEXTE = { antenne: 80, alimentation: 20, site: 120, proprietaire: 120, contact: 160, miseEnService: 10, notes: 1000, aFaire: 500 };
 const ALIMENTATIONS = ['secteur', 'solaire', 'batterie', 'secteur+batterie', 'solaire+batterie', 'autre'];
 const PRIVES = ['proprietaire', 'contact'];
 
@@ -49,6 +49,13 @@ function creerInstallations(dossier) {
       if (admin) return f;
       const { proprietaire, contact, ...publique } = f;
       return publique;
+    },
+    // Mise à jour de quelques champs seulement (ex. « à faire sur place »), le reste de la fiche est gardé
+    completer(num, champs, auteur) {
+      const actuel = { ...(donnees[String(num)] || {}) };
+      delete actuel.maj; delete actuel.par;
+      for (const [k, v] of Object.entries(champs || {})) { if (v == null || String(v).trim() === '') delete actuel[k]; else actuel[k] = v; }
+      return this.ecrire(num, actuel, auteur);
     },
     ecrire(num, entree, auteur) {
       const r = nettoyer(entree || {});

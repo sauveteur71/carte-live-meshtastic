@@ -868,3 +868,14 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 #f-releve label { display: block; margin-bottom: 8px; }
 #f-releve textarea, #f-releve select, #f-releve input:not([type=file]) { width: 100%; box-sizing: border-box; }
 #terrain-retour { color: var(--texte); }
+/* Clés d'administration */
+.carte-cle { border: 1px solid var(--bord); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.carte-cle .puces-cle { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.carte-cle .a-faire { margin: 4px 0 6px 18px; color: var(--attention, #fbbf24); }
+.carte-cle .note-site { display: block; font-size: 12px; color: var(--doux); }
+.carte-cle .note-site textarea { width: 100%; box-sizing: border-box; margin-top: 3px; }
+.badge.refus { color: #fca5a5; border-color: rgba(248,113,113,.5); }
+.qr-2fa { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
+.qr-2fa img { background: #fff; padding: 6px; border-radius: 6px; }
+.journal-audit tr.refus td { color: #fca5a5; }
+.journal-audit td { vertical-align: top; }

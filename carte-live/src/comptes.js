@@ -23,6 +23,38 @@ function verifierHash(motDePasse, stocke) {
   return attendu.length === calc.length && crypto.timingSafeEqual(attendu, calc);
 }
 
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32(buf) {
+  let bits = 0, val = 0, out = '';
+  for (const o of buf) { val = (val << 8) | o; bits += 8; while (bits >= 5) { out += B32[(val >>> (bits - 5)) & 31]; bits -= 5; } }
+  if (bits > 0) out += B32[(val << (5 - bits)) & 31];
+  return out;
+}
+function deBase32(t) {
+  let bits = 0, val = 0; const out = [];
+  for (const ch of String(t).toUpperCase().replace(/[^A-Z2-7]/g, '')) { val = (val << 5) | B32.indexOf(ch); bits += 5; if (bits >= 8) { out.push((val >>> (bits - 8)) & 255); bits -= 8; } }
+  return Buffer.from(out);
+}
+function codeTotp(secret, pas) {
+  const msg = Buffer.alloc(8); msg.writeUInt32BE(Math.floor(pas / 2 ** 32), 0); msg.writeUInt32BE(pas >>> 0, 4);
+  const h = crypto.createHmac('sha1', deBase32(secret)).update(msg).digest();
+  const o = h[h.length - 1] & 15;
+  return String((h.readUInt32BE(o) & 0x7fffffff) % 1e6).padStart(6, '0');
+}
+// Accepte le pas courant et ses voisins (±30 s de décalage d'horloge) ; refuse un pas déjà utilisé (rejeu)
+function verifierTotp(secret, code, dernier) {
+  code = String(code || '').replace(/\s/g, '');
+  if (!/^\d{6}$/.test(code)) return null;
+  const maintenant = Math.floor(Date.now() / 30000);
+  for (const d of [0, -1, 1]) {
+    const pas = maintenant + d;
+    if (dernier != null && pas <= dernier) continue;
+    const c = codeTotp(secret, pas);
+    if (crypto.timingSafeEqual(Buffer.from(c), Buffer.from(code))) return pas;
+  }
+  return null;
+}
+
 function creerComptes(db, config) {
   db.exec(`CREATE TABLE IF NOT EXISTS comptes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,15 +63,23 @@ function creerComptes(db, config) {
     role TEXT NOT NULL DEFAULT 'membre', statut TEXT NOT NULL DEFAULT 'actif',
     cree INTEGER, derniere INTEGER, version INTEGER NOT NULL DEFAULT 1
   )`);
-  if (!db.prepare('PRAGMA table_info(comptes)').all().some((c) => c.name === 'noeuds')) db.exec('ALTER TABLE comptes ADD COLUMN noeuds TEXT');
+  const colonnes = db.prepare('PRAGMA table_info(comptes)').all().map((c) => c.name);
+  if (!colonnes.includes('noeuds')) db.exec('ALTER TABLE comptes ADD COLUMN noeuds TEXT');
+  // Double authentification (TOTP) : secret actif, secret en cours d'activation, dernier pas utilisé (anti-rejeu)
+  for (const col of ['totp TEXT', 'totp_attente TEXT', 'totp_dernier INTEGER']) if (!colonnes.includes(col.split(' ')[0])) db.exec('ALTER TABLE comptes ADD COLUMN ' + col);
   const q = {
     nombre: db.prepare('SELECT COUNT(*) AS n FROM comptes'),
     nbAdmins: db.prepare("SELECT COUNT(*) AS n FROM comptes WHERE role = 'admin' AND statut = 'actif'"),
     parId: db.prepare('SELECT * FROM comptes WHERE id = ?'),
     parIdentifiant: db.prepare('SELECT * FROM comptes WHERE identifiant = ?'),
     inserer: db.prepare('INSERT INTO comptes (identifiant, indicatif, email, hash, role, statut, cree) VALUES (@identifiant, @indicatif, @email, @hash, @role, @statut, @cree)'),
-    tous: db.prepare('SELECT id, identifiant, indicatif, email, role, statut, cree, derniere, noeuds FROM comptes ORDER BY statut DESC, identifiant'),
+    tous: db.prepare('SELECT id, identifiant, indicatif, email, role, statut, cree, derniere, noeuds, totp IS NOT NULL AS deuxFacteurs FROM comptes ORDER BY statut DESC, identifiant'),
     noeuds: db.prepare('UPDATE comptes SET noeuds = ? WHERE id = ?'),
+    totpAttente: db.prepare('UPDATE comptes SET totp_attente = ? WHERE id = ?'),
+    totpActiver: db.prepare('UPDATE comptes SET totp = totp_attente, totp_attente = NULL, totp_dernier = ?, version = version + 1 WHERE id = ?'),
+    totpRetirer: db.prepare('UPDATE comptes SET totp = NULL, totp_attente = NULL, totp_dernier = NULL, version = version + 1 WHERE id = ?'),
+    totpDernier: db.prepare('UPDATE comptes SET totp_dernier = ? WHERE id = ?'),
+    version: db.prepare('UPDATE comptes SET version = version + 1 WHERE id = ?'),
     vu: db.prepare('UPDATE comptes SET derniere = ? WHERE id = ?'),
     role: db.prepare('UPDATE comptes SET role = ?, version = version + 1 WHERE id = ?'),
     statut: db.prepare('UPDATE comptes SET statut = ?, version = version + 1 WHERE id = ?'),
@@ -68,7 +108,7 @@ function creerComptes(db, config) {
   }
   function nettoyer(c) {
     if (!c) return null;
-    return { id: c.id, identifiant: c.identifiant, indicatif: c.indicatif, email: c.email, role: c.role, statut: c.statut, cree: c.cree, derniere: c.derniere, noeuds: lireNoeuds(c.noeuds) };
+    return { id: c.id, identifiant: c.identifiant, indicatif: c.indicatif, email: c.email, role: c.role, statut: c.statut, cree: c.cree, derniere: c.derniere, noeuds: lireNoeuds(c.noeuds), deuxFacteurs: !!c.totp };
   }
   function valider({ identifiant, motDePasse, indicatif, email }) {
     identifiant = String(identifiant || '').trim();
@@ -90,13 +130,19 @@ function creerComptes(db, config) {
       const r = q.inserer.run({ identifiant: d.identifiant, indicatif: d.indicatif, email: d.email, hash: hacher(d.motDePasse), role, statut, cree: Date.now() });
       return nettoyer(q.parId.get(r.lastInsertRowid));
     },
-    connecter(identifiant, motDePasse) {
+    connecter(identifiant, motDePasse, code) {
       const c = q.parIdentifiant.get(String(identifiant || '').trim());
       // Calcul effectué même si le compte n'existe pas (temps de réponse identique)
       const ok = verifierHash(String(motDePasse || ''), c ? c.hash : 'scrypt$00$00') && !!c;
       if (!ok) throw new Error('Identifiant ou mot de passe incorrect');
       if (c.statut === 'en_attente') throw new Error('Votre inscription attend la validation d’un administrateur');
       if (c.statut !== 'actif') throw new Error('Ce compte est désactivé');
+      if (c.totp) {
+        if (!code) throw Object.assign(new Error('Code de l’application d’authentification requis'), { codeRequis: true });
+        const pas = verifierTotp(c.totp, code, c.totp_dernier);
+        if (pas == null) throw Object.assign(new Error('Code d’authentification incorrect ou déjà utilisé'), { codeRequis: true });
+        q.totpDernier.run(pas, c.id);
+      }
       q.vu.run(Date.now(), c.id);
       return nettoyer(c);
     },
@@ -117,7 +163,7 @@ function creerComptes(db, config) {
       if (!c || c.statut !== 'actif' || c.version !== Number(m[2])) return null;
       return nettoyer(c);
     },
-    lister: () => q.tous.all().map((c) => ({ ...c, noeuds: lireNoeuds(c.noeuds) })),
+    lister: () => q.tous.all().map((c) => ({ ...c, noeuds: lireNoeuds(c.noeuds), deuxFacteurs: !!c.deuxFacteurs })),
     changerNoeuds(id, liste) {
       if (!q.parId.get(id)) throw new Error('Compte inconnu');
       q.noeuds.run(JSON.stringify(normaliserNoeuds(liste)), id);
@@ -142,6 +188,30 @@ function creerComptes(db, config) {
       if (c.role === 'admin' && q.nbAdmins.get().n <= 1) throw new Error('Il doit rester au moins un administrateur');
       q.supprimer.run(id);
     },
+    // ---- Double authentification (TOTP, RFC 6238 : Google Authenticator, Aegis, FreeOTP…) ----
+    preparerDeuxFacteurs(id) {
+      const c = q.parId.get(id);
+      if (!c) throw new Error('Compte inconnu');
+      const secret = base32(crypto.randomBytes(20));
+      q.totpAttente.run(secret, id);
+      const nom = encodeURIComponent(`${config.carte && config.carte.titre ? config.carte.titre.split('·')[0].trim() : 'Carte live'}:${c.identifiant}`);
+      return { secret, url: `otpauth://totp/${nom}?secret=${secret}&issuer=${encodeURIComponent('Carte live')}&algorithm=SHA1&digits=6&period=30` };
+    },
+    activerDeuxFacteurs(id, code) {
+      const c = q.parId.get(id);
+      if (!c || !c.totp_attente) throw new Error('Commencez par afficher le QR code');
+      const pas = verifierTotp(c.totp_attente, code, null);
+      if (pas == null) throw new Error('Code incorrect : vérifiez l’heure du téléphone et réessayez');
+      q.totpActiver.run(pas, id);
+    },
+    retirerDeuxFacteurs(id, motDePasse, parAdmin) {
+      const c = q.parId.get(id);
+      if (!c) throw new Error('Compte inconnu');
+      if (!parAdmin && !verifierHash(String(motDePasse || ''), c.hash)) throw new Error('Mot de passe incorrect');
+      q.totpRetirer.run(id);
+    },
+    // Toutes les sessions ouvertes du compte deviennent invalides (le jeton contient la version du compte)
+    deconnecterPartout(id) { q.version.run(id); },
     changerMotDePasse(id, ancien, nouveau) {
       const c = q.parId.get(id);
       if (!c || !verifierHash(String(ancien || ''), c.hash)) throw new Error('Mot de passe actuel incorrect');
@@ -152,4 +222,4 @@ function creerComptes(db, config) {
   };
 }
 
-module.exports = { creerComptes };
+module.exports = { creerComptes, codeTotp };

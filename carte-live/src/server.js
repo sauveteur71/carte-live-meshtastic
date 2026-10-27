@@ -21,6 +21,7 @@ const { creerMaintenance } = require('./maintenance');
 const { creerExports } = require('./exports');
 const { creerFederation } = require('./federation');
 const { creerReleves } = require('./releves');
+const { creerAudit } = require('./audit');
 const installations = creerInstallations(path.dirname(config.fichierBase));
 let federation = null; // créée une fois le réseau prêt (voir plus bas)
 // Zone « département + voisins », recalculée si le département ou sa zone changent (installation, réglages)
@@ -67,6 +68,8 @@ function lireCookie(req, nom) {
   return m ? decodeURIComponent(m.slice(nom.length + 1)) : null;
 }
 const utilisateur = (req) => comptes.lireJeton(lireCookie(req, 'gaulix_session'));
+const audit = creerAudit(stockage.db);
+const nomCompte = (c) => (c ? c.indicatif ? `${c.identifiant} (${c.indicatif})` : c.identifiant : null);
 // « Membre » : tout compte connecté (messages texte, positions exactes) ; « admin » : réglages et pilotage
 const estMembre = (req) => !!utilisateur(req);
 const estAdmin = (req) => { const u = utilisateur(req); return !!u && u.role === 'admin'; };
@@ -116,6 +119,15 @@ app.use(require('compression')({ threshold: 1024 })); // gzip : pages et API 5 �
 const jsonPetit = express.json({ limit: '10kb' }), jsonGros = express.json({ limit: '30mb' });
 const jsonPhoto = express.json({ limit: '5mb' });
 app.use((req, res, next) => (req.path === '/api/sauvegardes/restaurer' ? jsonGros : req.path === '/api/releves' ? jsonPhoto : jsonPetit)(req, res, next));
+// Journal d'audit : toute action (hors lecture) d'un utilisateur connecté, avec son résultat
+const SANS_AUDIT = new Set(['/api/connexion', '/api/deconnexion', '/api/installation', '/api/inscription', '/api/releves']);
+app.use((req, res, next) => {
+  if (req.method === 'GET' || !req.path.startsWith('/api/') || SANS_AUDIT.has(req.path)) return next();
+  const u = utilisateur(req);
+  if (!u) return next();
+  res.on('finish', () => audit.noter(nomCompte(u), req.ip, `${req.method} ${req.path}`, audit.resumer(req.body), res.statusCode < 400));
+  next();
+});
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
@@ -218,7 +230,20 @@ app.get('/api/couverture-mesuree', (req, res) => {
 // Liaisons à sens unique, déséquilibrées, et nœuds que personne n'entend
 let asymetrie = null;
 app.get('/api/liaisons/asymetrie', (req, res) => {
-  if (!asymetrie) asymetrie = creerAsymetrie(stockage, config);
+  if (!asymetrie) asymetrie = creerAsymetrie(stockage, config, {
+    // Puissance d'émission : fiche d'installation, sinon configuration LoRa lue à distance (0 = défaut du matériel, inconnue)
+    puissance: (num) => {
+      const f = installations.radio(num);
+      if (f.ptx != null) return f.ptx;
+      const l = administration.detailLecture(num);
+      return l && l.lora && l.lora.txPower > 0 ? l.lora.txPower : null;
+    },
+    seuilDemod: () => {
+      const pr = (sourceRadio && sourceRadio.etat().preset) || config.reseauPreset || 'LONG_FAST';
+      const sf = (require('./analyse').PRESETS[pr] || { sf: 11 }).sf;
+      return -7.5 - 2.5 * (sf - 7);
+    },
+  });
   res.json(asymetrie.calculer());
 });
 
@@ -386,6 +411,28 @@ async function villesDepartement(code) {
   fs.writeFileSync(f, JSON.stringify(l));
   return l;
 }
+// Toutes les communes d'un département (centre, population), pour les habitants couverts
+async function communesDepartement(code) {
+  const f = path.join(path.dirname(config.fichierBase), `communes-${code}.json`);
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* à télécharger */ }
+  const r = await fetch(`https://geo.api.gouv.fr/departements/${encodeURIComponent(code)}/communes?fields=nom,centre,population&format=json`, { signal: AbortSignal.timeout(20000) });
+  if (!r.ok) throw new Error('API Géo : HTTP ' + r.status);
+  const l = (await r.json()).filter((c) => c.centre && c.population).map((c) => ({ nom: c.nom, lat: c.centre.coordinates[1], lon: c.centre.coordinates[0], population: c.population }));
+  fs.writeFileSync(f, JSON.stringify(l));
+  return l;
+}
+// Plan à budget : n relais, coûts unitaires (€) facultatifs
+app.get('/api/relief/budget', async (req, res) => {
+  const RR = R(req);
+  let communes = [];
+  try { communes = await communesDepartement(RR.code); } catch (e) { journal('[Budget] communes :', e.message); }
+  const filtre = ['voiture', '4x4', 'pied'].includes(req.query.acces) ? req.query.acces : null;
+  const couts = {};
+  for (const k of ['secteur', 'solaire', 'mat']) if (req.query[k] !== undefined && Number.isFinite(Number(req.query[k]))) couts[k] = Math.min(Math.max(Number(req.query[k]), 0), 10000);
+  const r = RR.planBudget({ n: Number(req.query.n) || 3, acces: filtre, avecReseau: req.query.reseau !== '0', realiste: req.query.realiste !== '0', communes, couts });
+  if (!r) return res.status(503).json({ erreur: 'Le classement des sites est en cours de calcul, réessayez dans une minute' });
+  res.json(r);
+});
 // Simulation « et si… » : { retirer: [num…], ajouter: [{ lat, lon, h, nom }…] }
 app.post('/api/relief/simulation', async (req, res) => {
   const RR = R(req);
@@ -407,7 +454,7 @@ app.post('/api/relief/simulation', async (req, res) => {
 // Plan pour couvrir le département : ?objectif=95&max=15&acces=voiture&reseau=1
 app.get('/api/relief/plan', (req, res) => {
   const filtre = ['voiture', '4x4', 'pied'].includes(req.query.acces) ? req.query.acces : null;
-  const r = R(req).planDepartement({ objectifPct: Number(req.query.objectif) || 95, max: Number(req.query.max) || 15, acces: filtre, avecReseau: req.query.reseau !== '0' });
+  const r = R(req).planDepartement({ objectifPct: Number(req.query.objectif) || 95, max: Number(req.query.max) || 15, acces: filtre, avecReseau: req.query.reseau !== '0', realiste: req.query.realiste === '1' });
   if (!r) return res.status(503).json({ erreur: 'Le classement des sites est en cours de calcul, réessayez dans une minute' });
   const id = crypto.randomBytes(6).toString('hex');
   cacheCouverture.set(id, { image: r.image });
@@ -574,6 +621,30 @@ app.get('/api/admin-noeuds/taches/:id', (req, res) => {
   if (!t) return res.status(404).json({ erreur: 'Tâche inconnue' });
   if (!tacheDuSecteur(req, t)) return refuserSecteur(res);
   res.json(t);
+});
+
+// Clés d'administration : relais par relais, modules autorisés, refus, « à faire sur place »
+app.get('/api/admin-noeuds/cles', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const adm = administration.administrables();
+  const z = config.zone; // relais du département (les autres ne sont listés que si on a déjà essayé de les programmer)
+  const dansZ = (n) => !z || (n.lat != null && n.lat >= z[0] && n.lat <= z[2] && n.lon >= z[1] && n.lon <= z[3]);
+  const infra = stockage.q.noeuds.all().filter((n) => dansZ(n) && reseau.vueNoeud(n, true).infrastructure).map((n) => n.num >>> 0);
+  const nums = [...new Set([...infra, ...Object.keys(adm).map(Number)])].filter((n) => peutGerer(req, n));
+  const etats = administration.etatCles(nums).map((e) => {
+    const n = stockage.q.noeud.get(e.num), f = installations.lire(e.num, true) || {};
+    return { ...e, nom: n ? n.nom_long || n.nom_court || reseau.vueNoeud(n, true).id : '!' + e.num.toString(16), id: '!' + e.num.toString(16).padStart(8, '0'), lat: n ? n.lat : null, lon: n ? n.lon : null, dernierVu: n ? n.dernier_vu : null, aFaireNote: f.aFaire || '', site: f.site || '' };
+  });
+  res.set('Cache-Control', 'no-store').json({ modules: Object.entries(administration.modulesCles()).map(([num, m]) => ({ num: Number(num), nom: m.nom, vu: m.vu })), noeuds: etats });
+});
+app.post('/api/noeuds/:num/a-faire', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!peutGerer(req, req.params.num)) return refuserSecteur(res);
+  try {
+    const c = utilisateur(req);
+    installations.completer(Number(req.params.num) >>> 0, { aFaire: String((req.body || {}).texte || '').slice(0, 500) }, c.indicatif || c.identifiant);
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 
 // ---- QR code des réglages d'un nœud (canaux + LoRa, contient les clés : admin) ---------------
@@ -773,14 +844,22 @@ app.get('/api/messages', (req, res) => {
 app.post('/api/connexion', (req, res) => {
   if (limiter(req.ip)) return res.status(429).json({ erreur: 'Trop de tentatives, réessayez dans 15 minutes' });
   try {
-    const c = comptes.connecter((req.body || {}).identifiant, (req.body || {}).motDePasse);
+    const b = req.body || {};
+    const c = comptes.connecter(b.identifiant, b.motDePasse, b.code);
     ouvrirSession(req, res, c);
     journal(`Connexion de ${c.identifiant} (${c.role})`);
+    audit.noter(nomCompte(c), req.ip, 'connexion', c.deuxFacteurs ? 'avec double authentification' : null, true);
     res.json({ ok: true, compte: c });
-  } catch (e) { res.status(401).json({ erreur: e.message }); }
+  } catch (e) {
+    const b = req.body || {};
+    // Code manquant : simple étape de la connexion, pas un échec
+    if (!(e.codeRequis && !b.code)) audit.noter(String(b.identifiant || '').slice(0, 32) || null, req.ip, 'connexion refusée', e.message, false);
+    res.status(401).json({ erreur: e.message, codeRequis: !!e.codeRequis });
+  }
 });
 
 app.post('/api/deconnexion', (req, res) => {
+  { const u = utilisateur(req); if (u) audit.noter(nomCompte(u), req.ip, 'déconnexion', null, true); }
   res.setHeader('Set-Cookie', 'gaulix_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
   res.json({ ok: true });
 });
@@ -811,6 +890,37 @@ app.post('/api/compte/mot-de-passe', (req, res) => {
   } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 
+// Double authentification et sessions du compte connecté
+app.post('/api/compte/deux-facteurs/preparer', async (req, res) => {
+  const u = utilisateur(req);
+  if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
+  try {
+    const r = comptes.preparerDeuxFacteurs(u.id);
+    res.set('Cache-Control', 'no-store').json({ ...r, qr: await require('qrcode').toDataURL(r.url, { margin: 1, width: 220 }) });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/compte/deux-facteurs/activer', (req, res) => {
+  const u = utilisateur(req);
+  if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
+  try { comptes.activerDeuxFacteurs(u.id, (req.body || {}).code); ouvrirSession(req, res, u); res.json({ ok: true }); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/compte/deux-facteurs/retirer', (req, res) => {
+  const u = utilisateur(req);
+  if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
+  try { comptes.retirerDeuxFacteurs(u.id, (req.body || {}).motDePasse, false); ouvrirSession(req, res, u); res.json({ ok: true }); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/compte/deconnecter-partout', (req, res) => {
+  const u = utilisateur(req);
+  if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
+  comptes.deconnecterPartout(u.id);
+  ouvrirSession(req, res, u); // cette session reste ouverte, toutes les autres sont fermées
+  res.json({ ok: true });
+});
+app.get('/api/audit', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.set('Cache-Control', 'no-store').json(audit.liste({ compte: req.query.compte || null, action: req.query.action || null, limite: req.query.limite }));
+});
+
 // ---- Gestion des comptes (admin) ---------------------------------------------------
 app.get('/api/comptes', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
@@ -832,6 +942,8 @@ app.post('/api/comptes/:id', (req, res) => {
     if (b.role) comptes.changerRole(id, b.role);
     if (b.statut) comptes.changerStatut(id, b.statut);
     if (b.noeuds !== undefined) comptes.changerNoeuds(id, b.noeuds);
+    if (b.retirerDeuxFacteurs) comptes.retirerDeuxFacteurs(id, null, true);
+    if (b.deconnecter) comptes.deconnecterPartout(id);
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ erreur: e.message }); }
 });

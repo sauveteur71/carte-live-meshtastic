@@ -308,6 +308,7 @@
     <form id="form-connexion" data-pan="connexion">
       <label>Identifiant <input name="identifiant" autocomplete="username" required></label>
       <label>Mot de passe <input name="motDePasse" type="password" autocomplete="current-password" required></label>
+      <label id="champ-code" hidden>Code de l’application d’authentification <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123456"></label>
       <p class="erreur"></p>
       <div class="actions"><button type="submit" class="principal">Se connecter</button></div>
     </form>
@@ -330,11 +331,13 @@
       <button data-dlg="comptes" class="seul-admin">Comptes</button>
       <button data-dlg="reglages" class="seul-admin">Réglages</button>
       <button data-dlg="sauvegardes" class="seul-admin">Sauvegardes</button>
+      <button data-dlg="journal" class="seul-admin">Journal</button>
     </nav>
     <section data-pan="moncompte" id="pan-moncompte"></section>
     <section data-pan="comptes" id="pan-comptes" hidden></section>
     <section data-pan="reglages" id="pan-reglages" hidden></section>
     <section data-pan="sauvegardes" id="pan-sauvegardes" hidden></section>
+    <section data-pan="journal" id="pan-journal" hidden></section>
   </dialog>
 
   <dialog id="dlg-installation" class="large">

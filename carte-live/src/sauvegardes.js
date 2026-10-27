@@ -9,7 +9,7 @@ const FICHIERS = [
   'reglages.json', 'installations.json', 'traceroutes-reglages.json', 'modules-radio.json', 'config-module.json',
   'configs-noeuds.json', 'lectures-noeuds.json', 'noeuds-administrables.json',
   'meshcore-admin.json', 'meshcore-companion.json', 'meshcore-lectures.json', 'code-agents.txt',
-  'federation.json', 'releves/releves.json',
+  'federation.json', 'releves/releves.json', 'modules-cles.json',
 ];
 const GARDER = 14;
 
@@ -59,7 +59,7 @@ function creerSauvegardes(dossier, db, journal) {
     }
     let c = 0;
     if (Array.isArray(s.comptes) && s.comptes.length) {
-      const cols = ['id', 'identifiant', 'indicatif', 'email', 'hash', 'role', 'statut', 'cree', 'derniere', 'version', 'noeuds'];
+      const cols = ['id', 'identifiant', 'indicatif', 'email', 'hash', 'role', 'statut', 'cree', 'derniere', 'version', 'noeuds', 'totp', 'totp_dernier'];
       const ins = db.prepare(`INSERT INTO comptes (${cols.join(', ')}) VALUES (${cols.map((x) => '@' + x).join(', ')})`);
       db.transaction(() => {
         db.prepare('DELETE FROM comptes').run();

@@ -109,11 +109,49 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     taches.set(t.id, t);
     if (taches.size > 60) taches.delete(taches.keys().next().value);
     file.push(t);
+    sauverTaches();
     setImmediate(suivante);
     return vue(t);
   }
 
-  const etape = (t, cle, texte, ok = true) => { t.etapes.push({ heure: Date.now(), cle, texte, ok }); if (t.etapes.length > 400) t.etapes.shift(); };
+  const etape = (t, cle, texte, ok = true) => { t.etapes.push({ heure: Date.now(), cle, texte, ok }); if (t.etapes.length > 400) t.etapes.shift(); sauverTaches(); };
+
+  // ---- Tâches persistantes (sans les mots de passe) : reprise après un redémarrage de la carte -----------------
+  const fTaches = path.join(dossier, 'meshcore-taches.json');
+  let minuterieTaches = null;
+  function sauverTaches() {
+    clearTimeout(minuterieTaches);
+    minuterieTaches = setTimeout(() => ecrire(fTaches, [...taches.values()].filter((t) => t.auteur !== 'supervision').map(({ motDePasse, ...t }) => t)), 1000);
+  }
+  function restaurerTaches() {
+    let l = [];
+    try { l = JSON.parse(fs.readFileSync(fTaches, 'utf8')); } catch { return; }
+    const aReprendre = [];
+    for (const t of l) {
+      t.motDePasse = null;
+      if (t.statut === 'en_attente' || t.statut === 'en_cours') {
+        const restants = t.cles.filter((c) => !(t.resultats[c] && t.resultats[c].ok));
+        const sansMdp = !['statut', 'chemin'].includes(t.type) && restants.some((c) => motsDePasse[c] == null);
+        if (Date.now() - (t.creee || 0) > 6 * 3600000 || sansMdp) {
+          t.statut = 'annule'; t.fin = Date.now();
+          t.etapes.push({ heure: Date.now(), cle: null, texte: sansMdp ? 'interrompue par un redémarrage de la carte : mot de passe non mémorisé, relancez-la' : 'interrompue par un redémarrage de la carte (trop ancienne pour reprendre)', ok: false });
+        } else {
+          t.statut = 'en_attente'; t.reprises = (t.reprises || 0) + 1;
+          t.etapes.push({ heure: Date.now(), cle: null, texte: `reprise après le redémarrage de la carte (${restants.length} nœud(s) restant(s))`, ok: true });
+          aReprendre.push(t);
+        }
+      }
+      taches.set(t.id, t);
+    }
+    if (!aReprendre.length) return;
+    journal(`${aReprendre.length} tâche(s) MeshCore interrompue(s) : reprise dès que le companion est relié`);
+    const debut = Date.now();
+    const attente = setInterval(() => {
+      if (companion.etat().connecte) { clearInterval(attente); for (const t of aReprendre) file.push(t); setImmediate(suivante); }
+      else if (Date.now() - debut > 30 * 60000) { clearInterval(attente); for (const t of aReprendre) { t.statut = 'annule'; t.fin = Date.now(); t.etapes.push({ heure: Date.now(), cle: null, texte: 'companion non relié dans les 30 min après le redémarrage', ok: false }); } sauverTaches(); }
+    }, 5000);
+    if (attente.unref) attente.unref();
+  }
 
   async function avecReprise(fn, essais = 2) {
     let derniere;
@@ -185,6 +223,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     const elements = Array.isArray(t.params.elements) && t.params.elements.length ? t.params.elements.filter((e) => ELEMENTS.includes(e)) : ELEMENTS_DEFAUT;
     for (const cle of t.cles) {
       if (t.arret) break;
+      if (t.resultats[cle] && t.resultats[cle].ok) continue; // déjà fait avant un redémarrage de la carte
       const n = noeud(cle);
       t.courant = cle;
       try {
@@ -283,15 +322,18 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     const res = Object.values(t.resultats);
     t.statut = t.arret ? 'annule' : res.length && res.every((r) => r.ok) && res.length === t.cles.length ? 'ok' : 'echec';
     enCours = null;
+    sauverTaches();
     try { surFin(vue(t)); } catch { /* ignoré */ }
     setImmediate(suivante);
   }
 
   function vue(t, complet = true) {
-    const v = { id: t.id, type: t.type, cles: t.cles, noms: t.noms, params: t.params, statut: t.statut, creee: t.creee, debut: t.debut, fin: t.fin, auteur: t.auteur, courant: t.courant };
+    const v = { reprises: t.reprises || 0, id: t.id, type: t.type, cles: t.cles, noms: t.noms, params: t.params, statut: t.statut, creee: t.creee, debut: t.debut, fin: t.fin, auteur: t.auteur, courant: t.courant };
     if (complet) Object.assign(v, { etapes: t.etapes, resultats: t.resultats, rapport: t.rapport || null });
     return v;
   }
+
+  restaurerTaches();
 
   // Supervision : interrogation périodique de l'état des répéteurs surveillés, quand le companion est relié
   let derniereSupervision = 0;

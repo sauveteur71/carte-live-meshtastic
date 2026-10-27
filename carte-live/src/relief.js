@@ -74,6 +74,7 @@ function contourDepartement(code) {
 }
 
 const { creerAcces, NIVEAUX: NIVEAUX_ACCES } = require('./acces');
+const { creerRealisme } = require('./realisme');
 
 // Rectangle englobant [sud, ouest, nord, est] d'un département (contour national)
 function rectangleDepartement(code) {
@@ -121,6 +122,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   const nLon = Math.round((emprise.est - emprise.ouest) / pasLon) + 1;
   const aireCelleKm2 = 0.0625;
 
+  const realisme = creerRealisme(dossier, journal, suffixe, emprise);
   const etat = { mnt: 'absent', progression: 0, erreur: null, sommets: 0, classement: 'absent', calculEnCours: false, maj: null };
   let Z = null; // Float32Array nLat*nLon, ligne 0 = sud
   let masque = null; // Uint8Array : 1 si la cellule est dans le département
@@ -328,6 +330,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     sommets = liste;
     nommerCommunes(liste); // en arrière-plan
     acces.completer(liste.filter((x) => x.dansZone || distanceAuDepartement(x) < 10000)).catch((e) => journal('[Accès] erreur :', e.message));
+    realisme.completer(liste.filter((x) => x.dansZone || distanceAuDepartement(x) < 10000)).catch((e) => journal('[Sites] erreur :', e.message));
     etat.sommets = liste.length;
     journal(`[Relief] ${liste.length} points hauts (${osm.length} sommets OSM, ${liste.filter((s) => s.source === 'mnt').length} détectés dans le relief)`);
   }
@@ -566,18 +569,22 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   // (min = niveau d'accès minimal des sites retenus : 0 tous, 1 à pied, 2 en 4×4, 3 en voiture)
   let dernierCalcul = null;
   const compter = (b) => { let n = 0; for (let w = 0; w < b.length; w++) { let x = b[w]; while (x) { x &= x - 1; n++; } } return n; };
-  function planGlouton(couvertures, deja, existants, min, { max = 12, cible = Infinity, gainMin = 40 } = {}) {
+  // realiste : zones protégées écartées, préférence pour les supports existants et le secteur proche (facteur de realisme.js)
+  const facteurRealisme = (s, realiste) => (!realiste || !s.realisme ? 1 : s.realisme.facteur);
+  function planGlouton(couvertures, deja, existants, min, { max = 12, cible = Infinity, gainMin = 40, realiste = false } = {}) {
     const choisis = [];
     const cumul = Uint32Array.from(deja);
     for (let etape = 0; etape < max; etape++) {
       if (compter(cumul) >= cible) break;
-      let meilleur = null, gainMax = 0;
+      let meilleur = null, gainMax = 0, frMeilleur = 1;
       for (const c of couvertures) {
         if (!accessible(c.s, min)) continue;
+        const fr = facteurRealisme(sommets[c.s.id] || c.s, realiste);
+        if (!fr) continue;
         if (choisis.some((x) => distanceM(x.s, c.s) < 4000) || existants.some((n) => distanceM(n, c.s) < 2000)) continue;
         let g = 0;
         for (let w = 0; w < cumul.length; w++) { let x = c.bits[w] & ~cumul[w]; while (x) { x &= x - 1; g++; } }
-        if (g > gainMax) { gainMax = g; meilleur = c; }
+        if (g * fr > gainMax * frMeilleur) { gainMax = g; meilleur = c; frMeilleur = fr; }
       }
       if (!meilleur || gainMax < gainMin) break;
       for (let w = 0; w < cumul.length; w++) cumul[w] |= meilleur.bits[w];
@@ -586,13 +593,13 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     return choisis;
   }
   // Plan pour couvrir le département : objectif en %, nombre maximal de sites, niveau d'accès exigé
-  function planDepartement({ objectifPct = 95, max = 15, acces: filtre = null, avecReseau = true } = {}) {
+  function planDepartement({ objectifPct = 95, max = 15, acces: filtre = null, avecReseau = true, realiste = false } = {}) {
     if (!dernierCalcul) return null;
     const min = niveauMin(filtre);
     const deja = avecReseau ? dernierCalcul.deja : new Uint32Array(dernierCalcul.deja.length);
     const depart = compter(deja);
     const cible = Math.ceil((Math.min(100, Math.max(10, objectifPct)) / 100) * nbZone);
-    const choisis = planGlouton(dernierCalcul.couvertures, deja, avecReseau ? dernierCalcul.existants : [], min, { max: Math.min(40, Math.max(1, max)), cible, gainMin: 8 });
+    const choisis = planGlouton(dernierCalcul.couvertures, deja, avecReseau ? dernierCalcul.existants : [], min, { max: Math.min(40, Math.max(1, max)), cible, gainMin: 8, realiste });
     const finale = choisis.length ? choisis[choisis.length - 1].total : depart;
     // Image : déjà couvert par le réseau (bleu), apporté par les nouveaux sites (turquoise), non couvert (rouge pâle)
     const cumul = Uint32Array.from(deja);
@@ -608,7 +615,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     }
     const candidats = dernierCalcul.couvertures.filter((c) => accessible(c.s, min)).length;
     return {
-      objectifPct, max, filtreAcces: filtre || 'tous', avecReseau, candidats, accesEtat: acces.etat(),
+      objectifPct, max, filtreAcces: filtre || 'tous', avecReseau, realiste, realismeEtat: realisme.etat(), candidats, accesEtat: acces.etat(),
       surfaceDepartementKm2: Math.round(nbZone * aireCelleKm2),
       departPct: +((depart / nbZone) * 100).toFixed(1),
       finalPct: +((finale / nbZone) * 100).toFixed(1),
@@ -616,11 +623,57 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       reseau: avecReseau ? dernierCalcul.existants.map((n) => ({ nom: n.nom, lat: n.lat, lon: n.lon })) : [],
       sites: choisis.map((c, k) => {
         const sm = sommets[c.s.id] || c.s;
-        return { rang: k + 1, id: c.s.id, nom: c.s.nom, commune: sm.commune || c.s.commune, lat: c.s.lat, lon: c.s.lon, alt: c.s.alt, acces: sm.acces || null,
+        return { rang: k + 1, id: c.s.id, nom: c.s.nom, commune: sm.commune || c.s.commune, lat: c.s.lat, lon: c.s.lon, alt: c.s.alt, acces: sm.acces || null, realisme: sm.realisme || null,
           gainKm2: Math.round(c.gain * aireCelleKm2), totalPct: +((c.total / nbZone) * 100).toFixed(1) };
       }),
       parametres: classement ? classement.parametres : null,
       image: png(nLon, nLat, rgba),
+    };
+  }
+
+  // ---- Plan à budget : « j'ai N relais à poser » -------------------------------------------------------------
+  // Choisit les N sites qui apportent le plus de surface (sites réalistes par défaut), puis chiffre chaque étape :
+  // surface et habitants gagnés (communes dont le bourg devient couvert), coût estimé (solaire ou secteur, mât si aucun support).
+  function planBudget({ n = 3, acces: filtre = null, avecReseau = true, realiste = true, communes = [], couts = {} } = {}) {
+    if (!dernierCalcul) return null;
+    const cout = { secteur: 120, solaire: 220, mat: 90, ...couts };
+    const min = niveauMin(filtre);
+    const deja = avecReseau ? dernierCalcul.deja : new Uint32Array(dernierCalcul.deja.length);
+    const choisis = planGlouton(dernierCalcul.couvertures, deja, avecReseau ? dernierCalcul.existants : [], min, { max: Math.min(15, Math.max(1, n)), gainMin: 4, realiste });
+    const bit = (b, lat, lon) => { const k = celle(lat, lon); if (k < 0) return false; const z = indexZone[k]; return z >= 0 && !!(b[z >>> 5] & (1 << (z & 31))); };
+    const cs = communes.filter((c) => { const k = celle(c.lat, c.lon); return k >= 0 && indexZone[k] >= 0; });
+    const popTotale = cs.reduce((t, c) => t + (c.population || 0), 0);
+    const couvertes = (b) => cs.filter((c) => bit(b, c.lat, c.lon));
+    const cumul = Uint32Array.from(deja);
+    let avant = couvertes(cumul), totalCout = 0;
+    const popDepart = avant.reduce((t, c) => t + c.population, 0);
+    const sites = choisis.map((c, k) => {
+      const cv = dernierCalcul.couvertures.find((x) => x.s.id === c.s.id);
+      for (let w = 0; w < cumul.length; w++) cumul[w] |= cv.bits[w];
+      const apres = couvertes(cumul);
+      const deja2 = new Set(avant);
+      const nouvelles = apres.filter((x) => !deja2.has(x));
+      avant = apres;
+      const sm = sommets[c.s.id] || c.s, re = sm.realisme || null;
+      const solaire = !re || re.electricite !== 'secteur probable';
+      const prix = (solaire ? cout.solaire : cout.secteur) + (re && re.support ? 0 : cout.mat);
+      totalCout += prix;
+      return {
+        rang: k + 1, id: c.s.id, nom: c.s.nom, commune: sm.commune || c.s.commune, lat: c.s.lat, lon: c.s.lon, alt: c.s.alt, acces: sm.acces || null, realisme: re,
+        gainKm2: Math.round(c.gain * aireCelleKm2), totalPct: +((c.total / nbZone) * 100).toFixed(1),
+        habitantsGagnes: nouvelles.reduce((t, x) => t + x.population, 0), communesGagnees: nouvelles.sort((a, b) => b.population - a.population).slice(0, 6).map((x) => x.nom), nbCommunesGagnees: nouvelles.length,
+        alimentation: solaire ? 'solaire' : 'secteur', cout: prix, coutCumule: totalCout,
+      };
+    });
+    const popFinale = avant.reduce((t, c) => t + c.population, 0);
+    return {
+      n, filtreAcces: filtre || 'tous', avecReseau, realiste, couts: cout, realismeEtat: realisme.etat(),
+      surfaceDepartementKm2: Math.round(nbZone * aireCelleKm2),
+      departPct: +((compter(deja) / nbZone) * 100).toFixed(1),
+      finalPct: sites.length ? sites[sites.length - 1].totalPct : +((compter(deja) / nbZone) * 100).toFixed(1),
+      population: { totale: popTotale, depart: popDepart, finale: popFinale, communes: cs.length },
+      coutTotal: totalCout, sites,
+      parametres: classement ? classement.parametres : null,
     };
   }
 
@@ -992,7 +1045,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   }
   minuteries.push(setTimeout(demarrer, options.code ? 100 : 5000));
   // Classement recalculé chaque nuit (le réseau existant évolue)
-  minuteries.push(setInterval(() => { if (new Date().getHours() === 4) { calculerClassement(); acces.completer(sommets.filter((x) => x.dansZone || distanceAuDepartement(x) < 10000)).catch(() => {}); } }, 3600000));
+  minuteries.push(setInterval(() => { if (new Date().getHours() === 4) { calculerClassement(); const l = sommets.filter((x) => x.dansZone || distanceAuDepartement(x) < 10000); acces.completer(l).catch(() => {}); realisme.completer(l).catch(() => {}); } }, 3600000));
 
   return {
     code: codeDep,
@@ -1011,6 +1064,8 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     couvertureReseau,
     simuler,
     planDepartement,
+    planBudget,
+    etatRealisme: () => realisme.etat(),
     couvrirPoint,
     couvrirPoints,
     relierPoints,

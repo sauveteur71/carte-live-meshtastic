@@ -83,7 +83,7 @@ async function api(url, opts) {
   // Relief, sites, plan : département étudié (peut différer de celui de la carte)
   if (etat.depEtude && url.startsWith('/api/relief') && !/[?&]dep=/.test(url)) url += (url.includes('?') ? '&' : '?') + 'dep=' + etat.depEtude;
   const r = await fetch(url, { credentials: 'same-origin', ...opts });
-  if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).erreur || r.statusText), { statut: r.status });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); throw Object.assign(new Error(d.erreur || r.statusText), { statut: r.status, donnees: d }); }
   return r.json();
 }
 // ---- Coordonnées GPS -----------------------------------------------------------
@@ -480,13 +480,15 @@ async function chargerAsymetrie() {
   const z = $('#asym');
   if (!z) return;
   const dz = (p) => !etat.zone || (p && dansZone(p));
+  const sd = (r.sourds || []).filter((x) => dz(x.pos));
   const su = r.sensUnique.filter((x) => dz(x.a) || dz(x.b)), de = r.desequilibres.filter((x) => dz(x.posA) || dz(x.posB)), ia = r.inaudibles.filter((x) => dz(x.pos));
-  const n = su.length + de.length + ia.length;
-  const p = $('#nb-asym'); p.textContent = n; p.className = 'pastille' + (ia.length || su.length ? ' attention' : '');
-  $('#resume-asym').textContent = n ? [ia.length ? `${ia.length} non entendu${ia.length > 1 ? 's' : ''}` : '', su.length ? `${su.length} à sens unique` : '', de.length ? `${de.length} déséquilibrée${de.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ') : 'aucune';
+  const n = sd.length + su.length + de.length + ia.length;
+  const p = $('#nb-asym'); p.textContent = n; p.className = 'pastille' + (sd.length || ia.length || su.length ? ' attention' : '');
+  $('#resume-asym').textContent = n ? [sd.length ? `${sd.length} relais sourd${sd.length > 1 ? 's' : ''}` : '', ia.length ? `${ia.length} non entendu${ia.length > 1 ? 's' : ''}` : '', su.length ? `${su.length} à sens unique` : '', de.length ? `${de.length} déséquilibrée${de.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ') : 'aucune';
   const ligne = (i, titre, sous, meta) => `<div class="ligne" data-asym="${i}"><span class="point alerte"></span><span class="titre">${titre}<small>${sous}</small></span><span class="meta">${meta}</span></div>`;
   const items = [];
   z.innerHTML = (n ? '' : '<div class="vide">Aucune anomalie : les liaisons observées fonctionnent dans les deux sens.</div>')
+    + (sd.length ? '<h4>Relais « sourds » : émettent bien, entendent mal</h4>' + sd.map((x) => { items.push({ type: 'sd', x }); return ligne(items.length - 1, `${esc(x.nom)} <span class="pastille attention">≈ ${fmt(x.ecartDb, 0, ' dB')}</span>`, `entend environ ${fmt(x.ecartDb, 0, ' dB')} moins bien que ses voisins ne l’entendent (${x.nbConcordants} voisins sur ${x.nbVoisins})${x.puissanceConnue ? '' : ' · puissance d’émission inconnue : renseignez-la dans la fiche d’installation'}`, 'détail ›'); }).join('') + '<p class="note">Causes probables, de la plus fréquente à la plus rare : émetteurs puissants sur le site (téléphonie, FM, TNT, réseaux pros) qui saturent le récepteur → filtre passe-bande 868 MHz, antenne éloignée des autres ; « RX boosted gain » désactivé ; bruit local (alimentation à découpage, panneau solaire, régulateur, écran) ; étage d’entrée du module endommagé. Un câble ou une antenne défectueux pénalisent l’émission autant que la réception : ils ne créent pas cet écart.</p>' : '')
     + (ia.length ? '<h4>Entendent leurs voisins, mais personne ne les entend</h4>' + ia.map((x) => { items.push({ type: 'ia', x }); return ligne(items.length - 1, esc(x.nom), `entend ${x.entend} nœud${x.entend > 1 ? 's' : ''} en direct (${esc(x.voisins.slice(0, 3).join(', '))}${x.voisins.length > 3 ? '…' : ''}), mais aucun ne le reçoit`, '📡✖'); }).join('') : '')
     + (su.length ? '<h4>À sens unique</h4>' + su.map((x) => { items.push({ type: 'su', x }); return ligne(items.length - 1, `${esc(x.nomEntendu)} n’entend pas ${esc(x.nomEntend)}`, `${x.preuve === 'voisinage' ? 'd’après son rapport de voisinage · ' : ''}alors que ${esc(x.nomEntend)} l’entend (${x.nb} fois${x.snr != null ? ', SNR ' + fmt(x.snr, 1, ' dB') : ''})${x.distanceKm != null ? ' · ' + fmt(x.distanceKm, 1, ' km') : ''}`, '→ ✖'); }).join('') : '')
     + (de.length ? '<h4>Déséquilibrées (écart ≥ 10 dB)</h4>' + de.map((x) => { items.push({ type: 'de', x }); return ligne(items.length - 1, `${esc(x.nomA)} ↔ ${esc(x.nomB)}`, `${fmt(x.snrFort, 1, ' dB')} dans un sens, ${fmt(x.snrFaible, 1, ' dB')} dans l’autre`, `${fmt(x.ecart, 0, ' dB')}`); }).join('') : '')
@@ -499,6 +501,20 @@ function montrerAsymetrie(it) {
   etat.coucheCouvrir = g;
   $('#btn-effacer').hidden = false;
   const x = it.x;
+  if (it.type === 'sd') {
+    if (!x.pos) return;
+    const pts = [[x.pos.lat, x.pos.lon]];
+    L.circleMarker([x.pos.lat, x.pos.lon], { radius: 14, color: '#ffb547', weight: 3, fillOpacity: 0.15, pane: 'traces' }).bindTooltip(`${esc(x.nom)} : entend ≈ ${fmt(x.ecartDb, 0, ' dB')} moins bien`, { permanent: true, direction: 'top', className: 'info' }).addTo(g);
+    for (const m of x.mesures) {
+      const pn = etat.noeuds.get(m.partenaire);
+      if (!pn || pn.lat == null) continue;
+      pts.push([pn.lat, pn.lon]);
+      L.polyline([[x.pos.lat, x.pos.lon], [pn.lat, pn.lon]], { color: m.ecart >= 8 ? '#ffb547' : '#3ee6c4', weight: 3, dashArray: m.borne ? '4 8' : null, pane: 'traces' })
+        .bindTooltip(`${esc(m.nomPartenaire)} entend ${esc(x.nom)} à ${fmt(m.entenduChezPartenaire, 1, ' dB')} · ${esc(x.nom)} l’entend ${m.entenduChezLui != null ? 'à ' + fmt(m.entenduChezLui, 1, ' dB') : 'jamais (sous son seuil)'}<br>écart ${m.borne ? '≥ ' : ''}${fmt(m.ecart, 1, ' dB')}${m.corrige ? ' (puissances déduites)' : ''}`, { className: 'info', sticky: true }).addTo(g);
+    }
+    carte.fitBounds(L.latLngBounds(pts), { padding: [80, 80], maxZoom: 12 });
+    return;
+  }
   if (it.type === 'ia') {
     if (!x.pos) return;
     L.circleMarker([x.pos.lat, x.pos.lon], { radius: 14, color: '#ff5c6c', weight: 3, fillOpacity: 0.15, pane: 'traces' }).bindTooltip(`${esc(x.nom)} : personne ne l’entend`, { permanent: true, direction: 'top', className: 'info' }).addTo(g);
@@ -1429,6 +1445,15 @@ function appliquerPlan() {
 }
 const accesOk = (s) => etat.filtreAcces === 'tous' || (s.acces && s.acces.niveau >= NIV_ACCES[etat.filtreAcces]);
 const badgeAcces = (s) => (s.acces ? `<span class="acces-badge" title="Accès ${esc(ACCES[s.acces.type].nom)}">${ACCES[s.acces.type].icone}</span>` : '');
+// Site réaliste : support existant, zone protégée, électricité (OpenStreetMap)
+function texteRealisme(re) {
+  if (!re) return 'non évalué (recherche OpenStreetMap en cours ou indisponible)';
+  const parts = [];
+  if (re.protege) parts.push(`⛔ dans « ${esc(re.protege.nom)} » (${esc(re.protege.type)}) : autorisation difficile`);
+  if (re.support) parts.push(`🗼 ${esc(re.support.type)}${re.support.nom ? ' « ' + esc(re.support.nom) + ' »' : ''} à ${re.support.distance} m${re.support.operateur ? ' (' + esc(re.support.operateur) + ')' : ''} : support possible`);
+  parts.push(`⚡ ${re.electricite === 'secteur probable' ? 'secteur probable' : re.electricite === 'secteur à vérifier' ? 'secteur à vérifier' : 'solaire à prévoir'}${re.habitation ? ` (${re.habitation.nom ? esc(re.habitation.nom) + ' à ' : 'habitation à '}${re.habitation.distance < 1000 ? re.habitation.distance + ' m' : fmt(re.habitation.distance / 1000, 1, ' km')})` : ''}`);
+  return parts.join(' · ');
+}
 function texteAcces(a) {
   if (!a) return 'non évalué (recherche OpenStreetMap en cours ou indisponible)';
   const d = a.distances, m = (x) => (x < 1000 ? x + ' m' : fmt(x / 1000, 1, ' km'));
@@ -2032,7 +2057,7 @@ async function planDepartement() {
   etat.selection = null;
   $('#fiche-contenu').innerHTML = '<h2>Plan de couverture</h2><div class="alerte info-lecture"><span class="sablier"></span> Recherche des sites…</div>';
   let r;
-  try { r = await api(`/api/relief/plan?objectif=${objectif}&max=${max}&acces=${acces}&reseau=${reseau ? 1 : 0}`); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Plan de couverture</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  try { r = await api(`/api/relief/plan?objectif=${objectif}&max=${max}&acces=${acces}&reseau=${reseau ? 1 : 0}&realiste=${$('#plan-realiste').checked ? 1 : 0}`); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Plan de couverture</h2><div class="vide">${esc(e.message)}</div>`; return; }
   if (etat.coucheCouverture) etat.coucheCouverture.remove();
   const e = r.emprise, g = L.layerGroup();
   L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.7, pane: 'couverture', className: 'pixelise' }).addTo(g);
@@ -2052,12 +2077,52 @@ async function planDepartement() {
       <div class="entete-prop"><span class="lettre">${x.rang}</span><b>${esc(nomSommet(x))}</b><span class="marge">+${x.gainKm2} km² · ${fmt(x.totalPct, 1, ' %')}</span></div>
       <div class="meta-longue">${x.alt} m${x.commune ? ' · ' + esc(x.commune) : ''}</div>
       <div class="meta-longue">Accès : ${texteAcces(x.acces)}</div>
+      <div class="meta-longue">Site : ${texteRealisme(x.realisme)}</div>
       ${blocCoords(x.lat, x.lon, { alt: x.alt })}
     </div>`).join('') || '<div class="vide">Aucun site ne répond à ces critères.</div>'}
+    ${r.realiste && r.realismeEtat && !r.realismeEtat.pret ? '<div class="alerte attention">Données OpenStreetMap des sites (supports, zones protégées, habitations) pas encore chargées : le plan n’a pas pu en tenir compte. Réessayez dans quelques minutes.</div>' : ''}
     <div class="actions-prop"><button id="plan-gpx">Télécharger les sites (GPX)</button>${r.sites.length >= 2 && r.sites.length <= 10 ? '<button id="plan-couv">Couverture détaillée (marges)</button>' : ''}</div>
     <p class="note">Bleu : déjà couvert par le réseau · turquoise : apporté par les nouveaux sites · rouge : reste non couvert. Chaque site est choisi pour couvrir le plus de surface encore non desservie. ${r.candidats} points hauts candidats.${r.parametres ? ` Antennes ${r.parametres.hs} m, ${esc(r.parametres.preset)}, marge ${r.parametres.margeSecurite} dB + ${r.parametres.env} dB de pertes d’environnement.` : ''}</p>`;
   $('#plan-gpx').onclick = () => telechargerGpx('plan-couverture.gpx', r.sites.map((x) => ({ lat: x.lat, lon: x.lon, alt: x.alt, nom: `${x.rang} - ${nomSommet(x)}`, desc: `+${x.gainKm2} km², cumul ${x.totalPct} %${x.acces ? ', accès ' + ACCES[x.acces.type].nom : ''}` })));
   const pc = $('#plan-couv'); if (pc) pc.onclick = () => couvertureMulti(r.sites.map((x) => ({ lat: x.lat, lon: x.lon, h: (r.parametres && r.parametres.hs) || 6, nom: nomSommet(x) })));
+}
+
+// ---- Plan à budget -------------------------------------------------------------------------------------
+async function planBudget(o) {
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.innerHTML = '<h2>💶 Plan à budget</h2><div class="alerte info-lecture"><span class="sablier"></span> Recherche des meilleurs emplacements…</div>';
+  let r;
+  try { r = await api(`/api/relief/budget?n=${encodeURIComponent(o.n)}&acces=${encodeURIComponent(o.acces)}&secteur=${encodeURIComponent(o.secteur)}&solaire=${encodeURIComponent(o.solaire)}&mat=${encodeURIComponent(o.mat)}`); } catch (e) { z.innerHTML = `<h2>💶 Plan à budget</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  if (etat.coucheCouverture) etat.coucheCouverture.remove();
+  const g = L.layerGroup();
+  r.sites.forEach((x) => L.marker([x.lat, x.lon], { icon: L.divIcon({ className: 'relais-a-installer', html: `<div class="epingle"><b>${x.rang}</b></div>`, iconSize: [34, 44], iconAnchor: [17, 42] }), pane: 'traces', zIndexOffset: 900 })
+    .bindTooltip(`<b>${x.rang} · ${esc(nomSommet(x))}</b><br>+${x.gainKm2} km² · +${x.habitantsGagnes.toLocaleString('fr-FR')} hab.<br>${x.alimentation} · ≈ ${x.cout} €`, { className: 'info' }).addTo(g));
+  g.addTo(carte);
+  etat.coucheCouverture = g;
+  $('#btn-effacer').hidden = false;
+  if (r.sites.length) carte.fitBounds(L.latLngBounds(r.sites.map((x) => [x.lat, x.lon])).pad(0.3), { maxZoom: 11 });
+  const pop = r.population, pct = (v) => (pop.totale ? fmt((v / pop.totale) * 100, 1, ' %') : '–');
+  z.innerHTML = `<h2>💶 Plan à budget : ${r.sites.length} relais</h2>
+    <div class="grille">
+      <div class="mesure"><span>Surface couverte</span><b>${fmt(r.departPct, 1, ' %')} → ${fmt(r.finalPct, 1, ' %')}</b></div>
+      <div class="mesure"><span>Habitants (bourg couvert)</span><b>${pct(pop.depart)} → ${pct(pop.finale)}</b></div>
+      <div class="mesure"><span>Coût estimé</span><b>≈ ${r.coutTotal.toLocaleString('fr-FR')} €</b></div>
+    </div>
+    ${r.sites.length < Number(r.n) ? `<div class="alerte attention">Seulement ${r.sites.length} site(s) utile(s) avec ces critères : les suivants n’apporteraient presque rien${r.filtreAcces !== 'tous' ? ' (ou élargissez l’accès exigé)' : ''}.</div>` : ''}
+    ${r.sites.map((x) => `<div class="proposition etape-relier nouveau">
+      <div class="entete-prop"><span class="lettre">${x.rang}</span><b>${esc(nomSommet(x))}</b><span class="marge">≈ ${x.cout} € · cumul ${x.coutCumule} €</span></div>
+      <div class="meta-longue">+${x.gainKm2} km² (cumul ${fmt(x.totalPct, 1, ' %')}) · <b>+${x.habitantsGagnes.toLocaleString('fr-FR')} habitants</b>${x.nbCommunesGagnees ? ` dans ${x.nbCommunesGagnees} commune(s) : ${esc(x.communesGagnees.join(', '))}${x.nbCommunesGagnees > x.communesGagnees.length ? '…' : ''}` : ''}</div>
+      <div class="meta-longue">${x.alt} m${x.commune ? ' · ' + esc(x.commune) : ''} · alimentation ${x.alimentation}</div>
+      <div class="meta-longue">Accès : ${texteAcces(x.acces)}</div>
+      <div class="meta-longue">Site : ${texteRealisme(x.realisme)}</div>
+      ${blocCoords(x.lat, x.lon, { alt: x.alt })}
+    </div>`).join('') || '<div class="vide">Aucun site ne répond à ces critères.</div>'}
+    <div class="actions-prop"><button id="budget-gpx">Télécharger les sites (GPX)</button>${r.sites.length >= 2 ? '<button id="budget-couv">Couverture détaillée</button>' : ''}</div>
+    <p class="note">Ordre de pose conseillé : chaque relais est celui qui apporte le plus de surface nouvelle${r.realiste ? ' (sites en zone protégée écartés, préférence aux châteaux d’eau, pylônes et au secteur proche)' : ''}. Habitants : population des communes dont le bourg passe en zone couverte (${pop.communes} communes, ${pop.totale.toLocaleString('fr-FR')} habitants). Coût : relais ${r.couts.secteur} € (secteur) ou ${r.couts.solaire} € (solaire), + ${r.couts.mat} € de mât s’il n’y a pas de support existant ; hors main-d’œuvre et convention avec le propriétaire.</p>`;
+  $('#budget-gpx').onclick = () => telechargerGpx('plan-budget.gpx', r.sites.map((x) => ({ lat: x.lat, lon: x.lon, alt: x.alt, nom: `${x.rang} - ${nomSommet(x)}`, desc: `+${x.gainKm2} km², +${x.habitantsGagnes} hab., ${x.alimentation}, ~${x.cout} €` })));
+  const bc = $('#budget-couv'); if (bc) bc.onclick = () => couvertureMulti(r.sites.map((x) => ({ lat: x.lat, lon: x.lon, h: (r.parametres && r.parametres.hs) || 6, nom: nomSommet(x) })));
 }
 
 // Département étudié (relief, points hauts, plan) : celui de la carte ou n'importe quel autre
@@ -2112,7 +2177,20 @@ async function rendreSites() {
         <label>Accès exigé <select id="plan-acces"><option value="voiture">🚗 En voiture</option><option value="4x4">🚙 En 4×4 ou voiture</option><option value="pied">🥾 À pied ou mieux</option><option value="tous">Tous les points hauts</option></select></label>
       </div>
       <label class="case"><input type="checkbox" id="plan-reseau" checked> En complément du réseau actuel</label>
+      <label class="case"><input type="checkbox" id="plan-realiste" checked> Sites réalistes : zones protégées écartées, châteaux d’eau et pylônes privilégiés, électricité</label>
       <div class="actions-prop"><button id="plan-calculer" class="principal">Donner les emplacements</button></div>
+    </div>
+    <div class="bloc-plan" id="bloc-budget">
+      <h3>💶 Plan à budget</h3>
+      <p class="note">« J’ai de quoi poser N relais : où les mettre ? » Gain de surface et d’habitants à chaque relais, coût estimé.</p>
+      <div class="parametres compact">
+        <label>Relais à poser <input id="budget-n" type="number" min="1" max="15" step="1" value="3"></label>
+        <label>Accès exigé <select id="budget-acces"><option value="voiture">🚗 En voiture</option><option value="4x4">🚙 En 4×4 ou voiture</option><option value="pied">🥾 À pied ou mieux</option><option value="tous">Tous les points hauts</option></select></label>
+        <label>Relais secteur (€) <input id="budget-secteur" type="number" min="0" step="10" value="120"></label>
+        <label>Relais solaire (€) <input id="budget-solaire" type="number" min="0" step="10" value="220"></label>
+        <label>Mât + fixations (€) <input id="budget-mat" type="number" min="0" step="10" value="90"></label>
+      </div>
+      <div class="actions-prop"><button id="budget-calculer" class="principal">Où poser mes relais ?</button></div>
     </div>
     <h3>🧭 Outils sur la carte</h3>
     <div class="outils-couv">
@@ -2155,6 +2233,15 @@ async function rendreSites() {
   const bcr = $('#sites-couv-reseau'); if (bcr) bcr.onclick = couvertureReseau;
   const bcm = $('#sites-couv-mesuree'); if (bcm) bcm.onclick = () => couvertureMesuree();
   z.querySelectorAll('[data-outil]').forEach((b) => (b.onclick = () => { const t = $('#' + b.dataset.outil); if (t) t.click(); }));
+  const bb = $('#budget-calculer');
+  if (bb) {
+    try { const v = localStorage.getItem('gaulix_budget'); if (v) { const o = JSON.parse(v); for (const k of ['n', 'acces', 'secteur', 'solaire', 'mat']) if (o[k] != null) $('#budget-' + k).value = o[k]; } } catch { /* ignoré */ }
+    bb.onclick = () => {
+      const o = Object.fromEntries(['n', 'acces', 'secteur', 'solaire', 'mat'].map((k) => [k, $('#budget-' + k).value]));
+      try { localStorage.setItem('gaulix_budget', JSON.stringify(o)); } catch { /* ignoré */ }
+      planBudget(o);
+    };
+  }
   const pc = $('#plan-calculer');
   if (pc) {
     try { const v = localStorage.getItem('gaulix_plan'); if (v) { const o = JSON.parse(v); $('#plan-objectif').value = o.objectif; $('#plan-max').value = o.max; $('#plan-acces').value = o.acces; $('#plan-reseau').checked = o.reseau; } } catch { /* ignoré */ }
@@ -2688,7 +2775,7 @@ async function ouvrirTrames(num, filtre) {
         <td class="nowrap">${lignesRx(t)}</td>
         <td>${t.receptions.map((x) => `<div class="rx mono petit">${esc(x.sujet || '')}</div>`).join('') || esc(t.canal || '')}</td>
         <td><b><i class="pt" style="background:${portInfo(t.port).couleur}"></i>${esc(t.nomPort || t.port)}</b>${t.pki ? ' <span class="badge">PKI</span>' : ''}
-          <div class="petit">${esc(t.texte ? '💬 ' + t.texte : t.resume || '')}</div>
+          <div class="petit">${esc(t.texte ? '💬 ' + t.texte : t.resume || '')}${t.reprises ? ' · <span class="pastille">reprise après redémarrage</span>' : ''}</div>
           ${t.contenu ? `<details><summary>JSON</summary><pre class="json">${jsonJoli(t.contenu)}</pre></details>` : ''}</td>
       </tr>`).join('') || '<tr><td colspan="8" class="vide">Aucune trame pour ce filtre.</td></tr>'}</tbody>
     </table></div>
@@ -2809,6 +2896,44 @@ function gerable(id) {
   const k = /^[0-9a-f]{64}$/i.test(String(id)) ? String(id).toUpperCase() : String(Number(id) >>> 0);
   return (etat.secteur || []).includes(k);
 }
+// ---- Clés d'administration : relais par relais ------------------------------------------------------
+async function ficheCles() {
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.innerHTML = '<h2>🔑 Clés d’administration</h2><div class="vide">Chargement…</div>';
+  let r;
+  try { r = await api('/api/admin-noeuds/cles'); } catch (e) { z.innerHTML = `<h2>🔑 Clés d’administration</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  const seulement = etat.clesFiltre !== false;
+  const aTraiter = (n) => n.aFaire.length || n.aFaireNote;
+  const liste = r.noeuds.filter((n) => !seulement || aTraiter(n)).sort((a, b) => (aTraiter(b) ? 1 : 0) - (aTraiter(a) ? 1 : 0) || a.nom.localeCompare(b.nom));
+  const puce = (m) => m.autorise === true ? `<span class="badge actif" title="${m.dansCles ? 'clé présente dans ses clés d’administration' : 'a accepté une commande'}${m.essai ? ' · ' + new Date(m.essai.heure).toLocaleString('fr-FR') : ''}">✔ ${esc(m.nom)}</span>`
+    : m.autorise === false ? `<span class="badge refus" title="${m.dansCles === false ? 'clé absente de ses clés d’administration' : 'a refusé une commande'}${m.essai ? ' · ' + new Date(m.essai.heure).toLocaleString('fr-FR') : ''}">⛔ ${esc(m.nom)}</span>`
+    : `<span class="badge attente" title="jamais essayé depuis ce module">? ${esc(m.nom)}</span>`;
+  const texteVisite = r.noeuds.filter(aTraiter).map((n) => `• ${n.nom}${n.site ? ' (' + n.site + ')' : ''} : ${[...n.aFaire, n.aFaireNote].filter(Boolean).join(' ; ')}`).join('\n');
+  z.innerHTML = `<h2>🔑 Clés d’administration</h2>
+    <p class="note">Un relais n’accepte les ordres que des modules dont la clé publique figure dans ses <b>clés d’administration</b> (3 emplacements). ✔ autorisé · ⛔ refusé · ? jamais essayé. « Lire les clés » interroge le relais par LoRa pour connaître exactement ses clés.</p>
+    <p class="note">Modules de la carte : ${r.modules.map((m) => `<b>${esc(m.nom)}</b>`).join(', ') || 'aucun encore (connectez un module)'}.</p>
+    <div class="actions-prop"><label class="case"><input type="checkbox" id="cles-filtre" ${seulement ? 'checked' : ''}> Seulement les relais avec quelque chose à faire</label>${texteVisite ? '<button class="mini" id="cles-copier">📋 Copier la liste pour la prochaine visite</button>' : ''}</div>
+    ${liste.map((n) => `<div class="carte-cle" data-num="${n.num}">
+      <div class="ligne-cle"><b>${esc(n.nom)}</b> <small>${esc(n.id)}${n.site ? ' · ' + esc(n.site) : ''}${n.dernierVu ? ' · vu ' + ilYa(n.dernierVu) : ''}</small></div>
+      <div class="puces-cle">${n.modules.map(puce).join(' ')}</div>
+      <div class="note">${n.securite ? `${n.securite.nbCles} clé(s) enregistrée(s), ${n.securite.libres} emplacement(s) libre(s)${n.securite.inconnues ? `, dont ${n.securite.inconnues} d’un autre appareil (téléphone, autre carte…)` : ''}${n.securite.gere ? ' · <b>mode géré</b> (réglages verrouillés hors administration)' : ''} · lu ${ilYa(n.securite.lu)}` : 'clés jamais lues'} <button class="mini" data-lire-cles="${n.num}">Lire les clés</button></div>
+      ${n.aFaire.length ? `<ul class="a-faire">${n.aFaire.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+      <label class="note-site">À faire sur place <textarea rows="2" data-note="${n.num}" placeholder="ex. changer le connecteur N, poser un filtre 868…">${esc(n.aFaireNote)}</textarea></label>
+    </div>`).join('') || '<div class="vide">Rien à signaler : tous les relais connus acceptent au moins un module de la carte.</div>'}
+    <p class="erreur" id="cles-retour"></p>`;
+  $('#cles-filtre').onchange = (e) => { etat.clesFiltre = e.target.checked; ficheCles(); };
+  const bcp = $('#cles-copier');
+  if (bcp) bcp.onclick = async () => { try { await navigator.clipboard.writeText('À faire sur place :\n' + texteVisite); bcp.textContent = '✔ Copié'; } catch { $('#cles-retour').textContent = texteVisite; } };
+  z.querySelectorAll('[data-lire-cles]').forEach((b) => (b.onclick = async () => {
+    b.disabled = true; b.textContent = 'Lecture lancée…';
+    try { await postJson('/api/admin-noeuds/taches', { type: 'lire', cibles: [Number(b.dataset.lireCles)], params: { sections: ['securite'] } }); $('#cles-retour').textContent = 'Lecture lancée : suivez-la dans Programmer, puis rouvrez cette vue.'; } catch (e) { $('#cles-retour').textContent = e.message; b.disabled = false; b.textContent = 'Lire les clés'; }
+  }));
+  z.querySelectorAll('[data-note]').forEach((t) => (t.onchange = async () => {
+    try { await postJson(`/api/noeuds/${t.dataset.note}/a-faire`, { texte: t.value }); $('#cles-retour').textContent = '✔ Note enregistrée (elle figure aussi dans la fiche d’installation).'; } catch (e) { $('#cles-retour').textContent = e.message; }
+  }));
+}
 async function rendreGestion() {
   const z = $('#gestion');
   if (!etat.gestion || !z) return;
@@ -2828,7 +2953,7 @@ async function rendreGestion() {
   const defil = { liste: anc ? anc.scrollTop : 0, panneaux: [...document.querySelectorAll('#panneau, #panneau .contenu-onglet, #gestion')].map((el) => [el, el.scrollTop]) };
   z.innerHTML = `
     ${!etat.admin ? `<div class="alerte">Compte gestionnaire : vous programmez les ${(etat.secteur || []).length} nœud(s) de votre secteur. Le module radio est géré par les administrateurs.</div>` : ''}
-    <div class="titre-programmer"><b>Nœuds Meshtastic</b>${etat.config.meshcore ? '<button class="mini" id="vers-prog-mc">Répéteurs MeshCore →</button>' : ''}</div>
+    <div class="titre-programmer"><b>Nœuds Meshtastic</b><button class="mini" id="voir-cles" title="Quels modules peuvent programmer quel relais, et ce qu'il reste à faire sur place">🔑 Clés d’administration</button>${etat.config.meshcore ? '<button class="mini" id="vers-prog-mc">Répéteurs MeshCore →</button>' : ''}</div>
     ${!i.connecte ? '<div class="alerte attention">Le module radio n’est pas connecté : connectez-le dans l’onglet Réseau, section Modules Wi-Fi.</div>' : ''}
     <details class="aide-cle"${i.clePublique ? '' : ' open'}>
       <summary>Autoriser le module à programmer vos nœuds</summary>
@@ -2859,6 +2984,7 @@ async function rendreGestion() {
     <div id="taches-gestion">${rendreTaches(i.taches)}</div>`;
   $('#btn-verif').onclick = () => formulaireVerif();
   $('#filtre-gestion').oninput = (e) => { gestion.filtre = e.target.value; clearTimeout(gestion.minFiltre); gestion.minFiltre = setTimeout(() => { rendreGestion().then(() => { const f = $('#filtre-gestion'); f.focus(); f.setSelectionRange(f.value.length, f.value.length); }); }, 250); };
+  { const bc = $('#voir-cles'); if (bc) bc.onclick = ficheCles; }
   const vp = $('#vers-prog-mc');
   if (vp) vp.onclick = () => {
     if (etat.vueReseau === 'meshtastic') { const b = document.querySelector('[data-reseau="les-deux"]'); if (b) b.click(); }
@@ -3821,6 +3947,7 @@ function ongletsDialogue(dlg) {
     dlg.querySelectorAll('[data-dlg]').forEach((x) => x.classList.toggle('actif', x === b));
     dlg.querySelectorAll('[data-pan]').forEach((p) => (p.hidden = p.dataset.pan !== b.dataset.dlg));
     if (b.dataset.dlg === 'comptes') rendreComptes();
+    if (b.dataset.dlg === 'journal') rendreJournal();
     if (b.dataset.dlg === 'sauvegardes') rendreSauvegardes();
     if (b.dataset.dlg === 'reglages') rendreReglages();
   }));
@@ -3853,8 +3980,12 @@ function brancherComptes() {
   $('#form-connexion').onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target;
-    try { await postJson('/api/connexion', { identifiant: f.identifiant.value, motDePasse: f.motDePasse.value }); location.reload(); }
-    catch (err) { f.querySelector('.erreur').textContent = err.message; }
+    try { await postJson('/api/connexion', { identifiant: f.identifiant.value, motDePasse: f.motDePasse.value, code: f.code.value || undefined }); location.reload(); }
+    catch (err) {
+      // Double authentification : le code à 6 chiffres est demandé après le mot de passe
+      if (err.donnees && err.donnees.codeRequis) { $('#champ-code').hidden = false; f.code.required = true; f.code.focus(); f.querySelector('.erreur').textContent = f.code.value ? err.message : ''; }
+      else f.querySelector('.erreur').textContent = err.message;
+    }
   };
   $('#form-inscription').onsubmit = async (e) => {
     e.preventDefault();
@@ -3885,7 +4016,8 @@ function ouvrirGestion() {
   $('#pan-moncompte').innerHTML = `
     <div class="grille">
       <div class="mesure"><span>Identifiant</span><b>${esc(c.identifiant)}</b></div>
-      <div class="mesure"><span>Rôle</span><b>${c.role === 'admin' ? 'Administrateur' : 'Membre'}</b></div>
+      <div class="mesure"><span>Rôle</span><b>${ROLES_COMPTE[c.role] || c.role}</b></div>
+      <div class="mesure"><span>Double authentification</span><b>${c.deuxFacteurs ? '✔ activée' : 'non'}</b></div>
       <div class="mesure"><span>Indicatif</span><b>${esc(c.indicatif || '–')}</b></div>
     </div>
     <h3>Changer de mot de passe</h3>
@@ -3895,7 +4027,28 @@ function ouvrirGestion() {
       <button type="submit">Changer</button>
     </form>
     <p class="erreur" id="retour-mdp"></p>
-    <div class="actions"><button id="btn-deconnexion">Se déconnecter</button></div>`;
+    <h3>Double authentification</h3>
+    <div id="zone-2fa">${c.deuxFacteurs ? `<p class="note">Un code de votre application d’authentification est demandé à chaque connexion.</p>
+      <form id="form-2fa-retirer" class="parametres compact"><label>Mot de passe <input name="motDePasse" type="password" autocomplete="current-password" required></label><button type="submit">Désactiver</button></form>`
+      : `<p class="note">Recommandée pour les comptes qui programment les relais : en plus du mot de passe, un code à 6 chiffres donné par une application (Google Authenticator, Aegis, FreeOTP, 2FAS…).</p><button id="btn-2fa">Activer la double authentification</button>`}</div>
+    <p class="erreur" id="retour-2fa"></p>
+    <h3>Sessions</h3>
+    <p class="note">Vous êtes resté connecté sur un appareil perdu ou partagé ? Fermez toutes vos autres sessions (celle-ci reste ouverte).</p>
+    <div class="actions"><button id="btn-deco-partout">Déconnecter mes autres appareils</button><button id="btn-deconnexion">Se déconnecter</button></div>`;
+  const r2 = (t) => ($('#retour-2fa').textContent = t);
+  const b2 = $('#btn-2fa');
+  if (b2) b2.onclick = async () => {
+    try {
+      const r = await postJson('/api/compte/deux-facteurs/preparer');
+      $('#zone-2fa').innerHTML = `<p class="note">1. Scannez ce QR code avec l’application (ou saisissez la clé). 2. Tapez le code à 6 chiffres affiché.</p>
+        <div class="qr-2fa"><img src="${r.qr}" alt="QR code"><span class="mono">${esc(r.secret.replace(/(.{4})/g, '$1 ').trim())}</span></div>
+        <form id="form-2fa" class="parametres compact"><label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" required></label><button type="submit" class="principal">Activer</button></form>`;
+      $('#form-2fa').onsubmit = async (e) => { e.preventDefault(); try { await postJson('/api/compte/deux-facteurs/activer', { code: e.target.code.value }); etat.config.compte.deuxFacteurs = true; ouvrirGestion(); r2('✔ Double authentification activée.'); } catch (x) { r2(x.message); } };
+    } catch (x) { r2(x.message); }
+  };
+  const f2 = $('#form-2fa-retirer');
+  if (f2) f2.onsubmit = async (e) => { e.preventDefault(); try { await postJson('/api/compte/deux-facteurs/retirer', { motDePasse: e.target.motDePasse.value }); etat.config.compte.deuxFacteurs = false; ouvrirGestion(); } catch (x) { r2(x.message); } };
+  $('#btn-deco-partout').onclick = async () => { try { await postJson('/api/compte/deconnecter-partout'); r2('✔ Toutes vos autres sessions sont fermées.'); } catch (x) { r2(x.message); } };
   $('#form-mdp').onsubmit = async (e) => {
     e.preventDefault();
     try { await postJson('/api/compte/mot-de-passe', { ancien: e.target.ancien.value, nouveau: e.target.nouveau.value }); $('#retour-mdp').textContent = 'Mot de passe changé ✓'; e.target.reset(); }
@@ -3929,6 +4082,28 @@ function editerSecteur(c, fini) {
     try { await postJson(`/api/comptes/${c.id}`, { noeuds: l }); z.innerHTML = ''; fini(); } catch (e) { $('#retour-comptes').textContent = e.message; }
   };
 }
+const ACTIONS_AUDIT = [
+  [/admin-noeuds\/taches\/[^/]+\/relancer/, 'Programmation relancée'], [/admin-noeuds\/taches\/[^/]+\/arreter/, 'Programmation arrêtée'], [/admin-noeuds\/taches$/, 'Programmation à distance (Meshtastic)'],
+  [/mc\/admin\/taches/, 'Administration MeshCore'], [/mc\/admin\/mot-de-passe/, 'Mot de passe MeshCore mémorisé'], [/compte\/deux-facteurs\/activer/, 'Double authentification activée'],
+  [/compte\/deux-facteurs\/retirer/, 'Double authentification retirée'], [/compte\/deux-facteurs\/preparer/, 'Double authentification : QR code affiché'], [/compte\/deconnecter-partout/, 'Autres sessions fermées'],
+  [/compte\/mot-de-passe/, 'Mot de passe changé'], [/^DELETE \/api\/comptes/, 'Compte supprimé'], [/\/api\/comptes\/\d+/, 'Compte modifié'], [/\/api\/comptes$/, 'Compte créé'],
+  [/installation$/, 'Fiche d’installation'], [/a-faire$/, 'Note « à faire sur place »'], [/sauvegardes\/restaurer/, 'Sauvegarde restaurée'], [/\/api\/sauvegardes$/, 'Sauvegarde manuelle'],
+  [/traceroute\//, 'Traceroute manuel'], [/\/api\/envoi/, 'Message envoyé'], [/mc\/messages/, 'Message MeshCore envoyé'], [/federation/, 'Bulles voisines'], [/releves/, 'Relevé de terrain'],
+  [/radio\/(connecter|deconnecter|modules|scanner|agents)/, 'Module radio'], [/reglages|mqtt|config/, 'Réglages'],
+];
+const libelleAudit = (a) => { for (const [re, l] of ACTIONS_AUDIT) if (re.test(a)) return `${l} <small class="mono">${esc(a)}</small>`; return esc(a); };
+async function rendreJournal(filtre) {
+  const z = $('#pan-journal');
+  let l;
+  try { l = await api('/api/audit?limite=500' + (filtre ? '&action=' + encodeURIComponent(filtre) : '')); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  z.innerHTML = `<p class="note">Qui a fait quoi : connexions (et refus), programmation des nœuds, réglages, comptes, sauvegardes… Les mots de passe, clés et codes n’y figurent jamais. Gardé 180 jours.</p>
+    <div class="recherche"><input id="filtre-journal" type="search" placeholder="Filtrer (ex. connexion, admin-noeuds, comptes)…" value="${esc(filtre || '')}"></div>
+    <table class="voisins journal-audit"><thead><tr><th>Quand</th><th>Qui</th><th>Action</th><th>Détail</th></tr></thead><tbody>
+    ${l.map((x) => `<tr class="${x.ok ? '' : 'refus'}"><td title="${new Date(x.heure).toLocaleString('fr-FR')}">${new Date(x.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td><td>${esc(x.compte || '?')}<br><small>${esc(x.ip || '')}</small></td><td>${x.ok ? '' : '⛔ '}${libelleAudit(x.action)}</td><td><small>${esc(x.detail || '')}</small></td></tr>`).join('') || '<tr><td colspan="4" class="vide">Rien pour l’instant.</td></tr>'}
+    </tbody></table>`;
+  const fi = $('#filtre-journal');
+  fi.onchange = () => rendreJournal(fi.value.trim());
+}
 async function rendreComptes() {
   const z = $('#pan-comptes');
   let liste;
@@ -3939,9 +4114,9 @@ async function rendreComptes() {
     ${liste.map((c) => `<tr data-id="${c.id}">
       <td><b>${esc(c.identifiant)}</b>${c.email ? `<br><small>${esc(c.email)}</small>` : ''}</td><td>${esc(c.indicatif || '–')}</td>
       <td><select data-role>${['membre', 'gestionnaire', 'admin'].map((r) => `<option value="${r}" ${c.role === r ? 'selected' : ''}>${ROLES_COMPTE[r]}</option>`).join('')}</select>${c.role === 'gestionnaire' ? `<br><button class="mini" data-secteur>Secteur : ${(c.noeuds || []).length} nœud(s)…</button>` : ''}</td>
-      <td><span class="badge ${c.statut === 'actif' ? 'actif' : c.statut === 'en_attente' ? 'attente' : 'inactif'}">${STATUTS[c.statut] || c.statut}</span></td>
+      <td><span class="badge ${c.statut === 'actif' ? 'actif' : c.statut === 'en_attente' ? 'attente' : 'inactif'}">${STATUTS[c.statut] || c.statut}</span>${c.deuxFacteurs ? ' <span class="badge actif" title="Double authentification activée">2FA</span>' : ''}</td>
       <td>${c.derniere ? ilYa(c.derniere) : 'jamais'}</td>
-      <td class="actions-ligne">${c.statut === 'en_attente' ? '<button data-statut="actif" class="principal">Valider</button>' : c.statut === 'actif' ? '<button data-statut="desactive">Désactiver</button>' : '<button data-statut="actif">Réactiver</button>'}<button data-suppr title="Supprimer">✕</button></td>
+      <td class="actions-ligne">${c.statut === 'en_attente' ? '<button data-statut="actif" class="principal">Valider</button>' : c.statut === 'actif' ? '<button data-statut="desactive">Désactiver</button>' : '<button data-statut="actif">Réactiver</button>'}${c.deuxFacteurs ? '<button data-retirer-2fa title="Téléphone perdu : retirer la double authentification de ce compte">Retirer 2FA</button>' : ''}<button data-deco title="Fermer toutes les sessions ouvertes de ce compte">Déconnecter</button><button data-suppr title="Supprimer">✕</button></td>
     </tr>`).join('')}
     </tbody></table>
     <h3>Ajouter un compte</h3>
@@ -3963,6 +4138,9 @@ async function rendreComptes() {
     const bs = tr.querySelector('[data-statut]');
     if (bs) bs.onclick = () => action(() => postJson(`/api/comptes/${id}`, { statut: bs.dataset.statut }));
     tr.querySelector('[data-suppr]').onclick = () => { if (confirm('Supprimer ce compte ?')) action(() => postJson(`/api/comptes/${id}`, {}, 'DELETE')); };
+    const b2f = tr.querySelector('[data-retirer-2fa]');
+    if (b2f) b2f.onclick = () => { if (confirm('Retirer la double authentification de ce compte ?')) action(() => postJson(`/api/comptes/${id}`, { retirerDeuxFacteurs: true })); };
+    tr.querySelector('[data-deco]').onclick = () => action(() => postJson(`/api/comptes/${id}`, { deconnecter: true }));
     const bsec = tr.querySelector('[data-secteur]');
     if (bsec) bsec.onclick = () => editerSecteur(liste.find((c) => String(c.id) === id), () => rendreComptes());
   });

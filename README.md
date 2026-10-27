@@ -109,6 +109,10 @@ Dans `docker-compose.yml`, remplacez la ligne `image:` par `build: .`, puis `doc
 - **Administration à distance** : sur chaque nœud, ajoutez la clé publique du module (affichée dans l’onglet *Programmer*) dans *Sécurité › Clé d'administration*.
 - **Gestionnaires de secteur** : *Réglages › Comptes*, rôle « Gestionnaire de secteur » puis bouton *Secteur…* : ce compte programme à distance, remplit la fiche d'installation et teste uniquement les nœuds choisis (Meshtastic ou MeshCore). Le module radio reste géré par les administrateurs.
 - **Mode terrain** (*Outils › Mode terrain*) : relevé GPS avec type, note, mesure radio et photo, même sans réseau (gardé sur le téléphone et envoyé au retour du réseau) ; fonds de carte d'un secteur gardés pour une sortie hors connexion ; la carte s'installe comme une application (« Ajouter à l'écran d'accueil », HTTPS requis).
+- **Sécurité des comptes** : double authentification (application TOTP) dans *Mon compte*, fermeture des autres sessions, journal d'audit (*Réglages › Journal* : connexions, refus, programmation, comptes, réglages).
+- **Clés d'administration** (*Programmer › 🔑*) : relais par relais, les modules autorisés ou refusés, les emplacements libres, et une liste « à faire sur place » pour la prochaine visite. Les opérations de programmation en cours reprennent seules après un redémarrage de la carte.
+- **Relais sourds** (*Réseau › Liaisons*) : un relais qui émet bien mais entend mal est détecté d'après les SNR mesurés dans les deux sens, avec l'écart estimé en dB et les causes probables.
+- **Sites réalistes et plan à budget** (*Couverture*) : zones protégées écartées, châteaux d'eau et pylônes privilégiés, électricité probable ; « j'ai N relais à poser » avec surface, habitants gagnés et coût estimé.
 - **Bulles voisines (fédération)** : chaque carte publie ses relais sur `/api/federation`. Dans *Outils › Partager* (admin), ajoutez l'adresse des cartes des départements voisins : leurs relais s'affichent (couche *Bulles voisines*) et comptent dans les calculs de couverture près des limites.
 
 ### MeshCore

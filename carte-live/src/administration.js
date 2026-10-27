@@ -34,7 +34,8 @@ function creerAdministration(radio, stockage) {
     const module = radio.infos().noeudLocal >>> 0;
     const k = String(num >>> 0);
     const e = administrables[k] || {};
-    administrables[k] = { ...e, ok, heure: Date.now(), modules: [...new Set([...(e.modules || []), module])] };
+    // Résultat global (dernier essai) et par module : un relais peut accepter un module et refuser l'autre
+    administrables[k] = { ...e, ok, heure: Date.now(), modules: [...new Set([...(e.modules || []), module])], parModule: { ...(e.parModule || {}), [module]: { ok, heure: Date.now() } } };
     try { require('fs').writeFileSync(fAdmin, JSON.stringify(administrables)); } catch { /* lecture seule */ }
   }
   radio.ecouter((p) => {
@@ -181,6 +182,17 @@ function creerAdministration(radio, stockage) {
           l.heure = Date.now(); sauverLectures();
           journalTache(`module Voisinage lu (${l.voisinage.enabled ? 'activé' : 'désactivé'})`);
         } catch (e) { if (e.arret) throw e; journalTache('module Voisinage : non lu (' + e.message.split(' — ')[0] + ')'); }
+      }
+      // Sécurité : clés d'administration autorisées (la clé privée n'est jamais gardée)
+      if (!l.securite && (!sections || sections.includes('securite'))) {
+        try {
+          const sc = versObjet(Config, (await demande({ getConfigRequest: TYPES_CONFIG.security }, 'sécurité')).getConfigResponse).security || {};
+          const b64 = (x) => (x ? Buffer.from(typeof x === 'string' ? Buffer.from(x, 'base64') : x).toString('base64') : null);
+          l.securite = { adminKeys: (sc.adminKey || []).map(b64).filter((x) => x && x !== 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='), clePublique: b64(sc.publicKey), gere: !!sc.isManaged, canalAdmin: !!sc.adminChannelEnabled };
+          l.heure = Date.now(); sauverLectures();
+          noterCles(dest, l.securite);
+          journalTache(`sécurité lue (${l.securite.adminKeys.length} clé(s) d’administration)`);
+        } catch (e) { if (e.arret) throw e; journalTache('sécurité : non lue (' + e.message.split(' — ')[0] + ')'); }
       }
       for (let i = (l.canauxBruts || []).length; (!sections || sections.includes('canaux')) && !l.canauxFin && i < 8; i++) {
         const ch = versObjet(Channel, (await demande({ getChannelRequest: i + 1 }, `canal ${i}`)).getChannelResponse);
@@ -545,8 +557,18 @@ function creerAdministration(radio, stockage) {
     taches.set(id, tache);
     if (taches.size > 50) taches.delete(taches.keys().next().value);
     journal(`${op.nom} lancée par ${auteur} sur ${cibles.length} nœud(s)`);
+    executerTache(tache);
+    return tache;
+  }
+
+  // Exécution nœud par nœud ; l'état est enregistré à chaque étape pour reprendre après un redémarrage de la carte
+  function executerTache(tache) {
+    const { type, params } = tache;
+    const op = OPERATIONS[type];
+    sauverTaches();
     (async () => {
       for (const n of tache.noeuds) {
+        if (n.statut === 'ok' || n.statut === 'echec' || n.statut === 'annule') continue; // déjà traité avant le redémarrage
         if (tache.arret) { n.statut = 'annule'; n.detail = 'non traité (opération arrêtée)'; continue; }
         if (type === 'verifier' && n !== tache.noeuds[0] && tache.noeuds[0].statut !== 'ok') { n.statut = 'annule'; n.detail = 'non vérifié : la référence n’a pas pu être lue'; continue; }
         n.statut = 'en_cours';
@@ -580,11 +602,97 @@ function creerAdministration(radio, stockage) {
         }
         arrets.delete(n.num >>> 0);
         journal(`${op.nom} → ${idNoeud(n.num)} : ${n.statut}${n.detail ? ' (' + n.detail + ')' : ''}`);
+        sauverTaches();
       }
       tache.fin = Date.now();
+      sauverTaches();
     })();
-    return tache;
   }
+
+  // ---- Clés d'administration : quels modules de la carte peuvent programmer quel relais ----------------------
+  const fModules = require('path').join(require('path').dirname(require('./config').fichierBase), 'modules-cles.json');
+  let modulesCles = {};
+  try { modulesCles = JSON.parse(require('fs').readFileSync(fModules, 'utf8')); } catch { /* aucun */ }
+  function noterModuleLocal() {
+    const i = radio.infos();
+    if (!i.connecte || !i.clePublique || !i.noeudLocal) return;
+    const k = String(i.noeudLocal >>> 0), u = i.utilisateurLocal || {};
+    const e = modulesCles[k];
+    if (e && e.cle === i.clePublique && Date.now() - (e.vu || 0) < 3600000) return;
+    modulesCles[k] = { cle: i.clePublique, nom: u.longName || u.nomLong || (e && e.nom) || idNoeud(i.noeudLocal), vu: Date.now() };
+    try { require('fs').writeFileSync(fModules, JSON.stringify(modulesCles)); } catch { /* lecture seule */ }
+  }
+  const minuterieModules = setInterval(noterModuleLocal, 30000);
+  if (minuterieModules.unref) minuterieModules.unref();
+  function noterCles() { noterModuleLocal(); }
+  // Pour chaque nœud : modules autorisés (d'après la lecture « sécurité »), essais réussis / refusés, emplacements libres
+  function etatCles(nums) {
+    noterModuleLocal();
+    const modules = Object.entries(modulesCles).map(([num, m]) => ({ num: Number(num), ...m }));
+    return nums.map((num) => {
+      const a = administrables[num] || {}, l = lectures.get(num) || {}, sec = l.securite || null;
+      const parModule = modules.map((m) => {
+        // Anciennes entrées sans détail par module : le dernier résultat vaut pour les modules qui ont essayé
+        const essai = (a.parModule || {})[m.num] || (!a.parModule && (a.modules || []).includes(m.num) && a.ok != null ? { ok: a.ok, heure: a.heure } : null);
+        const dansCles = sec ? sec.adminKeys.includes(m.cle) : null;
+        return { num: m.num, nom: m.nom, autorise: dansCles === true || (essai && essai.ok) ? true : dansCles === false || (essai && !essai.ok) ? false : null, essai, dansCles };
+      });
+      const inconnues = sec ? sec.adminKeys.filter((k) => !modules.some((m) => m.cle === k)).length : null;
+      const aFaire = [];
+      const refuses = parModule.filter((m) => m.autorise === false);
+      if (sec && sec.adminKeys.length >= 3 && refuses.length) aFaire.push(`les 3 emplacements de clé sont pris : en retirer une pour ajouter ${refuses.map((m) => m.nom).join(', ')}`);
+      else if (refuses.length) aFaire.push(`ajouter la clé de ${refuses.map((m) => m.nom).join(', ')} (Sécurité › Clé d’administration, en Bluetooth ou USB)`);
+      if (!parModule.some((m) => m.autorise)) aFaire.length || aFaire.push('aucun module n’a encore pu le programmer : tester depuis Programmer, sinon ajouter la clé sur place');
+      return { num, securite: sec ? { nbCles: sec.adminKeys.length, libres: Math.max(0, 3 - sec.adminKeys.length), inconnues, gere: sec.gere, lu: l.heure } : null, global: a.ok == null ? null : { ok: a.ok, heure: a.heure }, modules: parModule, aFaire };
+    });
+  }
+
+  // ---- Tâches persistantes : /data/taches-admin.json (les paramètres peuvent contenir des clés de canal : fichier privé)
+  const fTaches = require('path').join(require('path').dirname(require('./config').fichierBase), 'taches-admin.json');
+  let minuterieSauvegarde = null;
+  function sauverTaches() {
+    clearTimeout(minuterieSauvegarde);
+    minuterieSauvegarde = setTimeout(() => {
+      try {
+        const l = [...taches.values()].map(({ arret, ...t }) => ({ ...t, noeuds: t.noeuds.map(({ etapes, ...n }) => n) }));
+        require('fs').writeFileSync(fTaches, JSON.stringify(l), { mode: 0o600 });
+      } catch { /* lecture seule */ }
+    }, 500);
+  }
+  // Au démarrage : les opérations interrompues (moins de 6 h) reprennent dès que le module radio est connecté
+  try {
+    const l = JSON.parse(require('fs').readFileSync(fTaches, 'utf8'));
+    const aReprendre = [];
+    for (const t of l) {
+      if (!OPERATIONS[t.type]) continue;
+      if (!t.fin) {
+        if (Date.now() - t.debut < 6 * 3600000) {
+          for (const n of t.noeuds) if (n.statut === 'en_cours' || n.statut === 'en_attente') { n.statut = 'en_attente'; n.detail = 'reprise après le redémarrage de la carte…'; }
+          t.reprises = (t.reprises || 0) + 1;
+          aReprendre.push(t);
+        } else {
+          for (const n of t.noeuds) if (n.statut === 'en_cours' || n.statut === 'en_attente') { n.statut = 'annule'; n.detail = 'interrompu par un redémarrage de la carte (trop ancien pour reprendre)'; }
+          t.fin = Date.now();
+        }
+      }
+      taches.set(t.id, t);
+    }
+    if (aReprendre.length) {
+      journal(`${aReprendre.length} opération(s) interrompue(s) par le redémarrage : reprise dès que le module radio est connecté`);
+      const debut = Date.now();
+      const attendre = setInterval(() => {
+        if (radio.infos().connecte) {
+          clearInterval(attendre);
+          for (const t of aReprendre) { journal(`${t.nom} reprise (${t.noeuds.filter((n) => n.statut === 'en_attente').length} nœud(s) restant(s))`); executerTache(t); }
+        } else if (Date.now() - debut > 30 * 60000) {
+          clearInterval(attendre);
+          for (const t of aReprendre) { for (const n of t.noeuds) if (n.statut === 'en_attente') { n.statut = 'annule'; n.detail = 'module radio non reconnecté dans les 30 min après le redémarrage'; } t.fin = Date.now(); }
+          sauverTaches();
+        }
+      }, 5000);
+      attendre.unref && attendre.unref();
+    }
+  } catch { /* aucune tâche enregistrée */ }
 
   function resumeParams(t) {
     const p = t.params || {};
@@ -678,6 +786,8 @@ function creerAdministration(radio, stockage) {
     relancer,
     ELEMENTS: Object.fromEntries(Object.entries(ELEMENTS).map(([k, v]) => [k, v.nom])),
     administrables: () => administrables,
+    etatCles,
+    modulesCles: () => modulesCles,
     lecturesConnues: () => [...lectures.entries()].map(([num, l]) => ({ num, heure: l.heure, complete: !!(l.canauxFin && l.lora && l.device) })),
     taches: () => [...taches.values()].reverse().map((t) => ({ ...t, params: undefined, resume: resumeParams(t), noeuds: t.noeuds.map(({ resultat, etapes, ...n }) => ({ ...n, partiel: !!resultat })) })),
     infos: () => {
