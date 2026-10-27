@@ -132,7 +132,9 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     return cache;
   };
   const parPrefixe = (p) => { noeudsCache(); return (index.get(p.slice(0, 2)) || []).filter((n) => n.cle.startsWith(p)); };
-  const invalider = () => { cache = null; };
+  // Chaque annonce ou statut d'observateur (plusieurs par seconde avec le flux national) demande un rafraîchissement :
+  // on le fait au plus toutes les 5 s au lieu de relire les milliers de nœuds à chaque paquet
+  const invalider = () => { if (Date.now() - cacheHeure < 25000) cacheHeure = Date.now() - 25000; };
 
   // Préfixe de chemin (1 à 3 octets) → clé complète d'un relais, en levant l'ambiguïté par la géographie.
   // voisin : nœud (avec position) adjacent dans le chemin et déjà résolu.
