@@ -631,11 +631,12 @@ app.get('/api/admin-noeuds/cles', (req, res) => {
   const dansZ = (n) => !z || (n.lat != null && n.lat >= z[0] && n.lat <= z[2] && n.lon >= z[1] && n.lon <= z[3]);
   const infra = stockage.q.noeuds.all().filter((n) => dansZ(n) && reseau.vueNoeud(n, true).infrastructure).map((n) => n.num >>> 0);
   const nums = [...new Set([...infra, ...Object.keys(adm).map(Number)])].filter((n) => peutGerer(req, n));
-  const etats = administration.etatCles(nums).map((e) => {
+  const nomModule = (num, defaut) => { const n = stockage.q.noeud.get(num >>> 0); return (n && (n.nom_long || n.nom_court)) || defaut; };
+  const etats = administration.etatCles(nums, nomModule).map((e) => {
     const n = stockage.q.noeud.get(e.num), f = installations.lire(e.num, true) || {};
     return { ...e, nom: n ? n.nom_long || n.nom_court || reseau.vueNoeud(n, true).id : '!' + e.num.toString(16), id: '!' + e.num.toString(16).padStart(8, '0'), lat: n ? n.lat : null, lon: n ? n.lon : null, dernierVu: n ? n.dernier_vu : null, aFaireNote: f.aFaire || '', site: f.site || '' };
   });
-  res.set('Cache-Control', 'no-store').json({ modules: Object.entries(administration.modulesCles()).map(([num, m]) => ({ num: Number(num), nom: m.nom, vu: m.vu })), noeuds: etats });
+  res.set('Cache-Control', 'no-store').json({ modules: Object.entries(administration.modulesCles()).map(([num, m]) => ({ num: Number(num), nom: nomModule(num, m.nom), vu: m.vu })), noeuds: etats });
 });
 app.post('/api/noeuds/:num/a-faire', (req, res) => {
   if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });

@@ -626,15 +626,17 @@ function creerAdministration(radio, stockage) {
   if (minuterieModules.unref) minuterieModules.unref();
   function noterCles() { noterModuleLocal(); }
   // Pour chaque nœud : modules autorisés (d'après la lecture « sécurité »), essais réussis / refusés, emplacements libres
-  function etatCles(nums) {
+  function etatCles(nums, nomDe = (num, d) => d) {
     noterModuleLocal();
-    const modules = Object.entries(modulesCles).map(([num, m]) => ({ num: Number(num), ...m }));
+    const modules = Object.entries(modulesCles).map(([num, m]) => ({ num: Number(num), ...m, nom: nomDe(Number(num), m.nom) }));
+    // Modules déjà utilisés pour programmer, mais pas encore reconnectés depuis cette version (clé inconnue)
+    for (const e of Object.values(administrables)) for (const num of e.modules || []) if (num && !modules.some((m) => m.num === num)) modules.push({ num, cle: null, nom: nomDe(num, idNoeud(num)) });
     return nums.map((num) => {
       const a = administrables[num] || {}, l = lectures.get(num) || {}, sec = l.securite || null;
       const parModule = modules.map((m) => {
         // Anciennes entrées sans détail par module : le dernier résultat vaut pour les modules qui ont essayé
         const essai = (a.parModule || {})[m.num] || (!a.parModule && (a.modules || []).includes(m.num) && a.ok != null ? { ok: a.ok, heure: a.heure } : null);
-        const dansCles = sec ? sec.adminKeys.includes(m.cle) : null;
+        const dansCles = sec && m.cle ? sec.adminKeys.includes(m.cle) : null;
         return { num: m.num, nom: m.nom, autorise: dansCles === true || (essai && essai.ok) ? true : dansCles === false || (essai && !essai.ok) ? false : null, essai, dansCles };
       });
       const inconnues = sec ? sec.adminKeys.filter((k) => !modules.some((m) => m.cle === k)).length : null;
