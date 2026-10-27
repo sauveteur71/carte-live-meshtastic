@@ -524,10 +524,11 @@ function creerRelief(config, journal, fournisseurs) {
   // (min = niveau d'accès minimal des sites retenus : 0 tous, 1 à pied, 2 en 4×4, 3 en voiture)
   let dernierCalcul = null;
   const compter = (b) => { let n = 0; for (let w = 0; w < b.length; w++) { let x = b[w]; while (x) { x &= x - 1; n++; } } return n; };
-  function planGlouton(couvertures, deja, existants, min) {
+  function planGlouton(couvertures, deja, existants, min, { max = 12, cible = Infinity, gainMin = 40 } = {}) {
     const choisis = [];
     const cumul = Uint32Array.from(deja);
-    for (let etape = 0; etape < 12; etape++) {
+    for (let etape = 0; etape < max; etape++) {
+      if (compter(cumul) >= cible) break;
       let meilleur = null, gainMax = 0;
       for (const c of couvertures) {
         if (!accessible(c.s, min)) continue;
@@ -536,12 +537,92 @@ function creerRelief(config, journal, fournisseurs) {
         for (let w = 0; w < cumul.length; w++) { let x = c.bits[w] & ~cumul[w]; while (x) { x &= x - 1; g++; } }
         if (g > gainMax) { gainMax = g; meilleur = c; }
       }
-      if (!meilleur || gainMax < 40) break;
+      if (!meilleur || gainMax < gainMin) break;
       for (let w = 0; w < cumul.length; w++) cumul[w] |= meilleur.bits[w];
       choisis.push({ s: meilleur.s, gain: gainMax, total: compter(cumul) });
     }
     return choisis;
   }
+  // Plan pour couvrir le département : objectif en %, nombre maximal de sites, niveau d'accès exigé
+  function planDepartement({ objectifPct = 95, max = 15, acces: filtre = null, avecReseau = true } = {}) {
+    if (!dernierCalcul) return null;
+    const min = niveauMin(filtre);
+    const deja = avecReseau ? dernierCalcul.deja : new Uint32Array(dernierCalcul.deja.length);
+    const depart = compter(deja);
+    const cible = Math.ceil((Math.min(100, Math.max(10, objectifPct)) / 100) * nbZone);
+    const choisis = planGlouton(dernierCalcul.couvertures, deja, avecReseau ? dernierCalcul.existants : [], min, { max: Math.min(40, Math.max(1, max)), cible, gainMin: 8 });
+    const finale = choisis.length ? choisis[choisis.length - 1].total : depart;
+    // Image : déjà couvert par le réseau (bleu), apporté par les nouveaux sites (turquoise), non couvert (rouge pâle)
+    const cumul = Uint32Array.from(deja);
+    for (const c of choisis) { const cs = dernierCalcul.couvertures.find((x) => x.s.id === c.s.id); if (cs) for (let w = 0; w < cumul.length; w++) cumul[w] |= cs.bits[w]; }
+    const rgba = Buffer.alloc(nLat * nLon * 4);
+    for (let i = 0; i < nLat; i++) for (let j = 0; j < nLon; j++) {
+      const z = indexZone[i * nLon + j];
+      if (z < 0) continue;
+      const w = z >>> 5, b = 1 << (z & 31);
+      const o = ((nLat - 1 - i) * nLon + j) * 4;
+      const c = deja[w] & b ? [96, 165, 250, 95] : cumul[w] & b ? [62, 230, 196, 140] : [255, 92, 108, 70];
+      rgba[o] = c[0]; rgba[o + 1] = c[1]; rgba[o + 2] = c[2]; rgba[o + 3] = c[3];
+    }
+    const candidats = dernierCalcul.couvertures.filter((c) => accessible(c.s, min)).length;
+    return {
+      objectifPct, max, filtreAcces: filtre || 'tous', avecReseau, candidats,
+      surfaceDepartementKm2: Math.round(nbZone * aireCelleKm2),
+      departPct: +((depart / nbZone) * 100).toFixed(1),
+      finalPct: +((finale / nbZone) * 100).toFixed(1),
+      atteint: finale >= cible,
+      reseau: avecReseau ? dernierCalcul.existants.map((n) => ({ nom: n.nom, lat: n.lat, lon: n.lon })) : [],
+      sites: choisis.map((c, k) => {
+        const sm = sommets[c.s.id] || c.s;
+        return { rang: k + 1, id: c.s.id, nom: c.s.nom, commune: sm.commune || c.s.commune, lat: c.s.lat, lon: c.s.lon, alt: c.s.alt, acces: sm.acces || null,
+          gainKm2: Math.round(c.gain * aireCelleKm2), totalPct: +((c.total / nbZone) * 100).toFixed(1) };
+      }),
+      parametres: classement ? classement.parametres : null,
+      image: png(nLon, nLat, rgba),
+    };
+  }
+
+  // Couverture cumulée de plusieurs sites (2 à 10) : image commune (meilleure marge par cellule),
+  // surface totale et apport propre de chaque site (ce qu'il est seul à couvrir)
+  function couverturePngMulti(sites, opts) {
+    const P = parametres(opts);
+    const N = nLat * nLon;
+    const marges = new Float32Array(N).fill(-Infinity);
+    const nbCouvrants = new Uint8Array(N), seulPar = new Int8Array(N).fill(-1);
+    const parSite = sites.map((site, idx) => {
+      const m = new Float32Array(N).fill(-Infinity);
+      const Ps = site.h != null ? parametres({ ...opts, hs: site.h }) : P;
+      balayer(site, Ps, 1440, 150, (k, v) => { if (k >= 0 && v > m[k]) m[k] = v; });
+      let couvert = 0, zone = 0;
+      for (let k = 0; k < N; k++) {
+        if (m[k] > marges[k]) marges[k] = m[k];
+        if (m[k] >= 0) { couvert++; if (masque[k]) zone++; nbCouvrants[k]++; seulPar[k] = nbCouvrants[k] === 1 ? idx : -1; }
+      }
+      return { km2: Math.round(couvert * aireCelleKm2), pctZone: +((zone / nbZone) * 100).toFixed(1) };
+    });
+    const propre = new Array(sites.length).fill(0);
+    const rgba = Buffer.alloc(N * 4);
+    let couvert = 0, couvertZone = 0;
+    for (let i = 0; i < nLat; i++) for (let j = 0; j < nLon; j++) {
+      const k = i * nLon + j, m = marges[k];
+      const o = ((nLat - 1 - i) * nLon + j) * 4;
+      let c = null;
+      if (m >= 10) c = [62, 230, 196, 150];
+      else if (m >= 0) c = [244, 211, 94, 135];
+      else if (m >= -8) c = [243, 154, 74, 38];
+      if (m >= 0) { couvert++; if (masque[k]) { couvertZone++; if (nbCouvrants[k] === 1 && seulPar[k] >= 0) propre[seulPar[k]]++; } }
+      if (c) { rgba[o] = c[0]; rgba[o + 1] = c[1]; rgba[o + 2] = c[2]; rgba[o + 3] = c[3]; }
+    }
+    return {
+      image: png(nLon, nLat, rgba),
+      surfaceKm2: Math.round(couvert * aireCelleKm2),
+      surfaceZoneKm2: Math.round(couvertZone * aireCelleKm2),
+      pctZone: +((couvertZone / nbZone) * 100).toFixed(1),
+      sites: sites.map((st, i) => ({ ...parSite[i], propreKm2: Math.round(propre[i] * aireCelleKm2), sol: Number.isNaN(alt(st.lat, st.lon)) ? null : Math.round(alt(st.lat, st.lon)) })),
+      env: P.env, rayonKm: P.rayonMax / 1000,
+    };
+  }
+
   // Classement filtré par accès (calcul rapide : les couvertures sont déjà en mémoire)
   function classementAcces(filtre) {
     const min = niveauMin(filtre);
@@ -785,6 +866,8 @@ function creerRelief(config, journal, fournisseurs) {
       meilleursIndividuels: classement.meilleursIndividuels.map((p) => ({ ...p, commune: sommets[p.id] ? sommets[p.id].commune : p.commune })),
     },
     couverturePng,
+    couverturePngMulti,
+    planDepartement,
     couvrirPoint,
     couvrirPoints,
     relierPoints,

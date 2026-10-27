@@ -1251,9 +1251,14 @@ async function ficheSommet(s) {
       <div class="mesure"><span>Part du département</span><b>${r ? fmt(r.pctZone, 1, ' %') : '–'}</b></div>
       ${s.rang ? `<div class="mesure"><span>Classement individuel</span><b>${s.rang}ᵉ</b></div>` : ''}
     </div>
-    <div class="actions-prop"><button id="sommet-couvrir">Couvrir ce point (4 points hauts)</button></div>
+    <div class="actions-prop"><button id="sommet-couvrir">Couvrir ce point (4 points hauts)</button><button id="sommet-ajout-couv" class="principal">${etat.sitesCouv && etat.sitesCouv.length ? `＋ Ajouter à la couverture totale (${etat.sitesCouv.length + 1} sites)` : '＋ Ajouter un site (couverture totale)'}</button></div>
     <p class="note">Couverture calculée avec une antenne à ${$('#relief-hs') ? $('#relief-hs').value : 6} m (réglable dans l'onglet Sites).</p>`;
   $('#sommet-couvrir').onclick = () => couvrirPoint(L.latLng(s.lat, s.lon));
+  $('#sommet-ajout-couv').onclick = () => {
+    const h = Number($('#relief-hs') ? $('#relief-hs').value : 6) || 6;
+    if (etat.sitesCouv && etat.sitesCouv.length) couvertureMulti([...etat.sitesCouv, { lat: s.lat, lon: s.lon, h, nom: nomSommet(s) }].slice(0, 10));
+    else { etat.sitesCouv = [{ lat: s.lat, lon: s.lon, h, nom: nomSommet(s) }]; basculerMode('couv-plus'); }
+  };
 }
 
 // Superpose aux zones calculées les liaisons réellement mesurées du nœud
@@ -1293,10 +1298,85 @@ async function couvertureIci(latlng, hauteur) {
     <div class="actions-prop">
       <button id="recalc-ici">Recalculer</button>
       <button id="couvrir-ici">Trouver 4 points hauts pour couvrir ce point</button>
+      <button id="ajout-site-couv" class="principal">＋ Ajouter un site (couverture totale)</button>
     </div>
     <p class="note">Turquoise : liaison confortable (≥ 10 dB de marge) · jaune : probable (0 à 10 dB) · orange : en limite. Le point desservi est supposé à 2 m du sol. ${r.env != null ? `Pertes de végétation et bâti : ${r.env} dB.` : ''}</p>`;
   $('#recalc-ici').onclick = () => couvertureIci(latlng, Number($('#h-ici').value) || 6);
   $('#couvrir-ici').onclick = () => couvrirPoint(latlng);
+  $('#ajout-site-couv').onclick = () => { etat.sitesCouv = [{ lat: p.lat, lon: p.lon, h: Number($('#h-ici').value) || h, nom: 'Point choisi' }]; basculerMode('couv-plus'); };
+}
+
+// ---- Couverture totale de plusieurs sites -----------------------------------------------------
+async function couvertureMulti(sites) {
+  etat.sitesCouv = sites;
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  $('#fiche-contenu').innerHTML = `<h2>Couverture de ${sites.length} site${sites.length > 1 ? 's' : ''}</h2><div class="alerte info-lecture"><span class="sablier"></span> Calcul de la couverture cumulée…</div>`;
+  const q = sites.map((x) => `${x.lat.toFixed(5)},${x.lon.toFixed(5)},${x.h}`).join(';');
+  let r;
+  try { r = await api(`/api/relief/couverture-multi?pts=${q}${etat.vueReseau === 'meshcore' ? '&preset=MESHCORE_FR' : ''}`); } catch (e) { $('#fiche-contenu').innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  if (etat.coucheCouverture) etat.coucheCouverture.remove();
+  const e = r.emprise, g = L.layerGroup();
+  L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.75, pane: 'couverture', className: 'pixelise' }).addTo(g);
+  sites.forEach((x, i) => L.marker([x.lat, x.lon], { icon: L.divIcon({ className: 'sommet plan', html: `<span>${i + 1}</span>`, iconSize: [22, 22], iconAnchor: [11, 11] }), pane: 'traces', zIndexOffset: 900 })
+    .bindTooltip(`<b>${i + 1} · ${esc(x.nom || 'Site')}</b><br>antenne ${x.h} m · ${r.sites[i].km2} km² · apport propre ${r.sites[i].propreKm2} km²`, { className: 'info' }).addTo(g));
+  g.addTo(carte);
+  etat.coucheCouverture = g;
+  $('#btn-effacer').hidden = false;
+  carte.fitBounds(L.latLngBounds(sites.map((x) => [x.lat, x.lon])).pad(0.6), { maxZoom: 11 });
+  $('#fiche-contenu').innerHTML = `<h2>Couverture de ${sites.length} site${sites.length > 1 ? 's' : ''}</h2>
+    <div class="grille">
+      <div class="mesure"><span>Surface couverte</span><b>${r.surfaceKm2} km²</b></div>
+      <div class="mesure"><span>Part du département</span><b>${fmt(r.pctZone, 1, ' %')}</b></div>
+      <div class="mesure"><span>Sites</span><b>${sites.length}</b></div>
+    </div>
+    <div class="liste-cibles">${sites.map((x, i) => `<div class="ligne-cible"><span class="cible-multi petit"><span>${i + 1}</span></span><span>${esc(x.nom || 'Site')} <small class="mono">${x.lat.toFixed(4)}, ${x.lon.toFixed(4)}</small><br><small>antenne <input class="mini-h" data-h="${i}" type="number" min="0.5" max="80" step="0.5" value="${x.h}"> m · ${r.sites[i].km2} km² seul · <b>${r.sites[i].propreKm2} km²</b> qu’il est seul à couvrir dans le département</small></span>${sites.length > 1 ? `<button class="mini" data-retirer-site="${i}" title="Retirer ce site">✕</button>` : ''}</div>`).join('')}</div>
+    <div class="actions-prop">${sites.length < 10 ? '<button id="ajout-site-multi" class="principal">＋ Ajouter un site</button>' : ''}<button id="recalc-multi">Recalculer</button><button id="gpx-couv-multi">Télécharger (GPX)</button></div>
+    <p class="note">Cliquez « Ajouter un site » puis un point de la carte (ou clic droit → « Ajouter à la couverture totale »). Un site qui couvre peu de surface à lui seul fait doublon avec les autres. Turquoise : ≥ 10 dB de marge · jaune : 0 à 10 dB · orange : en limite.</p>`;
+  const ba = $('#ajout-site-multi'); if (ba) ba.onclick = () => basculerMode('couv-plus');
+  $('#recalc-multi').onclick = () => { $('#fiche-contenu').querySelectorAll('[data-h]').forEach((el) => { sites[Number(el.dataset.h)].h = Number(el.value) || 6; }); couvertureMulti(sites); };
+  $('#fiche-contenu').querySelectorAll('[data-retirer-site]').forEach((b) => (b.onclick = () => couvertureMulti(sites.filter((_, i) => i !== Number(b.dataset.retirerSite)))));
+  $('#gpx-couv-multi').onclick = () => telechargerGpx('couverture-sites.gpx', sites.map((x, i) => ({ lat: x.lat, lon: x.lon, alt: r.sites[i].sol, nom: `${i + 1} - ${x.nom || 'Site'}`, desc: `Antenne ${x.h} m, ${r.sites[i].km2} km²` })));
+}
+function ajouterSiteCouverture(latlng) {
+  const lieu = nomLieu(latlng);
+  const h = Number($('#relief-hs') ? $('#relief-hs').value : 6) || 6;
+  couvertureMulti([...(etat.sitesCouv || []), { lat: lieu.lat, lon: lieu.lon, h, nom: lieu.nom }].slice(0, 10));
+}
+
+// ---- Plan pour couvrir le département ------------------------------------------------------------
+async function planDepartement() {
+  const objectif = Number($('#plan-objectif').value) || 95, max = Number($('#plan-max').value) || 15;
+  const acces = $('#plan-acces').value, reseau = $('#plan-reseau').checked;
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  $('#fiche-contenu').innerHTML = '<h2>Plan de couverture</h2><div class="alerte info-lecture"><span class="sablier"></span> Recherche des sites…</div>';
+  let r;
+  try { r = await api(`/api/relief/plan?objectif=${objectif}&max=${max}&acces=${acces}&reseau=${reseau ? 1 : 0}`); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Plan de couverture</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  if (etat.coucheCouverture) etat.coucheCouverture.remove();
+  const e = r.emprise, g = L.layerGroup();
+  L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.7, pane: 'couverture', className: 'pixelise' }).addTo(g);
+  r.sites.forEach((x) => L.marker([x.lat, x.lon], { icon: L.divIcon({ className: 'relais-a-installer', html: `<div class="epingle"><b>${x.rang}</b></div>`, iconSize: [34, 44], iconAnchor: [17, 42] }), pane: 'traces', zIndexOffset: 900 })
+    .bindTooltip(`<b>${x.rang} · ${esc(nomSommet(x))}</b><br>${x.alt} m${x.commune ? ' · ' + esc(x.commune) : ''}<br>+${x.gainKm2} km² · cumul ${fmt(x.totalPct, 1, ' %')}<br>${x.acces ? ACCES[x.acces.type].icone + ' ' + ACCES[x.acces.type].nom : 'accès non évalué'}`, { className: 'info' }).addTo(g));
+  g.addTo(carte);
+  etat.coucheCouverture = g;
+  $('#btn-effacer').hidden = false;
+  if (r.sites.length) carte.fitBounds(L.latLngBounds(r.sites.map((x) => [x.lat, x.lon])).pad(0.3), { maxZoom: 11 });
+  const nomAcces = { tous: 'tous les points hauts', voiture: 'accessibles en voiture', '4x4': 'accessibles en 4×4 ou voiture', pied: 'accessibles à pied, en 4×4 ou voiture' }[r.filtreAcces];
+  $('#fiche-contenu').innerHTML = `<h2>Plan pour couvrir le département</h2>
+    <div class="ident">Objectif ${r.objectifPct} % · au plus ${r.max} sites · ${esc(nomAcces)} · ${r.avecReseau ? `en complément du réseau actuel (${r.reseau.length} relais)` : 'sans tenir compte du réseau actuel'}</div>
+    <div class="barre-couv"><i style="width:${r.departPct}%" class="actuel"></i><i style="width:${Math.max(0, r.finalPct - r.departPct)}%" class="ajout"></i></div>
+    <div class="alerte ${r.atteint ? 'info-lecture' : 'attention'}">${r.atteint ? `✔ Objectif atteint avec <b>${r.sites.length} site${r.sites.length > 1 ? 's' : ''}</b> : ${fmt(r.departPct, 1, ' %')} → <b>${fmt(r.finalPct, 1, ' %')}</b> du département.` : `Objectif non atteint : ${fmt(r.departPct, 1, ' %')} → <b>${fmt(r.finalPct, 1, ' %')}</b> avec ${r.sites.length} site${r.sites.length > 1 ? 's' : ''}. ${r.sites.length >= r.max ? 'Augmentez le nombre de sites' : 'Les sites restants n’apportent presque rien'}${r.filtreAcces !== 'tous' ? ' ou élargissez l’accès' : ''}.`}</div>
+    ${r.sites.map((x) => `<div class="proposition etape-relier nouveau">
+      <div class="entete-prop"><span class="lettre">${x.rang}</span><b>${esc(nomSommet(x))}</b><span class="marge">+${x.gainKm2} km² · ${fmt(x.totalPct, 1, ' %')}</span></div>
+      <div class="meta-longue">${x.alt} m${x.commune ? ' · ' + esc(x.commune) : ''}</div>
+      <div class="meta-longue">Accès : ${texteAcces(x.acces)}</div>
+      ${blocCoords(x.lat, x.lon, { alt: x.alt })}
+    </div>`).join('') || '<div class="vide">Aucun site ne répond à ces critères.</div>'}
+    <div class="actions-prop"><button id="plan-gpx">Télécharger les sites (GPX)</button>${r.sites.length >= 2 && r.sites.length <= 10 ? '<button id="plan-couv">Couverture détaillée (marges)</button>' : ''}</div>
+    <p class="note">Bleu : déjà couvert par le réseau · turquoise : apporté par les nouveaux sites · rouge : reste non couvert. Chaque site est choisi pour couvrir le plus de surface encore non desservie. ${r.candidats} points hauts candidats.${r.parametres ? ` Antennes ${r.parametres.hs} m, ${esc(r.parametres.preset)}, marge ${r.parametres.margeSecurite} dB + ${r.parametres.env} dB de pertes d’environnement.` : ''}</p>`;
+  $('#plan-gpx').onclick = () => telechargerGpx('plan-couverture.gpx', r.sites.map((x) => ({ lat: x.lat, lon: x.lon, alt: x.alt, nom: `${x.rang} - ${nomSommet(x)}`, desc: `+${x.gainKm2} km², cumul ${x.totalPct} %${x.acces ? ', accès ' + ACCES[x.acces.type].nom : ''}` })));
+  const pc = $('#plan-couv'); if (pc) pc.onclick = () => couvertureMulti(r.sites.map((x) => ({ lat: x.lat, lon: x.lon, h: (r.parametres && r.parametres.hs) || 6, nom: nomSommet(x) })));
 }
 
 function rendreSites() {
@@ -1312,7 +1392,17 @@ function rendreSites() {
   const avecCoords = (s, sous) => `${sous || ''} · <span class="mono">${s.lat.toFixed(5)}, ${s.lon.toFixed(5)}</span>`;
   const ligneSite = (s, droite, sous, badge, or) => `<div class="ligne site" data-site="${s.id}"><span class="rang-site${or ? ' or' : ''}">${badge ?? ''}</span><span class="titre">${esc(nomSommet(s))} ${badgeAcces(s)}<small>${s.alt} m${s.commune && s.nom ? ' · ' + esc(s.commune) : ''}</small></span><span class="meta">${droite}</span><span class="sous-ligne meta-longue">${avecCoords(s, sous)}</span></div>`;
   const parId = new Map(etat.sommets.map((s) => [s.id, s]));
-  let h = `<p class="note">Cliquez un point de la carte avec <b>Couvrir</b> pour obtenir 4 sites capables de le desservir. Cliquez un site pour afficher sa couverture.</p>
+  let h = `<div class="bloc-plan" id="bloc-plan">
+      <h3>🎯 Plan pour couvrir le département</h3>
+      <div class="parametres compact">
+        <label>Objectif (%) <input id="plan-objectif" type="number" min="10" max="100" step="1" value="95"></label>
+        <label>Sites au plus <input id="plan-max" type="number" min="1" max="40" step="1" value="15"></label>
+        <label>Accès exigé <select id="plan-acces"><option value="voiture">🚗 En voiture</option><option value="4x4">🚙 En 4×4 ou voiture</option><option value="pied">🥾 À pied ou mieux</option><option value="tous">Tous les points hauts</option></select></label>
+      </div>
+      <label class="case"><input type="checkbox" id="plan-reseau" checked> En complément du réseau actuel</label>
+      <div class="actions-prop"><button id="plan-calculer" class="principal">Donner les emplacements</button></div>
+    </div>
+    <p class="note">Cliquez un point de la carte avec <b>Couvrir</b> pour obtenir 4 sites capables de le desservir. Cliquez un site pour afficher sa couverture.</p>
     <div class="parametres compact">
       <label>Antenne des sites (m) <input id="relief-hs" type="number" min="1" max="60" step="1" value="${c ? c.parametres.hs : 6}"></label>
       <label>Antenne à couvrir (m) <input id="relief-ht" type="number" min="0.5" max="20" step="0.5" value="${c ? c.parametres.ht : 2}"></label>
@@ -1341,6 +1431,14 @@ function rendreSites() {
   if (c) h += `<div class="actions-prop"><button id="gpx-sites">Télécharger les sites recommandés (GPX)</button><button id="gpx-sommets">Tous les points hauts (GPX)</button></div>`;
   h += `<div id="couverture-info" class="note"></div>`;
   z.innerHTML = h;
+  const pc = $('#plan-calculer');
+  if (pc) {
+    try { const v = localStorage.getItem('gaulix_plan'); if (v) { const o = JSON.parse(v); $('#plan-objectif').value = o.objectif; $('#plan-max').value = o.max; $('#plan-acces').value = o.acces; $('#plan-reseau').checked = o.reseau; } } catch { /* ignoré */ }
+    pc.onclick = () => {
+      try { localStorage.setItem('gaulix_plan', JSON.stringify({ objectif: $('#plan-objectif').value, max: $('#plan-max').value, acces: $('#plan-acces').value, reseau: $('#plan-reseau').checked })); } catch { /* ignoré */ }
+      planDepartement();
+    };
+  }
   const fa = $('#filtre-acces');
   if (fa) {
     fa.value = etat.filtreAcces;
@@ -1609,7 +1707,8 @@ function basculerMode(mode) {
   $('#btn-couvrir').classList.toggle('actif', mode === 'couvrir' || mode === 'couvrir-plus');
   $('#btn-couvrir').textContent = mode === 'couvrir' ? 'Cliquez le point à couvrir…' : mode === 'couvrir-plus' ? `Cliquez le point ${(etat.ciblesMulti || []).length + 1}…` : 'Couvrir';
   $('#btn-couv-ici').classList.toggle('actif', mode === 'ici');
-  $('#btn-couv-ici').textContent = mode === 'ici' ? 'Cliquez l’emplacement…' : 'Couverture';
+  $('#btn-couv-ici').classList.toggle('actif', mode === 'ici' || mode === 'couv-plus');
+  $('#btn-couv-ici').textContent = mode === 'ici' ? 'Cliquez l’emplacement…' : mode === 'couv-plus' ? `Cliquez le site ${(etat.sitesCouv || []).length + 1}…` : 'Couverture';
   $('#btn-relier').classList.toggle('actif', mode === 'relier');
   $('#btn-relier').textContent = mode === 'relier' ? (etat.relierA ? 'Cliquez l’arrivée…' : 'Cliquez le départ…') : 'Relier';
   if (mode !== 'relier') { etat.relierA = null; if (etat.repereRelier) { etat.repereRelier.remove(); etat.repereRelier = null; } }
@@ -1714,7 +1813,7 @@ function placerLieu(l) {
   div.className = 'popup-lieu';
   div.innerHTML = `<b>${esc(l.nom)}</b>${l.detail ? `<div class="meta-longue">${esc(l.detail)}</div>` : ''}
     ${blocCoords(l.lat, l.lon, { alt: l.alt })}
-    <div class="menu-contexte"><button data-a="ici">Couverture depuis ici</button><button data-a="couvrir">Couvrir ce point (4 points hauts)</button>${etat.ciblesMulti && etat.ciblesMulti.length && etat.ciblesMulti.length < 5 ? `<button data-a="couvrir-plus">Ajouter aux points à couvrir (${etat.ciblesMulti.length + 1})</button>` : ''}${l.num != null ? '<button data-a="fiche">Fiche du nœud</button>' : ''}</div>`;
+    <div class="menu-contexte"><button data-a="ici">Couverture depuis ici</button><button data-a="couvrir">Couvrir ce point (4 points hauts)</button>${etat.sitesCouv && etat.sitesCouv.length && etat.sitesCouv.length < 10 ? `<button data-a="couv-plus">Ajouter à la couverture totale (${etat.sitesCouv.length + 1} sites)</button>` : ''}${etat.ciblesMulti && etat.ciblesMulti.length && etat.ciblesMulti.length < 5 ? `<button data-a="couvrir-plus">Ajouter aux points à couvrir (${etat.ciblesMulti.length + 1})</button>` : ''}${l.num != null ? '<button data-a="fiche">Fiche du nœud</button>' : ''}</div>`;
   div.onclick = (ev) => {
     const a = ev.target.closest('button[data-a]');
     if (!a) return;
@@ -2844,6 +2943,7 @@ function brancherInterface() {
     if (!m) return;
     if (m === 'relier') { choisirPointRelier(e.latlng); return; }
     if (m === 'couvrir-plus') { basculerMode(null); ajouterCible(e.latlng); return; }
+    if (m === 'couv-plus') { basculerMode(null); ajouterSiteCouverture(e.latlng); return; }
     basculerMode(null);
     if (m === 'couvrir') { etat.ciblesMulti = null; couvrirPoint(e.latlng); } else couvertureIci(e.latlng, Number($('#relief-hs') ? $('#relief-hs').value : 6) || 6);
   });
@@ -2862,11 +2962,17 @@ function brancherInterface() {
         choisirPointProfil({ lat: e.latlng.lat, lon: e.latlng.lng, nom: `Point ${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`, h: 3 });
       } else if (a.dataset.a === 'relier') { if (etat.modeCarte !== 'relier') { etat.relierA = null; basculerMode('relier'); } choisirPointRelier(e.latlng); }
       else if (a.dataset.a === 'couvrir-plus') ajouterCible(e.latlng);
+      else if (a.dataset.a === 'couv-plus') ajouterSiteCouverture(e.latlng);
       else if (a.dataset.a === 'ici') couvertureIci(e.latlng, 6); else { etat.ciblesMulti = null; couvrirPoint(e.latlng); }
     };
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && etat.modeCarte) basculerMode(null); });
   $('#sel-zone').onchange = (e) => { etat.zoneMode = e.target.value; appliquerZone(true); if (typeof mcRedessiner === 'function') { mc.vue = null; mcRedessiner(); mcMajAlertes(); } };
+  $('#aller-plan').onclick = () => {
+    const b = document.querySelector('.onglets button[data-onglet="sites"]');
+    if (b) b.click();
+    setTimeout(() => { const bp = $('#bloc-plan'); if (bp) { bp.scrollIntoView({ behavior: 'smooth', block: 'start' }); bp.classList.add('surbrillance'); setTimeout(() => bp.classList.remove('surbrillance'), 1500); } }, 150);
+  };
   $('#btn-profil').onclick = () => {
     const actif = !etat.modeProfil;
     if (actif && etat.modeCarte) basculerMode(null);
@@ -2887,6 +2993,7 @@ function brancherInterface() {
   $('#rejeu-curseur').oninput = (e) => placerRejeu(Number(e.target.value));
   $('#btn-effacer').onclick = () => {
     etat.ciblesMulti = null;
+    etat.sitesCouv = null;
     if (etat.coucheCouverture) etat.coucheCouverture.remove();
     if (etat.coucheCouvrir) etat.coucheCouvrir.remove();
     etat.coucheCouverture = null; etat.coucheCouvrir = null; $('#btn-effacer').hidden = true;

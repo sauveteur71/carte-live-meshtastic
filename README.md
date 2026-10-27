@@ -24,6 +24,8 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - Analyse du trafic, rejeu de l'historique, profils radio entre deux points quelconques
 
 **Relief et sites**
+- **Plan pour couvrir le département** : objectif (%), nombre maximal de sites et accès exigé (voiture, 4×4, à pied) → liste des emplacements avec leur accès, la surface apportée et la carte de ce qui reste à couvrir
+- **Couverture totale de plusieurs sites** (jusqu'à 10) : surface cumulée et apport propre de chaque site
 - Modèle de terrain IGN (RGE ALTI), couverture estimée d'un nœud ou de n'importe quel point de la carte, calibrée sur les liaisons réellement mesurées
 - Points hauts du département, classement des **meilleurs sites à ajouter**, « couvrir un point » (4 sites capables de le desservir) ou **plusieurs points (2 à 5) avec un seul site relais** — à défaut, la meilleure paire de sites
 - **Accès aux sites** d'après OpenStreetMap : en voiture, en 4×4, à pied ou hors chemin

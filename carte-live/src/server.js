@@ -234,6 +234,33 @@ app.get('/api/relief/couverture', (req, res) => {
   }
   res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: relief.emprise(), surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sol: r.sol, env: r.env, rayonKm: r.rayonKm });
 });
+// Couverture cumulée : ?pts=lat,lon[,hauteur];lat,lon[,hauteur];… (2 à 10 sites)
+app.get('/api/relief/couverture-multi', (req, res) => {
+  const sites = String(req.query.pts || '').split(';').map((x) => x.split(',').map(Number)).filter((x) => x.length >= 2 && x.slice(0, 2).every(Number.isFinite)).slice(0, 10)
+    .map(([lat, lon, h]) => ({ lat, lon, h: Number.isFinite(h) ? Math.min(Math.max(h, 0.5), 100) : undefined }));
+  if (!sites.length) return res.status(400).json({ erreur: 'Aucun site' });
+  if (!relief.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
+  const o = optsRelief(req.query);
+  const cle = JSON.stringify(['multi', sites, o]);
+  let r = cacheCouverture.get(cle);
+  if (!r) {
+    r = relief.couverturePngMulti(sites, o);
+    r.id = crypto.randomBytes(6).toString('hex');
+    cacheCouverture.set(cle, r); cacheCouverture.set(r.id, r);
+    if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
+  }
+  res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: relief.emprise(), surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sites: r.sites, env: r.env, rayonKm: r.rayonKm });
+});
+// Plan pour couvrir le département : ?objectif=95&max=15&acces=voiture&reseau=1
+app.get('/api/relief/plan', (req, res) => {
+  const filtre = ['voiture', '4x4', 'pied'].includes(req.query.acces) ? req.query.acces : null;
+  const r = relief.planDepartement({ objectifPct: Number(req.query.objectif) || 95, max: Number(req.query.max) || 15, acces: filtre, avecReseau: req.query.reseau !== '0' });
+  if (!r) return res.status(503).json({ erreur: 'Le classement des sites est en cours de calcul, réessayez dans une minute' });
+  const id = crypto.randomBytes(6).toString('hex');
+  cacheCouverture.set(id, { image: r.image });
+  if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
+  res.json({ ...r, image: `/api/relief/couverture/${id}.png`, emprise: relief.emprise() });
+});
 app.get('/api/relief/couverture/:id.png', (req, res) => {
   const r = cacheCouverture.get(req.params.id);
   if (!r) return res.status(404).end();
