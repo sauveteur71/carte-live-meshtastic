@@ -831,3 +831,11 @@ body[data-reseau="meshcore"] #sources .ligne:not(#ligne-mc):not(#ligne-broker) {
 .fleche-sens span { display: inline-block; font-size: 22px; text-shadow: 0 0 3px #000; }
 .bouton-lien { display: inline-block; padding: 3px 10px; border: 1px solid var(--bord); border-radius: 6px; color: var(--accent); text-decoration: none; font-size: 12px; } .bouton-lien:hover { border-color: var(--accent); }
 .pastille.ok { background: rgba(62,230,196,.18); color: var(--accent); }
+/* Maintenance */
+.maint-ligne { flex-wrap: wrap; }
+.maint-ligne .sous-ligne { flex-basis: 100%; }
+.etat-fw { width: 18px; text-align: center; font-weight: 700; }
+.etat-fw.a-jour { color: var(--ok); } .etat-fw.retard { color: var(--attention); } .etat-fw.ancien { color: var(--critique); } .etat-fw.inconnu, .etat-fw.connu { color: var(--tres-doux); }
+.conseil-role { cursor: pointer; } .conseil-role.attention { border-left-color: var(--attention); } .conseil-role.info { border-left-color: var(--accent); }
+.point.attention { background: var(--attention); box-shadow: 0 0 0 3px rgba(255,181,71,.2); }
+details.maint .ligne .titre, details.maint .ligne .titre small { white-space: normal; overflow: visible; text-overflow: clip; }

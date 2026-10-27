@@ -1244,6 +1244,49 @@ function brancherCurseurProfil(r) {
 }
 
 // ---- Analyse du trafic -----------------------------------------------------------------
+// ---- Maintenance : charge radio, autonomie, firmwares, rôles (onglet Statistiques) ----------------------
+const ROLES_LIB = { CLIENT: 'Client', CLIENT_MUTE: 'Client muet', CLIENT_HIDDEN: 'Client caché', CLIENT_BASE: 'Client de base', ROUTER: 'Routeur', ROUTER_LATE: 'Routeur tardif', REPEATER: 'Répéteur', ROUTER_CLIENT: 'Routeur-client (obsolète)', TRACKER: 'Traceur', SENSOR: 'Capteur', TAK: 'TAK', TAK_TRACKER: 'TAK traceur', LOST_AND_FOUND: 'Objet perdu', inconnu: 'Inconnu' };
+async function chargerMaintenance(quoi) {
+  if (!etat.membre) { $('#m-' + quoi).innerHTML = '<div class="vide">Connexion requise.</div>'; return; }
+  const z = $('#m-' + quoi), r$ = $('#r-m-' + quoi);
+  z.innerHTML = '<div class="vide">Chargement…</div>';
+  let r;
+  try { r = await api('/api/maintenance/' + quoi); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const pt = (niv) => `<span class="point ${niv === 'critique' ? 'alerte' : niv === 'attention' ? 'attention' : 'actif'}"></span>`;
+  const clic = () => z.querySelectorAll('[data-fiche]').forEach((el) => (el.onclick = () => ouvrirFiche(Number(el.dataset.fiche))));
+  if (quoi === 'charge') {
+    const pb = r.filter((x) => x.niveau !== 'ok').length;
+    r$.textContent = r.length ? `${r.length} relais${pb ? ` · ${pb} à surveiller` : ''}` : 'aucune donnée';
+    z.innerHTML = r.length ? r.map((x) => `<div class="ligne maint-ligne" data-fiche="${x.num}">${pt(x.niveau)}<span class="titre">${esc(x.nom)}<small>émission ${fmt(x.emission24, 2, ' %')} en moyenne sur 24 h (max ${fmt(x.emissionMax24, 1, ' %')}) · canal ${fmt(x.canal24, 1, ' %')} (max ${fmt(x.canalMax24, 1, ' %')})${x.joursAvantLimite != null ? ` · <b style="color:var(--attention)">atteindrait 10 % d’émission dans ~${x.joursAvantLimite} j</b>` : x.tendanceEmission > 0.05 ? ` · en hausse (+${fmt(x.tendanceEmission, 2)} %/j)` : ''}</small></span><span class="meta">${fmt(x.emission, 1, ' %')}</span>
+      <span class="sous-ligne">${courbe(x.serie, 'emission', 'Temps d’émission (7 j)', ' %', 1, 10) || ''}</span></div>`).join('')
+      + `<p class="note">Temps d’émission : part du temps où le relais émet ; la limite réglementaire est de 10 % par heure dans la sous-bande 869,4–869,65 MHz. Occupation du canal : part du temps où le relais entend quelqu’un émettre (au-delà de ${etat.config.seuils.canalPourcent} %, les collisions augmentent). Tendance calculée sur 7 jours.</p>`
+      : '<div class="vide">Aucune télémétrie des relais de la zone.</div>';
+  } else if (quoi === 'autonomie') {
+    const pb = r.filter((x) => x.etat === 'critique' || x.etat === 'attention').length;
+    r$.textContent = r.length ? `${r.length} relais${pb ? ` · ${pb} à surveiller` : ''}` : 'aucune donnée';
+    const lib = { secteur: '🔌 secteur', solaire: '☀️ solaire', batterie: '🔋 batterie', 'secteur+batterie': '🔌 + 🔋', 'solaire+batterie': '☀️ + 🔋', autre: 'autre' };
+    z.innerHTML = r.length ? r.map((x) => `<div class="ligne" data-fiche="${x.num}">${pt(x.etat === 'secteur' || x.etat === 'inconnu' ? 'ok' : x.etat === 'ok' ? 'ok' : x.etat)}<span class="titre">${esc(x.nom)}<small>${x.alimentation ? lib[x.alimentation] || esc(x.alimentation) : 'alimentation non renseignée'}${x.tension != null ? ` · ${fmt(x.tension, 2, ' V')}` : ''}${x.dechargeVparJour != null ? ` · décharge ${fmt(x.dechargeVparJour, 3, ' V/j')}` : ''}${x.rechargeV != null ? ` · recharge ${fmt(x.rechargeV, 2, ' V/j')}` : ''}${x.pasDeCharge ? ' · <b style="color:var(--attention)">ne se recharge plus</b>' : ''}</small></span><span class="meta">${x.etat === 'secteur' ? '∞' : x.joursSansSoleil != null ? `<b>${fmt(x.joursSansSoleil, 1)} j</b>` : '–'}</span></div>`).join('')
+      + '<p class="note">« Jours sans soleil » : temps avant 3,3 V si le panneau ne charge plus, d’après la décharge mesurée la nuit (21 h – 6 h) sur 7 jours. Renseignez l’alimentation dans la fiche Installation de chaque relais.</p>'
+      : '<div class="vide">Aucune télémétrie de tension pour les relais de la zone.</div>';
+  } else if (quoi === 'firmwares') {
+    const ref = r.reference && r.reference.stable;
+    const ret = r.noeuds.filter((x) => x.etat === 'ancien' || x.etat === 'retard').length;
+    r$.textContent = ref ? `référence ${ref.v.join('.')}${ret ? ` · ${ret} en retard` : ''}` : `${r.noeuds.length} nœuds`;
+    const lib = { 'a-jour': ['✔', 'à jour'], retard: ['↻', 'en retard'], ancien: ['⚠', 'ancien'], connu: ['?', 'référence indisponible'], inconnu: ['–', 'version inconnue'] };
+    z.innerHTML = `${ref ? `<p class="note">Dernière version stable : <a href="${esc(ref.url)}" target="_blank" rel="noopener">${esc(ref.tag)}</a> (${new Date(ref.date).toLocaleDateString('fr-FR')})${r.reference.test && r.reference.test.tag !== ref.tag ? ` · en test : ${esc(r.reference.test.tag)}` : ''}.</p>` : '<p class="note">Version de référence indisponible (GitHub injoignable).</p>'}
+      <div class="rang">${Object.entries(r.parVersion).sort((a, b) => b[1] - a[1]).map(([v, n]) => `<span class="pastille">${esc(v)} : ${n}</span>`).join(' ')}</div>
+      ${r.noeuds.map((x) => `<div class="ligne" data-fiche="${x.num}"><span class="etat-fw ${x.etat}">${lib[x.etat][0]}</span><span class="titre">${esc(x.nom)}<small>${esc(x.materiel || '')}${x.version ? ' · ' + esc(x.version) : ''}${x.retard ? ' · ' + esc(x.retard) + ' de retard' : ''}</small></span><span class="meta">${lib[x.etat][1]}</span></div>`).join('')}
+      <p class="note">La version vient des annonces des nœuds (rapport de carte) ou d’une lecture de configuration. Un firmware Meshtastic ne se met pas à jour par LoRa : il faut passer sur place (USB, ou Wi-Fi/Bluetooth selon le modèle) avec le flasheur (menu Outils). Les fiches Installation donnent l’accès et le contact de chaque site.</p>`;
+  } else if (quoi === 'roles') {
+    r$.textContent = r.conseils.length ? `${r.conseils.length} conseil${r.conseils.length > 1 ? 's' : ''}` : 'rien à signaler';
+    z.innerHTML = `<div class="rang">${Object.entries(r.repartition).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<span class="pastille">${esc(ROLES_LIB[k] || k)} : ${n}</span>`).join(' ')}</div>
+      ${r.conseils.map((c) => `<div class="proposition conseil-role ${c.niveau}" data-fiche="${c.num}"><div class="entete-prop"><b>${esc(c.nom)}</b><span class="marge">${esc(ROLES_LIB[c.role] || c.role)} → <b>${esc(c.conseil)}</b></span></div><div class="meta-longue">${esc(c.raison)}</div></div>`).join('') || '<div class="vide">Aucun conseil : les rôles paraissent cohérents.</div>'}
+      <p class="note">Conseils calculés d’après la couverture de chaque relais (relief)${r.relief ? '' : ' — <b>relief pas encore prêt : conseils partiels</b>'}, la densité de routeurs et les meilleurs points hauts. Pour changer un rôle : fiche du nœud › Modifier ses réglages, ou onglet Programmer.</p>`;
+  }
+  clic();
+}
+document.addEventListener('toggle', (e) => { const d = e.target; if (d.matches && d.matches('details.maint') && d.open) chargerMaintenance(d.dataset.maint); }, true);
+
 // ---- Historique long (résumés horaires / journaliers) ------------------------------------------------
 async function chargerHistorique() {
   const z = $('#historique');
@@ -3310,7 +3353,7 @@ function brancherInterface() {
     document.querySelectorAll('.onglets button').forEach((x) => x.classList.toggle('actif', x === b));
     document.querySelectorAll('.vue').forEach((v) => v.classList.toggle('actif', v.dataset.vue === b.dataset.onglet));
     if (b.dataset.onglet === 'messages') chargerMessages();
-    if (b.dataset.onglet === 'analyse') { chargerAnalyse(); chargerHistorique(); }
+    if (b.dataset.onglet === 'analyse') { chargerAnalyse(); chargerHistorique(); document.querySelectorAll('details.maint[open]').forEach((d) => chargerMaintenance(d.dataset.maint)); }
     if (b.dataset.onglet === 'sites') rendreSites();
     if (b.dataset.onglet === 'gestion') { rendreGestion(); suivreTaches(); }
   }));
