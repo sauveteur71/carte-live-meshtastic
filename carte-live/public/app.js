@@ -34,7 +34,7 @@ const etat = {
   coucheLiens: null,
   alertes: [],
   stats: null,
-  couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true, federation: true },
+  couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true, federation: true, releves: true },
   filtresPorts: new Set(Object.keys(PORTS)),
   selection: null,
   trajet: null,
@@ -1761,6 +1761,192 @@ function ajouterRelaisSimulation(latlng) {
   etat.simu.ajouter.push({ lat: lieu.lat, lon: lieu.lon, h: Number($('#relief-hs') ? $('#relief-hs').value : 6) || 6, nom: lieu.nom });
   simulation();
 }
+// ---- Mode terrain : application installable, relevés hors connexion, fonds de carte gardés -------------
+const terrain = { liste: [], types: {}, gps: null, suivi: null, photo: null };
+const CLE_ATTENTE = 'terrain-attente';
+function lireAttente() { try { return JSON.parse(localStorage.getItem(CLE_ATTENTE) || '[]'); } catch { return []; } }
+function ecrireAttente(l) { try { localStorage.setItem(CLE_ATTENTE, JSON.stringify(l)); return true; } catch { return false; } }
+function majBandeauTerrain() {
+  const b = $('#bandeau-terrain'), n = lireAttente().length;
+  if (!b) return;
+  const hors = !navigator.onLine;
+  b.hidden = !hors && !n;
+  b.className = hors ? 'hors' : '';
+  b.innerHTML = `${hors ? '📴 Hors connexion : carte et fonds déjà vus' : '📤 Relevés à envoyer'}${n ? ` · <b>${n}</b> relevé${n > 1 ? 's' : ''} en attente` : ''}${!hors && n ? ' <button class="mini" id="terrain-envoyer">Envoyer</button>' : ''}`;
+  const be = $('#terrain-envoyer');
+  if (be) be.onclick = () => synchroniserReleves(true);
+}
+async function synchroniserReleves(manuel) {
+  if (terrain.envoi || !navigator.onLine || !etat.membre) { majBandeauTerrain(); return; }
+  terrain.envoi = true;
+  let l = lireAttente(), envoyes = 0;
+  try {
+    while (l.length) {
+      const r = await fetch('/api/releves', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(l[0]) });
+      if (r.status >= 500 || r.status === 401) break; // serveur injoignable ou session expirée : on réessaiera
+      if (!r.ok) { const e = await r.json().catch(() => ({})); console.warn('Relevé refusé :', e.erreur); }
+      l.shift(); ecrireAttente(l); envoyes++;
+    }
+  } catch { /* réseau coupé */ }
+  terrain.envoi = false;
+  majBandeauTerrain();
+  if (envoyes) { chargerReleves(); if (manuel || $('#terrain-retour')) { const z = $('#terrain-retour'); if (z) z.textContent = `✔ ${envoyes} relevé(s) envoyé(s).`; } }
+}
+async function chargerReleves() {
+  if (!etat.membre) return;
+  try { const r = await api('/api/releves'); terrain.liste = r.releves; terrain.types = r.types; } catch { /* hors connexion */ }
+  dessinerReleves();
+}
+const ICONE_RELEVE = { site: '📡', point_haut: '⛰️', test: '📶', probleme: '⚠️', installation: '✅', autre: '📝' };
+function dessinerReleves() {
+  if (etat.coucheReleves) etat.coucheReleves.remove();
+  etat.coucheReleves = null;
+  if (!etat.couches.releves || !etat.membre) return;
+  const g = L.layerGroup();
+  const tous = [...terrain.liste, ...lireAttente().map((r) => ({ ...r, attente: true }))];
+  for (const r of tous) {
+    const m = L.marker([r.lat, r.lon], { icon: L.divIcon({ className: '', html: `<div class="mk-releve${r.attente ? ' attente' : ''}">${ICONE_RELEVE[r.type] || '📝'}</div>`, iconSize: [26, 26], iconAnchor: [13, 13] }), zIndexOffset: 400 });
+    m.bindPopup(() => `<div class="popup-releve"><b>${esc(terrain.types[r.type] || r.type)}</b>${r.attente ? ' <span class="pastille attention">pas encore envoyé</span>' : ''}<br><small>${new Date(r.heure).toLocaleString('fr-FR')}${r.auteur ? ' · ' + esc(r.auteur) : ''}${r.precision ? ' · GPS ±' + Math.round(r.precision) + ' m' : ''}${r.alt != null ? ' · ' + Math.round(r.alt) + ' m' : ''}</small>
+      ${r.noeud || r.snr != null || r.rssi != null ? `<div>📶 ${esc(r.noeud || '')}${r.snr != null ? ' · SNR ' + r.snr + ' dB' : ''}${r.rssi != null ? ' · RSSI ' + r.rssi + ' dBm' : ''}</div>` : ''}
+      ${r.note ? `<p>${esc(r.note).replace(/\n/g, '<br>')}</p>` : ''}
+      ${r.photo === true ? `<a href="/api/releves/${r.id}/photo" target="_blank"><img src="/api/releves/${r.id}/photo" alt="photo du relevé" loading="lazy"></a>` : typeof r.photo === 'string' ? `<img src="${r.photo}" alt="photo du relevé">` : ''}
+      <div class="boutons"><button class="mini" data-couv-releve="${r.lat},${r.lon}">Couverture depuis ce point</button>${!r.attente && (etat.admin || (etat.config.compte && r.auteur === (etat.config.compte.indicatif || etat.config.compte.identifiant))) ? `<button class="mini" data-suppr-releve="${r.id}">Supprimer</button>` : ''}</div></div>`, { maxWidth: 300 });
+    m.on('popupopen', (e) => {
+      const el = e.popup.getElement();
+      const bc = el.querySelector('[data-couv-releve]');
+      if (bc) bc.onclick = () => { carte.closePopup(); voirCouvertureSite({ lat: r.lat, lon: r.lon }, terrain.types[r.type] || 'Relevé', 6, { cadrer: true }); };
+      const bs = el.querySelector('[data-suppr-releve]');
+      if (bs) bs.onclick = async () => { if (!confirm('Supprimer ce relevé ?')) return; await api('/api/releves/' + r.id, { method: 'DELETE' }); carte.closePopup(); chargerReleves(); };
+    });
+    m.addTo(g);
+  }
+  g.addTo(carte);
+  etat.coucheReleves = g;
+}
+// Photo réduite à 1280 px, JPEG ~70 % (quelques centaines de ko au plus) : supportable en 4G faible et dans la file locale
+function compresserPhoto(fichier) {
+  return new Promise((ok, ko) => {
+    const img = new Image(), url = URL.createObjectURL(fichier);
+    img.onload = () => {
+      const k = Math.min(1, 1280 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      ok(c.toDataURL('image/jpeg', 0.7));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); ko(new Error('Photo illisible')); };
+    img.src = url;
+  });
+}
+function arreterGps() { if (terrain.suivi != null) navigator.geolocation.clearWatch(terrain.suivi); terrain.suivi = null; }
+function ficheTerrain() {
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const attente = lireAttente();
+  const relais = [...etat.noeuds.values()].filter((n) => n.infrastructure).sort((a, b) => (a.nomLong || a.id).localeCompare(b.nomLong || b.id));
+  const types = Object.keys(terrain.types).length ? terrain.types : { site: 'Site relais possible', point_haut: 'Point haut', test: 'Test de couverture', probleme: 'Problème / panne', installation: 'Installation réalisée', autre: 'Autre' };
+  const installable = !!terrain.invite;
+  $('#fiche-contenu').innerHTML = `<h2>📍 Mode terrain</h2>
+    ${!etat.membre ? '<div class="alerte attention">Connectez-vous (compte membre) pour enregistrer des relevés.</div>' : `
+    <form id="f-releve" class="form-edit">
+      <div class="gps-terrain" id="gps-terrain">📡 Recherche de la position GPS…</div>
+      <label>Type <select name="type">${Object.entries(types).map(([k, v]) => `<option value="${k}">${ICONE_RELEVE[k] || ''} ${esc(v)}</option>`).join('')}</select></label>
+      <label>Note <textarea name="note" rows="3" placeholder="Accès, propriétaire, alimentation, dégagement, ce que vous recevez…"></textarea></label>
+      <details><summary>Mesure radio (facultatif)</summary>
+        <label>Nœud entendu <input name="noeud" list="relais-terrain" placeholder="nom du relais"></label>
+        <datalist id="relais-terrain">${relais.map((n) => `<option value="${esc(n.nomLong || n.id)}">`).join('')}</datalist>
+        <div class="deux"><label>SNR (dB) <input name="snr" type="number" step="0.25" min="-40" max="30"></label><label>RSSI (dBm) <input name="rssi" type="number" step="1" min="-150" max="0"></label></div>
+      </details>
+      <label class="bouton-photo">📷 Photo <input name="photo" type="file" accept="image/*" capture="environment"></label>
+      <div id="apercu-photo"></div>
+      <div class="actions-prop"><button type="submit" class="principal">Enregistrer le relevé</button></div>
+      <p class="erreur" id="terrain-retour"></p>
+    </form>`}
+    ${attente.length ? `<p class="note">${attente.length} relevé(s) en attente d’envoi (envoyés automatiquement au retour du réseau).</p>` : ''}
+    <h3>Préparer une sortie sans réseau</h3>
+    <p class="note">Cadrez la carte sur le secteur de la sortie puis enregistrez ses fonds de carte : ils resteront affichés sans réseau (jusqu’au zoom 16, 3000 tuiles au plus). L’application elle-même s’ouvre hors connexion dès la deuxième visite.</p>
+    <div class="actions-prop"><button id="terrain-tuiles">🗺️ Garder les fonds de carte de cette vue</button>${installable ? '<button id="terrain-installer">📲 Installer l’application</button>' : ''}</div>
+    <p class="note" id="terrain-tuiles-retour"></p>
+    ${!installable ? '<p class="note">Pour l’avoir comme une application sur le téléphone : menu du navigateur › « Ajouter à l’écran d’accueil » (la carte doit être ouverte en HTTPS).</p>' : ''}
+    ${terrain.liste.length ? `<h3>Derniers relevés</h3>${terrain.liste.slice(-15).reverse().map((r) => `<div class="ligne cliquable" data-aller-releve="${r.lat},${r.lon}"><span>${ICONE_RELEVE[r.type] || '📝'}</span><span class="titre">${esc(terrain.types[r.type] || r.type)}<small>${esc((r.note || '').slice(0, 60))} · ${esc(r.auteur || '')} · ${ilYa(r.heure)}${r.photo ? ' · 📷' : ''}</small></span></div>`).join('')}` : ''}`;
+  document.querySelectorAll('[data-aller-releve]').forEach((el) => (el.onclick = () => { const [a, b] = el.dataset.allerReleve.split(',').map(Number); carte.setView([a, b], Math.max(carte.getZoom(), 14)); }));
+  $('#terrain-tuiles').onclick = prechargerTuiles;
+  const bi = $('#terrain-installer');
+  if (bi) bi.onclick = async () => { terrain.invite.prompt(); await terrain.invite.userChoice.catch(() => {}); terrain.invite = null; bi.remove(); };
+  const f = $('#f-releve');
+  if (!f) return;
+  // Position : suivi GPS tant que la fiche est ouverte (la précision s'affine en quelques secondes)
+  arreterGps();
+  const zg = $('#gps-terrain');
+  if (!navigator.geolocation) zg.textContent = '⚠️ Pas de GPS dans ce navigateur : le relevé prendra le centre de la carte.';
+  else terrain.suivi = navigator.geolocation.watchPosition((p) => {
+    terrain.gps = { lat: p.coords.latitude, lon: p.coords.longitude, alt: p.coords.altitude, precision: p.coords.accuracy, heure: p.timestamp };
+    const z = $('#gps-terrain');
+    if (!z) return arreterGps();
+    z.className = 'gps-terrain ' + (p.coords.accuracy <= 20 ? 'bon' : p.coords.accuracy <= 100 ? 'moyen' : 'faible');
+    z.innerHTML = `📍 ${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)} · ±${Math.round(p.coords.accuracy)} m${p.coords.altitude != null ? ' · ' + Math.round(p.coords.altitude) + ' m' : ''}`;
+  }, (e) => { const z = $('#gps-terrain'); if (z) z.textContent = `⚠️ GPS indisponible (${e.message}) : le relevé prendra le centre de la carte.`; }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 });
+  terrain.photo = null;
+  f.photo.onchange = async () => {
+    const fi = f.photo.files[0];
+    if (!fi) return;
+    try { terrain.photo = await compresserPhoto(fi); $('#apercu-photo').innerHTML = `<img src="${terrain.photo}" alt="aperçu"><small>${Math.round(terrain.photo.length * 0.75 / 1024)} ko</small>`; } catch (e) { $('#terrain-retour').textContent = e.message; }
+  };
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const c = carte.getCenter(), g = terrain.gps && Date.now() - terrain.gps.heure < 120000 ? terrain.gps : null;
+    const nombre = (v) => (v === '' || v == null ? null : Number(v));
+    const r = { id: (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)).toLowerCase(), lat: g ? g.lat : c.lat, lon: g ? g.lon : c.lng, alt: g ? g.alt : null, precision: g ? g.precision : null, type: f.type.value, note: f.note.value.trim(), noeud: f.noeud.value.trim(), snr: nombre(f.snr.value), rssi: nombre(f.rssi.value), heure: Date.now(), photo: terrain.photo };
+    const l = lireAttente(); l.push(r);
+    if (!ecrireAttente(l)) { l.pop(); r.photo = null; l.push(r); if (!ecrireAttente(l)) { $('#terrain-retour').textContent = 'Mémoire du téléphone pleine : envoyez d’abord les relevés en attente.'; return; } $('#terrain-retour').textContent = 'Mémoire pleine : relevé gardé sans sa photo.'; }
+    else $('#terrain-retour').textContent = navigator.onLine ? 'Envoi…' : '✔ Relevé gardé sur le téléphone : il partira au retour du réseau.';
+    f.reset(); terrain.photo = null; $('#apercu-photo').innerHTML = '';
+    dessinerReleves(); majBandeauTerrain(); synchroniserReleves(true);
+  };
+}
+function tuilesVue(couche, zMax) {
+  const b = carte.getBounds(), urls = [];
+  const o = couche.options, sd = typeof o.subdomains === 'string' ? o.subdomains.split('') : o.subdomains || [];
+  const tx = (lon, z) => Math.floor(((lon + 180) / 360) * 2 ** z);
+  const ty = (lat, z) => { const r = (lat * Math.PI) / 180; return Math.floor(((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * 2 ** z); };
+  for (let z = Math.max(6, carte.getZoom() - 2); z <= zMax; z++) {
+    for (let x = tx(b.getWest(), z); x <= tx(b.getEast(), z); x++)
+      for (let y = ty(b.getNorth(), z); y <= ty(b.getSouth(), z); y++)
+        urls.push(L.Util.template(couche._url, L.extend({ r: '', s: sd.length ? sd[Math.abs(x + y) % sd.length] : '', x, y, z }, o)));
+  }
+  return urls;
+}
+async function prechargerTuiles() {
+  const z = $('#terrain-tuiles-retour');
+  const reg = navigator.serviceWorker && (await navigator.serviceWorker.ready.catch(() => null));
+  if (!reg || !reg.active) { z.textContent = 'Fonction indisponible : la carte doit être ouverte en HTTPS (ou en local) dans un navigateur récent.'; return; }
+  const couches = [];
+  carte.eachLayer((l) => { if (l instanceof L.TileLayer && l._url && /^https?:/.test(l._url)) couches.push(l); });
+  if (!couches.length) { z.textContent = 'Aucun fond de carte à enregistrer.'; return; }
+  let zMax = Math.min(16, Math.max(carte.getZoom() + 3, 12)), urls;
+  do { urls = couches.flatMap((c) => tuilesVue(c, Math.min(zMax, c.options.maxNativeZoom || 19))); zMax--; } while (urls.length > 3000 && zMax > carte.getZoom());
+  if (urls.length > 3000) { z.textContent = 'Zone trop grande : rapprochez-vous (zoomez) puis recommencez.'; return; }
+  z.textContent = `Enregistrement de ${urls.length} tuiles…`;
+  const canal = new MessageChannel();
+  canal.port1.onmessage = (e) => { const d = e.data; z.textContent = d.fini ? `✔ ${d.fait - d.erreurs} tuiles gardées (jusqu’au zoom ${zMax + 1})${d.erreurs ? `, ${d.erreurs} en échec` : ''}. Ce secteur s’affichera sans réseau.` : `Enregistrement… ${d.fait} / ${d.total}`; };
+  reg.active.postMessage({ type: 'prechargerTuiles', urls }, [canal.port2]);
+}
+function demarrerTerrain() {
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('/sw.js').catch((e) => console.warn('Service worker :', e.message));
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); terrain.invite = e; });
+  window.addEventListener('online', () => { majBandeauTerrain(); synchroniserReleves(); });
+  window.addEventListener('offline', majBandeauTerrain);
+  document.querySelectorAll('.seul-membre').forEach((b) => (b.hidden = !etat.membre));
+  majBandeauTerrain();
+  chargerReleves();
+  synchroniserReleves();
+  setInterval(() => { if (lireAttente().length) synchroniserReleves(); }, 60000);
+  // La fiche se ferme : on coupe le GPS (batterie)
+  const fe = document.querySelector('#fiche .fermer, #fermer-fiche');
+  if (fe) fe.addEventListener('click', arreterGps);
+}
+
 // ---- Bulles voisines (cartes fédérées) -----------------------------------------------------------------
 async function chargerFederation() {
   try { etat.federation = await api('/api/federation/voisins'); } catch { etat.federation = []; }
@@ -3512,7 +3698,7 @@ function brancherInterface() {
     const c = b.dataset.couche;
     etat.couches[c] = !etat.couches[c];
     b.classList.toggle('actif', etat.couches[c]);
-    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else dessinerLiens();
+    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
   }));
   $('#filtres').onclick = (e) => {
     const b = e.target.closest('button[data-port]');
@@ -3563,6 +3749,7 @@ function brancherInterface() {
   $('#aller-couv-reseau').onclick = couvertureReseau;
   $('#btn-couv-reseau').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; couvertureReseau(); };
   $('#btn-couv-mesuree').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; couvertureMesuree(); };
+  $('#outil-terrain').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTerrain(); };
   $('#outil-partager').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; fichePartager(); };
   $('#btn-simulation').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; simulation(); };
   $('#btn-plan-menu').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; allerPlan(); };
@@ -3910,6 +4097,7 @@ async function demarrer() {
   chargerChemins(); setInterval(chargerChemins, 300000);
   chargerSanteCarte(); setInterval(chargerSanteCarte, 60000);
   chargerFederation(); setInterval(chargerFederation, 600000);
+  demarrerTerrain();
   chargerActiviteInitiale();
   setInterval(rendreLegende, 60000);
   if (etat.config.installation) installation();

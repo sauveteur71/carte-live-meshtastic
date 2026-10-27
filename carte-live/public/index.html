@@ -8,9 +8,13 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='6' fill='%233ee6c4'/%3E%3Ccircle cx='16' cy='16' r='12' fill='none' stroke='%233ee6c4' stroke-width='2' opacity='.5'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="/style.css">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="apple-touch-icon" href="/icone-192.png">
 </head>
 <body>
   <div id="carte"></div>
+  <div id="bandeau-terrain" hidden></div>
 
   <header class="barre">
     <div class="marque">
@@ -53,6 +57,7 @@
       <button class="bascule actif" data-couche="animations" title="Animer les paquets en direct">Animations</button>
       <button class="bascule actif" data-couche="sommets" title="Points hauts du relief et meilleurs sites radio">Points hauts</button>
       <button class="bascule actif" data-couche="federation" title="Relais des bulles voisines (cartes fédérées)">Bulles voisines</button>
+      <button class="bascule actif seul-membre" data-couche="releves" title="Relevés de terrain (photos, notes, mesures)" hidden>Relevés terrain</button>
       </div>
     </details>
     <details class="menu-couches menu-radio" id="menu-radio">
@@ -82,6 +87,8 @@
         <a class="bascule outils-mc" hidden href="https://config.meshcore.dev" target="_blank" rel="noopener" title="Outil officiel : configurer en USB un répéteur ou un room server MeshCore (nom, radio, mot de passe…)">🛠️ Configurer un répéteur MeshCore (USB)</a>
         <a class="bascule outils-mc" hidden href="https://app.meshcore.nz" target="_blank" rel="noopener" title="Application officielle MeshCore dans le navigateur : utiliser un companion en USB ou Bluetooth">📟 Application MeshCore</a>
         <button class="bascule outils-mc" hidden id="outil-companion-mc" title="Relier à la carte un companion MeshCore branché sur ce PC (onglet MeshCore → Companion)">🔌 Relier un companion MeshCore</button>
+        <div class="titre-outils">Sur le terrain</div>
+        <button id="outil-terrain" class="bascule" title="Relevé GPS avec photo et note, même sans réseau ; préparer la carte hors connexion ; installer l’application sur le téléphone">📍 Mode terrain</button>
         <div class="titre-outils">Partager</div>
         <button id="outil-partager" class="bascule" title="Carte publique à intégrer dans un site, exports GeoJSON / GPX, Grafana, Home Assistant">📤 Carte publique et exports</button>
         <small id="note-outils" class="note"></small>

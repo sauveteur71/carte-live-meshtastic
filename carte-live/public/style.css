@@ -844,3 +844,27 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 .alerte.critique { border-left: 3px solid var(--critique); background: rgba(255,92,108,.08); padding: 6px 8px; border-radius: 6px; margin: 8px 0; font-size: 12.5px; }
 .bloc-code { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--doux); margin: 6px 0; } .bloc-code textarea { font: 11.5px/1.4 ui-monospace, monospace; background: var(--fond); color: var(--texte); border: 1px solid var(--bord); border-radius: 6px; padding: 6px; resize: vertical; }
 .mk-federation { width: 10px; height: 10px; transform: rotate(45deg); background: rgba(251,146,60,.35); border: 2px solid #fb923c; } .mk-federation.gw { border-color: #fde68a; }
+/* Mode terrain */
+#bandeau-terrain { position: fixed; left: 50%; transform: translateX(-50%); bottom: 14px; z-index: 1200; background: #1e293b; color: #f1f5f9; border: 1px solid #fb923c; border-radius: 18px; padding: 6px 14px; font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+#bandeau-terrain.hors { border-color: #f87171; }
+#bandeau-terrain .mini { margin-left: 6px; }
+.mk-releve { width: 26px; height: 26px; border-radius: 50%; background: #0f172a; border: 2px solid #38bdf8; display: grid; place-items: center; font-size: 14px; line-height: 1; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+.mk-releve.attente { border-color: #fb923c; border-style: dashed; }
+.popup-releve img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 6px; margin-top: 6px; }
+.popup-releve .boutons { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+.gps-terrain { padding: 8px 10px; border-radius: 8px; background: rgba(148,163,184,.15); font-size: 13px; margin-bottom: 8px; }
+.gps-terrain.bon { background: rgba(52,211,153,.18); }
+.gps-terrain.moyen { background: rgba(251,191,36,.18); }
+.gps-terrain.faible { background: rgba(248,113,113,.18); }
+.bouton-photo { display: inline-block; cursor: pointer; padding: 8px 12px; border: 1px dashed #64748b; border-radius: 8px; }
+.bouton-photo input { display: block; margin-top: 6px; max-width: 100%; }
+#apercu-photo img { max-width: 100%; max-height: 180px; border-radius: 6px; display: block; margin-top: 6px; }
+#f-releve .deux { display: flex; gap: 8px; }
+#f-releve .deux label { flex: 1; }
+/* Sur téléphone, la barre d'outils est en bas : les menus s'ouvrent vers le haut et défilent */
+@media (max-width: 900px) {
+  .menu-couches .menu { top: auto; bottom: calc(100% + 6px); max-height: 65vh; overflow-y: auto; }
+}
+#f-releve label { display: block; margin-bottom: 8px; }
+#f-releve textarea, #f-releve select, #f-releve input:not([type=file]) { width: 100%; box-sizing: border-box; }
+#terrain-retour { color: var(--texte); }

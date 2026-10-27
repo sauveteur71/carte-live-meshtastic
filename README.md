@@ -108,6 +108,7 @@ Dans `docker-compose.yml`, remplacez la ligne `image:` par `build: .`, puis `doc
   - module USB sur un PC, ou module d'un autre réseau : téléchargez l'**agent** depuis cette même page, lancez-le et donnez-lui l'adresse du serveur (port 4404) et le code affiché. **Ne redirigez jamais le port 4404 sur votre box** : utilisez le réseau local ou un VPN comme [Tailscale](https://tailscale.com).
 - **Administration à distance** : sur chaque nœud, ajoutez la clé publique du module (affichée dans l’onglet *Programmer*) dans *Sécurité › Clé d'administration*.
 - **Gestionnaires de secteur** : *Réglages › Comptes*, rôle « Gestionnaire de secteur » puis bouton *Secteur…* : ce compte programme à distance, remplit la fiche d'installation et teste uniquement les nœuds choisis (Meshtastic ou MeshCore). Le module radio reste géré par les administrateurs.
+- **Mode terrain** (*Outils › Mode terrain*) : relevé GPS avec type, note, mesure radio et photo, même sans réseau (gardé sur le téléphone et envoyé au retour du réseau) ; fonds de carte d'un secteur gardés pour une sortie hors connexion ; la carte s'installe comme une application (« Ajouter à l'écran d'accueil », HTTPS requis).
 - **Bulles voisines (fédération)** : chaque carte publie ses relais sur `/api/federation`. Dans *Outils › Partager* (admin), ajoutez l'adresse des cartes des départements voisins : leurs relais s'affichent (couche *Bulles voisines*) et comptent dans les calculs de couverture près des limites.
 
 ### MeshCore

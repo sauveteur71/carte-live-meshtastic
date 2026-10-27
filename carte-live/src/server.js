@@ -20,6 +20,7 @@ const { creerSanteCarte } = require('./sante-carte');
 const { creerMaintenance } = require('./maintenance');
 const { creerExports } = require('./exports');
 const { creerFederation } = require('./federation');
+const { creerReleves } = require('./releves');
 const installations = creerInstallations(path.dirname(config.fichierBase));
 let federation = null; // créée une fois le réseau prêt (voir plus bas)
 // Zone « département + voisins », recalculée si le département ou sa zone changent (installation, réglages)
@@ -107,7 +108,8 @@ app.disable('x-powered-by');
 app.use(require('compression')({ threshold: 1024 })); // gzip : pages et API 5 à 10 fois plus légères (accès à distance)
 // Corps JSON : 10 ko, sauf la restauration d'une sauvegarde
 const jsonPetit = express.json({ limit: '10kb' }), jsonGros = express.json({ limit: '30mb' });
-app.use((req, res, next) => (req.path === '/api/sauvegardes/restaurer' ? jsonGros : jsonPetit)(req, res, next));
+const jsonPhoto = express.json({ limit: '5mb' });
+app.use((req, res, next) => (req.path === '/api/sauvegardes/restaurer' ? jsonGros : req.path === '/api/releves' ? jsonPhoto : jsonPetit)(req, res, next));
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
@@ -1488,6 +1490,28 @@ app.get('/api/maintenance/:quoi', (req, res) => {
 });
 
 // ---- Fédération avec les bulles voisines ---------------------------------------------------------
+// ---- Relevés de terrain (mode terrain, membres) ---------------------------------------------
+const releves = creerReleves(path.dirname(config.fichierBase), journal);
+app.get('/api/releves', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  res.set('Cache-Control', 'no-store').json({ types: releves.TYPES, releves: releves.liste() });
+});
+app.post('/api/releves', (req, res) => {
+  const u = utilisateur(req);
+  if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
+  try { res.json(releves.ajouter(req.body || {}, u.indicatif || u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.get('/api/releves/:id/photo', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  const f = releves.photo(req.params.id);
+  if (!f) return res.status(404).end();
+  res.set('Cache-Control', 'private, max-age=86400').type('jpeg').sendFile(f);
+});
+app.delete('/api/releves/:id', (req, res) => {
+  const u = utilisateur(req);
+  if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
+  try { releves.retirer(req.params.id, u); res.json({ ok: true }); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 app.get('/api/federation', (req, res) => { res.setHeader('Access-Control-Allow-Origin', '*'); res.json(federation.publier()); });
 app.get('/api/federation/voisins', (req, res) => res.json(federation.voisins()));
 app.get('/api/federation/partenaires', (req, res) => { if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); res.json(federation.partenaires()); });
