@@ -118,6 +118,8 @@ const config = {
     canaux: texte('MESHCORE_CANAUX', 'Public').split(/[;\n]/).map((s) => s.trim()).filter(Boolean),
     // Répéteur « muet » au-delà de ce délai (les répéteurs MeshCore s'annoncent peu : 12 h par défaut)
     muetHeures: nombre('MESHCORE_MUET_HEURES', 26),
+    // Paquets et réceptions MeshCore (flux national, très volumineux) : conservés moins longtemps que le reste
+    retentionPaquetsJours: nombre('MESHCORE_RETENTION_PAQUETS_JOURS', 2),
     // Interrogation automatique de l'état des répéteurs surveillés (0 = jamais) et nombre max. par tour
     supervisionHeures: nombre('MESHCORE_SUPERVISION_HEURES', 3),
     supervisionMax: nombre('MESHCORE_SUPERVISION_MAX', 8),

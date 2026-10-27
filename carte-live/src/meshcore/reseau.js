@@ -57,6 +57,7 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
   const q = {
     noeud: db.prepare('SELECT * FROM mc_noeuds WHERE cle = ?'),
     noeuds: db.prepare('SELECT * FROM mc_noeuds ORDER BY dernier_vu DESC'),
+    noeudsDepuis: db.prepare('SELECT * FROM mc_noeuds WHERE MAX(COALESCE(dernier_vu, 0), COALESCE(derniere_annonce, 0), COALESCE(observateur_vu, 0), COALESCE(heure_position, 0)) >= ?'),
     creer: db.prepare('INSERT OR IGNORE INTO mc_noeuds (cle, premier_vu, dernier_vu, source) VALUES (?, ?, ?, ?)'),
     vu: db.prepare(`UPDATE mc_noeuds SET dernier_vu = MAX(COALESCE(dernier_vu, 0), @heure),
         sauts_dernier = COALESCE(@sauts, sauts_dernier),
@@ -105,9 +106,12 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     telNoeud: db.prepare('SELECT heure, batterie_mv, bruit, emission_pct, recus, emis, allume_s, snr FROM mc_telemetrie WHERE cle = ? AND heure >= ? ORDER BY heure'),
     telDernier: db.prepare('SELECT t.* FROM mc_telemetrie t JOIN (SELECT cle, MAX(heure) AS h FROM mc_telemetrie GROUP BY cle) d ON d.cle = t.cle AND d.h = t.heure'),
   };
+  // Paquets et réceptions (le gros du volume avec le flux national) : rétention courte, suppression par lots
+  const purgesPaquets = [
+    db.prepare('DELETE FROM mc_receptions WHERE rowid IN (SELECT rowid FROM mc_receptions WHERE heure < ? LIMIT 20000)'),
+    db.prepare('DELETE FROM mc_paquets WHERE rowid IN (SELECT rowid FROM mc_paquets WHERE heure < ? LIMIT 20000)'),
+  ];
   const purges = [
-    db.prepare('DELETE FROM mc_paquets WHERE heure < ?'),
-    db.prepare('DELETE FROM mc_receptions WHERE heure < ?'),
     db.prepare('DELETE FROM mc_liens WHERE dernier_vu < ?'),
     db.prepare('DELETE FROM mc_noeuds WHERE dernier_vu < ? AND COALESCE(observateur, 0) = 0'),
     db.prepare('DELETE FROM mc_messages WHERE heure < ?'),
@@ -117,18 +121,24 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
   const assurer = (cle, heure, source) => { if (cle) q.creer.run(cle, heure, heure, source || null); };
 
   // Cache des nœuds (pour la résolution des préfixes de chemin), rechargé au besoin
-  let cache = null, cacheHeure = 0;
+  // + index par premier octet de la clé : la résolution d'un préfixe ne parcourt plus les milliers de nœuds
+  let cache = null, cacheHeure = 0, index = new Map();
   const noeudsCache = () => {
-    if (!cache || Date.now() - cacheHeure > 30000) { cache = q.noeuds.all(); cacheHeure = Date.now(); }
+    if (!cache || Date.now() - cacheHeure > 30000) {
+      cache = q.noeuds.all(); cacheHeure = Date.now();
+      index = new Map();
+      for (const n of cache) { const k = n.cle.slice(0, 2); if (!index.has(k)) index.set(k, []); index.get(k).push(n); }
+    }
     return cache;
   };
+  const parPrefixe = (p) => { noeudsCache(); return (index.get(p.slice(0, 2)) || []).filter((n) => n.cle.startsWith(p)); };
   const invalider = () => { cache = null; };
 
   // Préfixe de chemin (1 à 3 octets) → clé complète d'un relais, en levant l'ambiguïté par la géographie.
   // voisin : nœud (avec position) adjacent dans le chemin et déjà résolu.
   function resoudre(prefixe, voisin) {
     const p = prefixe.toUpperCase();
-    let cands = noeudsCache().filter((n) => n.cle.startsWith(p));
+    let cands = parPrefixe(p);
     if (!cands.length) return null;
     const relais = cands.filter((n) => ROLES_RELAIS.has(n.role));
     if (relais.length) cands = relais;
@@ -294,13 +304,14 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     };
   }
 
-  function liens(depuisMs) {
-    return q.liens.all(Date.now() - depuisMs).map((l) => ({ a: l.a, b: l.b, source: l.source, snr: l.snr, rssi: l.rssi, nb: l.nb, dernierVu: l.dernier_vu }));
+  // depuisMs : fenêtre d'affichage ; dejaVu (heure) : seulement les liens modifiés depuis (mise à jour incrémentale)
+  function liens(depuisMs, dejaVu = 0) {
+    return q.liens.all(Math.max(Date.now() - depuisMs, dejaVu || 0)).map((l) => ({ a: l.a, b: l.b, source: l.source, snr: l.snr, rssi: l.rssi, nb: l.nb, dernierVu: l.dernier_vu }));
   }
 
   function statistiques() {
     const maintenant = Date.now();
-    const noeuds = q.noeuds.all();
+    const noeuds = noeudsCache();
     const parType = {};
     for (const r of q.compteType.all(maintenant - 3600000)) parType[r.type] = r.nb;
     const observateurs = noeuds.filter((n) => n.observateur);
@@ -399,19 +410,32 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     if (!rep) return [];
     const heure = Date.now();
     return voisins.map((v) => {
-      const n = resoudre(v.prefixe, rep) || noeudsCache().find((x) => x.cle.startsWith(v.prefixe.toUpperCase()) && v.prefixe.length >= 8);
+      const n = resoudre(v.prefixe, rep) || (v.prefixe.length >= 8 ? parPrefixe(v.prefixe.toUpperCase())[0] : null);
       if (n) lier(n, rep, 'voisinage', v.snr, null, heure);
       return { ...v, cle: n ? n.cle : null, nom: n ? n.nom : null, role: n ? n.role : null, distanceKm: n && n.lat != null && rep.lat != null ? Math.round(distanceKm(n, rep) * 10) / 10 : null };
     });
   }
   function definirCanaux(liste) { canaux = liste; }
 
-  function purger(jours) {
+  function purger(jours, joursPaquets = jours) {
     const limite = Date.now() - jours * 86400000;
     let n = 0;
     db.transaction(() => { for (const st of purges) n += st.run(limite).changes; })();
     invalider();
+    purgerPaquets(Date.now() - Math.min(jours, joursPaquets) * 86400000);
     return n;
+  }
+  // Lots de 20 000 lignes, rendus à la boucle d'événements entre deux lots (la carte reste réactive)
+  let purgeEnCours = false;
+  function purgerPaquets(limite) {
+    if (purgeEnCours) return;
+    purgeEnCours = true;
+    const lot = () => {
+      let n = 0;
+      try { for (const st of purgesPaquets) n += st.run(limite).changes; } catch { n = 0; }
+      if (n > 0) setTimeout(lot, 200); else purgeEnCours = false;
+    };
+    lot();
   }
 
   // ---- Supervision : état des répéteurs, alertes, analyse du trafic ----
@@ -423,7 +447,7 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
   const dansZone = (n) => { const z = config.zone; return n.lat != null && n.lat >= z[0] && n.lat <= z[2] && n.lon >= z[1] && n.lon <= z[3]; };
   // Répéteurs surveillés : ceux de la zone, plus ceux qu'on administre
   function surveilles(administres = []) {
-    return q.noeuds.all().filter((n) => ['repeteur', 'salon'].includes(n.role) && (dansZone(n) || administres.includes(n.cle)));
+    return noeudsCache().filter((n) => ['repeteur', 'salon'].includes(n.role) && (dansZone(n) || administres.includes(n.cle)));
   }
   const alertesActives = new Map();
   function calculerAlertes({ administres = [], companion = null } = {}) {

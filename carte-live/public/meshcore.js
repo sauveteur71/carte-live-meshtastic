@@ -999,9 +999,17 @@ async function mcOuvrirPaquet(id) {
 }
 
 // ---- Données et temps réel ---------------------------------------------------------------------------
-async function mcChargerNoeuds() {
-  const l = await api('/api/mc/noeuds');
-  mc.noeuds = new Map(l.map((n) => [n.cle, n]));
+// Chargement complet au démarrage et toutes les 10 min ; entre-temps, seulement les nœuds modifiés
+async function mcChargerNoeuds(complet) {
+  if (complet || !mc.heureNoeuds || Date.now() - mc.completNoeuds > 600000) {
+    const l = await api('/api/mc/noeuds');
+    mc.noeuds = new Map(l.map((n) => [n.cle, n]));
+    mc.heureNoeuds = mc.completNoeuds = Date.now();
+  } else {
+    const r = await api('/api/mc/noeuds?depuis=' + mc.heureNoeuds);
+    for (const n of r.noeuds) mc.noeuds.set(n.cle, n);
+    mc.heureNoeuds = r.heure;
+  }
   mcDessinerNoeuds();
   if ($('#mc-liste') && mc.vue === 'noeuds') mcRendreNoeuds();
   mcMajKpis();
@@ -1009,8 +1017,20 @@ async function mcChargerNoeuds() {
 }
 // Durée d'affichage des liens MeshCore, distincte de celle de Meshtastic (le flux national accumule vite) : 1 h par défaut
 function mcFenetreHeures() { try { return Number(localStorage.getItem('gaulix_mc_fenetre')) || 1; } catch { return 1; } }
-async function mcChargerLiens() {
-  mc.liens = await api('/api/mc/liens?heures=' + mcFenetreHeures());
+async function mcChargerLiens(complet) {
+  const h = mcFenetreHeures();
+  if (complet || !mc.heureLiens || mc.fenetreLiens !== h || Date.now() - mc.completLiens > 600000) {
+    mc.liens = await api('/api/mc/liens?heures=' + h);
+    mc.heureLiens = mc.completLiens = Date.now(); mc.fenetreLiens = h;
+  } else {
+    const r = await api(`/api/mc/liens?heures=${h}&depuis=${mc.heureLiens}`);
+    const cle = (l) => `${l.a}|${l.b}|${l.source}`;
+    const m = new Map(mc.liens.map((l) => [cle(l), l]));
+    for (const l of r.liens) m.set(cle(l), l);
+    const limite = Date.now() - h * 3600000;
+    mc.liens = [...m.values()].filter((l) => l.dernierVu >= limite);
+    mc.heureLiens = r.heure;
+  }
   mcDessinerLiens();
 }
 let mcRafraichir = null, mcMinuterieMsg = null;
@@ -1022,7 +1042,7 @@ function mcMessagesARafraichir() {
 }
 function mcPlanifier() {
   if (mcRafraichir) return;
-  mcRafraichir = setTimeout(async () => { mcRafraichir = null; await Promise.all([mcChargerNoeuds(), mcChargerLiens()]).catch(() => {}); rendreLegende(); }, 4000);
+  mcRafraichir = setTimeout(async () => { mcRafraichir = null; await Promise.all([mcChargerNoeuds(), mcChargerLiens()]).catch(() => {}); rendreLegende(); }, 10000);
 }
 function mcRecevoir(m) {
   if (m.genre === 'mc-paquet') {

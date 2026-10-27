@@ -81,6 +81,7 @@ function limiter(ip) {
 const app = express();
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
+app.use(require('compression')({ threshold: 1024 })); // gzip : pages et API 5 à 10 fois plus légères (accès à distance)
 app.use(express.json({ limit: '10kb' }));
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -769,6 +770,9 @@ const exigerMc = (res) => { if (config.meshcore.actif) return true; res.status(4
 app.get('/api/mc/noeuds', (req, res) => {
   if (!exigerMc(res)) return;
   const membre = estMembre(req), maintenant = Date.now();
+  // ?depuis=heure : seulement les nœuds modifiés depuis (le flux national compte des milliers de nœuds)
+  const depuis = Number(req.query.depuis) || 0;
+  if (depuis) return res.json({ heure: maintenant, noeuds: reseauMc.q.noeudsDepuis.all(depuis - 5000).map((n) => reseauMc.vueNoeud(n, membre, maintenant)) });
   res.json(reseauMc.q.noeuds.all().map((n) => reseauMc.vueNoeud(n, membre, maintenant)));
 });
 app.get('/api/mc/noeuds/:cle', (req, res) => {
@@ -783,6 +787,8 @@ app.get('/api/mc/noeuds/:cle', (req, res) => {
 app.get('/api/mc/liens', (req, res) => {
   if (!exigerMc(res)) return;
   const heures = Math.min(Math.max(Number(req.query.heures) || 24, 0.25), config.retentionJours * 24);
+  const depuis = Number(req.query.depuis) || 0;
+  if (depuis) return res.json({ heure: Date.now(), liens: reseauMc.liens(heures * 3600000, depuis - 5000) });
   res.json(reseauMc.liens(heures * 3600000));
 });
 app.get('/api/mc/paquets', (req, res) => {
@@ -1105,7 +1111,7 @@ function diffuserEtatMc() {
   alertesMc = reseauMc.calculerAlertes({ administres: adminMc.memorises(), companion: { cible: c.cible || c.navigateur, connecte: c.connecte, nom: c.nom, cle: c.cle, erreur: c.erreur } });
   diffuser({ genre: 'mc-etat', ...etatMc(false) });
 }
-function planifierEtatMc() { if (!minuterieEtatMc) minuterieEtatMc = setTimeout(() => { minuterieEtatMc = null; diffuserEtatMc(); }, 1500); }
+function planifierEtatMc() { if (!minuterieEtatMc) minuterieEtatMc = setTimeout(() => { minuterieEtatMc = null; diffuserEtatMc(); }, 15000); } // statuts d'observateurs fréquents : au plus toutes les 15 s
 setInterval(diffuserEtatMc, 30000);
 const sourceMM = creerSourceMeshMonitor(stockage, config, () => { rafraichirEtat(); diffuser({ genre: 'statut' }); });
 if (sourceMM) journal(`Source MeshMonitor activée : ${config.meshmonitor.url}`);
@@ -1191,11 +1197,12 @@ const relief = creerRelief(config, journal, {
 setTimeout(rafraichirEtat, 2000);
 
 setInterval(() => {
-  const n = stockage.purger(config.retentionJours) + reseauMc.purger(config.retentionJours);
+  const n = stockage.purger(config.retentionJours) + reseauMc.purger(config.retentionJours, config.meshcore.retentionPaquetsJours);
   reseau.nettoyer();
   journal(`Purge : ${n} lignes de plus de ${config.retentionJours} jours supprimées · MQTT reçus ${compteur.recus}, traités ${compteur.decodes}, erreurs ${compteur.erreurs}`);
 }, 3600000);
 stockage.purger(config.retentionJours);
+setTimeout(() => reseauMc.purger(config.retentionJours, config.meshcore.retentionPaquetsJours), 60000);
 {
   const n = reseau.nettoyer();
   if (n.positions || n.liens) journal(`Nettoyage : ${n.positions} position(s) invalide(s), ${n.liens} lien(s) impossible(s) supprimés`);
