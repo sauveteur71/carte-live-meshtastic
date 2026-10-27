@@ -173,6 +173,15 @@ function creerAdministration(radio, stockage) {
         l.heure = Date.now(); sauverLectures();
         journalTache(`${libelle} lu(e)`);
       }
+      // Module Voisinage (NeighborInfo) : facultatif, une absence de réponse ne fait pas échouer la lecture
+      if (!l.voisinage && (!sections || sections.includes('voisinage'))) {
+        try {
+          const m = (await demande({ getModuleConfigRequest: MODULE_VOISINAGE }, 'module Voisinage')).getModuleConfigResponse;
+          l.voisinage = versObjet(racine.lookupType('meshtastic.ModuleConfig'), m).neighborInfo || { enabled: false };
+          l.heure = Date.now(); sauverLectures();
+          journalTache(`module Voisinage lu (${l.voisinage.enabled ? 'activé' : 'désactivé'})`);
+        } catch (e) { if (e.arret) throw e; journalTache('module Voisinage : non lu (' + e.message.split(' — ')[0] + ')'); }
+      }
       for (let i = (l.canauxBruts || []).length; (!sections || sections.includes('canaux')) && !l.canauxFin && i < 8; i++) {
         const ch = versObjet(Channel, (await demande({ getChannelRequest: i + 1 }, `canal ${i}`)).getChannelResponse);
         l.canauxBruts[i] = ch;
@@ -195,7 +204,7 @@ function creerAdministration(radio, stockage) {
   function construireResultat(dest, l) {
     return {
       num: dest, id: idNoeud(dest), heure: l.heure, complet: !!(l.canauxFin && ETAPES_FIXES.every(([k]) => l[k])),
-      materiel: l.materiel || null, proprietaire: l.proprietaire || null, device: l.device || null, lora: l.lora || null, position: l.position || null,
+      materiel: l.materiel || null, proprietaire: l.proprietaire || null, device: l.device || null, lora: l.lora || null, position: l.position || null, voisinage: l.voisinage || null,
       canaux: (l.canauxBruts || []).filter((ch) => ch && ch.role !== 'DISABLED').map((ch) => ({ index: ch.index, role: ch.role, nom: ch.settings.name, psk: ch.settings.psk, montant: ch.settings.uplinkEnabled, descendant: ch.settings.downlinkEnabled, precision: ch.settings.moduleSettings ? ch.settings.moduleSettings.positionPrecision : 0 })),
       canauxComplets: !!l.canauxFin,
     };
@@ -378,9 +387,32 @@ function creerAdministration(radio, stockage) {
     },
     position: { positionBroadcastSecs: (v) => entier(v, 0, 86400 * 7), positionBroadcastSmartEnabled: (v) => !!v, fixedPosition: (v) => !!v },
   };
+  // Module Voisinage (NeighborInfo) : publie la liste des nœuds entendus directement, avec leur SNR
+  const MODULE_VOISINAGE = 9; // AdminMessage.ModuleConfigType.NEIGHBORINFO_CONFIG
+  function valeursVoisinage(v) {
+    const r = {};
+    if ('enabled' in v) r.enabled = !!v.enabled;
+    if ('transmitOverLora' in v) r.transmitOverLora = !!v.transmitOverLora;
+    if ('updateInterval' in v) {
+      const n = Number(v.updateInterval);
+      // Le firmware impose au moins 4 h entre deux envois sur LoRa (limite du temps d'émission)
+      if (!Number.isInteger(n) || n < 14400 || n > 86400 * 7) throw new Error('Intervalle du voisinage : de 4 h (14400 s) à 7 jours');
+      r.updateInterval = n;
+    }
+    return r;
+  }
   function entier(v, min, max) { const n = Number(v); if (!Number.isInteger(n) || n < min || n > max) throw new Error(`Valeur hors limites (${min} à ${max})`); return n; }
   async function definirConfig(dest, p) {
     const section = p.section;
+    if (section === 'voisinage') {
+      const v = valeursVoisinage(p.valeurs || {});
+      if (!Object.keys(v).length) throw new Error('Aucune valeur');
+      await assurerSession(dest);
+      const ModuleConfig = racine.lookupType('meshtastic.ModuleConfig');
+      const actuel = versObjet(ModuleConfig, (await admin(dest, { getModuleConfigRequest: MODULE_VOISINAGE })).getModuleConfigResponse).neighborInfo || {};
+      await admin(dest, { setModuleConfig: { neighborInfo: { ...actuel, ...v } } }, { reponse: false });
+      return;
+    }
     if (!CHAMPS[section]) throw new Error('Section non modifiable');
     const valeurs = {};
     for (const [k, v] of Object.entries(p.valeurs || {})) {
@@ -402,7 +434,8 @@ function creerAdministration(radio, stockage) {
     const Config = racine.lookupType('meshtastic.Config');
     const canaux = Array.isArray(p.canaux) ? p.canaux : [];
     const sections = ['device', 'lora', 'position'].filter((k) => p[k] && Object.keys(p[k]).length);
-    if (!canaux.length && !sections.length && !p.nom) throw new Error('Aucune modification');
+    const voisinage = p.voisinage && Object.keys(p.voisinage).length ? valeursVoisinage(p.voisinage) : null;
+    if (!canaux.length && !sections.length && !p.nom && !voisinage) throw new Error('Aucune modification');
     // Valeurs vérifiées avant tout envoi
     const valeurs = {};
     for (const k of sections) {
@@ -440,6 +473,12 @@ function creerAdministration(radio, stockage) {
       await admin(dest, { setConfig: { [k]: { ...actuel, ...valeurs[k] } } }, { reponse: false });
       journalTache(`configuration « ${k} » envoyée (${Object.keys(valeurs[k]).join(', ')})`);
     }
+    if (voisinage) {
+      const ModuleConfig = racine.lookupType('meshtastic.ModuleConfig');
+      const actuel = versObjet(ModuleConfig, (await admin(dest, { getModuleConfigRequest: MODULE_VOISINAGE })).getModuleConfigResponse).neighborInfo || {};
+      await admin(dest, { setModuleConfig: { neighborInfo: { ...actuel, ...voisinage } } }, { reponse: false });
+      journalTache(`module Voisinage envoyé (${Object.entries(voisinage).map(([k, v]) => k + ' = ' + v).join(', ')})`);
+    }
     for (const c of canaux.sort((a, b) => b.index - a.index)) { // les canaux supprimés d'abord, en partant de la fin
       const index = Number(c.index);
       if (!Number.isInteger(index) || index < 0 || index > 7) throw new Error('Canal invalide');
@@ -458,7 +497,7 @@ function creerAdministration(radio, stockage) {
     // Relecture de contrôle de ce qui a changé
     await new Promise((r) => setTimeout(r, local ? 15000 : 25000));
     clesSession.delete(dest);
-    const aRelire = [...sections, ...(canaux.length ? ['canaux'] : []), ...(p.nom ? ['proprietaire'] : [])];
+    const aRelire = [...sections, ...(canaux.length ? ['canaux'] : []), ...(p.nom ? ['proprietaire'] : []), ...(voisinage ? ['voisinage'] : [])];
     for (let essai = 1; essai <= 3; essai++) {
       try { await lire(dest, journalTache, { sections: aRelire }); journalTache('relecture de contrôle faite'); return { modifie: true, relu: aRelire }; } catch (e) {
         if (e.arret) throw e;
@@ -552,7 +591,7 @@ function creerAdministration(radio, stockage) {
     if (t.type === 'canal') return p.role === 'DISABLED' ? `suppression du canal ${p.index}` : `canal ${p.index} « ${p.nom || ''} »${Number(p.index) === 0 ? ' (principal)' : ''}`;
     if (t.type === 'config') return `${p.section} : ${Object.entries(p.valeurs || {}).map(([k, v]) => k + '=' + v).join(', ')}`;
     if (t.type === 'nom') return [p.nomLong, p.nomCourt].filter(Boolean).join(' / ');
-    if (t.type === 'modifier') return [p.nom ? 'nom' : '', ...['device', 'lora', 'position'].filter((k) => p[k] && Object.keys(p[k]).length).map((k) => k + ' (' + Object.keys(p[k]).join(', ') + ')'), p.canaux && p.canaux.length ? 'canaux ' + p.canaux.map((c) => c.index).join(', ') : ''].filter(Boolean).join(' · ');
+    if (t.type === 'modifier') return [p.nom ? 'nom' : '', p.voisinage ? 'voisinage (' + Object.keys(p.voisinage).join(', ') + ')' : '', ...['device', 'lora', 'position'].filter((k) => p[k] && Object.keys(p[k]).length).map((k) => k + ' (' + Object.keys(p[k]).join(', ') + ')'), p.canaux && p.canaux.length ? 'canaux ' + p.canaux.map((c) => c.index).join(', ') : ''].filter(Boolean).join(' · ');
     if (t.type === 'verifier') return `référence ${idNoeud(p.reference)} · ${(p.elements || []).map((k) => (ELEMENTS[k] || {}).nom || k).join(', ')}`;
     if (t.type === 'position') return p.retirer ? 'retrait de la position fixe' : `${p.lat}, ${p.lon}`;
     return '';

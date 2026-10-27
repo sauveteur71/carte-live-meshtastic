@@ -2585,6 +2585,7 @@ async function formulaireAction(act) {
       <label>Nombre de sauts (hop limit) <select name="hopLimit"><option value="">inchangé</option>${[1, 2, 3, 4, 5, 6, 7].map((k) => `<option value="${k}">${k}${k === 3 ? ' (conseillé)' : ''}</option>`).join('')}</select></label>
       <label>Intervalle des positions (s) <input name="positionBroadcastSecs" type="number" min="0" placeholder="inchangé"></label>
       <label>Intervalle des infos nœud (s) <input name="nodeInfoBroadcastSecs" type="number" min="0" placeholder="inchangé"></label>
+      <label>Module Voisinage (NeighborInfo) <select name="voisinage"><option value="">inchangé</option><option value="lora-21600">activé, toutes les 6 h, aussi sur LoRa (conseillé pour les relais)</option><option value="lora-43200">activé, toutes les 12 h, aussi sur LoRa</option><option value="mqtt-14400">activé, toutes les 4 h, sans LoRa (passerelles MQTT)</option><option value="off">désactivé</option></select></label>
       <div class="actions-prop"><button type="submit" class="principal">Appliquer à ${gestion.selection.size} nœud(s)</button></div>${pied}</form>`;
     $('#f-act').onsubmit = async (e) => {
       e.preventDefault();
@@ -2594,6 +2595,10 @@ async function formulaireAction(act) {
       if (Object.keys(dev).length) ops.push({ section: 'device', valeurs: dev });
       if (fo.hopLimit.value) ops.push({ section: 'lora', valeurs: { hopLimit: Number(fo.hopLimit.value) } });
       if (fo.positionBroadcastSecs.value) ops.push({ section: 'position', valeurs: { positionBroadcastSecs: Number(fo.positionBroadcastSecs.value) } });
+      if (fo.voisinage.value) {
+        const [mode, iv] = fo.voisinage.value.split('-');
+        ops.push({ section: 'voisinage', valeurs: mode === 'off' ? { enabled: false } : { enabled: true, updateInterval: Number(iv), transmitOverLora: mode === 'lora' } });
+      }
       if (!ops.length) { $('#retour-action').textContent = 'Rien à modifier'; return; }
       for (const o of ops) await lancerTache('config', o);
     };
@@ -2734,6 +2739,7 @@ async function editeurReglages(num) {
     return;
   }
   const lo = r.lora, d = r.device, po = r.position;
+  const vo = r.voisinage;
   const nPos = etat.noeuds.get(num);
   const posActuelle = nPos && nPos.lat != null ? { lat: nPos.lat, lon: nPos.lon, alt: nPos.alt ?? null } : null;
   const opt = (liste, v, fr = {}) => liste.map((x) => `<option value="${x}" ${x === v ? 'selected' : ''}>${esc(fr[x] || x)}</option>`).join('');
@@ -2781,6 +2787,13 @@ async function editeurReglages(num) {
         <div class="actions-prop"><button type="button" id="pf-carte">📍 Choisir sur la carte</button><button type="button" id="pf-actuelle" ${posActuelle ? '' : 'disabled'}>Reprendre la position connue</button>${po.fixedPosition ? '<label class="case"><input type="checkbox" name="pfRetirer"> Retirer la position fixe (reprendre le GPS)</label>' : ''}</div>
         <p class="note">Laisser vide pour ne pas toucher à la position. Renseignée, elle est envoyée comme position fixe : le nœud diffuse ces coordonnées au lieu de celles de son GPS.</p>
       </div>
+      <h4>Voisinage (NeighborInfo)</h4>
+      ${vo ? `<div class="grille-edit">
+        <label class="case"><input type="checkbox" name="voisEnabled" ${vo.enabled ? 'checked' : ''}> Publier la liste des nœuds entendus directement</label>
+        <label>Toutes les <select name="voisInterval">${[[14400, '4 h'], [21600, '6 h'], [43200, '12 h'], [86400, '24 h']].map(([v, t]) => `<option value="${v}" ${(vo.updateInterval || 0) === v ? 'selected' : ''}>${t}</option>`).join('')}${vo.updateInterval && ![14400, 21600, 43200, 86400].includes(vo.updateInterval) ? `<option value="${Math.max(14400, vo.updateInterval)}" selected>${Math.round(vo.updateInterval / 3600)} h</option>` : ''}</select></label>
+        <label class="case"><input type="checkbox" name="voisLora" ${vo.transmitOverLora ? 'checked' : ''}> Envoyer aussi sur LoRa</label></div>
+        <p class="note">Indispensable pour savoir ce qu’entend un relais qui n’est pas passerelle MQTT (liaisons à sens unique, SNR de chaque voisin). « Envoyer aussi sur LoRa » est nécessaire pour un nœud sans MQTT ; le firmware l’ignore sur un canal principal à clé et nom par défaut, et impose au moins 4 h entre deux envois.</p>`
+      : '<p class="note">Réglage du module Voisinage non encore lu : « Relire » ci-dessus le récupère (firmware récent).</p>'}
       <h4>Canaux</h4>
       <div class="defil-canaux"><table class="canaux-edit"><thead><tr><th>#</th><th>Nom</th><th>Clé</th><th>Position</th><th>↑</th><th>↓</th><th>🗑</th></tr></thead><tbody>
         ${[0, 1, 2, 3, 4, 5, 6, 7].map(ligneCanal).join('')}</tbody></table></div>
@@ -2826,6 +2839,13 @@ async function editeurReglages(num) {
     sec('device', [['role', 'txt'], ['rebroadcastMode', 'txt'], ['nodeInfoBroadcastSecs', 'num']], d);
     sec('lora', [['region', 'txt'], ['modemPreset', 'txt'], ['channelNum', 'num'], ['overrideFrequency', 'num'], ['hopLimit', 'num'], ['txPower', 'num'], ['sx126xRxBoostedGain', 'bool'], ['configOkToMqtt', 'bool']], lo);
     sec('position', [['positionBroadcastSecs', 'num'], ['positionBroadcastSmartEnabled', 'bool']], po);
+    if (vo) {
+      const v = {};
+      if (val('voisEnabled').checked !== !!vo.enabled) { v.enabled = val('voisEnabled').checked; chg.push(v.enabled ? 'voisinage activé' : 'voisinage désactivé'); }
+      if (Number(val('voisInterval').value) !== (vo.updateInterval || 0) && (val('voisEnabled').checked || vo.enabled)) { v.updateInterval = Number(val('voisInterval').value); chg.push('intervalle du voisinage'); }
+      if (val('voisLora').checked !== !!vo.transmitOverLora) { v.transmitOverLora = val('voisLora').checked; chg.push(v.transmitOverLora ? 'voisinage sur LoRa' : 'voisinage hors LoRa'); }
+      if (Object.keys(v).length) p.voisinage = v;
+    }
     const nb = (x) => Number(String(x || '').trim().replace(',', '.'));
     if (val('pfRetirer') && val('pfRetirer').checked) { p.positionFixe = { retirer: true }; chg.push('retrait de la position fixe'); }
     else if (val('pfLat').value.trim() || val('pfLon').value.trim()) {
