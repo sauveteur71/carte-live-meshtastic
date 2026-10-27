@@ -441,7 +441,8 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   }
 
   // ---- Couverture d'un site --------------------------------------------------------
-  function couvertureZone(site, P, nbRayons = 540, pas = 300) {
+  // 1080 rayons au pas de 250 m : à 40 km, deux rayons voisins restent à moins d'une cellule (sinon la couverture est sous-estimée)
+  function couvertureZone(site, P, nbRayons = 1080, pas = 250) {
     const bits = new Uint32Array(Math.ceil(nbZone / 32));
     let n = 0;
     balayer(site, P, nbRayons, pas, (k, m) => {
