@@ -2191,6 +2191,7 @@ async function rendreGestion() {
   const anc = z.querySelector('.liste-gestion');
   const defil = { liste: anc ? anc.scrollTop : 0, panneaux: [...document.querySelectorAll('#panneau, #panneau .contenu-onglet, #gestion')].map((el) => [el, el.scrollTop]) };
   z.innerHTML = `
+    <div class="titre-programmer"><b>Nœuds Meshtastic</b>${etat.config.meshcore ? '<button class="mini" id="vers-prog-mc">Répéteurs MeshCore →</button>' : ''}</div>
     ${!i.connecte ? '<div class="alerte attention">Le module radio n’est pas connecté : connectez-le dans l’onglet Réseau, section Modules Wi-Fi.</div>' : ''}
     <details class="aide-cle"${i.clePublique ? '' : ' open'}>
       <summary>Autoriser le module à programmer vos nœuds</summary>
@@ -2221,6 +2222,11 @@ async function rendreGestion() {
     <div id="taches-gestion">${rendreTaches(i.taches)}</div>`;
   $('#btn-verif').onclick = () => formulaireVerif();
   $('#filtre-gestion').oninput = (e) => { gestion.filtre = e.target.value; clearTimeout(gestion.minFiltre); gestion.minFiltre = setTimeout(() => { rendreGestion().then(() => { const f = $('#filtre-gestion'); f.focus(); f.setSelectionRange(f.value.length, f.value.length); }); }, 250); };
+  const vp = $('#vers-prog-mc');
+  if (vp) vp.onclick = () => {
+    if (etat.vueReseau === 'meshtastic') { const b = document.querySelector('[data-reseau="les-deux"]'); if (b) b.click(); }
+    setTimeout(() => { const o = document.querySelector('.onglets button[data-onglet="meshcore"]'); if (o) o.click(); const g = document.querySelector('.sous-onglets-mc button[data-mc-vue="gestion"]'); if (g) g.click(); }, 100);
+  };
   $('#tout-deselect').onclick = () => { gestion.selection.clear(); rendreGestion(); };
   $('#tout-select').onclick = () => { liste.forEach((n) => gestion.selection.add(n.num)); rendreGestion(); };
   const nl = z.querySelector('.liste-gestion');
