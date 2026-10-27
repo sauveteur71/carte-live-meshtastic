@@ -839,3 +839,6 @@ body[data-reseau="meshcore"] #sources .ligne:not(#ligne-mc):not(#ligne-broker) {
 .conseil-role { cursor: pointer; } .conseil-role.attention { border-left-color: var(--attention); } .conseil-role.info { border-left-color: var(--accent); }
 .point.attention { background: var(--attention); box-shadow: 0 0 0 3px rgba(255,181,71,.2); }
 details.maint .ligne .titre, details.maint .ligne .titre small { white-space: normal; overflow: visible; text-overflow: clip; }
+.simu-retire { display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #ff5c6c; color: #fff; font-weight: 800; border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.6); }
+.liste-simu { display: grid; grid-template-columns: 1fr; gap: 2px; max-height: 220px; overflow-y: auto; font-size: 12.5px; }
+.alerte.critique { border-left: 3px solid var(--critique); background: rgba(255,92,108,.08); padding: 6px 8px; border-radius: 6px; margin: 8px 0; font-size: 12.5px; }

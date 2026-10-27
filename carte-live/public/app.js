@@ -930,6 +930,7 @@ async function ouvrirFiche(num) {
     <div class="boutons">
       ${n.lat != null ? '<button id="centrer">Centrer sur la carte</button>' : ''}
       ${d.trajet.length > 1 ? `<button id="trajet">Afficher le trajet (${d.trajet.length} points)</button>` : ''}
+      ${n.infrastructure && n.lat != null ? '<button id="simu-retrait" title="Que perdrait-on si ce relais tombait en panne ?">🧪 Et s’il tombait en panne ?</button>' : ''}
       ${n.lat != null ? '<button id="mes-noeud" title="D’où ce nœud a réellement été reçu, par quelles passerelles et avec quel SNR">📶 Couverture mesurée de ce nœud</button>' : ''}
       ${n.lat != null && d.voisins.length ? '<button id="couverture">Liaisons mesurées</button>' : ''}
       ${n.lat != null ? `<button id="couv-relief">Couverture selon le relief</button><label class="champ-mini">antenne <input id="h-relief" type="number" min="0.5" max="80" step="0.5" value="${d.installation && d.installation.hauteur ? d.installation.hauteur : n.infrastructure ? 6 : 2}"> m</label>` : ''}
@@ -984,6 +985,7 @@ async function ouvrirFiche(num) {
   const centrer = $('#centrer');
   if (centrer) centrer.onclick = () => carte.flyTo([n.lat, n.lon], Math.max(carte.getZoom(), 12));
   const bmn = $('#mes-noeud'); if (bmn) bmn.onclick = () => couvertureMesuree(null, n.num);
+  const bsr = $('#simu-retrait'); if (bsr) bsr.onclick = () => { etat.simu = { retirer: new Set([String(n.num)]), ajouter: [] }; simulation(); };
   const btnTrajet = $('#trajet');
   if (btnTrajet) btnTrajet.onclick = () => {
     if (etat.trajet) etat.trajet.remove();
@@ -1705,6 +1707,60 @@ async function couvertureMesuree(jours, noeud) {
   $('#mes-jours').onchange = () => { try { localStorage.setItem('gaulix_mes_jours', $('#mes-jours').value); } catch { /* ignoré */ } couvertureMesuree(Number($('#mes-jours').value), noeud); };
   const mt = $('#mes-tous'); if (mt) mt.onclick = () => couvertureMesuree(jours, null);
 }
+// ---- Simulation « et si… » : retirer ou ajouter des relais --------------------------------------------
+etat.simu = { retirer: new Set(), ajouter: [] };
+async function simulation() {
+  const sm = etat.simu;
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  $('#fiche-contenu').innerHTML = '<h2>Simulation « et si… »</h2><div class="alerte info-lecture"><span class="sablier"></span> Calcul de la couverture et des liaisons entre les villes…</div>';
+  let r;
+  try { r = await postJson('/api/relief/simulation' + (etat.vueReseau === 'meshcore' ? '?reseau=meshcore' : ''), { retirer: [...sm.retirer], ajouter: sm.ajouter }); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Simulation « et si… »</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  if (etat.coucheCouverture) etat.coucheCouverture.remove();
+  const e = r.emprise, g = L.layerGroup();
+  L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.8, pane: 'couverture', className: 'pixelise' }).addTo(g);
+  for (const n of r.retires) L.marker([n.lat, n.lon], { icon: L.divIcon({ className: 'simu-retire', html: '✖', iconSize: [22, 22], iconAnchor: [11, 11] }), pane: 'traces', zIndexOffset: 900 }).bindTooltip(`Retiré : ${esc(n.nom)}`, { className: 'info' }).addTo(g);
+  r.ajoutes.forEach((a, i) => L.marker([a.lat, a.lon], { icon: L.divIcon({ className: 'relais-a-installer', html: `<div class="epingle"><b>+${i + 1}</b></div>`, iconSize: [34, 44], iconAnchor: [17, 42] }), pane: 'traces', zIndexOffset: 950 }).bindTooltip(`Ajouté : ${esc(a.nom)} · antenne ${a.h} m`, { className: 'info' }).addTo(g));
+  for (const v of r.villes) L.circleMarker([v.lat, v.lon], { radius: 5, color: v.couverteApres ? '#e8eef5' : '#ff5c6c', weight: 2, fillColor: v.couverteApres ? '#3ee6c4' : '#ff5c6c', fillOpacity: 0.9, pane: 'traces' }).bindTooltip(`${esc(v.nom)} · ${v.population.toLocaleString('fr-FR')} hab.${v.couverteApres ? '' : ' · <b>non couverte</b>'}`, { className: 'info' }).addTo(g);
+  g.addTo(carte);
+  etat.coucheCouverture = g;
+  $('#btn-effacer').hidden = false;
+  const delta = r.apres.pct - r.avant.pct;
+  const changees = r.paires.filter((p) => p.avant !== p.apres);
+  const libRelais = (x) => (x == null ? '<b style="color:var(--critique)">✖ impossible</b>' : `${x} relais`);
+  const villesPerdues = r.villes.filter((v) => v.couverteAvant && !v.couverteApres), villesGagnees = r.villes.filter((v) => !v.couverteAvant && v.couverteApres);
+  $('#fiche-contenu').innerHTML = `<h2>Simulation « et si… »</h2>
+    <div class="grille">
+      <div class="mesure"><span>Couverture avant</span><b>${fmt(r.avant.pct, 1, ' %')}</b></div>
+      <div class="mesure"><span>Après</span><b style="color:${delta < -0.05 ? 'var(--critique)' : delta > 0.05 ? 'var(--ok)' : 'inherit'}">${fmt(r.apres.pct, 1, ' %')}</b></div>
+      <div class="mesure"><span>Écart</span><b>${delta >= 0 ? '+' : ''}${fmt(delta, 1, ' pt')}</b></div>
+      <div class="mesure"><span>Zone perdue</span><b style="color:${r.perduKm2 ? 'var(--critique)' : 'inherit'}">${r.perduKm2} km²</b></div>
+      <div class="mesure"><span>Zone gagnée</span><b style="color:${r.gagneKm2 ? 'var(--ok)' : 'inherit'}">${r.gagneKm2} km²</b></div>
+      <div class="mesure"><span>Relais</span><b>${r.avant.relais} → ${r.apres.relais}</b></div>
+    </div>
+    ${villesPerdues.length ? `<div class="alerte critique">Villes qui ne seraient plus couvertes : <b>${villesPerdues.map((v) => esc(v.nom)).join(', ')}</b></div>` : ''}
+    ${villesGagnees.length ? `<div class="alerte info-lecture">Villes nouvellement couvertes : <b>${villesGagnees.map((v) => esc(v.nom)).join(', ')}</b></div>` : ''}
+    <h3>Liaisons entre les principales villes</h3>
+    ${changees.length ? `<table class="voisins"><thead><tr><th>Entre</th><th class="num">Avant</th><th class="num">Après</th></tr></thead><tbody>${changees.map((p) => `<tr><td>${esc(p.de)} ↔ ${esc(p.vers)}</td><td class="num">${libRelais(p.avant)}</td><td class="num">${libRelais(p.apres)}</td></tr>`).join('')}</tbody></table>` : `<p class="note">Aucun changement entre les ${r.villes.length} plus grandes villes (${r.paires.filter((p) => p.apres != null).length} liaisons possibles sur ${r.paires.length}).</p>`}
+    <h3>Modifier la simulation</h3>
+    <h4>Retirer des relais existants</h4>
+    <div class="liste-simu">${r.reseau.map((n) => `<label class="case"><input type="checkbox" data-retirer="${esc(String(n.num))}" ${sm.retirer.has(String(n.num)) ? 'checked' : ''}> ${esc(n.nom)}</label>`).join('') || '<div class="vide">Aucun relais détecté.</div>'}</div>
+    <h4>Ajouter des relais</h4>
+    ${sm.ajouter.map((a, i) => `<div class="ligne-cible"><span class="cible-multi petit"><span>+${i + 1}</span></span>${esc(a.nom)} <small class="mono">${a.lat.toFixed(4)}, ${a.lon.toFixed(4)}</small> · antenne <input class="mini-h" data-h-ajout="${i}" type="number" min="0.5" max="60" step="0.5" value="${a.h}"> m<button class="mini" data-suppr-ajout="${i}">✕</button></div>`).join('') || '<p class="note">Aucun pour l’instant.</p>'}
+    <div class="actions-prop"><button id="simu-ajout">＋ Ajouter un relais sur la carte</button><button id="simu-lancer" class="principal">Recalculer</button><button id="simu-raz">Tout remettre à zéro</button></div>
+    <p class="note">Rouge : zone qui ne serait plus couverte · vert : zone gagnée · turquoise pâle : inchangée. « N relais » = nombre de relais traversés par un message entre deux nœuds situés dans ces villes (calculé d’après le relief, antennes des fiches Installation, sinon 6 m). Villes : les ${r.villes.length} communes les plus peuplées du département.</p>`;
+  $('#fiche-contenu').querySelectorAll('[data-retirer]').forEach((c) => (c.onchange = () => { if (c.checked) sm.retirer.add(c.dataset.retirer); else sm.retirer.delete(c.dataset.retirer); }));
+  $('#fiche-contenu').querySelectorAll('[data-h-ajout]').forEach((c) => (c.onchange = () => { sm.ajouter[Number(c.dataset.hAjout)].h = Number(c.value) || 6; }));
+  $('#fiche-contenu').querySelectorAll('[data-suppr-ajout]').forEach((b) => (b.onclick = () => { sm.ajouter.splice(Number(b.dataset.supprAjout), 1); simulation(); }));
+  $('#simu-ajout').onclick = () => basculerMode('simu-ajout');
+  $('#simu-lancer').onclick = () => simulation();
+  $('#simu-raz').onclick = () => { etat.simu = { retirer: new Set(), ajouter: [] }; simulation(); };
+}
+function ajouterRelaisSimulation(latlng) {
+  const lieu = nomLieu(latlng);
+  etat.simu.ajouter.push({ lat: lieu.lat, lon: lieu.lon, h: Number($('#relief-hs') ? $('#relief-hs').value : 6) || 6, nom: lieu.nom });
+  simulation();
+}
 function allerPlan() {
   const b = document.querySelector('.onglets button[data-onglet="sites"]');
   if (b) b.click();
@@ -1807,6 +1863,7 @@ async function rendreSites() {
       <button data-outil="btn-couvrir">🎯 Couvrir un ou plusieurs points<small>les points hauts capables de desservir le ou les lieux cliqués</small></button>
       <button data-outil="btn-relier">🔗 Relier deux lieux<small>faut-il des relais entre A et B, et où ?</small></button>
       <button data-outil="btn-profil">⛰️ Profil entre deux points<small>relief et dégagement de la liaison</small></button>
+      <button data-outil="btn-simulation">🧪 Simulation « et si… »<small>retirer ou ajouter des relais : couverture et liaisons entre les villes</small></button>
     </div>
     <h3>Réglages des calculs</h3>
     <div class="parametres compact">
@@ -2116,6 +2173,7 @@ const CONSIGNES = {
   couvrir: 'Cliquez le lieu à couvrir', 'couvrir-plus': () => `Cliquez le point ${(etat.ciblesMulti || []).length + 1} à couvrir`,
   ici: 'Cliquez l’emplacement de l’antenne', 'couv-plus': () => `Cliquez le site ${(etat.sitesCouv || []).length + 1} à ajouter à la couverture`,
   relier: () => (etat.relierA ? 'Cliquez le point d’arrivée' : 'Cliquez le point de départ'),
+  'simu-ajout': 'Cliquez l’emplacement du relais à ajouter dans la simulation',
 };
 function majConsigne(texte) {
   const c = $('#consigne-mode');
@@ -3395,6 +3453,7 @@ function brancherInterface() {
     if (m === 'relier') { choisirPointRelier(e.latlng); return; }
     if (m === 'couvrir-plus') { basculerMode(null); ajouterCible(e.latlng); return; }
     if (m === 'couv-plus') { basculerMode(null); ajouterSiteCouverture(e.latlng); return; }
+    if (m === 'simu-ajout') { basculerMode(null); ajouterRelaisSimulation(e.latlng); return; }
     basculerMode(null);
     if (m === 'couvrir') { etat.ciblesMulti = null; couvrirPoint(e.latlng); } else couvertureIci(e.latlng, Number($('#relief-hs') ? $('#relief-hs').value : 6) || 6);
   });
@@ -3425,6 +3484,7 @@ function brancherInterface() {
   $('#aller-couv-reseau').onclick = couvertureReseau;
   $('#btn-couv-reseau').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; couvertureReseau(); };
   $('#btn-couv-mesuree').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; couvertureMesuree(); };
+  $('#btn-simulation').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; simulation(); };
   $('#btn-plan-menu').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; allerPlan(); };
   $('#consigne-annuler').onclick = () => { if (etat.modeCarte) basculerMode(null); if (etat.modeProfil) $('#btn-profil').click(); };
   $('#btn-profil').onclick = () => {

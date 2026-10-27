@@ -624,6 +624,93 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     };
   }
 
+  // ---- Simulation « et si… » : retirer ou ajouter des relais ------------------------------------
+  // Couverture de chaque site mise en cache (bits des cellules du département couvertes), puis unions avant / après.
+  const cacheSites = new Map();
+  function bitsSite(site, P) {
+    const Pi = Pinstallation({ ...P, hs: site.h ?? P.hs }, site);
+    const cle = [site.lat.toFixed(5), site.lon.toFixed(5), Pi.hs, Pi.gains, Pi.pertes, Pi.ptx, Pi.env, Pi.preset].join('|');
+    if (!cacheSites.has(cle)) {
+      if (cacheSites.size > 400) cacheSites.delete(cacheSites.keys().next().value);
+      cacheSites.set(cle, couvertureZone(site, Pi, 1440, 150).bits);
+    }
+    return cacheSites.get(cle);
+  }
+  function simuler({ retirer = [], ajouter = [], villes = [] } = {}, opts = {}) {
+    if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
+    const P = parametres(opts);
+    const hDefaut = opts.hn ?? 6;
+    const base = (opts.noeuds || fournisseurs.noeudsReseau()).filter((n) => celle(n.lat, n.lon) >= 0).map((n) => ({ ...n, h: n.h ?? hDefaut }));
+    const ret = new Set(retirer.map(String));
+    const ajout = ajouter.filter((a) => Number.isFinite(a.lat) && Number.isFinite(a.lon) && celle(a.lat, a.lon) >= 0).map((a, i) => ({ num: 'ajout-' + i, nom: a.nom || `Nouveau relais ${i + 1}`, lat: a.lat, lon: a.lon, h: a.h ?? P.hs, nouveau: true }));
+    const avant = base, apres = [...base.filter((n) => !ret.has(String(n.num))), ...ajout];
+    const W = Math.ceil(nbZone / 32);
+    const union = (sites) => { const u = new Uint32Array(W); for (const s of sites) { const b = bitsSite(s, P); for (let w = 0; w < W; w++) u[w] |= b[w]; } return u; };
+    const uA = union(avant), uB = union(apres);
+    const nA = compter(uA), nB = compter(uB);
+    // Image : perdu (rouge), gagné (vert), inchangé (turquoise pâle)
+    const rgba = Buffer.alloc(nLat * nLon * 4);
+    let perdu = 0, gagne = 0;
+    for (let i = 0; i < nLat; i++) for (let j = 0; j < nLon; j++) {
+      const z = indexZone[i * nLon + j];
+      if (z < 0) continue;
+      const w = z >>> 5, b = 1 << (z & 31), a = uA[w] & b, c = uB[w] & b;
+      if (!a && !c) continue;
+      const o = ((nLat - 1 - i) * nLon + j) * 4;
+      const col = a && !c ? [255, 92, 108, 170] : !a && c ? [74, 222, 128, 170] : [62, 230, 196, 55];
+      if (a && !c) perdu++; else if (!a && c) gagne++;
+      rgba[o] = col[0]; rgba[o + 1] = col[1]; rgba[o + 2] = col[2]; rgba[o + 3] = col[3];
+    }
+    // Graphe des relais (liaisons calculées) et nombre de relais traversés entre les principales villes
+    const graphe = (sites) => {
+      const adj = sites.map(() => []);
+      for (let i = 0; i < sites.length; i++) for (let j = i + 1; j < sites.length; j++) {
+        if (distanceM(sites[i], sites[j]) > P.rayonMax) continue;
+        const l = liaison(sites[i], sites[j], Pinstallation(P, sites[i], sites[j]), sites[i].h, sites[j].h);
+        if (l && l.marge >= 0) { adj[i].push(j); adj[j].push(i); }
+      }
+      return adj;
+    };
+    const entrees = (sites, v) => sites.map((s, i) => {
+      if (distanceM(s, v) > P.rayonMax) return -1;
+      const l = liaison(v, s, Pinstallation(P, s), P.ht, s.h);
+      return l && l.marge >= 0 ? i : -1;
+    }).filter((i) => i >= 0);
+    const relaisEntre = (adj, A, B) => {
+      if (!A.length || !B.length) return null;
+      const dist = new Array(adj.length).fill(-1), file = [];
+      for (const a of A) { dist[a] = 1; file.push(a); }
+      const cibles = new Set(B);
+      for (let k = 0; k < file.length; k++) {
+        const u = file[k];
+        if (cibles.has(u)) return dist[u];
+        for (const v of adj[u]) if (dist[v] < 0) { dist[v] = dist[u] + 1; file.push(v); }
+      }
+      return null;
+    };
+    const vs = villes.filter((v) => celle(v.lat, v.lon) >= 0).slice(0, 12);
+    const gA = graphe(avant), gB = graphe(apres);
+    const eA = vs.map((v) => entrees(avant, v)), eB = vs.map((v) => entrees(apres, v));
+    const paires = [];
+    for (let i = 0; i < vs.length; i++) for (let j = i + 1; j < vs.length; j++) {
+      const a = relaisEntre(gA, eA[i], eA[j]), b = relaisEntre(gB, eB[i], eB[j]);
+      paires.push({ de: vs[i].nom, vers: vs[j].nom, avant: a, apres: b });
+    }
+    const pct = (n) => +((n / nbZone) * 100).toFixed(1);
+    return {
+      avant: { relais: avant.length, pct: pct(nA), km2: Math.round(nA * aireCelleKm2) },
+      apres: { relais: apres.length, pct: pct(nB), km2: Math.round(nB * aireCelleKm2) },
+      perduKm2: Math.round(perdu * aireCelleKm2), gagneKm2: Math.round(gagne * aireCelleKm2),
+      retires: base.filter((n) => ret.has(String(n.num))).map((n) => ({ num: n.num, nom: n.nom, lat: n.lat, lon: n.lon })),
+      ajoutes: ajout.map((a) => ({ nom: a.nom, lat: a.lat, lon: a.lon, h: a.h })),
+      villes: vs.map((v, i) => ({ nom: v.nom, lat: v.lat, lon: v.lon, population: v.population, couverteAvant: eA[i].length > 0, couverteApres: eB[i].length > 0 })),
+      paires,
+      reseau: base.map((n) => ({ num: n.num, nom: n.nom, lat: n.lat, lon: n.lon })),
+      image: png(nLon, nLat, rgba),
+      parametres: { preset: P.preset, hs: P.hs, ht: P.ht, env: P.env },
+    };
+  }
+
   // Couverture actuelle du réseau : relais et passerelles détectés (entendus depuis 24 h) et positionnés dans la zone
   function couvertureReseau(opts = {}) {
     if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
@@ -922,6 +1009,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     couverturePng,
     couverturePngMulti,
     couvertureReseau,
+    simuler,
     planDepartement,
     couvrirPoint,
     couvrirPoints,

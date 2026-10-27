@@ -348,6 +348,35 @@ app.get('/api/relief/couverture-reseau', (req, res) => {
   const { image, ...reste } = r;
   res.json({ ...reste, image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise() });
 });
+// Principales villes d'un département (API Géo de l'État), gardées sur le disque
+async function villesDepartement(code) {
+  const f = path.join(path.dirname(config.fichierBase), `villes-${code}.json`);
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* à télécharger */ }
+  const r = await fetch(`https://geo.api.gouv.fr/departements/${encodeURIComponent(code)}/communes?fields=nom,centre,population&format=json`, { signal: AbortSignal.timeout(15000) });
+  if (!r.ok) throw new Error('API Géo : HTTP ' + r.status);
+  const l = (await r.json()).filter((c) => c.centre && c.population).sort((a, b) => b.population - a.population).slice(0, 20)
+    .map((c) => ({ nom: c.nom, lat: c.centre.coordinates[1], lon: c.centre.coordinates[0], population: c.population }));
+  fs.writeFileSync(f, JSON.stringify(l));
+  return l;
+}
+// Simulation « et si… » : { retirer: [num…], ajouter: [{ lat, lon, h, nom }…] }
+app.post('/api/relief/simulation', async (req, res) => {
+  const RR = R(req);
+  if (!RR.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
+  const b = req.body || {};
+  const o = optsRelief(req.query);
+  if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
+  if (b.hn) o.hn = Math.min(Math.max(Number(b.hn) || 6, 0.5), 60);
+  let villes = [];
+  try { villes = await villesDepartement(RR.code); } catch (e) { journal('[Simulation] villes :', e.message); }
+  try {
+    const r = RR.simuler({ retirer: Array.isArray(b.retirer) ? b.retirer.slice(0, 50) : [], ajouter: Array.isArray(b.ajouter) ? b.ajouter.slice(0, 10).map((a) => ({ lat: Number(a.lat), lon: Number(a.lon), h: a.h != null ? Math.min(Math.max(Number(a.h) || 6, 0.5), 60) : undefined, nom: a.nom ? String(a.nom).slice(0, 60) : undefined })) : [], villes }, o);
+    const id = crypto.randomBytes(6).toString('hex');
+    cacheCouverture.set(id, { image: r.image });
+    if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
+    res.json({ ...r, image: `/api/relief/couverture/${id}.png`, emprise: RR.emprise() });
+  } catch (e) { res.status(503).json({ erreur: e.message }); }
+});
 // Plan pour couvrir le département : ?objectif=95&max=15&acces=voiture&reseau=1
 app.get('/api/relief/plan', (req, res) => {
   const filtre = ['voiture', '4x4', 'pied'].includes(req.query.acces) ? req.query.acces : null;
