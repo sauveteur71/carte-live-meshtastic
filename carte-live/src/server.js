@@ -248,7 +248,7 @@ app.get('/api/relief/couverture', (req, res) => {
   const RR = R(req, { lat, lon });
   if (!RR.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
   const o = optsRelief(req.query);
-  const cle = JSON.stringify([RR.code, lat.toFixed(4), lon.toFixed(4), o]);
+  const cle = JSON.stringify([RR.code, lat.toFixed(4), lon.toFixed(4), o, (RR.calibration() || {}).date]);
   let r = cacheCouverture.get(cle);
   if (!r) {
     r = RR.couverturePng({ lat, lon }, o);
@@ -267,7 +267,7 @@ app.get('/api/relief/couverture-multi', (req, res) => {
   const RR = R(req, ...sites);
   if (!RR.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
   const o = optsRelief(req.query);
-  const cle = JSON.stringify(['multi', RR.code, sites, o]);
+  const cle = JSON.stringify(['multi', RR.code, sites, o, (RR.calibration() || {}).date]);
   let r = cacheCouverture.get(cle);
   if (!r) {
     r = RR.couverturePngMulti(sites, o);
@@ -284,7 +284,8 @@ app.get('/api/relief/couverture-reseau', (req, res) => {
   const o = optsRelief(req.query);
   if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
   if (req.query.hn) o.hn = Math.min(Math.max(Number(req.query.hn) || 6, 0.5), 60);
-  const cle = JSON.stringify(['reseau', RR.code, req.query.reseau || 'mt', o.hn || 6, Math.floor(Date.now() / 600000)]);
+  // La calibration (pertes d'environnement) fait partie de la clé : un calcul fait avant elle serait trop optimiste
+  const cle = JSON.stringify(['reseau', RR.code, req.query.reseau || 'mt', o.hn || 6, Math.floor(Date.now() / 600000), (RR.calibration() || {}).date]);
   let r = cacheCouverture.get(cle);
   if (!r) {
     try { r = RR.couvertureReseau(o); } catch (e) { return res.status(503).json({ erreur: e.message }); }
