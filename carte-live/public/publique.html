@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Réseau Meshtastic · carte publique</title>
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <style>
+    :root { --fond: #0b1118; --surface: rgba(17,26,36,.92); --texte: #e8eef5; --doux: #9fb0c2; --accent: #3ee6c4; --bord: #22303f; }
+    html, body { margin: 0; height: 100%; background: var(--fond); color: var(--texte); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    #carte { position: fixed; inset: 0; background: var(--fond); }
+    .bandeau { position: fixed; top: 10px; left: 10px; z-index: 1000; background: var(--surface); border: 1px solid var(--bord); border-radius: 10px; padding: 8px 12px; max-width: calc(100% - 40px); }
+    .bandeau b { font-size: 15px; } .bandeau small { color: var(--doux); display: block; }
+    .chiffres { display: flex; gap: 14px; margin-top: 4px; } .chiffres span { color: var(--doux); font-size: 12px; } .chiffres b { color: var(--texte); font-size: 14px; }
+    .legende { position: fixed; bottom: 22px; left: 10px; z-index: 1000; background: var(--surface); border: 1px solid var(--bord); border-radius: 10px; padding: 6px 10px; font-size: 12px; color: var(--doux); }
+    .legende i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 4px 0 8px; vertical-align: -1px; }
+    a { color: var(--accent); }
+    .mk { width: 12px; height: 12px; transform: rotate(45deg); background: #60a5fa; border: 2px solid #fff; box-shadow: 0 0 4px #000; }
+    .mk.gw { background: #3ee6c4; } .mk.inactif { opacity: .45; }
+    .cl { width: 8px; height: 8px; border-radius: 50%; background: #c084fc; border: 1.5px solid #fff; }
+    .leaflet-tooltip { background: var(--surface); color: var(--texte); border: 1px solid var(--bord); }
+  </style>
+</head>
+<body>
+  <div id="carte"></div>
+  <div class="bandeau"><b id="titre">Réseau Meshtastic</b><small id="sous">carte publique · mise à jour chaque minute</small>
+    <div class="chiffres"><span><b id="n-relais">–</b> relais</span><span><b id="n-gw">–</b> passerelles</span><span><b id="n-actifs">–</b> nœuds actifs</span></div>
+  </div>
+  <div class="legende"><i style="background:#60a5fa"></i>relais<i style="background:#3ee6c4"></i>passerelle<i style="background:#c084fc"></i>nœud (position approchée) · <a id="lien-complet" href="/" target="_blank" rel="noopener">carte complète</a></div>
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script src="/publique.js"></script>
+</body>
+</html>

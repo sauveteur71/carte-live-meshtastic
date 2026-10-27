@@ -842,3 +842,4 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 .simu-retire { display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #ff5c6c; color: #fff; font-weight: 800; border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.6); }
 .liste-simu { display: grid; grid-template-columns: 1fr; gap: 2px; max-height: 220px; overflow-y: auto; font-size: 12.5px; }
 .alerte.critique { border-left: 3px solid var(--critique); background: rgba(255,92,108,.08); padding: 6px 8px; border-radius: 6px; margin: 8px 0; font-size: 12.5px; }
+.bloc-code { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--doux); margin: 6px 0; } .bloc-code textarea { font: 11.5px/1.4 ui-monospace, monospace; background: var(--fond); color: var(--texte); border: 1px solid var(--bord); border-radius: 6px; padding: 6px; resize: vertical; }

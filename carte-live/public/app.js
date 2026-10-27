@@ -1761,6 +1761,30 @@ function ajouterRelaisSimulation(latlng) {
   etat.simu.ajouter.push({ lat: lieu.lat, lon: lieu.lon, h: Number($('#relief-hs') ? $('#relief-hs').value : 6) || 6, nom: lieu.nom });
   simulation();
 }
+// ---- Partager : carte publique intégrable et exports ---------------------------------------------------
+function fichePartager() {
+  const base = location.origin;
+  const iframe = `<iframe src="${base}/publique" width="100%" height="520" style="border:0;border-radius:8px" title="Carte du réseau" loading="lazy"></iframe>`;
+  const ha = `rest:\n  - resource: ${base}/api/export/resume.json\n    scan_interval: 120\n    sensor:\n      - name: "Gaulix nœuds actifs"\n        value_template: "{{ value_json.noeudsActifs }}"\n      - name: "Gaulix couverture"\n        unit_of_measurement: "%"\n        value_template: "{{ value_json.couverturePct }}"\n      - name: "Gaulix alertes critiques"\n        value_template: "{{ value_json.alertesCritiques }}"`;
+  const lien = (url, lib, desc) => `<div class="ligne"><span class="titre"><a href="${url}" target="_blank" rel="noopener">${lib}</a><small>${desc}</small></span><span class="meta"><button class="mini" data-copier="${esc(url)}">Copier</button></span></div>`;
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  $('#fiche-contenu').innerHTML = `<h2>Carte publique et exports</h2>
+    <h3>Carte publique allégée</h3>
+    <p class="note">Relais, passerelles, nœuds à position approchée et liaisons, mise à jour chaque minute. Aucun message ni position exacte de particulier. Options : <span class="mono">?clients=0</span> (relais seuls), <span class="mono">?liens=0</span>, <span class="mono">?titre=…</span></p>
+    ${lien(base + '/publique', base + '/publique', 'à ouvrir ou à intégrer')}
+    <label class="bloc-code">Code à coller dans une page (gaulix.fr…)<textarea readonly rows="3">${esc(iframe)}</textarea></label>
+    <p class="note">La page doit être joignable depuis internet (par exemple via Tailscale Funnel ou un reverse proxy) pour être vue par les visiteurs d’un site.</p>
+    <h3>Exports</h3>
+    ${lien(base + '/api/export/relais.gpx', 'Relais et passerelles (GPX)', 'pour OsmAnd, un GPS de randonnée ou une tournée de maintenance')}
+    ${lien(base + '/api/export/noeuds.geojson', 'Nœuds (GeoJSON)', 'QGIS, uMap, sites web')}
+    ${lien(base + '/api/export/liens.geojson', 'Liaisons radio 24 h (GeoJSON)', 'QGIS, uMap ; ?heures=168 pour 7 jours')}
+    ${lien(base + '/api/export/resume.json', 'Résumé (JSON)', 'Home Assistant, scripts, tableaux de bord')}
+    ${lien(base + '/metrics', 'Métriques Prometheus', 'à ajouter comme cible dans Prometheus, puis tableaux Grafana')}
+    <h3>Home Assistant</h3>
+    <label class="bloc-code">Dans configuration.yaml<textarea readonly rows="11">${esc(ha)}</textarea></label>
+    <p class="note">Ces exports suivent les mêmes règles de confidentialité que la carte publique. Pour les protéger, définissez <span class="mono">EXPORT_JETON</span> dans le fichier .env : il faut alors ajouter <span class="mono">?jeton=…</span> aux adresses (ou l’en-tête « Authorization: Bearer … »).</p>`;
+}
 function allerPlan() {
   const b = document.querySelector('.onglets button[data-onglet="sites"]');
   if (b) b.click();
@@ -3484,6 +3508,7 @@ function brancherInterface() {
   $('#aller-couv-reseau').onclick = couvertureReseau;
   $('#btn-couv-reseau').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; couvertureReseau(); };
   $('#btn-couv-mesuree').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; couvertureMesuree(); };
+  $('#outil-partager').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; fichePartager(); };
   $('#btn-simulation').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; simulation(); };
   $('#btn-plan-menu').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; allerPlan(); };
   $('#consigne-annuler').onclick = () => { if (etat.modeCarte) basculerMode(null); if (etat.modeProfil) $('#btn-profil').click(); };

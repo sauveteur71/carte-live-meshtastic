@@ -46,6 +46,8 @@ const config = {
   },
   // Précision publique des positions (nombre de décimales, 3 ≈ 100 m). -1 = pas d'arrondi.
   precisionPublique: nombre('PRECISION_PUBLIQUE_DECIMALES', 3),
+  // Exports (GeoJSON, Prometheus, Home Assistant) : jeton facultatif exigé s'il est défini
+  exportJeton: texte('EXPORT_JETON'),
   noeudsSurveilles: texte('NOEUDS_SURVEILLES').split(/[,;]/).map((s) => s.trim()).filter(Boolean),
   seuils: {
     muetMinutes: nombre('SEUIL_MUET_MINUTES', 120),

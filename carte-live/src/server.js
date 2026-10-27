@@ -18,6 +18,7 @@ const { creerHistorique } = require('./historique');
 const { creerSauvegardes } = require('./sauvegardes');
 const { creerSanteCarte } = require('./sante-carte');
 const { creerMaintenance } = require('./maintenance');
+const { creerExports } = require('./exports');
 const installations = creerInstallations(path.dirname(config.fichierBase));
 // Zone « département + voisins », recalculée si le département ou sa zone changent (installation, réglages)
 let cacheVoisins = { cle: null, val: null };
@@ -1449,6 +1450,21 @@ app.get('/api/maintenance/:quoi', (req, res) => {
     res.status(404).json({ erreur: 'Inconnu' });
   } catch (e) { res.status(500).json({ erreur: e.message }); }
 });
+
+// ---- Exports et intégrations (GeoJSON, Prometheus/Grafana, Home Assistant) ------------------------
+const exportsCarte = creerExports({ config, stockage, reseau, reseauMc, maintenance, santeCarte: { etat: () => santeCarte.etat() }, relief, alertes: () => dernieresAlertes });
+const exporter = (f, type) => (req, res) => {
+  if (!exportsCarte.jetonOk(req)) return res.status(401).json({ erreur: 'Jeton d’export requis (?jeton=…)' });
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'no-store');
+  try { const r = f(req); if (type === 'text') res.type('text/plain; version=0.0.4').send(r); else if (typeof r === 'string') { res.setHeader('Content-Disposition', 'attachment; filename="relais-gaulix.gpx"'); res.type(type).send(r); } else res.type(type).send(JSON.stringify(r)); } catch (e) { res.status(500).json({ erreur: e.message }); }
+};
+app.get('/api/export/noeuds.geojson', exporter(() => exportsCarte.noeudsGeoJSON(), 'application/geo+json'));
+app.get('/api/export/liens.geojson', exporter((req) => exportsCarte.liensGeoJSON(Math.min(Math.max(Number(req.query.heures) || 24, 1), 168)), 'application/geo+json'));
+app.get('/api/export/resume.json', exporter(() => exportsCarte.resume(), 'application/json'));
+app.get('/publique', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'publique.html')));
+app.get('/metrics', exporter(() => exportsCarte.metriques(), 'text'));
+app.get('/api/export/relais.gpx', exporter(() => exportsCarte.relaisGpx(), 'application/gpx+xml'));
 
 // ---- Historique long (résumés horaires et journaliers) ---------------------------------------
 const historique = creerHistorique(stockage.db, config, {
