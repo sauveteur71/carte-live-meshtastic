@@ -503,7 +503,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       const existants = fournisseurs.noeudsReseau().filter((n) => celle(n.lat, n.lon) >= 0);
       const deja = new Uint32Array(Math.ceil(nbZone / 32));
       for (const n of existants) {
-        const c = couvertureZone(n, P);
+        const c = couvertureZone(n, P, 1440, 150); // réseau existant : même précision que la carte de couverture
         for (let w = 0; w < deja.length; w++) deja[w] |= c.bits[w];
         await pause();
       }
@@ -595,7 +595,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     }
     const candidats = dernierCalcul.couvertures.filter((c) => accessible(c.s, min)).length;
     return {
-      objectifPct, max, filtreAcces: filtre || 'tous', avecReseau, candidats,
+      objectifPct, max, filtreAcces: filtre || 'tous', avecReseau, candidats, accesEtat: acces.etat(),
       surfaceDepartementKm2: Math.round(nbZone * aireCelleKm2),
       departPct: +((depart / nbZone) * 100).toFixed(1),
       finalPct: +((finale / nbZone) * 100).toFixed(1),
