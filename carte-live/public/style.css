@@ -801,3 +801,4 @@ body[data-reseau="meshcore"] #sources .ligne:not(#ligne-mc):not(#ligne-broker) {
 .points-couverts { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
 .pastille-point { font-size: 11px; border: 1.5px solid; border-radius: 99px; padding: 1px 7px; color: var(--texte); }
 .actions-prop .principal { background: var(--accent); color: #062019; border-color: var(--accent); font-weight: 600; }
+.bloc-position-fixe { border: 1px solid var(--bord); border-radius: 8px; padding: 8px 10px; margin: 6px 0 4px; }

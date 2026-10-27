@@ -2312,6 +2312,8 @@ async function editeurReglages(num) {
     return;
   }
   const lo = r.lora, d = r.device, po = r.position;
+  const nPos = etat.noeuds.get(num);
+  const posActuelle = nPos && nPos.lat != null ? { lat: nPos.lat, lon: nPos.lon, alt: nPos.alt ?? null } : null;
   const opt = (liste, v, fr = {}) => liste.map((x) => `<option value="${x}" ${x === v ? 'selected' : ''}>${esc(fr[x] || x)}</option>`).join('');
   const parIndex = new Map(r.canaux.map((c) => [c.index, c]));
   const dernierCanal = Math.max(0, ...r.canaux.map((c) => c.index));
@@ -2347,6 +2349,16 @@ async function editeurReglages(num) {
       <h4>Position</h4><div class="grille-edit">
         <label>Intervalle (s) <input name="positionBroadcastSecs" type="number" min="0" value="${po.positionBroadcastSecs || 0}"></label>
         <label class="case"><input type="checkbox" name="positionBroadcastSmartEnabled" ${po.positionBroadcastSmartEnabled ? 'checked' : ''}> Mode intelligent</label></div>
+      <div class="bloc-position-fixe">
+        <div class="ident">Position fixe ${po.fixedPosition ? '<b>activée</b>' : 'désactivée (GPS ou aucune)'} · position connue : ${posActuelle ? `${posActuelle.lat.toFixed(5)}, ${posActuelle.lon.toFixed(5)}${posActuelle.alt != null ? ' · ' + posActuelle.alt + ' m' : ''}` : 'aucune'}</div>
+        <div class="grille-edit">
+          <label>Latitude <input name="pfLat" inputmode="decimal" placeholder="45.12345" value=""></label>
+          <label>Longitude <input name="pfLon" inputmode="decimal" placeholder="3.98765" value=""></label>
+          <label>Altitude (m, facultatif) <input name="pfAlt" type="number" value=""></label>
+        </div>
+        <div class="actions-prop"><button type="button" id="pf-carte">📍 Choisir sur la carte</button><button type="button" id="pf-actuelle" ${posActuelle ? '' : 'disabled'}>Reprendre la position connue</button>${po.fixedPosition ? '<label class="case"><input type="checkbox" name="pfRetirer"> Retirer la position fixe (reprendre le GPS)</label>' : ''}</div>
+        <p class="note">Laisser vide pour ne pas toucher à la position. Renseignée, elle est envoyée comme position fixe : le nœud diffuse ces coordonnées au lieu de celles de son GPS.</p>
+      </div>
       <h4>Canaux</h4>
       <div class="defil-canaux"><table class="canaux-edit"><thead><tr><th>#</th><th>Nom</th><th>Clé</th><th>Position</th><th>↑</th><th>↓</th><th>🗑</th></tr></thead><tbody>
         ${[0, 1, 2, 3, 4, 5, 6, 7].map(ligneCanal).join('')}</tbody></table></div>
@@ -2356,8 +2368,26 @@ async function editeurReglages(num) {
       <p class="erreur" id="ed-retour"></p>
     </form>`;
   $('#ed-relire').onclick = () => lireDabord(false);
-  $('#ed-annuler').onclick = () => editeurReglages(num);
+  $('#ed-annuler').onclick = () => { if (gestion.marqueurPos) { gestion.marqueurPos.remove(); gestion.marqueurPos = null; } editeurReglages(num); };
   const fo = $('#f-edit');
+  // Position fixe : repère sur la carte, choix au clic
+  const marquerPf = () => {
+    const lat = Number(String(fo.pfLat.value).replace(',', '.')), lon = Number(String(fo.pfLon.value).replace(',', '.'));
+    if (gestion.marqueurPos) { gestion.marqueurPos.remove(); gestion.marqueurPos = null; }
+    if (fo.pfLat.value.trim() && Number.isFinite(lat) && Number.isFinite(lon)) gestion.marqueurPos = L.marker([lat, lon], { icon: L.divIcon({ className: 'repere-lieu', html: '<span></span>', iconSize: [18, 18], iconAnchor: [9, 9] }), pane: 'traces' }).addTo(carte).bindTooltip(`Nouvelle position de ${esc(nomNoeud(num))}`, { className: 'info', permanent: true, direction: 'top' });
+  };
+  fo.pfLat.addEventListener('input', marquerPf); fo.pfLon.addEventListener('input', marquerPf);
+  $('#pf-carte').onclick = () => {
+    $('#pf-carte').textContent = 'Cliquez sur la carte…';
+    document.body.classList.add('mode-viseur');
+    carte.once('click', (ev) => {
+      document.body.classList.remove('mode-viseur');
+      fo.pfLat.value = ev.latlng.lat.toFixed(6); fo.pfLon.value = ev.latlng.lng.toFixed(6); fo.pfAlt.value = '';
+      $('#pf-carte').textContent = '📍 Choisir sur la carte';
+      marquerPf(); majResume();
+    });
+  };
+  $('#pf-actuelle').onclick = () => { if (!posActuelle) return; fo.pfLat.value = posActuelle.lat.toFixed(6); fo.pfLon.value = posActuelle.lon.toFixed(6); fo.pfAlt.value = posActuelle.alt ?? ''; marquerPf(); majResume(); };
   const diff = () => {
     const p = {}, chg = [];
     const val = (n) => fo.elements[n];
@@ -2374,6 +2404,13 @@ async function editeurReglages(num) {
     sec('device', [['role', 'txt'], ['rebroadcastMode', 'txt'], ['nodeInfoBroadcastSecs', 'num']], d);
     sec('lora', [['region', 'txt'], ['modemPreset', 'txt'], ['channelNum', 'num'], ['overrideFrequency', 'num'], ['hopLimit', 'num'], ['txPower', 'num'], ['sx126xRxBoostedGain', 'bool'], ['configOkToMqtt', 'bool']], lo);
     sec('position', [['positionBroadcastSecs', 'num'], ['positionBroadcastSmartEnabled', 'bool']], po);
+    const nb = (x) => Number(String(x || '').trim().replace(',', '.'));
+    if (val('pfRetirer') && val('pfRetirer').checked) { p.positionFixe = { retirer: true }; chg.push('retrait de la position fixe'); }
+    else if (val('pfLat').value.trim() || val('pfLon').value.trim()) {
+      const lat = nb(val('pfLat').value), lon = nb(val('pfLon').value);
+      if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) { p.positionFixe = { lat, lon, alt: val('pfAlt').value }; chg.push(`position fixe ${lat.toFixed(5)}, ${lon.toFixed(5)}`); }
+      else chg.push('position invalide');
+    }
     p.canaux = [];
     fo.querySelectorAll('tr[data-canal]').forEach((tr) => {
       const k = Number(tr.dataset.canal), c = parIndex.get(k), q = (n) => tr.querySelector(`[name="${n}"]`);
@@ -2390,6 +2427,7 @@ async function editeurReglages(num) {
     e.preventDefault();
     const { p, chg } = diff();
     if (!chg.length) { $('#ed-retour').textContent = 'Aucune modification'; return; }
+    if (chg.includes('position invalide')) { $('#ed-retour').textContent = 'Coordonnées de position invalides'; return; }
     if (p.canaux.some((c) => c.psk && !/^[A-Za-z0-9+/=]{2,64}$/.test(c.psk))) { $('#ed-retour').textContent = 'Clé invalide (base64)'; return; }
     if (p.canaux.some((c) => c.index === 0)) {
       const t = prompt(`Le canal PRINCIPAL (0) va changer${local ? '' : ' sur un nœud distant'}.\nTapez CANAL 0 pour confirmer :`);
@@ -2400,7 +2438,12 @@ async function editeurReglages(num) {
       && !confirm('Vous changez la radio (région, preset, slot ou fréquence) d’un nœud DISTANT : s’il ne parle plus comme les autres, vous perdrez le contact. Continuer ?')) return;
     if (!confirm(`Appliquer à ${nomNoeud(num)} : ${chg.join(', ')} ?`)) return;
     try {
-      const t = await postJson('/api/admin-noeuds/taches', { type: 'modifier', cibles: [num], params: p });
+      // La position fixe est une opération à part (message d'administration dédié), mise en file après les réglages
+      const pos = p.positionFixe; delete p.positionFixe;
+      const autres = chg.filter((x) => !/position fixe/.test(x));
+      let t = null;
+      if (autres.length) t = await postJson('/api/admin-noeuds/taches', { type: 'modifier', cibles: [num], params: p });
+      if (pos) { const tp = await postJson('/api/admin-noeuds/taches', { type: 'position', cibles: [num], params: pos }); if (!t) t = tp; }
       gestion.lectureSuivie = t.id; voirTache(t.id); suivreTaches();
     } catch (err) { $('#ed-retour').textContent = err.message; }
   };
