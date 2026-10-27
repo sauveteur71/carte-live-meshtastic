@@ -24,6 +24,9 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - **Liaisons à sens unique** : « B entend A mais A n'entend jamais B », liaisons très déséquilibrées et nœuds que personne n'entend
 - **Chemins mesurés** : traceroutes automatiques (nœuds clés, la nuit si souhaité), chemin aller/retour avec le SNR de chaque saut, route changée
 - **Couverture mesurée** : d'où les nœuds sont réellement reçus (positions + réceptions des passerelles), relevés de terrain avec un module mobile, recalage du modèle de relief
+- **Historique sur plus d'un an** (onglet *Statistiques*) : nœuds actifs, passerelles, trafic, occupation du canal, couverture calculée ; compactage automatique de la base
+- **Santé de la carte** (onglet *Réseau*) : processeur, mémoire, réactivité, disque, base, MQTT, avec alertes
+- **Sauvegarde automatique des réglages** chaque nuit (comptes, fiches, configurations, mots de passe MeshCore), téléchargeable et restaurable (*Connexion › Sauvegardes*)
 - **Fiche d'installation des relais** : antenne, hauteur, gain, câble, puissance, alimentation, site ; utilisée par les calculs de couverture
 - Analyse du trafic, rejeu de l'historique, profils radio entre deux points quelconques
 
@@ -52,6 +55,7 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - Le **companion** de la carte sert d'observateur (Wi-Fi, USB par l'agent, ou USB / Bluetooth depuis le navigateur) ; ses paquets sont republiés sur votre broker au format **meshcoretomqtt** (`meshcore/IATA/CLÉ/packets`), et la carte lit aussi les autres observateurs publiés sur le broker
 - Couverture et profils de relief avec le réglage radio français (869,618 MHz, BW 62,5 kHz, SF8, CR8)
 - **Messages** : envoi sur les canaux du companion et en direct (accusé de réception, « relayé » quand un répéteur a répété votre message), réception des messages directs ; un clic sur un message prépare la réponse
+- **Flux MeshCore filtré à la source** : on ne garde que ce que captent les observateurs du département (ou du département et de ses voisins), réglable
 - **Administration à distance des répéteurs et room servers** (onglet *MeshCore › Programmer* et fiche du nœud) : connexion par mot de passe admin (mémorisable), lecture et modification des réglages (nom, radio, puissance, répétition, sauts max., intervalles d'annonce, délais…), état (batterie, bruit de fond, temps d'émission), voisins déclarés (ajoutés à la carte), mise à l'heure, annonce, redémarrage, console CLI
 - **Vérification de conformité** de plusieurs répéteurs par rapport à une référence, avec « Aligner sur la référence »
 - *Relier* et *Couvrir* utilisent les répéteurs MeshCore et le réglage radio MeshCore en vue « MeshCore »

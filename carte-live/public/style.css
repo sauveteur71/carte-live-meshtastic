@@ -829,3 +829,5 @@ body[data-reseau="meshcore"] #sources .ligne:not(#ligne-mc):not(#ligne-broker) {
 .etoile { color: #f4c542; padding: 0 4px; }
 .etiquette-snr span { display: inline-block; background: rgba(11,17,24,.85); color: #fff; border: 1.5px solid; border-radius: 99px; padding: 0 5px; font-size: 10.5px; white-space: nowrap; }
 .fleche-sens span { display: inline-block; font-size: 22px; text-shadow: 0 0 3px #000; }
+.bouton-lien { display: inline-block; padding: 3px 10px; border: 1px solid var(--bord); border-radius: 6px; color: var(--accent); text-decoration: none; font-size: 12px; } .bouton-lien:hover { border-color: var(--accent); }
+.pastille.ok { background: rgba(62,230,196,.18); color: var(--accent); }

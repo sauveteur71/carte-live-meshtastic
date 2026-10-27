@@ -142,6 +142,10 @@
           <div id="infra" class="liste"></div>
         </details>
       </div>
+      <details class="pli-alertes" data-pli="sante" id="bloc-sante" hidden>
+        <summary><h3>Santé de la carte <span id="nb-sante" class="pastille">✓</span> <span id="resume-sante" class="resume-alertes"></span></h3></summary>
+        <div id="sante-carte"></div>
+      </details>
       <h3>Sources de données</h3>
       <div id="sources" class="liste"></div>
       <div id="bloc-modules" class="mt-seul" hidden>
@@ -173,6 +177,11 @@
 
     <section data-vue="analyse" class="vue">
       <div class="bloc-plan raccourci-plan"><b>📡 Couverture radio du département</b><br><small>Ce que couvre le réseau aujourd’hui, et où poser des relais (avec l’accès en voiture, 4×4 ou à pied).</small><div class="actions-prop"><button id="aller-couv-reseau" class="principal">Couverture actuelle</button><button id="aller-plan">Préparer le plan</button></div></div>
+      <details class="pli-alertes" data-pli="historique">
+        <summary><h3>📈 Historique <span id="resume-historique" class="resume-alertes"></span></h3></summary>
+        <div id="historique"></div>
+      </details>
+      <h3>Trafic récent</h3>
       <div class="recherche">
         <select id="analyse-periode">
           <option value="6">6 dernières heures</option>
@@ -305,10 +314,12 @@
       <button data-dlg="moncompte" class="actif">Mon compte</button>
       <button data-dlg="comptes" class="seul-admin">Comptes</button>
       <button data-dlg="reglages" class="seul-admin">Réglages</button>
+      <button data-dlg="sauvegardes" class="seul-admin">Sauvegardes</button>
     </nav>
     <section data-pan="moncompte" id="pan-moncompte"></section>
     <section data-pan="comptes" id="pan-comptes" hidden></section>
     <section data-pan="reglages" id="pan-reglages" hidden></section>
+    <section data-pan="sauvegardes" id="pan-sauvegardes" hidden></section>
   </dialog>
 
   <dialog id="dlg-installation" class="large">

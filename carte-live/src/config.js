@@ -120,6 +120,11 @@ const config = {
     muetHeures: nombre('MESHCORE_MUET_HEURES', 26),
     // Paquets et réceptions MeshCore (flux national, très volumineux) : conservés moins longtemps que le reste
     retentionPaquetsJours: nombre('MESHCORE_RETENTION_PAQUETS_JOURS', 2),
+    // Périmètre des paquets MeshCore conservés : 'departement', 'voisins' (département + limitrophes) ou 'national'.
+    // Un paquet est gardé si l'observateur qui l'a capté est dans le périmètre (le flux national est très lourd).
+    perimetre: ['departement', 'voisins', 'national'].includes(texte('MESHCORE_PERIMETRE', 'voisins')) ? texte('MESHCORE_PERIMETRE', 'voisins') : 'voisins',
+    // Codes de zone acceptés pour les observateurs dont la position est inconnue (en plus de MESHCORE_IATA)
+    iataVoisins: texte('MESHCORE_IATA_VOISINS').split(/[,;\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean),
     // Interrogation automatique de l'état des répéteurs surveillés (0 = jamais) et nombre max. par tour
     supervisionHeures: nombre('MESHCORE_SUPERVISION_HEURES', 3),
     supervisionMax: nombre('MESHCORE_SUPERVISION_MAX', 8),
@@ -158,6 +163,8 @@ function appliquerReglages(r) {
     if (typeof m.racine === 'string' && m.racine.trim()) config.meshcore.racine = m.racine.trim().replace(/\/+$/, '');
     if (typeof m.republier === 'boolean') config.meshcore.republier = m.republier;
     if (typeof m.actif === 'boolean') config.meshcore.actif = m.actif;
+    if (['departement', 'voisins', 'national'].includes(m.perimetre)) config.meshcore.perimetre = m.perimetre;
+    if (Array.isArray(m.iataVoisins)) config.meshcore.iataVoisins = m.iataVoisins.map((x) => String(x).toUpperCase()).filter((x) => /^[A-Z0-9]{2,8}$/.test(x));
     if (Array.isArray(m.canaux) && m.canaux.length) config.meshcore.canaux = m.canaux.map(String);
   }
 }

@@ -134,6 +134,8 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
   const parPrefixe = (p) => { noeudsCache(); return (index.get(p.slice(0, 2)) || []).filter((n) => n.cle.startsWith(p)); };
   // Chaque annonce ou statut d'observateur (plusieurs par seconde avec le flux national) demande un rafraîchissement :
   // on le fait au plus toutes les 5 s au lieu de relire les milliers de nœuds à chaque paquet
+  // Position connue d'un nœud (observateur) d'après le cache, sans requête
+  const positionDe = (cle) => { const n = cle && parPrefixe(String(cle).toUpperCase())[0]; return n && n.lat != null ? { lat: n.lat, lon: n.lon } : null; };
   const invalider = () => { if (Date.now() - cacheHeure < 25000) cacheHeure = Date.now() - 25000; };
 
   // Préfixe de chemin (1 à 3 octets) → clé complète d'un relais, en levant l'ambiguïté par la géographie.
@@ -504,7 +506,8 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     return { heures, zone, total, airtimeS: Math.round(air), occupationPct: Math.round((air / (heures * 3600)) * 1000) / 10, parType, emetteurs, sauts, observateurs, topRelais, parHeure };
   }
 
-  return { noterEtat, telemetrie, calculerAlertes, analyse, surveilles, integrer, importerContact, noterObservateur, vueNoeud, liens, statistiques, detailNoeud, paquets, detailPaquet, messages, noterMessage, confirmerAck, statutMessage, lierVoisins, definirCanaux, definirMoi, canaux: () => canaux, purger, q, resoudreChemin };
+  return {
+    positionDe, noterEtat, telemetrie, calculerAlertes, analyse, surveilles, integrer, importerContact, noterObservateur, vueNoeud, liens, statistiques, detailNoeud, paquets, detailPaquet, messages, noterMessage, confirmerAck, statutMessage, lierVoisins, definirCanaux, definirMoi, canaux: () => canaux, purger, q, resoudreChemin };
 }
 
 module.exports = { creerReseauMc };

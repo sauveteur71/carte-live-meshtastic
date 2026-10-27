@@ -14,6 +14,9 @@ const { calculerVoisins } = require('./voisins');
 const { creerInstallations } = require('./installations');
 const { creerAsymetrie } = require('./asymetrie');
 const { creerCouvertureMesuree } = require('./couverture-mesuree');
+const { creerHistorique } = require('./historique');
+const { creerSauvegardes } = require('./sauvegardes');
+const { creerSanteCarte } = require('./sante-carte');
 const installations = creerInstallations(path.dirname(config.fichierBase));
 // Zone « département + voisins », recalculée si le département ou sa zone changent (installation, réglages)
 let cacheVoisins = { cle: null, val: null };
@@ -86,7 +89,9 @@ const app = express();
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(require('compression')({ threshold: 1024 })); // gzip : pages et API 5 à 10 fois plus légères (accès à distance)
-app.use(express.json({ limit: '10kb' }));
+// Corps JSON : 10 ko, sauf la restauration d'une sauvegarde
+const jsonPetit = express.json({ limit: '10kb' }), jsonGros = express.json({ limit: '30mb' });
+app.use((req, res, next) => (req.path === '/api/sauvegardes/restaurer' ? jsonGros : jsonPetit)(req, res, next));
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
@@ -1002,7 +1007,7 @@ function etatMc(admin) {
   if (admin) {
     e.companion = { ...c, canaux: companion.canaux() };
     e.republication = publicateurMc.etat();
-    e.reglages = { iata: config.meshcore.iata, racine: config.meshcore.racine, republier: config.meshcore.republier, canaux: config.meshcore.canaux.join('\n') };
+    e.reglages = { iata: config.meshcore.iata, racine: config.meshcore.racine, republier: config.meshcore.republier, canaux: config.meshcore.canaux.join('\n'), perimetre: config.meshcore.perimetre, iataVoisins: config.meshcore.iataVoisins.join(', '), horsPerimetre: compteurMc.horsPerimetre || 0 };
     e.agents = agents.liste();
   }
   return e;
@@ -1104,6 +1109,8 @@ app.post('/api/mc/reglages', (req, res) => {
   if (b.racine !== undefined) { if (!/^[A-Za-z0-9_\-/]{1,60}$/.test(String(b.racine))) return res.status(400).json({ erreur: 'Racine invalide' }); m.racine = String(b.racine); }
   if (typeof b.republier === 'boolean') m.republier = b.republier;
   if (typeof b.actif === 'boolean') m.actif = b.actif;
+  if (['departement', 'voisins', 'national'].includes(b.perimetre)) m.perimetre = b.perimetre;
+  if (typeof b.iataVoisins === 'string') m.iataVoisins = b.iataVoisins.split(/[,;\s]+/).map((x) => x.trim().toUpperCase()).filter((x) => /^[A-Z0-9]{2,8}$/.test(x)).slice(0, 20);
   if (typeof b.canaux === 'string') {
     const l = b.canaux.split(/[;\n]/).map((x) => x.trim()).filter(Boolean).slice(0, 20);
     const ok = preparerCanauxMc(l);
@@ -1115,6 +1122,21 @@ app.post('/api/mc/reglages', (req, res) => {
 });
 
 app.get('/sante', (req, res) => res.json({ ok: true, mqtt: clientMqtt && clientMqtt.connected }));
+// Santé de la carte elle-même (processeur, mémoire, réactivité, disque, base, MQTT)
+let recusAvant = 0;
+const santeCarte = creerSanteCarte({
+  dossier: path.dirname(config.fichierBase), fichierBase: config.fichierBase, version: VERSION,
+  sources: {
+    mqtt: () => { const r = compteur.recus - recusAvant; recusAvant = compteur.recus; return { mqttParMinute: r }; },
+    mqttEtat: () => ({ connecte: !!(clientMqtt && clientMqtt.connected), depuis: statsMqtt.depuis, reconnexions: statsMqtt.reconnexions, dernierMessage: statsMqtt.dernierMessage, erreurs: compteur.erreurs, horsPerimetreMc: compteurMc.horsPerimetre || 0 }),
+    base: () => historique.tailleBase(),
+    clients: () => wss.clients.size,
+  },
+});
+app.get('/api/sante-carte', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  res.set('Cache-Control', 'no-store').json(santeCarte.etat());
+});
 
 const serveur = http.createServer(app);
 
@@ -1225,6 +1247,16 @@ const clientMqtt = mqtt.connect(config.mqtt.url, {
 const sujets = [config.mqtt.racine + '/#', ...config.mqtt.sujetsSupplementaires, ...(config.meshcore.actif ? [config.meshcore.racine + '/#'] : [])];
 const prefixeMc = config.meshcore.racine + '/';
 let compteurMc = { recus: 0, observations: 0, erreurs: 0 };
+function dansPerimetreMc(cleObs, iata) {
+  const p = config.meshcore.perimetre;
+  if (p === 'national') return true;
+  const z = p === 'voisins' ? ((zoneVoisins() || {}).bbox || config.zone) : config.zone;
+  const pos = reseauMc.positionDe(cleObs);
+  if (pos) return pos.lat >= z[0] - 0.05 && pos.lat <= z[2] + 0.05 && pos.lon >= z[1] - 0.05 && pos.lon <= z[3] + 0.05;
+  // Position inconnue : code de zone du sujet (le nôtre ou ceux déclarés voisins)
+  const code = String(iata || '').toUpperCase();
+  return code === config.meshcore.iata || config.meshcore.iataVoisins.includes(code);
+}
 function messageMc(topic, message) {
   compteurMc.recus++;
   const m = lireMessageMc(topic, message);
@@ -1233,6 +1265,8 @@ function messageMc(topic, message) {
   const moi = companion.etat().cle;
   if (m.cle === moi) return; // nos propres republications
   if (m.genre === 'statut') { reseauMc.noterObservateur(m.cle, { nom: m.nom, etat: m.etat, details: m.details }); planifierEtatMc(); return; }
+  // Filtre à la source : on ne garde que ce qu'ont capté les observateurs du périmètre choisi
+  if (!dansPerimetreMc(m.cle, m.iata)) { compteurMc.horsPerimetre = (compteurMc.horsPerimetre || 0) + 1; return; }
   if (m.nom) reseauMc.noterObservateur(m.cle, { nom: m.nom, details: { iata: m.iata } });
   const sortie = reseauMc.integrer(m.obs);
   if (sortie) { compteurMc.observations++; diffuser(sortie); }
@@ -1361,6 +1395,42 @@ const fournisseursRelief = {
   },
 };
 const relief = creerRelief(config, journal, fournisseursRelief);
+
+// ---- Historique long (résumés horaires et journaliers) ---------------------------------------
+const historique = creerHistorique(stockage.db, config, {
+  meshtastic: () => {
+    const st = reseau.statistiques(), z = config.zone, limite = Date.now() - config.seuils.actifMinutes * 60000;
+    const actifsZone = stockage.q.noeuds.all().filter((n) => n.lat != null && n.lat >= z[0] && n.lat <= z[2] && n.lon >= z[1] && n.lon <= z[3] && (n.dernier_vu || 0) >= limite).length;
+    return { mt_noeuds_actifs: st.actifs, mt_actifs_zone: actifsZone, mt_passerelles: st.passerellesEnLigne, mt_liens: st.liens, mt_paquets: st.paquetsHeure, mt_canal_moyen: st.canalMoyen, mt_canal_max: st.canalMax };
+  },
+  meshcore: () => {
+    if (!config.meshcore.actif) return {};
+    const st = reseauMc.statistiques();
+    const n = stockage.db.prepare('SELECT COUNT(*) AS n FROM mc_paquets WHERE heure >= ?').get(Date.now() - 3600000).n;
+    return { mc_noeuds_actifs: st.actifs, mc_paquets: n };
+  },
+  couverture: () => { const c = relief.classement(); return c && c.reseauActuel ? c.reseauActuel.pct : null; },
+}, journal);
+// ---- Sauvegardes des réglages (admin) ----------------------------------------------------------
+const sauvegardes = creerSauvegardes(path.dirname(config.fichierBase), stockage.db, journal);
+app.get('/api/sauvegardes', (req, res) => { if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); res.json(sauvegardes.liste()); });
+app.post('/api/sauvegardes', (req, res) => { if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); try { res.json(sauvegardes.sauvegarder()); } catch (e) { res.status(500).json({ erreur: e.message }); } });
+app.get('/api/sauvegardes/:nom', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { res.setHeader('Content-Type', 'application/json'); res.setHeader('Content-Disposition', `attachment; filename="carte-live-${req.params.nom}"`); res.end(sauvegardes.lire(req.params.nom)); } catch (e) { res.status(404).json({ erreur: e.message }); }
+});
+app.post('/api/sauvegardes/restaurer', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { const r = sauvegardes.restaurer(req.body); res.json({ ok: true, ...r, redemarrage: true }); setTimeout(() => process.exit(0), 1200); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.get('/api/historique', (req, res) => {
+  const jours = Math.min(Math.max(Number(req.query.jours) || 30, 1), 400);
+  res.json({ jours, ...historique.lire(jours), base: historique.tailleBase() });
+});
+app.post('/api/historique/compacter', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { res.json(historique.compacter()); } catch (e) { res.status(500).json({ erreur: e.message }); }
+});
 
 { const m = sourceRadio.modules(); journal(m.actif ? `Module radio actif : ${m.actif.hote}:${m.actif.port}` : 'Aucun module radio actif (choix depuis la carte, onglet Réseau)'); }
 setTimeout(rafraichirEtat, 2000);

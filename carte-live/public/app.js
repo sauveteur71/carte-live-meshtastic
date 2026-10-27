@@ -378,6 +378,38 @@ document.querySelectorAll('details.pli-alertes').forEach((d) => {
   d.addEventListener('toggle', () => { try { localStorage.setItem('pli-' + d.dataset.pli, d.open ? '1' : '0'); } catch { /* ignoré */ } });
 });
 
+// ---- Santé de la carte (processeur, mémoire, réactivité, disque, base, MQTT) ---------------------------
+async function chargerSanteCarte() {
+  if (!etat.membre) return;
+  let r;
+  try { r = await api('/api/sante-carte'); } catch { return; }
+  $('#bloc-sante').hidden = false;
+  const e = r.dernier || {};
+  const p = $('#nb-sante');
+  p.textContent = r.alertes.length || '✓';
+  p.className = 'pastille' + (r.niveau === 'critique' ? ' critique' : r.niveau === 'attention' ? ' attention' : ' ok');
+  $('#resume-sante').textContent = r.alertes.length ? r.alertes[0].message.slice(0, 40) + (r.alertes[0].message.length > 40 ? '…' : '') : `processeur ${fmt(e.cpuPct, 0, ' %')} · ${e.memMo ?? '–'} Mo`;
+  const m = (l, v, alerte) => `<div class="mesure"><span>${l}</span><b${alerte ? ' style="color:var(--attention)"' : ''}>${v}</b></div>`;
+  const dureeDepuis = (t) => { const s = Math.round((Date.now() - t) / 1000); return s < 3600 ? Math.round(s / 60) + ' min' : s < 86400 ? Math.round(s / 3600) + ' h' : Math.round(s / 86400) + ' j'; };
+  $('#sante-carte').innerHTML = `
+    ${r.alertes.map((a) => `<div class="liste-alertes"><div class="alerte ${a.niveau}">${esc(a.message)}</div></div>`).join('')}
+    <div class="grille">
+      ${m('Processeur', fmt(e.cpuPct, 0, ' %'), e.cpuPct > 80)}
+      ${m('Mémoire', `${e.memMo ?? '–'}${r.limiteMemMo ? ' / ' + r.limiteMemMo : ''} Mo`, r.limiteMemMo && e.memMo > r.limiteMemMo * 0.85)}
+      ${m('Réactivité (pire)', e.latenceP99 != null ? e.latenceP99 + ' ms' : '–', e.latenceP99 > 500)}
+      ${m('Messages MQTT', (e.mqttParMinute ?? '–') + ' / min')}
+      ${m('Base de données', r.base ? `${r.base.totalMo} Mo` : '–', r.base && r.base.totalMo > 2048)}
+      ${m('Disque libre', r.disque ? `${r.disque.libreGo} Go` : '–', r.disque && r.disque.libreGo / r.disque.totalGo < 0.1)}
+      ${m('Navigateurs connectés', r.clients ?? '–')}
+      ${m('En marche depuis', dureeDepuis(r.demarrage))}
+      ${m('Version', esc(r.version))}
+    </div>
+    ${courbe(r.historique, 'latenceP99', 'Réactivité (retard maximal par minute)', ' ms', 0, 500) || ''}
+    ${courbe(r.historique, 'cpuPct', 'Processeur', ' %', 0) || ''}
+    ${courbe(r.historique, 'memMo', 'Mémoire', ' Mo', 0, r.limiteMemMo ? Math.round(r.limiteMemMo * 0.85) : null) || ''}
+    <p class="note">MQTT ${r.mqtt.connecte ? 'connecté' : '<b>déconnecté</b>'}${r.mqtt.reconnexions ? ` · ${r.mqtt.reconnexions} reconnexion(s)` : ''}${r.mqtt.horsPerimetreMc ? ` · ${r.mqtt.horsPerimetreMc} paquets MeshCore hors périmètre ignorés` : ''}${r.base && r.base.walMo ? ` · journal de la base ${r.base.walMo} Mo` : ''}. Courbes : 3 dernières heures, un point par minute.</p>`;
+}
+
 // ---- Chemins mesurés (traceroutes automatiques) -----------------------------------------------------
 async function chargerChemins() {
   let r;
@@ -1212,6 +1244,39 @@ function brancherCurseurProfil(r) {
 }
 
 // ---- Analyse du trafic -----------------------------------------------------------------
+// ---- Historique long (résumés horaires / journaliers) ------------------------------------------------
+async function chargerHistorique() {
+  const z = $('#historique');
+  if (!z) return;
+  const jours = Number(localStorage.getItem('gaulix_histo_jours')) || 30;
+  let r;
+  try { r = await api('/api/historique?jours=' + jours); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const p = r.points;
+  const dernier = p[p.length - 1] || {};
+  $('#resume-historique').textContent = p.length ? `${jours} j · ${p.length} point${p.length > 1 ? 's' : ''}` : 'en cours de constitution';
+  const s = etat.config.seuils;
+  const unite = r.pas === 'jour' ? 'jour' : 'heure';
+  const c = (cle, lib, u, dec, seuil) => courbe(p, cle, lib, u, dec, seuil) || '';
+  z.innerHTML = `<div class="parametres compact"><label>Période <select id="histo-jours">${[[2, '48 h'], [7, '7 jours'], [30, '30 jours'], [90, '3 mois'], [365, '1 an']].map(([v, t]) => `<option value="${v}" ${v === jours ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>
+    ${p.length < 2 ? '<div class="vide">L’historique se constitue : un point par heure. Les courbes apparaissent après quelques heures.</div>' : `
+    ${c('mt_actifs_zone', `Nœuds Meshtastic actifs (${esc(etat.config.zoneNom)})`, '', 0)}
+    ${c('mt_passerelles', 'Passerelles MQTT en ligne', '', 0)}
+    ${c('mt_paquets', `Paquets Meshtastic par ${unite}`, '', 0)}
+    ${c('mt_canal_moyen', 'Occupation moyenne du canal', ' %', 1, s.canalPourcent)}
+    ${c('couverture_pct', 'Couverture calculée du département', ' %', 1)}
+    ${c('mc_noeuds_actifs', 'Nœuds MeshCore actifs', '', 0)}
+    ${c('mc_paquets', `Paquets MeshCore par ${unite}`, '', 0)}`}
+    <p class="note">Un résumé par heure, et par jour au-delà de 7 jours, conservé plus d’un an (les données détaillées, elles, sont purgées après ${etat.config.retentionJours} jours). Base de données : ${r.base.totalMo} Mo, dont ${r.base.libreMo} Mo de place libérée ; compactage automatique le dimanche vers 4 h quand c’est utile.</p>
+    ${etat.admin && r.base.libreMo > 50 ? `<div class="actions-prop"><button id="histo-compacter">Compacter la base maintenant (${r.base.libreMo} Mo à récupérer)</button></div>` : ''}`;
+  $('#histo-jours').onchange = (e) => { try { localStorage.setItem('gaulix_histo_jours', e.target.value); } catch { /* ignoré */ } chargerHistorique(); };
+  const bc = $('#histo-compacter');
+  if (bc) bc.onclick = async () => {
+    if (!confirm('Compacter la base ? La carte ne répond plus pendant quelques minutes (selon la taille).')) return;
+    bc.disabled = true; bc.textContent = 'Compactage en cours…';
+    try { const x = await postJson('/api/historique/compacter', {}); alert(`Base compactée : ${x.avantMo} → ${x.apresMo} Mo en ${x.dureeS} s`); } catch (err) { alert(err.message); }
+    chargerHistorique();
+  };
+}
 async function chargerAnalyse() {
   const zone = $('#analyse');
   zone.innerHTML = '<div class="vide">Analyse en cours…</div>';
@@ -3245,7 +3310,7 @@ function brancherInterface() {
     document.querySelectorAll('.onglets button').forEach((x) => x.classList.toggle('actif', x === b));
     document.querySelectorAll('.vue').forEach((v) => v.classList.toggle('actif', v.dataset.vue === b.dataset.onglet));
     if (b.dataset.onglet === 'messages') chargerMessages();
-    if (b.dataset.onglet === 'analyse') chargerAnalyse();
+    if (b.dataset.onglet === 'analyse') { chargerAnalyse(); chargerHistorique(); }
     if (b.dataset.onglet === 'sites') rendreSites();
     if (b.dataset.onglet === 'gestion') { rendreGestion(); suivreTaches(); }
   }));
@@ -3355,11 +3420,38 @@ function brancherInterface() {
 
 // ---- Comptes : connexion, inscription, gestion, installation --------------------------------
 const postJson = (url, corps, methode = 'POST') => api(url, { method: methode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps || {}) });
+// ---- Sauvegardes des réglages (admin) ----------------------------------------------------------
+async function rendreSauvegardes() {
+  const z = $('#pan-sauvegardes');
+  let l = [];
+  try { l = await api('/api/sauvegardes'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  z.innerHTML = `<p class="note">Chaque nuit vers 3 h 30, la carte sauvegarde ses réglages : comptes, réglages généraux, fiches d’installation des relais, modules radio, configurations lues des nœuds, mots de passe d’administration MeshCore, traceroutes. Les 14 dernières sont gardées sur le NAS. Les données radio (paquets, liens) ne sont pas sauvegardées : elles se reconstituent toutes seules.</p>
+    <p class="note"><b>Fichier sensible</b> (clés des canaux, mots de passe d’administration MeshCore) : gardez la copie téléchargée en lieu sûr.</p>
+    <div class="actions-prop"><button id="sv-maintenant" class="principal">Sauvegarder maintenant</button></div>
+    <div class="liste">${l.map((x) => `<div class="ligne"><span class="titre">${esc(x.nom.replace('sauvegarde-', '').replace('.json', ''))}<small>${Math.round(x.taille / 1024)} ko · ${new Date(x.date).toLocaleString('fr-FR')}</small></span><span class="meta"><a class="bouton-lien" href="/api/sauvegardes/${encodeURIComponent(x.nom)}">Télécharger</a></span></div>`).join('') || '<div class="vide">Aucune sauvegarde pour l’instant.</div>'}</div>
+    <h4>Restaurer</h4>
+    <p class="note">Choisissez un fichier de sauvegarde téléchargé : les réglages et les comptes sont remplacés (l’état actuel est d’abord mis de côté), puis la carte redémarre.</p>
+    <input type="file" id="sv-fichier" accept=".json,application/json"><button id="sv-restaurer" disabled>Restaurer ce fichier</button>
+    <p class="erreur" id="sv-retour"></p>`;
+  $('#sv-maintenant').onclick = async () => { try { await postJson('/api/sauvegardes', {}); rendreSauvegardes(); } catch (e) { $('#sv-retour').textContent = e.message; } };
+  const fi = $('#sv-fichier'), br = $('#sv-restaurer');
+  fi.onchange = () => { br.disabled = !fi.files.length; };
+  br.onclick = async () => {
+    const f = fi.files[0];
+    if (!f) return;
+    let s;
+    try { s = JSON.parse(await f.text()); } catch { $('#sv-retour').textContent = 'Fichier illisible'; return; }
+    if (s.format !== 'carte-live-sauvegarde') { $('#sv-retour').textContent = 'Ce fichier n’est pas une sauvegarde de la carte'; return; }
+    if (!confirm(`Restaurer la sauvegarde du ${new Date(s.date).toLocaleString('fr-FR')} ? Les réglages et les comptes actuels seront remplacés et la carte redémarrera.`)) return;
+    try { await postJson('/api/sauvegardes/restaurer', s); attendreRedemarrage('Sauvegarde restaurée'); } catch (e) { $('#sv-retour').textContent = e.message; }
+  };
+}
 function ongletsDialogue(dlg) {
   dlg.querySelectorAll('[data-dlg]').forEach((b) => (b.onclick = () => {
     dlg.querySelectorAll('[data-dlg]').forEach((x) => x.classList.toggle('actif', x === b));
     dlg.querySelectorAll('[data-pan]').forEach((p) => (p.hidden = p.dataset.pan !== b.dataset.dlg));
     if (b.dataset.dlg === 'comptes') rendreComptes();
+    if (b.dataset.dlg === 'sauvegardes') rendreSauvegardes();
     if (b.dataset.dlg === 'reglages') rendreReglages();
   }));
 }
@@ -3604,6 +3696,7 @@ async function demarrer() {
   chargerRelief();
   chargerAsymetrie(); setInterval(chargerAsymetrie, 120000);
   chargerChemins(); setInterval(chargerChemins, 300000);
+  chargerSanteCarte(); setInterval(chargerSanteCarte, 60000);
   chargerActiviteInitiale();
   setInterval(rendreLegende, 60000);
   if (etat.config.installation) installation();
