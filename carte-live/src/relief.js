@@ -417,6 +417,19 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   }
 
   /** Liaison point à point sur le profil direct (pas 100 m) */
+  // Paramètres corrigés par la fiche d'installation des nœuds d'une liaison (gain d'antenne, pertes de câble,
+  // puissance : on garde le sens le plus défavorable). Valeurs absentes = valeurs par défaut du modèle.
+  function Pinstallation(P, ...noeuds) {
+    let gains = P.gains, pertes = P.pertes, ptx = P.ptx, hs = P.hs;
+    for (const n of noeuds) {
+      if (!n) continue;
+      if (n.gain != null) gains += n.gain - 2.15;
+      if (n.pertes != null) pertes += n.pertes - 0.75;
+      if (n.ptx != null) ptx = Math.min(ptx, n.ptx);
+    }
+    if (noeuds[0] && noeuds[0].h != null) hs = noeuds[0].h;
+    return gains === P.gains && pertes === P.pertes && ptx === P.ptx && hs === P.hs ? P : { ...P, gains, pertes, ptx, hs };
+  }
   function liaison(a, b, P, ha, hb) {
     const D = distanceM(a, b);
     if (D < 50) return { marge: 99, distance: D, obstacle: null };
@@ -503,7 +516,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       const existants = fournisseurs.noeudsReseau().filter((n) => celle(n.lat, n.lon) >= 0);
       const deja = new Uint32Array(Math.ceil(nbZone / 32));
       for (const n of existants) {
-        const c = couvertureZone(n, P, 1440, 150); // réseau existant : même précision que la carte de couverture
+        const c = couvertureZone(n, Pinstallation(P, n), 1440, 150); // réseau existant : même précision que la carte, avec sa fiche d'installation
         for (let w = 0; w < deja.length; w++) deja[w] |= c.bits[w];
         await pause();
       }
@@ -616,8 +629,9 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
     const noeuds = (opts.noeuds || fournisseurs.noeudsReseau()).filter((n) => celle(n.lat, n.lon) >= 0).slice(0, 60);
     if (!noeuds.length) return { noeuds: [], vide: true };
-    const r = couverturePngMulti(noeuds.map((n) => ({ lat: n.lat, lon: n.lon, h: opts.hn ?? 6 })), opts);
-    return { ...r, noeuds: noeuds.map((n, i) => ({ num: n.num, nom: n.nom, lat: n.lat, lon: n.lon, ...r.sites[i] })), sites: undefined, surfaceDepartementKm2: Math.round(nbZone * aireCelleKm2) };
+    // Hauteur, gain, câble et puissance : fiche d'installation du relais, sinon la hauteur supposée
+    const r = couverturePngMulti(noeuds.map((n) => ({ lat: n.lat, lon: n.lon, h: n.h ?? opts.hn ?? 6, gain: n.gain, pertes: n.pertes, ptx: n.ptx })), opts);
+    return { ...r, noeuds: noeuds.map((n, i) => ({ num: n.num, nom: n.nom, lat: n.lat, lon: n.lon, hauteur: n.h ?? opts.hn ?? 6, fiche: n.h != null || n.gain != null, ...r.sites[i] })), sites: undefined, surfaceDepartementKm2: Math.round(nbZone * aireCelleKm2) };
   }
 
   // Couverture cumulée de plusieurs sites (2 à 10) : image commune (meilleure marge par cellule),
@@ -629,7 +643,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     const nbCouvrants = new Uint8Array(N), seulPar = new Int8Array(N).fill(-1);
     const parSite = sites.map((site, idx) => {
       const m = new Float32Array(N).fill(-Infinity);
-      const Ps = site.h != null ? parametres({ ...opts, hs: site.h }) : P;
+      const Ps = Pinstallation(site.h != null ? parametres({ ...opts, hs: site.h }) : P, { ...site, h: site.h });
       balayer(site, Ps, 1440, 150, (k, v) => { if (k >= 0 && v > m[k]) m[k] = v; });
       let couvert = 0, zone = 0;
       for (let k = 0; k < N; k++) {
@@ -708,7 +722,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     if (candidats.length > 260) candidats = candidats.sort((x, y) => (y.dominance || 0) - (x.dominance || 0)).slice(0, 260);
     const noeuds = [
       { type: 'depart', ...base.a, h: ha }, { type: 'arrivee', ...base.b, h: hb },
-      ...existants.map((n) => ({ type: 'existant', num: n.num, nom: n.nom, lat: n.lat, lon: n.lon, h: 4 })),
+      ...existants.map((n) => ({ type: 'existant', num: n.num, nom: n.nom, lat: n.lat, lon: n.lon, h: n.h ?? 4, gain: n.gain, pertes: n.pertes, ptx: n.ptx })),
       ...candidats.map((s) => ({ type: 'nouveau', id: s.id, nom: s.nom, commune: s.commune, lat: s.lat, lon: s.lon, alt: s.alt, acces: s.acces || null, h: P.hs })),
     ];
     const cache = new Map();
@@ -716,7 +730,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       const k = i < j ? i + ':' + j : j + ':' + i;
       if (!cache.has(k)) {
         const x = noeuds[i], y = noeuds[j];
-        cache.set(k, distanceM(x, y) > P.rayonMax ? null : liaison(x, y, P, x.h, y.h));
+        cache.set(k, distanceM(x, y) > P.rayonMax ? null : liaison(x, y, Pinstallation(P, x, y), x.h, y.h));
       }
       return cache.get(k);
     };
@@ -783,7 +797,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       for (const n of reseau) {
         const dn = distanceM(s, n);
         if (dn > P.rayonMax || dn < 200) continue;
-        const ln = liaison(s, n, P, P.hs, 4);
+        const ln = liaison(s, n, Pinstallation(P, n), P.hs, n.h ?? 4);
         if (ln && (!raccord || ln.marge > raccord.marge)) raccord = { nom: n.nom, num: n.num, lat: n.lat, lon: n.lon, marge: ln.marge, distanceKm: +(ln.distance / 1000).toFixed(1) };
       }
       const score = l.marge + (raccord ? Math.min(raccord.marge, 15) * 0.6 : -10) + (s.couverturePct || 0) * 0.2;
@@ -838,7 +852,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       for (const n of reseau) {
         const dn = distanceM(s, n);
         if (dn > P.rayonMax || dn < 200) continue;
-        const ln = liaison(s, n, P, P.hs, 4);
+        const ln = liaison(s, n, Pinstallation(P, n), P.hs, n.h ?? 4);
         if (ln && (!r || ln.marge > r.marge)) r = { nom: n.nom, num: n.num, lat: n.lat, lon: n.lon, marge: ln.marge, distanceKm: +(ln.distance / 1000).toFixed(1) };
       }
       return r;

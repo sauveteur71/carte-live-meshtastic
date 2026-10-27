@@ -361,7 +361,7 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
   function ciblesAutomatiques() {
     const toutes = q.noeuds.all();
     if (cfg.tracerouteCibles.length) {
-      return toutes.filter((n) => cfg.tracerouteCibles.some((x) => x === n.id || x === n.nom_court || x === n.nom_long)).map((n) => n.num);
+      return toutes.filter((n) => cfg.tracerouteCibles.some((x) => x === n.id || x === n.nom_court || x === n.nom_long || x === String(n.num))).map((n) => n.num);
     }
     const limite = Date.now() - 7 * 86400000;
     return toutes
@@ -389,9 +389,9 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
     }
     cycleEnCours = false;
   }
-  if (cfg.tracerouteIntervalleMinutes > 0) {
-    setInterval(() => { if (Date.now() >= prochainCycle) cycleTraceroutes(); }, 60000);
-  }
+  // Plage horaire : 'nuit' = de 1 h à 6 h (canal calme, aucune gêne pour les utilisateurs), sinon à toute heure
+  const dansPlage = () => cfg.tracerouteHeures !== 'nuit' || [1, 2, 3, 4, 5].includes(new Date().getHours());
+  setInterval(() => { if (cfg.tracerouteIntervalleMinutes > 0 && Date.now() >= prochainCycle && dansPlage()) cycleTraceroutes(); }, 60000);
 
   // ---- Pilotage depuis la carte ------------------------------------------------------
   function couper() {

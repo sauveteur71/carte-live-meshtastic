@@ -11,6 +11,10 @@ const { WebSocketServer } = require('ws');
 const config = require('./config');
 const VERSION = require('../package.json').version;
 const { calculerVoisins } = require('./voisins');
+const { creerInstallations } = require('./installations');
+const { creerAsymetrie } = require('./asymetrie');
+const { creerCouvertureMesuree } = require('./couverture-mesuree');
+const installations = creerInstallations(path.dirname(config.fichierBase));
 // Zone « département + voisins », recalculée si le département ou sa zone changent (installation, réglages)
 let cacheVoisins = { cle: null, val: null };
 function zoneVoisins() {
@@ -149,7 +153,41 @@ app.get('/api/noeuds/:num', (req, res) => {
   const d = reseau.detailNoeud(num, estMembre(req));
   if (!d) return res.status(404).json({ erreur: 'Nœud inconnu' });
   d.sante = analyse.sante(num);
+  if (estMembre(req)) d.installation = installations.lire(num, estAdmin(req));
   res.json(d);
+});
+// Fiche d'installation d'un relais (antenne, hauteur, alimentation, site) : lecture membres, écriture admin
+let minuterieReclassement = null;
+app.put('/api/noeuds/:num/installation', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try {
+    const c = utilisateur(req);
+    const r = installations.ecrire(Number(req.params.num) >>> 0, req.body || {}, c ? c.indicatif || c.identifiant : null);
+    // Le classement des sites tient compte des vraies antennes du réseau : recalcul différé (plusieurs fiches de suite)
+    clearTimeout(minuterieReclassement); minuterieReclassement = setTimeout(() => relief.calculerClassement(), 60000);
+    res.json({ ok: true, installation: r });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.get('/api/installations', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  const admin = estAdmin(req), t = installations.toutes();
+  res.json(Object.fromEntries(Object.keys(t).map((k) => [k, installations.lire(k, admin)])));
+});
+
+// Couverture mesurée : mesures réelles (position de l'émetteur, passerelle qui reçoit, SNR), par cellule de 500 m
+let couvMesuree = null;
+const mesures = () => couvMesuree || (couvMesuree = creerCouvertureMesuree(stockage));
+app.get('/api/couverture-mesuree', (req, res) => {
+  const jours = Math.min(Math.max(Number(req.query.jours) || 7, 1), config.retentionJours);
+  const noeud = req.query.noeud ? Number(req.query.noeud) >>> 0 : null;
+  res.json(mesures().calculer({ jours, noeud }));
+});
+
+// Liaisons à sens unique, déséquilibrées, et nœuds que personne n'entend
+let asymetrie = null;
+app.get('/api/liaisons/asymetrie', (req, res) => {
+  if (!asymetrie) asymetrie = creerAsymetrie(stockage, config);
+  res.json(asymetrie.calculer());
 });
 
 app.get('/api/analyse', (req, res) => {
@@ -285,7 +323,8 @@ app.get('/api/relief/couverture-reseau', (req, res) => {
   if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
   if (req.query.hn) o.hn = Math.min(Math.max(Number(req.query.hn) || 6, 0.5), 60);
   // La calibration (pertes d'environnement) fait partie de la clé : un calcul fait avant elle serait trop optimiste
-  const cle = JSON.stringify(['reseau', RR.code, req.query.reseau || 'mt', o.hn || 6, Math.floor(Date.now() / 600000), (RR.calibration() || {}).date]);
+  const versionFiches = Object.values(installations.toutes()).reduce((m, f) => Math.max(m, f.maj || 0), 0);
+  const cle = JSON.stringify(['reseau', RR.code, req.query.reseau || 'mt', o.hn || 6, Math.floor(Date.now() / 600000), (RR.calibration() || {}).date, versionFiches]);
   let r = cacheCouverture.get(cle);
   if (!r) {
     try { r = RR.couvertureReseau(o); } catch (e) { return res.status(503).json({ erreur: e.message }); }
@@ -565,6 +604,59 @@ app.get('/api/traceroutes', (req, res) => {
   res.json(stockage.q.trRecents.all(Math.min(Number(req.query.limite) || 50, 500)));
 });
 
+// Réglages des traceroutes automatiques (cibles clés, plage horaire, intervalle), gardés dans /data
+const fTrReglages = path.join(path.dirname(config.fichierBase), 'traceroutes-reglages.json');
+const cfgTrEnv = { cibles: [...config.radio.tracerouteCibles], intervalle: config.radio.tracerouteIntervalleMinutes };
+function appliquerReglagesTr() {
+  let r = {};
+  try { r = JSON.parse(require('fs').readFileSync(fTrReglages, 'utf8')); } catch { /* aucun */ }
+  config.radio.tracerouteCibles = Array.isArray(r.cibles) && r.cibles.length ? r.cibles.map(String) : cfgTrEnv.cibles;
+  config.radio.tracerouteHeures = r.heures === 'nuit' ? 'nuit' : 'toujours';
+  if (Number.isFinite(r.intervalle)) config.radio.tracerouteIntervalleMinutes = r.intervalle;
+  return { cibles: config.radio.tracerouteCibles, heures: config.radio.tracerouteHeures, intervalle: config.radio.tracerouteIntervalleMinutes };
+}
+appliquerReglagesTr();
+app.post('/api/traceroutes/reglages', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const b = req.body || {};
+  const r = {
+    cibles: Array.isArray(b.cibles) ? b.cibles.map((x) => String(Number(x) >>> 0)).filter((x) => x !== '0').slice(0, 40) : [],
+    heures: b.heures === 'nuit' ? 'nuit' : 'toujours',
+    intervalle: Math.min(Math.max(Number(b.intervalle) || 180, 0), 1440),
+  };
+  try { require('fs').writeFileSync(fTrReglages, JSON.stringify(r)); } catch (e) { return res.status(500).json({ erreur: e.message }); }
+  res.json(appliquerReglagesTr());
+});
+// Synthèse : pour chaque nœud tracé depuis 7 jours, dernier chemin mesuré, taux de réponse, changement de route
+app.get('/api/traceroutes/synthese', (req, res) => {
+  const depuis = Date.now() - 7 * 86400000;
+  const lignes = stockage.db.prepare('SELECT * FROM traceroutes WHERE heure >= ? ORDER BY heure DESC').all(depuis);
+  const noeuds = new Map(stockage.q.noeuds.all().map((n) => [n.num, n]));
+  const nom = (x) => { const n = noeuds.get(x >>> 0); return n ? n.nom_long || n.nom_court || n.id : '!' + (x >>> 0).toString(16).padStart(8, '0'); };
+  const pos = (x) => { const n = noeuds.get(x >>> 0); return n && n.lat != null ? [n.lat, n.lon] : null; };
+  const chemin = (debut, liste, fin, snrs) => [debut, ...liste, fin].map((x, i) => ({ num: x >>> 0, nom: nom(x), pos: pos(x), snr: i > 0 ? (snrs[i - 1] ?? null) : null }));
+  const parCible = new Map();
+  for (const t of lignes) { if (!parCible.has(t.cible)) parCible.set(t.cible, []); parCible.get(t.cible).push(t); }
+  const cles = new Set(config.radio.tracerouteCibles);
+  const sortie = [...parCible].map(([cible, ts]) => {
+    const ok = ts.filter((t) => t.statut === 'repondu' && t.aller);
+    const termines = ts.filter((t) => t.statut !== 'envoye');
+    const d = ok[0];
+    const aller = d ? chemin(d.origine, JSON.parse(d.aller), d.cible, JSON.parse(d.snr_aller || '[]')) : null;
+    const retour = d && d.retour ? chemin(d.cible, JSON.parse(d.retour), d.origine, JSON.parse(d.snr_retour || '[]')) : null;
+    const signature = (t) => t.aller;
+    const change = ok.length >= 2 && signature(ok[0]) !== signature(ok[1]);
+    const n = noeuds.get(cible);
+    return {
+      cible, nom: nom(cible), cle: cles.has(String(cible)) || (n && (cles.has(n.id) || cles.has(n.nom_court))),
+      essais: ts.length, reussis: ok.length, taux: termines.length ? Math.round((ok.length / termines.length) * 100) : null,
+      dernier: { heure: ts[0].heure, statut: ts[0].statut, declencheur: ts[0].declencheur },
+      mesure: d ? { heure: d.heure, duree: d.duree, aller, retour } : null,
+      routeChangee: change, ancienAller: change ? JSON.parse(ok[1].aller).map((x) => nom(x)) : null,
+    };
+  }).sort((a, b) => (b.cle - a.cle) || (b.dernier.heure - a.dernier.heure));
+  res.json({ reglages: { cibles: config.radio.tracerouteCibles, heures: config.radio.tracerouteHeures || 'toujours', intervalle: config.radio.tracerouteIntervalleMinutes }, radio: !!sourceRadio, cibles: sortie });
+});
 app.post('/api/traceroute/:num', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   if (!sourceRadio) return res.status(503).json({ erreur: 'Aucun module radio configuré (RADIO_HOTE)' });
@@ -1246,6 +1338,7 @@ const sourceRadio = creerSourceRadio(stockage, config, canaux, {
 }, agents);
 const administration = creerAdministration(sourceRadio, stockage);
 const analyse = creerAnalyse(stockage, config, reseau, () => (sourceRadio ? sourceRadio.etat().preset : null));
+const liensMesuresNoeuds = () => fournisseursRelief.liensNoeuds(); // + mesures des nœuds mobiles (couverture mesurée)
 const fournisseursRelief = {
   presetCourant: () => (sourceRadio ? sourceRadio.etat().preset : null),
   // Relais / passerelles positionnés et entendus dans les dernières 24 h (un relais muet ne couvre plus rien)
@@ -1253,10 +1346,11 @@ const fournisseursRelief = {
     const limite = Date.now() - 24 * 3600000;
     return stockage.q.noeuds.all()
       .filter((n) => n.lat != null && (n.vu || n.dernier_vu || 0) >= limite && reseau.estSurveille(n))
-      .map((n) => ({ num: n.num, nom: n.nom_long || n.nom_court || n.id, lat: n.lat, lon: n.lon }));
+      .map((n) => ({ num: n.num, nom: n.nom_long || n.nom_court || n.id, lat: n.lat, lon: n.lon, ...installations.radio(n.num) }));
   },
   // Liaisons radio directes avec SNR mesuré (pour calibrer le modèle)
-  liensMesures: () => {
+  liensMesures: () => [...liensMesuresNoeuds(), ...(() => { try { return mesures().liensCalibration(); } catch { return []; } })()],
+  liensNoeuds: () => {
     const noeuds = new Map(stockage.q.noeuds.all().filter((n) => n.lat != null).map((n) => [n.num, n]));
     return reseau.liens(config.retentionJours * 86400000)
       .filter((l) => l.snr != null && noeuds.has(l.a) && noeuds.has(l.b))

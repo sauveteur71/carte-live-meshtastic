@@ -21,6 +21,10 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - Paquets animés en direct : une comète parcourt le trajet saut par saut (émetteur → relais → récepteur), une par récepteur ; les liaisons empruntées s'allument et les axes les plus utilisés depuis 10 min sont soulignés. Pour Meshtastic, quand les relais intermédiaires ne sont pas connus, le trajet le plus probable est déduit des liaisons observées (tracé en pointillé)
 - Fiche détaillée de chaque nœud : informations, télémétries, voisins (« entendu par »), configuration déduite, toutes les trames avec filtres
 - Alertes : nœud muet, batterie faible, canal saturé, passerelle hors ligne…
+- **Liaisons à sens unique** : « B entend A mais A n'entend jamais B », liaisons très déséquilibrées et nœuds que personne n'entend
+- **Chemins mesurés** : traceroutes automatiques (nœuds clés, la nuit si souhaité), chemin aller/retour avec le SNR de chaque saut, route changée
+- **Couverture mesurée** : d'où les nœuds sont réellement reçus (positions + réceptions des passerelles), relevés de terrain avec un module mobile, recalage du modèle de relief
+- **Fiche d'installation des relais** : antenne, hauteur, gain, câble, puissance, alimentation, site ; utilisée par les calculs de couverture
 - Analyse du trafic, rejeu de l'historique, profils radio entre deux points quelconques
 
 **Relief et sites** (onglet *Couverture* et menu *Couverture radio*)

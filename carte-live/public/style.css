@@ -821,3 +821,11 @@ body[data-reseau="meshcore"] #sources .ligne:not(#ligne-mc):not(#ligne-broker) {
 .titre-programmer { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 8px; }
 .titre-outils { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--tres-doux); padding: 4px 6px 0; } .titre-outils[hidden], .menu .bascule[hidden] { display: none; }
 .menu-outils .menu .bascule { padding: 4px 8px; justify-content: flex-start; }
+.erreur.ok { color: var(--accent); }
+/* Chemins mesurés */
+.reglages-tr { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0; }
+.reglages-tr label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--doux); }
+.reglages-tr select { background: var(--fond); color: var(--texte); border: 1px solid var(--bord); border-radius: 6px; padding: 3px 6px; }
+.etoile { color: #f4c542; padding: 0 4px; }
+.etiquette-snr span { display: inline-block; background: rgba(11,17,24,.85); color: #fff; border: 1.5px solid; border-radius: 99px; padding: 0 5px; font-size: 10.5px; white-space: nowrap; }
+.fleche-sens span { display: inline-block; font-size: 22px; text-shadow: 0 0 3px #000; }

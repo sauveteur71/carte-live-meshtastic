@@ -58,6 +58,7 @@
       <summary>Couverture radio ▾</summary>
       <div class="menu">
         <button id="btn-couv-reseau" class="bascule" title="Zone couverte aujourd’hui par les relais et passerelles détectés">📡 Couverture actuelle du réseau</button>
+        <button id="btn-couv-mesuree" class="bascule" title="Couverture réellement mesurée : d’où les passerelles reçoivent vraiment les nœuds (positions + SNR)">📶 Couverture mesurée</button>
         <button id="btn-couv-ici" class="bascule" title="Cliquez n'importe quel lieu : zone couverte par une antenne placée là (clic droit sur la carte : même menu)">📍 Couverture depuis un point</button>
         <button id="btn-couvrir" class="bascule" title="Cliquez un lieu sur la carte : la carte propose 4 points hauts capables de le couvrir (puis d’autres points à couvrir avec un seul site)">🎯 Couvrir un ou plusieurs points</button>
         <button id="btn-relier" class="bascule" title="Cliquez un point de départ puis un point d’arrivée : la carte indique s’il faut des relais, et où les installer">🔗 Relier deux lieux</button>
@@ -127,6 +128,14 @@
         <details class="pli-alertes" data-pli="passerelles">
           <summary><h3>Passerelles <span class="titre-reseau">Meshtastic</span> <span id="resume-passerelles" class="resume-alertes"></span></h3></summary>
           <div id="passerelles" class="liste"></div>
+        </details>
+        <details class="pli-alertes" data-pli="asym">
+          <summary><h3>Liaisons à sens unique <span id="nb-asym" class="pastille">0</span> <span id="resume-asym" class="resume-alertes"></span></h3></summary>
+          <div id="asym" class="liste"></div>
+        </details>
+        <details class="pli-alertes" data-pli="chemins">
+          <summary><h3>Chemins mesurés <span class="titre-reseau">traceroutes</span> <span id="resume-chemins" class="resume-alertes"></span></h3></summary>
+          <div id="chemins"></div>
         </details>
         <details class="pli-alertes" data-pli="infra">
           <summary><h3>Relais et infrastructure <span class="titre-reseau">Meshtastic</span> <span id="resume-infra" class="resume-alertes"></span></h3></summary>

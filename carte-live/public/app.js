@@ -378,6 +378,122 @@ document.querySelectorAll('details.pli-alertes').forEach((d) => {
   d.addEventListener('toggle', () => { try { localStorage.setItem('pli-' + d.dataset.pli, d.open ? '1' : '0'); } catch { /* ignoré */ } });
 });
 
+// ---- Chemins mesurés (traceroutes automatiques) -----------------------------------------------------
+async function chargerChemins() {
+  let r;
+  try { r = await api('/api/traceroutes/synthese'); } catch { return; }
+  etat.chemins = r;
+  const z = $('#chemins');
+  if (!z) return;
+  const changees = r.cibles.filter((c) => c.routeChangee).length, echecs = r.cibles.filter((c) => c.dernier.statut !== 'repondu' && c.dernier.statut !== 'envoye').length;
+  $('#resume-chemins').textContent = r.cibles.length ? `${r.cibles.length} nœud${r.cibles.length > 1 ? 's' : ''}${changees ? ` · ${changees} route${changees > 1 ? 's' : ''} changée${changees > 1 ? 's' : ''}` : ''}${echecs ? ` · ${echecs} sans réponse` : ''}` : 'aucun';
+  const st = { repondu: ['✔', 'var(--ok)'], echec: ['✖', 'var(--critique)'], sans_reponse: ['✖', 'var(--critique)'], envoye: ['…', 'var(--attention)'] };
+  const resume = (c) => {
+    if (!c.mesure) return 'jamais de réponse';
+    const relais = c.mesure.aller.slice(1, -1);
+    return relais.length ? `via ${relais.map((x) => esc(x.nom)).join(' → ')} (${relais.length} saut${relais.length > 1 ? 's' : ''})` : 'en direct';
+  };
+  z.innerHTML = (etat.admin ? `<div class="reglages-tr">
+      <label>Quand <select id="tr-heures"><option value="toujours">à toute heure</option><option value="nuit">la nuit (1 h – 6 h)</option></select></label>
+      <label>Tous les <select id="tr-intervalle">${[[60, '1 h'], [180, '3 h'], [360, '6 h'], [720, '12 h'], [1440, '24 h'], [0, 'jamais']].map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></label>
+    </div><p class="note">★ = nœud clé : s’il y en a, seuls les nœuds clés sont tracés automatiquement ; sinon, tous les relais entendus par le module.${r.radio ? '' : ' <b>Aucun module radio connecté : pas de traceroute automatique.</b>'}</p>` : '')
+    + (r.cibles.length ? r.cibles.map((c, i) => `<div class="ligne" data-chemin="${i}"><span style="color:${(st[c.dernier.statut] || st.envoye)[1]}">${(st[c.dernier.statut] || st.envoye)[0]}</span><span class="titre">${etat.admin ? `<button class="mini etoile ${c.cle ? 'on' : ''}" data-cle="${c.cible}" title="Nœud clé">${c.cle ? '★' : '☆'}</button> ` : ''}${esc(c.nom)}${c.routeChangee ? ' <span class="pastille attention" title="Le chemin a changé depuis la mesure précédente">route changée</span>' : ''}<small>${resume(c)} · ${c.taux != null ? c.taux + ' % de réponses' : ''} · ${ilYa(c.dernier.heure)}</small></span>${etat.admin && r.radio ? `<button class="mini" data-tracer="${c.cible}" title="Lancer un traceroute maintenant">↻</button>` : ''}</div>`).join('')
+      : '<div class="vide">Aucun traceroute depuis 7 jours.</div>');
+  if (etat.admin) {
+    const h = $('#tr-heures'), iv = $('#tr-intervalle');
+    h.value = r.reglages.heures; iv.value = String(r.reglages.intervalle);
+    const sauver = async (cibles) => { try { await postJson('/api/traceroutes/reglages', { cibles: cibles ?? r.reglages.cibles.filter((x) => /^\d+$/.test(x)), heures: h.value, intervalle: Number(iv.value) }); chargerChemins(); } catch (e) { alert(e.message); } };
+    h.onchange = () => sauver(); iv.onchange = () => sauver();
+    z.querySelectorAll('[data-cle]').forEach((b) => (b.onclick = (e) => {
+      e.stopPropagation();
+      const actuelles = new Set(r.reglages.cibles.filter((x) => /^\d+$/.test(x)));
+      if (actuelles.has(b.dataset.cle)) actuelles.delete(b.dataset.cle); else actuelles.add(b.dataset.cle);
+      sauver([...actuelles]);
+    }));
+    z.querySelectorAll('[data-tracer]').forEach((b) => (b.onclick = async (e) => {
+      e.stopPropagation(); b.disabled = true; b.textContent = '…';
+      try { await api('/api/traceroute/' + b.dataset.tracer, { method: 'POST' }); b.textContent = '✓'; setTimeout(chargerChemins, 90000); } catch (err) { alert(err.message); b.textContent = '↻'; b.disabled = false; }
+    }));
+  }
+  z.querySelectorAll('[data-chemin]').forEach((el) => (el.onclick = () => montrerChemin(r.cibles[Number(el.dataset.chemin)])));
+}
+function montrerChemin(c) {
+  if (!c.mesure) return;
+  if (etat.coucheCouvrir) etat.coucheCouvrir.remove();
+  const g = L.layerGroup().addTo(carte);
+  etat.coucheCouvrir = g;
+  $('#btn-effacer').hidden = false;
+  const pts = [];
+  const tracer = (ch, couleur, decal, lib) => {
+    for (let i = 1; i < ch.length; i++) {
+      const a = ch[i - 1], b = ch[i];
+      if (!a.pos || !b.pos) continue;
+      pts.push(a.pos, b.pos);
+      L.polyline([a.pos, b.pos], { color: couleur, weight: 4, opacity: 0.9, dashArray: decal ? '8 6' : null, pane: 'traces' })
+        .bindTooltip(`${lib} : ${esc(a.nom)} → ${esc(b.nom)}${b.snr != null ? ` · SNR ${fmt(b.snr, 1, ' dB')}` : ''}`, { className: 'info', sticky: true }).addTo(g);
+      const m = [(a.pos[0] + b.pos[0]) / 2, (a.pos[1] + b.pos[1]) / 2];
+      if (b.snr != null) L.marker(m, { icon: L.divIcon({ className: 'etiquette-snr', html: `<span style="border-color:${couleur}">${fmt(b.snr, 1)} dB</span>`, iconSize: [50, 18], iconAnchor: decal ? [25, -4] : [25, 22] }), pane: 'traces', interactive: false }).addTo(g);
+    }
+  };
+  tracer(c.mesure.aller, '#3ee6c4', false, 'Aller');
+  if (c.mesure.retour) tracer(c.mesure.retour, '#c084fc', true, 'Retour');
+  if (pts.length) carte.fitBounds(L.latLngBounds(pts), { padding: [80, 80], maxZoom: 12 });
+}
+
+// ---- Liaisons à sens unique ----------------------------------------------------------------
+async function chargerAsymetrie() {
+  let r;
+  try { r = await api('/api/liaisons/asymetrie'); } catch { return; }
+  etat.asymetrie = r;
+  const z = $('#asym');
+  if (!z) return;
+  const dz = (p) => !etat.zone || (p && dansZone(p));
+  const su = r.sensUnique.filter((x) => dz(x.a) || dz(x.b)), de = r.desequilibres.filter((x) => dz(x.posA) || dz(x.posB)), ia = r.inaudibles.filter((x) => dz(x.pos));
+  const n = su.length + de.length + ia.length;
+  const p = $('#nb-asym'); p.textContent = n; p.className = 'pastille' + (ia.length || su.length ? ' attention' : '');
+  $('#resume-asym').textContent = n ? [ia.length ? `${ia.length} non entendu${ia.length > 1 ? 's' : ''}` : '', su.length ? `${su.length} à sens unique` : '', de.length ? `${de.length} déséquilibrée${de.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ') : 'aucune';
+  const ligne = (i, titre, sous, meta) => `<div class="ligne" data-asym="${i}"><span class="point alerte"></span><span class="titre">${titre}<small>${sous}</small></span><span class="meta">${meta}</span></div>`;
+  const items = [];
+  z.innerHTML = (n ? '' : '<div class="vide">Aucune anomalie : les liaisons observées fonctionnent dans les deux sens.</div>')
+    + (ia.length ? '<h4>Entendent leurs voisins, mais personne ne les entend</h4>' + ia.map((x) => { items.push({ type: 'ia', x }); return ligne(items.length - 1, esc(x.nom), `entend ${x.entend} nœud${x.entend > 1 ? 's' : ''} en direct (${esc(x.voisins.slice(0, 3).join(', '))}${x.voisins.length > 3 ? '…' : ''}), mais aucun ne le reçoit`, '📡✖'); }).join('') : '')
+    + (su.length ? '<h4>À sens unique</h4>' + su.map((x) => { items.push({ type: 'su', x }); return ligne(items.length - 1, `${esc(x.nomEntendu)} n’entend pas ${esc(x.nomEntend)}`, `alors que ${esc(x.nomEntend)} l’entend (${x.nb} fois${x.snr != null ? ', SNR ' + fmt(x.snr, 1, ' dB') : ''})${x.distanceKm != null ? ' · ' + fmt(x.distanceKm, 1, ' km') : ''}`, '→ ✖'); }).join('') : '')
+    + (de.length ? '<h4>Déséquilibrées (écart ≥ 10 dB)</h4>' + de.map((x) => { items.push({ type: 'de', x }); return ligne(items.length - 1, `${esc(x.nomA)} ↔ ${esc(x.nomB)}`, `${fmt(x.snrFort, 1, ' dB')} dans un sens, ${fmt(x.snrFaible, 1, ' dB')} dans l’autre`, `${fmt(x.ecart, 0, ' dB')}`); }).join('') : '')
+    + (n ? '<p class="note">Causes fréquentes : relais sur un point haut plus bruité (il entend moins bien), puissances ou antennes différentes, antenne mal accordée, câble abîmé. Un nœud « que personne n’entend » émet probablement trop faiblement ou trop bas pour ses voisins.</p>' : '');
+  z.querySelectorAll('[data-asym]').forEach((el) => (el.onclick = () => montrerAsymetrie(items[Number(el.dataset.asym)])));
+}
+function montrerAsymetrie(it) {
+  if (etat.coucheCouvrir) etat.coucheCouvrir.remove();
+  const g = L.layerGroup().addTo(carte);
+  etat.coucheCouvrir = g;
+  $('#btn-effacer').hidden = false;
+  const x = it.x;
+  if (it.type === 'ia') {
+    if (!x.pos) return;
+    L.circleMarker([x.pos.lat, x.pos.lon], { radius: 14, color: '#ff5c6c', weight: 3, fillOpacity: 0.15, pane: 'traces' }).bindTooltip(`${esc(x.nom)} : personne ne l’entend`, { permanent: true, direction: 'top', className: 'info' }).addTo(g);
+    carte.flyTo([x.pos.lat, x.pos.lon], Math.max(carte.getZoom(), 11));
+    return;
+  }
+  const a = it.type === 'su' ? x.b : x.posA, b = it.type === 'su' ? x.a : x.posB; // a = celui qui entend, b = celui qui est entendu (su)
+  if (!a || !b) return;
+  if (it.type === 'su') {
+    // Deux traits parallèles légèrement décalés, avec une flèche au milieu : le sens qui passe et celui qui ne passe pas
+    const dx = a.lon - b.lon, dy = a.lat - b.lat, lg = Math.hypot(dx, dy) || 1, k = lg * 0.012;
+    const ox = (-dy / lg) * k, oy = (dx / lg) * k;
+    const fleche = (de, vers, coul) => {
+      const m = [(de[0] + vers[0]) / 2, (de[1] + vers[1]) / 2];
+      const ang = (-Math.atan2(vers[0] - de[0], vers[1] - de[1]) * 180) / Math.PI; // ➤ pointe vers l’est ; rotation horaire en CSS
+      L.marker(m, { icon: L.divIcon({ className: 'fleche-sens', html: `<span style="color:${coul};transform:rotate(${ang}deg)">➤</span>`, iconSize: [20, 20], iconAnchor: [10, 10] }), pane: 'traces', interactive: false }).addTo(g);
+    };
+    const ok1 = [b.lat + oy, b.lon + ox], ok2 = [a.lat + oy, a.lon + ox], ko1 = [a.lat - oy, a.lon - ox], ko2 = [b.lat - oy, b.lon - ox];
+    L.polyline([ok1, ok2], { color: '#3ee6c4', weight: 4, pane: 'traces' }).bindTooltip(`✔ ${esc(x.nomEntend)} entend ${esc(x.nomEntendu)}${x.snr != null ? ' (SNR ' + fmt(x.snr, 1, ' dB') + ')' : ''}`, { className: 'info', sticky: true }).addTo(g);
+    L.polyline([ko1, ko2], { color: '#ff5c6c', weight: 3, dashArray: '4 8', pane: 'traces' }).bindTooltip(`✖ ${esc(x.nomEntendu)} n’entend jamais ${esc(x.nomEntend)}`, { className: 'info', sticky: true }).addTo(g);
+    fleche(ok1, ok2, '#3ee6c4'); fleche(ko1, ko2, '#ff5c6c');
+  } else {
+    L.polyline([[a.lat, a.lon], [b.lat, b.lon]], { color: '#ffb547', weight: 4, pane: 'traces' }).bindTooltip(`${fmt(x.snrFort, 1, ' dB')} / ${fmt(x.snrFaible, 1, ' dB')}`, { className: 'info', sticky: true }).addTo(g);
+  }
+  carte.fitBounds(L.latLngBounds([[a.lat, a.lon], [b.lat, b.lon]]), { padding: [80, 80], maxZoom: 12 });
+}
+
 // ---- Panneau : réseau --------------------------------------------------------
 function rendreReseau() {
   const a = etat.alertes.filter((x) => dansZoneNum(x.num));
@@ -679,6 +795,49 @@ function courbe(points, cle, lib, unite, dec, seuil) {
     <svg viewBox="0 0 300 46" preserveAspectRatio="none">${ligneSeuil}<path d="${d}" fill="none" stroke="#3ee6c4" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg></div>`;
 }
 
+// ---- Fiche d'installation d'un relais (antenne, hauteur, alimentation, site) -----------------------
+const LIB_ALIM = { secteur: 'Secteur', solaire: 'Solaire', batterie: 'Batterie seule', 'secteur+batterie': 'Secteur + batterie', 'solaire+batterie': 'Solaire + batterie', autre: 'Autre' };
+function htmlInstallation(n, f) {
+  f = f || {};
+  const v = (k) => (f[k] != null ? esc(String(f[k])) : '');
+  if (!etat.admin) {
+    if (!Object.keys(f).length) return '<div class="vide">Aucune fiche d’installation pour ce nœud.</div>';
+    const l = [['Hauteur d’antenne', f.hauteur != null ? f.hauteur + ' m' : null], ['Antenne', f.antenne], ['Gain', f.gain != null ? f.gain + ' dBi' : null], ['Pertes câble', f.pertesCable != null ? f.pertesCable + ' dB' : null], ['Puissance', f.puissance != null ? f.puissance + ' dBm' : null], ['Alimentation', LIB_ALIM[f.alimentation]], ['Batterie', f.batterieAh != null ? f.batterieAh + ' Ah' : null], ['Panneau', f.panneauW != null ? f.panneauW + ' W' : null], ['Site', f.site], ['Mise en service', f.miseEnService]];
+    return `<div class="grille">${l.filter((x) => x[1] != null && x[1] !== '').map(([a, b]) => `<div class="mesure"><span>${a}</span><b>${esc(String(b))}</b></div>`).join('')}</div>${f.notes ? `<p class="note">${esc(f.notes)}</p>` : ''}`;
+  }
+  return `<form id="f-install" class="form-edit">
+    <h4>Antenne et radio</h4><div class="grille-edit">
+      <label>Hauteur au-dessus du sol (m) <input name="hauteur" type="number" step="0.5" min="0.5" max="120" value="${v('hauteur')}" placeholder="ex. 8"></label>
+      <label>Antenne (modèle, type) <input name="antenne" maxlength="80" value="${v('antenne')}" placeholder="ex. colinéaire 868 MHz 5,8 dBi"></label>
+      <label>Gain (dBi) <input name="gain" type="number" step="0.1" min="-5" max="15" value="${v('gain')}" placeholder="2,15 par défaut"></label>
+      <label>Pertes câble + connecteurs (dB) <input name="pertesCable" type="number" step="0.1" min="0" max="20" value="${v('pertesCable')}" placeholder="ex. 1,5"></label>
+      <label>Puissance d’émission (dBm) <input name="puissance" type="number" step="1" min="0" max="30" value="${v('puissance')}" placeholder="27 par défaut"></label></div>
+    <h4>Alimentation</h4><div class="grille-edit">
+      <label>Type <select name="alimentation"><option value="">–</option>${Object.entries(LIB_ALIM).map(([k, t]) => `<option value="${k}" ${f.alimentation === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label>Batterie (Ah) <input name="batterieAh" type="number" step="0.1" min="0" value="${v('batterieAh')}"></label>
+      <label>Panneau solaire (W) <input name="panneauW" type="number" step="1" min="0" value="${v('panneauW')}"></label></div>
+    <h4>Site</h4><div class="grille-edit">
+      <label>Site (lieu, support) <input name="site" maxlength="120" value="${v('site')}" placeholder="ex. château d’eau, mât 6 m"></label>
+      <label>Mise en service <input name="miseEnService" type="date" value="${v('miseEnService')}"></label>
+      <label>Propriétaire du site <input name="proprietaire" maxlength="120" value="${v('proprietaire')}"></label>
+      <label>Contact <input name="contact" maxlength="160" value="${v('contact')}"></label></div>
+    <label>Notes <textarea name="notes" rows="3" maxlength="1000">${v('notes')}</textarea></label>
+    <div class="actions-prop"><button type="submit" class="principal">Enregistrer la fiche</button></div>
+    <p class="note">La hauteur, le gain, les pertes et la puissance remplacent les valeurs supposées (6 m, 2,15 dBi, 27 dBm) dans la couverture du réseau, le plan et Relier. Propriétaire et contact ne sont visibles que des administrateurs.${f.maj ? ` Dernière mise à jour ${ilYa(f.maj)}${f.par ? ' par ' + esc(f.par) : ''}.` : ''}</p>
+    <p class="erreur" id="install-retour"></p>
+  </form>`;
+}
+function brancherInstallation(n) {
+  const fo = $('#f-install');
+  if (!fo) return;
+  fo.onsubmit = async (e) => {
+    e.preventDefault();
+    const nums = ['hauteur', 'gain', 'pertesCable', 'puissance', 'batterieAh', 'panneauW'];
+    const corps = Object.fromEntries([...new FormData(fo).entries()].map(([k, x]) => [k, nums.includes(k) ? String(x).replace(',', '.').trim() : String(x).trim()]));
+    try { await postJson(`/api/noeuds/${n.num}/installation`, corps, 'PUT'); $('#install-retour').textContent = '✔ Fiche enregistrée.'; $('#install-retour').classList.add('ok'); }
+    catch (err) { $('#install-retour').textContent = err.message; }
+  };
+}
 async function ouvrirFiche(num) {
   etat.selection = num;
   const fiche = $('#fiche');
@@ -731,7 +890,7 @@ async function ouvrirFiche(num) {
       ${n.materiel ? `<span class="badge">${esc(n.materiel)}</span>` : ''}
     </div>
     <nav class="onglets-fiche">
-      <button data-of="infos" class="actif">Informations</button><button data-of="telem">Télémétries</button><button data-of="voisins">Voisins</button><button data-of="config">Configuration</button><button data-of="trames">Trames</button>
+      <button data-of="infos" class="actif">Informations</button><button data-of="telem">Télémétries</button><button data-of="voisins">Voisins</button><button data-of="config">Configuration</button>${etat.membre ? `<button data-of="install">Installation${d.installation ? ' ✓' : ''}</button>` : ''}<button data-of="trames">Trames</button>
     </nav>
     <div data-pf="infos">
     ${alertesNoeud.map((a) => `<div class="liste-alertes"><div class="alerte ${a.niveau}">${esc(a.message)}</div></div>`).join('')}
@@ -739,8 +898,9 @@ async function ouvrirFiche(num) {
     <div class="boutons">
       ${n.lat != null ? '<button id="centrer">Centrer sur la carte</button>' : ''}
       ${d.trajet.length > 1 ? `<button id="trajet">Afficher le trajet (${d.trajet.length} points)</button>` : ''}
+      ${n.lat != null ? '<button id="mes-noeud" title="D’où ce nœud a réellement été reçu, par quelles passerelles et avec quel SNR">📶 Couverture mesurée de ce nœud</button>' : ''}
       ${n.lat != null && d.voisins.length ? '<button id="couverture">Liaisons mesurées</button>' : ''}
-      ${n.lat != null ? `<button id="couv-relief">Couverture selon le relief</button><label class="champ-mini">antenne <input id="h-relief" type="number" min="0.5" max="80" step="0.5" value="${n.infrastructure ? 6 : 2}"> m</label>` : ''}
+      ${n.lat != null ? `<button id="couv-relief">Couverture selon le relief</button><label class="champ-mini">antenne <input id="h-relief" type="number" min="0.5" max="80" step="0.5" value="${d.installation && d.installation.hauteur ? d.installation.hauteur : n.infrastructure ? 6 : 2}"> m</label>` : ''}
       ${etat.admin && etat.config.radio && etat.radio && etat.radio.noeudLocal !== n.num ? '<button id="tester">Tester (traceroute)</button>' : ''}
       ${etat.admin ? '<button id="modifier-reglages">✏️ Modifier ses réglages</button><button id="administrer">Programmer ce nœud</button><button id="ecrire">✉️ Message direct</button><button data-qr-reglages>🔳 QR code des réglages</button>' : ''}
     </div>
@@ -775,6 +935,7 @@ async function ouvrirFiche(num) {
     <p class="note">Valeurs déduites des trames entendues. Pour la configuration complète lue dans le nœud lui-même : onglet Gestion › Lire sa configuration (admin).</p>
     ${etat.admin ? '<div class="boutons"><button data-qr-reglages class="principal">🔳 QR code des réglages (canaux + radio)</button></div><p class="note">Le QR code reprend les canaux et le réglage LoRa du nœud : scanné par un autre module, il lui donne exactement la même configuration de canaux.</p>' : ''}
     </div>
+    ${etat.membre ? `<div data-pf="install" hidden>${htmlInstallation(n, d.installation)}</div>` : ''}
     <div data-pf="trames" hidden>
     <div class="boutons"><button id="toutes-trames">📋 Toutes les trames, avec filtres</button></div>
     <div class="flux">${d.paquets.slice(0, 25).map((p) => lignePaquet({ ...p, passerelle: null }, false)).join('') || '<div class="vide">Aucun paquet.</div>'}</div>
@@ -784,11 +945,13 @@ async function ouvrirFiche(num) {
     $('#fiche-contenu').querySelectorAll('[data-pf]').forEach((x) => (x.hidden = x.dataset.pf !== b.dataset.of));
   }));
   $('#toutes-trames').onclick = () => ouvrirTrames(n.num);
+  brancherInstallation(n, d.installation);
   chargerEntenduPar(n);
   $('#fiche-contenu').querySelectorAll('[data-qr-reglages]').forEach((b) => (b.onclick = () => ouvrirQr(n)));
 
   const centrer = $('#centrer');
   if (centrer) centrer.onclick = () => carte.flyTo([n.lat, n.lon], Math.max(carte.getZoom(), 12));
+  const bmn = $('#mes-noeud'); if (bmn) bmn.onclick = () => couvertureMesuree(null, n.num);
   const btnTrajet = $('#trajet');
   if (btnTrajet) btnTrajet.onclick = () => {
     if (etat.trajet) etat.trajet.remove();
@@ -1379,10 +1542,10 @@ async function couvertureReseau() {
       <div class="mesure"><span>Surface totale</span><b>${r.surfaceKm2} km²</b></div>
     </div>
     <div class="barre-couv"><i style="width:${r.pctZone}%" class="actuel"></i></div>
-    <div class="parametres compact"><label>Hauteur d’antenne supposée (m) <input id="hn-reseau" type="number" min="1" max="60" step="1" value="${hn}"></label><button id="hn-recalc">Recalculer</button></div>
+    <div class="parametres compact"><label>Hauteur supposée des relais sans fiche (m) <input id="hn-reseau" type="number" min="1" max="60" step="1" value="${hn}"></label><button id="hn-recalc">Recalculer</button></div>
     <h3>Apport de chaque relais</h3>
     <p class="note">« Seul à couvrir » : surface du département que ce relais est le seul à desservir. Un relais à 0 km² fait doublon avec les autres ; un relais à forte valeur est un point critique (s’il tombe, cette zone n’est plus couverte).</p>
-    ${tries.map((n) => `<div class="ligne" data-ouvrir-noeud="${esc(String(n.num))}"><span class="point ${n.propreKm2 > 0 ? 'actif' : 'inactif'}"></span><span class="titre">${esc(n.nom || String(n.num))}<small>${n.km2} km² au total</small></span><span class="meta"><b>${n.propreKm2} km²</b> seul</span></div>`).join('')}
+    ${tries.map((n) => `<div class="ligne" data-ouvrir-noeud="${esc(String(n.num))}"><span class="point ${n.propreKm2 > 0 ? 'actif' : 'inactif'}"></span><span class="titre">${esc(n.nom || String(n.num))}<small>${n.km2} km² au total · antenne ${n.hauteur} m ${n.fiche ? '<span title="Valeurs de la fiche d’installation">📋</span>' : '(supposée)'}</small></span><span class="meta"><b>${n.propreKm2} km²</b> seul</span></div>`).join('')}
     <div class="actions-prop"><button id="couv-vers-plan" class="principal">🗺️ Où ajouter des relais ? (plan)</button></div>
     <p class="note">Turquoise : ≥ 10 dB de marge · jaune : 0 à 10 dB · orange : en limite. Hypothèse : antennes à ${hn} m, nœud desservi à 2 m du sol. ${r.env != null ? `Pertes de végétation et bâti : ${r.env} dB.` : ''}</p>`;
   $('#hn-recalc').onclick = () => { try { localStorage.setItem('gaulix_hn', $('#hn-reseau').value); } catch { /* ignoré */ } couvertureReseau(); };
@@ -1391,6 +1554,48 @@ async function couvertureReseau() {
     const n = r.noeuds.find((x) => String(x.num) === el.dataset.ouvrirNoeud);
     if (n) carte.flyTo([n.lat, n.lon], 12, { duration: 0.6 });
   }));
+}
+// ---- Couverture mesurée (positions réelles des émetteurs + réceptions des passerelles) ------------------
+async function couvertureMesuree(jours, noeud) {
+  jours = jours || Number(localStorage.getItem('gaulix_mes_jours')) || 7;
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  $('#fiche-contenu').innerHTML = '<h2>Couverture mesurée</h2><div class="alerte info-lecture"><span class="sablier"></span> Regroupement des mesures…</div>';
+  let r, cal = null;
+  try { r = await api(`/api/couverture-mesuree?jours=${jours}${noeud != null ? '&noeud=' + noeud : ''}`); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Couverture mesurée</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  try { cal = await api('/api/relief/calibration'); } catch { /* facultatif */ }
+  if (etat.coucheCouverture) etat.coucheCouverture.remove();
+  const g = L.layerGroup();
+  for (const c of r.cellules) {
+    const b = [[c.lat - c.dLat / 2, c.lon - c.dLon / 2], [c.lat + c.dLat / 2, c.lon + c.dLon / 2]];
+    const coul = c.direct ? couleurSnr(c.snrMax) : '#8fa3b8';
+    L.rectangle(b, { color: coul, weight: 0.6, fillColor: coul, fillOpacity: c.direct ? 0.5 : 0.25, pane: 'couverture' })
+      .bindTooltip(`<b>${c.direct ? 'Reçu en direct' : 'Reçu via des relais seulement'}</b> · ${c.n} mesure${c.n > 1 ? 's' : ''}<br>${c.passerelles.map((p) => `${esc(p.nom)}${p.snr != null ? ' : ' + fmt(p.snr, 1, ' dB') : ''}`).join('<br>')}${c.passerelles.length ? '<br>' : ''}<small>émetteur${c.emetteurs.length > 1 ? 's' : ''} : ${esc(c.emetteurs.join(', '))} · ${ilYa(c.dernier)}</small>`, { className: 'info', sticky: true }).addTo(g);
+  }
+  g.addTo(carte);
+  etat.coucheCouverture = g;
+  $('#btn-effacer').hidden = false;
+  if (r.cellules.length) carte.fitBounds(L.latLngBounds(r.cellules.map((c) => [c.lat, c.lon])).pad(0.1), { maxZoom: 12 });
+  const nomN = noeud != null ? nomNoeud(noeud) : null;
+  $('#fiche-contenu').innerHTML = `<h2>Couverture mesurée${nomN ? ' · ' + esc(nomN) : ''}</h2>
+    <div class="ident">${r.mesures} mesures · ${r.emetteurs} émetteur${r.emetteurs > 1 ? 's' : ''} positionné${r.emetteurs > 1 ? 's' : ''} · ${jours} dernier${jours > 1 ? 's' : ''} jour${jours > 1 ? 's' : ''}</div>
+    <div class="grille">
+      <div class="mesure"><span>Zones reçues en direct</span><b>${r.directes}</b></div>
+      <div class="mesure"><span>Via relais seulement</span><b>${r.viaRelais}</b></div>
+      <div class="mesure"><span>Surface mesurée</span><b>≈ ${r.surfaceKm2} km²</b></div>
+    </div>
+    <div class="parametres compact"><label>Période <select id="mes-jours">${[1, 3, 7, 14, 30].map((j) => `<option value="${j}" ${j === jours ? 'selected' : ''}>${j} jour${j > 1 ? 's' : ''}</option>`).join('')}</select></label>${noeud != null ? '<button id="mes-tous">Tous les nœuds</button>' : ''}</div>
+    <p class="note">Chaque carré de 500 m est un endroit d’où un nœud a réellement été reçu. Couleur = meilleur SNR reçu en direct par une passerelle (vert excellent → rouge limite) ; gris = reçu seulement grâce à des relais. Les nœuds dont la position est volontairement floutée et les messages passés par internet sont écartés.</p>
+    ${cal && cal.liaisons != null ? `<p class="note">Le modèle de relief est recalé sur <b>${cal.liaisons}</b> liaisons mesurées (dont les relevés des nœuds mobiles) : pertes d’environnement retenues ${cal.perteEnvironnementDb != null ? cal.perteEnvironnementDb + ' dB' : 'par défaut'}${cal.ecartMedianDb != null ? `, écart médian modèle − mesure ${fmt(cal.ecartMedianDb, 1, ' dB')}` : ''}.</p>` : ''}
+    <details class="aide-cle"><summary>Faire un relevé de terrain</summary>
+      <ol class="note">
+        <li>Sur un module mobile (voiture, sac à dos) : position <b>toutes les 30 s</b>, « position intelligente » désactivée, précision de position <b>« précise »</b> sur le canal utilisé.</li>
+        <li>Parcourez la zone à étudier (routes, villages, fonds de vallée).</li>
+        <li>Ouvrez sa fiche, puis « Couverture mesurée de ce nœud » : chaque position reçue apparaît, avec la passerelle qui l’a entendue et le SNR.</li>
+        <li>Le modèle de relief se recale automatiquement avec ces mesures au prochain calcul (chaque nuit, ou « Recalculer » côté admin).</li>
+      </ol></details>`;
+  $('#mes-jours').onchange = () => { try { localStorage.setItem('gaulix_mes_jours', $('#mes-jours').value); } catch { /* ignoré */ } couvertureMesuree(Number($('#mes-jours').value), noeud); };
+  const mt = $('#mes-tous'); if (mt) mt.onclick = () => couvertureMesuree(jours, null);
 }
 function allerPlan() {
   const b = document.querySelector('.onglets button[data-onglet="sites"]');
@@ -1476,7 +1681,7 @@ async function rendreSites() {
   let h = choix + `<div class="bloc-plan bloc-actuel">
       <h3>📡 Couverture actuelle du réseau</h3>
       <p class="note">Zone desservie aujourd’hui par les relais et passerelles détectés${c && c.reseauActuel ? ` : <b>${fmt(c.reseauActuel.pct, 1, ' %')}</b> du département avec ${c.reseauActuel.relais.length} relais` : ''}.</p>
-      <div class="actions-prop"><button id="sites-couv-reseau" class="principal">Afficher sur la carte</button></div>
+      <div class="actions-prop"><button id="sites-couv-reseau" class="principal">Couverture calculée</button><button id="sites-couv-mesuree">📶 Couverture mesurée</button></div>
     </div>
     <div class="bloc-plan" id="bloc-plan">
       <h3>🎯 Plan pour couvrir ${e.departement ? esc(e.departement.nom || 'le département') : 'le département'}</h3>
@@ -1526,6 +1731,7 @@ async function rendreSites() {
   z.innerHTML = h;
   brancherChoixDepartement();
   const bcr = $('#sites-couv-reseau'); if (bcr) bcr.onclick = couvertureReseau;
+  const bcm = $('#sites-couv-mesuree'); if (bcm) bcm.onclick = () => couvertureMesuree();
   z.querySelectorAll('[data-outil]').forEach((b) => (b.onclick = () => { const t = $('#' + b.dataset.outil); if (t) t.click(); }));
   const pc = $('#plan-calculer');
   if (pc) {
@@ -3090,6 +3296,7 @@ function brancherInterface() {
   if (ocm) ocm.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; const o = document.querySelector('.onglets button[data-onglet="meshcore"]'); if (o) o.click(); const c = document.querySelector('.sous-onglets-mc button[data-mc-vue="companion"]'); if (c) c.click(); };
   $('#aller-couv-reseau').onclick = couvertureReseau;
   $('#btn-couv-reseau').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; couvertureReseau(); };
+  $('#btn-couv-mesuree').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; couvertureMesuree(); };
   $('#btn-plan-menu').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; allerPlan(); };
   $('#consigne-annuler').onclick = () => { if (etat.modeCarte) basculerMode(null); if (etat.modeProfil) $('#btn-profil').click(); };
   $('#btn-profil').onclick = () => {
@@ -3365,6 +3572,8 @@ async function demarrer() {
   connecterWs();
   if (typeof demarrerMeshcore === 'function') demarrerMeshcore();
   chargerRelief();
+  chargerAsymetrie(); setInterval(chargerAsymetrie, 120000);
+  chargerChemins(); setInterval(chargerChemins, 300000);
   chargerActiviteInitiale();
   setInterval(rendreLegende, 60000);
   if (etat.config.installation) installation();
