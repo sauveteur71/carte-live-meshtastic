@@ -22,7 +22,9 @@ function creerMaintenance({ stockage, config, reseau, installations, journal }) 
   const telem = db.prepare('SELECT heure, tension, batterie, canal, emission FROM telemetrie WHERE num = ? AND heure >= ? ORDER BY heure');
   const dansZone = (n) => { const z = config.zone; return n.lat != null && n.lat >= z[0] && n.lat <= z[2] && n.lon >= z[1] && n.lon <= z[3]; };
   const nom = (n) => n.nom_long || n.nom_court || n.id;
-  const surveilles = () => stockage.q.noeuds.all().filter((n) => reseau.estSurveille(n) && (dansZone(n) || n.lat == null) && (n.dernier_vu || 0) > Date.now() - 7 * 86400000);
+  // Nœuds sans position : gardés seulement s'ils sont listés explicitement (NOEUDS_SURVEILLES), sinon on ne sait pas où ils sont
+  const explicite = (n) => config.noeudsSurveilles.some((x) => x === n.id || x === n.nom_court || x === n.nom_long);
+  const surveilles = () => stockage.q.noeuds.all().filter((n) => reseau.estSurveille(n) && (dansZone(n) || (n.lat == null && explicite(n))) && (n.dernier_vu || 0) > Date.now() - 7 * 86400000);
 
   // ---- 11. Charge radio des relais -------------------------------------------------------------
   function chargeRadio() {
