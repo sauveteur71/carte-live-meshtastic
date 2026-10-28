@@ -321,8 +321,32 @@ function dessinerLiens() {
         `<br>${l.nb} observation${l.nb > 1 ? 's' : ''} · ${dist != null ? fmt(dist, 1, ' km') : ''} · ${ilYa(l.dernierVu)}`,
       { className: 'info', sticky: true }
     );
+    ligne.on('click', (e) => { L.DomEvent.stopPropagation(e); ficheLiaison(l.a, l.b); });
     ligne.addTo(etat.coucheLiens);
   }
+}
+// Fiche d'une liaison : les deux nœuds, chaque sens et chaque source (radio, voisinage, traceroute), profil de relief
+function ficheLiaison(a, b) {
+  const na = etat.noeuds.get(a), nb = etat.noeuds.get(b);
+  if (!na || !nb) return;
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const SRC = { rf: '📡 Réception directe (passerelle)', voisinage: '👥 Voisinage déclaré', traceroute: '🧭 Traceroute' };
+  const sens = (de, vers) => etat.liens.filter((l) => l.a === de && l.b === vers);
+  const bloc = (de, vers) => {
+    const l = sens(de.num, vers.num);
+    return `<h3>${esc(nomNoeud(vers.num))} entend ${esc(nomNoeud(de.num))}</h3>` + (l.length
+      ? l.sort((x, y) => y.dernierVu - x.dernierVu).map((x) => `<div class="ligne"><span class="point" style="background:${couleurSnr(x.snr)}"></span><span class="titre">${SRC[x.source] || x.source}<small>SNR ${fmt(x.snr, 1, ' dB')}${x.rssi != null ? ' · RSSI ' + fmt(x.rssi, 0, ' dBm') : ''} · ${x.nb} observation${x.nb > 1 ? 's' : ''} · ${ilYa(x.dernierVu)}</small></span></div>`).join('')
+      : '<div class="vide">Jamais observé dans ce sens (le nœud ne rapporte peut-être pas ce qu’il entend : module Voisinage désactivé, pas de MQTT).</div>');
+  };
+  const d = distanceKm(na, nb);
+  $('#fiche-contenu').innerHTML = `<h2>Liaison</h2>
+    <div class="ident"><a href="#" data-ouvrir="${a}">${esc(nomNoeud(a))}</a> ↔ <a href="#" data-ouvrir="${b}">${esc(nomNoeud(b))}</a>${d != null ? ' · ' + fmt(d, 1, ' km') : ''}</div>
+    ${bloc(na, nb)}${bloc(nb, na)}
+    <div class="actions-prop"><button class="principal" id="liaison-profil">⛰️ Profil de relief et bilan de liaison</button><button data-ouvrir="${a}">Fiche ${esc(nomNoeud(a))}</button><button data-ouvrir="${b}">Fiche ${esc(nomNoeud(b))}</button></div>
+    ${!(na.infrastructure || na.passerelle) || !(nb.infrastructure || nb.passerelle) ? '<p class="note">Un des deux nœuds est un client : il n’apparaît que si la catégorie « Clients » est affichée dans la légende.</p>' : ''}`;
+  $('#liaison-profil').onclick = () => ouvrirProfil(a, b);
+  $('#fiche-contenu').querySelectorAll('[data-ouvrir]').forEach((x) => (x.onclick = (ev) => { ev.preventDefault(); ouvrirFiche(Number(x.dataset.ouvrir)); }));
 }
 
 function distanceKm(a, b) {
