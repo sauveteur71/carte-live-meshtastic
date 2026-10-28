@@ -1818,8 +1818,15 @@ async function couvertureMesuree(jours, noeud) {
   try { r = await api(`/api/couverture-mesuree?jours=${jours}${noeud != null ? '&noeud=' + noeud : ''}`); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Couverture mesurée</h2><div class="vide">${esc(e.message)}</div>`; return; }
   try { cal = await api('/api/relief/calibration'); } catch { /* facultatif */ }
   if (etat.coucheCouverture) etat.coucheCouverture.remove();
+  // Seulement la zone choisie (département, + voisins, ou France) : les nœuds lointains reçus par des passerelles
+  // de passage étireraient la vue sur toute la France
+  const toutes = r.cellules;
+  const cellules = etat.zone ? toutes.filter((c) => dansZone(c)) : toutes;
+  const horsZone = toutes.length - cellules.length;
+  const directes = cellules.filter((c) => c.direct).length, viaRelais = cellules.length - directes;
+  const surface = Math.round(cellules.reduce((t, c) => t + c.dLat * 111.32 * c.dLon * 111.32 * Math.cos((c.lat * Math.PI) / 180), 0));
   const g = L.layerGroup();
-  for (const c of r.cellules) {
+  for (const c of cellules) {
     const b = [[c.lat - c.dLat / 2, c.lon - c.dLon / 2], [c.lat + c.dLat / 2, c.lon + c.dLon / 2]];
     const coul = c.direct ? couleurSnr(c.snrMax) : '#8fa3b8';
     L.rectangle(b, { color: coul, weight: 0.6, fillColor: coul, fillOpacity: c.direct ? 0.5 : 0.25, pane: 'couverture' })
@@ -1828,15 +1835,16 @@ async function couvertureMesuree(jours, noeud) {
   g.addTo(carte);
   etat.coucheCouverture = g;
   $('#btn-effacer').hidden = false;
-  if (r.cellules.length) carte.fitBounds(L.latLngBounds(r.cellules.map((c) => [c.lat, c.lon])).pad(0.1), { maxZoom: 12 });
+  if (cellules.length) carte.fitBounds(L.latLngBounds(cellules.map((c) => [c.lat, c.lon])).pad(0.1), { maxZoom: 12 });
   const nomN = noeud != null ? nomNoeud(noeud) : null;
   $('#fiche-contenu').innerHTML = `<h2>Couverture mesurée${nomN ? ' · ' + esc(nomN) : ''}</h2>
     <div class="ident">${r.mesures} mesures · ${r.emetteurs} émetteur${r.emetteurs > 1 ? 's' : ''} positionné${r.emetteurs > 1 ? 's' : ''} · ${jours} dernier${jours > 1 ? 's' : ''} jour${jours > 1 ? 's' : ''}</div>
     <div class="grille">
-      <div class="mesure"><span>Zones reçues en direct</span><b>${r.directes}</b></div>
-      <div class="mesure"><span>Via relais seulement</span><b>${r.viaRelais}</b></div>
-      <div class="mesure"><span>Surface mesurée</span><b>≈ ${r.surfaceKm2} km²</b></div>
+      <div class="mesure"><span>Zones reçues en direct</span><b>${directes}</b></div>
+      <div class="mesure"><span>Via relais seulement</span><b>${viaRelais}</b></div>
+      <div class="mesure"><span>Surface mesurée</span><b>≈ ${surface} km²</b></div>
     </div>
+    ${horsZone ? `<p class="note">${horsZone} carré(s) hors de la zone affichée (${esc($('#sel-zone') ? $('#sel-zone').selectedOptions[0].textContent : 'zone')}) ne sont pas montrés : choisissez « France » dans le sélecteur de zone pour tout voir.</p>` : ''}
     <div class="parametres compact"><label>Période <select id="mes-jours">${[1, 3, 7, 14, 30].map((j) => `<option value="${j}" ${j === jours ? 'selected' : ''}>${j} jour${j > 1 ? 's' : ''}</option>`).join('')}</select></label>${noeud != null ? '<button id="mes-tous">Tous les nœuds</button>' : ''}</div>
     <p class="note">Chaque carré de 500 m est un endroit d’où un nœud a réellement été reçu. Couleur = meilleur SNR reçu en direct par une passerelle (vert excellent → rouge limite) ; gris = reçu seulement grâce à des relais. Les nœuds dont la position est volontairement floutée et les messages passés par internet sont écartés.</p>
     ${cal && cal.liaisons != null ? `<p class="note">Le modèle de relief est recalé sur <b>${cal.liaisons}</b> liaisons mesurées (dont les relevés des nœuds mobiles) : pertes d’environnement retenues ${cal.perteEnvironnementDb != null ? cal.perteEnvironnementDb + ' dB' : 'par défaut'}${cal.ecartMedianDb != null ? `, écart médian modèle − mesure ${fmt(cal.ecartMedianDb, 1, ' dB')}` : ''}.</p>` : ''}
