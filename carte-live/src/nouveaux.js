@@ -30,7 +30,9 @@ function creerNouveaux(stockage, config, reseau) {
       try { rel = q.commeRelais.get(n.num, depuis); } catch { /* colonne absente (ancienne base) */ }
       const gw = recs.map((r) => ({ ...r, nom: nomDe(r.passerelle), noeud: stockage.q.noeud.get(r.passerelle >>> 0) }));
       const voisinsZone = liens.filter((l) => dansZone(stockage.q.noeud.get((l.a === n.num ? l.b : l.a) >>> 0)));
-      const secteur = n.lat != null ? dansZone(n) : gw.some((g) => dansZone(g.noeud)) || voisinsZone.length > 0 || (rel.nb > 0 && gw.length === 0 && voisinsZone.length > 0);
+      // Sans position : entendu en direct (ou par un seul relais) par une passerelle de la zone, ou voisin déclaré d'un nœud de la zone
+      // (les nœuds lointains reçus par MQTT ou après plusieurs relais ne sont pas « du secteur »)
+      const secteur = n.lat != null ? dansZone(n) : gw.some((g) => dansZone(g.noeud) && g.sautsMin <= 1) || voisinsZone.some((l) => l.source !== 'traceroute');
       if (!secteur) continue;
       const nbPaquets = ports.reduce((t, p) => t + p.nb, 0);
       const diag = [];
@@ -44,7 +46,7 @@ function creerNouveaux(stockage, config, reseau) {
         num: n.num, id: '!' + (n.num >>> 0).toString(16).padStart(8, '0'), nom: n.nom_long || n.nom_court || null, role: n.role, materiel: n.materiel, firmware: n.firmware,
         lat: n.lat, lon: n.lon, premierVu: n.premier_vu, dernierVu: n.dernier_vu, nbPaquets, ports: ports.map((p) => p.port),
         passerelles: gw.sort((a, b) => a.sautsMin - b.sautsMin || (b.snr ?? -99) - (a.snr ?? -99)).slice(0, 6).map(({ noeud, ...g }) => g),
-        relaye: rel.nb, voisins: liens.slice(0, 6).map((l) => ({ nom: nomDe(l.a === n.num ? l.b : l.a), source: l.source, snr: l.snr })),
+        relaye: nbPaquets ? 0 : rel.nb, voisins: liens.slice(0, 6).map((l) => ({ nom: nomDe(l.a === n.num ? l.b : l.a), source: l.source, snr: l.snr })),
         diagnostic: diag,
       });
     }
