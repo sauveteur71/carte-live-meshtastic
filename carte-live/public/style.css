@@ -879,3 +879,4 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 .qr-2fa img { background: #fff; padding: 6px; border-radius: 6px; }
 .journal-audit tr.refus td { color: #fca5a5; }
 .journal-audit td { vertical-align: top; }
+#ed-relire { background: var(--accent); color: #062019; border-color: var(--accent); font-weight: 600; padding: 1px 8px; }
