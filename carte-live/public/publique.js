@@ -2,7 +2,7 @@
 // Carte publique allégée, à intégrer dans un site (iframe) : relais, passerelles, nœuds à position approchée,
 // liaisons radio, Meshtastic et MeshCore, avec l'animation en direct des paquets qui transitent.
 // Aucune donnée réservée aux membres (messages, positions exactes des particuliers).
-// Options d'adresse : ?reseau=meshtastic|meshcore|deux, ?animations=0, ?couverture=actuelle|sites, ?fond=Plan IGN, ?clients=0 (masquer les nœuds),
+// Options d'adresse : ?reseau=meshtastic|meshcore|deux, ?animations=0, ?couverture=actuelle|sites, ?acces=voiture|4x4|pied|tous, ?fond=Plan IGN, ?clients=0 (masquer les nœuds),
 // ?liens=0 (masquer les liaisons), ?titre=…
 const params = new URLSearchParams(location.search);
 const opt = { clients: params.get('clients') !== '0', liens: params.get('liens') !== '0' };
@@ -90,7 +90,53 @@ function installerFonds() {
 }
 
 // ---- Couverture radio : zone couverte aujourd'hui et emplacements conseillés pour de nouveaux relais --
-const couv = { couche: null, mode: null };
+const couv = { couche: null, mode: null, acces: ['voiture', '4x4', 'pied', 'tous'].includes(params.get('acces')) ? params.get('acces') : 'voiture', plan: null, imagePlan: null, siteChoisi: null };
+const NOM_ACCES = { voiture: 'accessibles en voiture', '4x4': 'accessibles en 4×4 ou en voiture', pied: 'accessibles à pied, en 4×4 ou en voiture', tous: 'tous les points hauts' };
+const pc = (v) => String(v).replace('.', ',');
+// Plan : emplacements conseillés selon l'accès choisi ; un clic sur une épingle montre la couverture de ce site seul
+async function afficherPlan(g, info) {
+  const r = await fetch(`/api/relief/plan?objectif=99&max=8&acces=${couv.acces}&realiste=1`).then((x) => x.json());
+  if (r.erreur) throw new Error(r.erreur);
+  const e = r.emprise;
+  couv.plan = r;
+  couv.siteChoisi = null;
+  couv.imagePlan = L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.55, pane: 'couverture', className: 'pixelise' }).addTo(g);
+  for (const x of r.sites) {
+    L.marker([x.lat, x.lon], { icon: L.divIcon({ className: '', html: `<div class="epingle"><b>${x.rang}</b></div>`, iconSize: [30, 38], iconAnchor: [15, 36] }), pane: 'traces', zIndexOffset: 900 })
+      .bindTooltip(`<b>${x.rang} · ${esc(x.nom || x.commune || 'Point haut')}</b><br>${x.alt} m${x.commune ? ' · ' + esc(x.commune) : ''}<br>+${x.gainKm2} km² · couverture cumulée ${pc(x.totalPct)} %${x.acces ? '<br>' + ({ voiture: '🚗 en voiture', '4x4': '🚙 en 4×4', pied: '🥾 à pied', aucun: 'accès inconnu' }[x.acces.type] || '') : ''}${x.realisme && x.realisme.support ? '<br>🗼 ' + esc(x.realisme.support.type) + ' à proximité' : ''}<br><small>Cliquez pour voir sa couverture</small>`)
+      .on('click', () => couvertureSite(x, g, info))
+      .addTo(g);
+  }
+  infoPlan(info);
+}
+function infoPlan(info) {
+  const r = couv.plan;
+  info.innerHTML = `<b>Où poser de nouveaux relais ?</b> <select id="choix-acces" title="Accès exigé pour les sites">${Object.entries({ voiture: '🚗 En voiture', '4x4': '🚙 En 4×4', pied: '🥾 À pied', tous: 'Tous les points hauts' }).map(([k, v]) => `<option value="${k}" ${k === couv.acces ? 'selected' : ''}>${v}</option>`).join('')}</select><br>
+    ${r.sites.length ? `${r.sites.length} emplacement${r.sites.length > 1 ? 's' : ''} conseillé${r.sites.length > 1 ? 's' : ''} : ${pc(r.departPct)} % → <b>${pc(r.finalPct)} %</b> du département` : 'Aucun site utile avec cet accès (élargissez le choix).'}
+    <br><small>Bleu : déjà couvert · turquoise : apporté par les nouveaux sites · rouge : non couvert. Points hauts ${NOM_ACCES[couv.acces]}, hors zones protégées. Cliquez sur un numéro pour voir la couverture de ce site.</small>`;
+  document.getElementById('choix-acces').onchange = (ev) => { couv.acces = ev.target.value; couv.mode = null; basculerCouverture('sites'); };
+}
+async function couvertureSite(x, g, info) {
+  info.innerHTML = '<span class="sablier"></span> Calcul de la couverture de ce site…';
+  const hs = (couv.plan.parametres && couv.plan.parametres.hs) || 6;
+  let r;
+  try { r = await fetch(`/api/relief/couverture?lat=${x.lat}&lon=${x.lon}&hs=${hs}`).then((y) => y.json()); } catch (e) { r = { erreur: e.message }; }
+  if (couv.mode !== 'sites') return;
+  if (r.erreur) { info.textContent = 'Couverture indisponible : ' + r.erreur; return; }
+  if (couv.siteChoisi) couv.siteChoisi.remove();
+  if (couv.imagePlan) couv.imagePlan.remove();
+  const e = r.emprise;
+  couv.siteChoisi = L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.65, pane: 'couverture', className: 'pixelise' }).addTo(g);
+  info.innerHTML = `<b>${x.rang} · ${esc(x.nom || x.commune || 'Point haut')}</b>${x.commune && x.nom ? ' · ' + esc(x.commune) : ''} · ${x.alt} m<br>
+    Couverture de ce site seul : <b>${Math.round(r.surfaceKm2).toLocaleString('fr-FR')} km²</b>${r.pctZone != null ? `, soit <b>${pc(r.pctZone)} %</b> du département` : ''} · il apporte <b>+${x.gainKm2} km²</b> au réseau actuel
+    <br><small>Antenne à ${hs} m du sol, rayon de calcul ${r.rayonKm} km. Turquoise : bonne liaison · jaune : liaison juste · orange pâle : à la limite.</small>
+    <div style="margin-top:6px"><button class="bascule" id="retour-plan">↩ Revenir au plan</button></div>`;
+  document.getElementById('retour-plan').onclick = () => {
+    if (couv.siteChoisi) { couv.siteChoisi.remove(); couv.siteChoisi = null; }
+    if (couv.imagePlan) couv.imagePlan.addTo(g);
+    infoPlan(info);
+  };
+}
 function installerCouverture() {
   const b = document.getElementById('b-couv'), bp = document.getElementById('b-sites');
   b.onclick = () => basculerCouverture('actuelle');
@@ -121,16 +167,8 @@ async function basculerCouverture(mode) {
       L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.6, pane: 'couverture', className: 'pixelise' }).addTo(g);
       info.innerHTML = `<b>Couverture ${mcSeul ? 'MeshCore' : 'Meshtastic'} estimée</b>${r.pctZone != null ? ` : <b>${String(r.pctZone).replace('.', ',')} %</b> du département` : ''} · ${r.noeuds.length} relais et passerelles<br><small>Calcul d’après le relief (IGN) et les antennes connues, corrigé par les mesures réelles du réseau.</small>`;
     } else {
-      const r = await fetch('/api/relief/plan?objectif=99&max=8&acces=voiture&realiste=1').then((x) => x.json());
+      await afficherPlan(g, info);
       if (couv.mode !== mode) return;
-      if (r.erreur) throw new Error(r.erreur);
-      const e = r.emprise;
-      L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.55, pane: 'couverture', className: 'pixelise' }).addTo(g);
-      for (const x of r.sites) {
-        L.marker([x.lat, x.lon], { icon: L.divIcon({ className: '', html: `<div class="epingle"><b>${x.rang}</b></div>`, iconSize: [30, 38], iconAnchor: [15, 36] }), pane: 'traces', zIndexOffset: 900 })
-          .bindTooltip(`<b>${x.rang} · ${esc(x.nom || x.commune || 'Point haut')}</b><br>${x.alt} m${x.commune ? ' · ' + esc(x.commune) : ''}<br>+${x.gainKm2} km² · couverture cumulée ${String(x.totalPct).replace('.', ',')} %${x.realisme && x.realisme.support ? '<br>🗼 ' + esc(x.realisme.support.type) + ' à proximité' : ''}`).addTo(g);
-      }
-      info.innerHTML = `<b>Où poser de nouveaux relais ?</b> ${r.sites.length} emplacement${r.sites.length > 1 ? 's' : ''} conseillé${r.sites.length > 1 ? 's' : ''} : ${String(r.departPct).replace('.', ',')} % → <b>${String(r.finalPct).replace('.', ',')} %</b> du département<br><small>Bleu : déjà couvert · turquoise : apporté par les nouveaux sites · rouge : non couvert. Points hauts accessibles en voiture, hors zones protégées.</small>`;
     }
     g.addTo(carte);
     couv.couche = g;
