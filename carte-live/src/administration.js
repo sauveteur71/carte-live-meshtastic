@@ -545,6 +545,8 @@ function creerAdministration(radio, stockage) {
   const versionDe = (v) => { const m = /(\d+)\.(\d+)\.(\d+)/.exec(String(v || '')); return m ? [+m[1], +m[2], +m[3]] : null; };
   async function mettreAJourFirmware(dest, p, j) {
     const info = radio.infos(), et = radio.etat();
+    // Autre module Wi-Fi (pas celui de la carte) : session directe sur son API TCP
+    if (p.hote && p.hote !== et.hote) return mettreAJourModuleIp(p.hote, p, j);
     if (dest >>> 0 !== info.noeudLocal >>> 0) throw Object.assign(new Error('la mise à jour par Wi-Fi ne concerne que le module connecté à la carte'), { code: 99 });
     if (!et.hote || !/^[0-9a-z.-]+$/i.test(et.hote) || !/[.]/.test(et.hote)) throw Object.assign(new Error('module relié par un agent ou en USB : la mise à jour par Wi-Fi n’est possible que pour un module joignable en IP depuis la carte'), { code: 99 });
     const hote = et.hote;
@@ -594,6 +596,44 @@ function creerAdministration(radio, stockage) {
     } catch (e) { return { version, nouvelle: null, detail: 'reconnecté, version non relue (' + e.message + ')' }; }
   }
 
+  async function mettreAJourModuleIp(hote, p, j) {
+    if (!/^[0-9a-z.-]+$/i.test(hote)) throw Object.assign(new Error('adresse invalide'), { code: 99 });
+    j(`connexion à ${hote}…`);
+    const m = await ota.infoModule(hote);
+    j(`module : ${m.nom || '!' + (m.num >>> 0).toString(16)}, ${m.hwModel}, firmware ${m.firmware}`);
+    const actuelle = versionDe(m.firmware);
+    if (!actuelle || actuelle[0] < 2 || (actuelle[0] === 2 && (actuelle[1] < 7 || (actuelle[1] === 7 && actuelle[2] < 18)))) throw Object.assign(new Error(`firmware ${m.firmware} trop ancien pour la mise à jour par Wi-Fi (2.7.18 au minimum) : première mise à jour en USB avec le flasheur`), { code: 99 });
+    const mat = await ota.materiel(m.hwModel);
+    if (!/^esp32/.test(mat.architecture || '')) throw Object.assign(new Error(`${mat.displayName} : la mise à jour par Wi-Fi n’existe que pour les ESP32`), { code: 99 });
+    const version = String(p.version || '').replace(/^v/, '');
+    if (String(m.firmware).startsWith(version) && !p.forcer) throw Object.assign(new Error(`le module est déjà en ${m.firmware}`), { code: 99 });
+    j(`téléchargement du firmware ${version} pour ${mat.displayName}…`);
+    const bin = await ota.binaire(version, mat.platformioTarget);
+    j(`firmware prêt : ${Math.round(bin.data.length / 1024)} ko`);
+    await ota.declencher(hote, bin.hash);
+    j('le module redémarre sur son chargeur Wi-Fi…');
+    await new Promise((r) => setTimeout(r, 8000));
+    let derniere = null, palier = 0;
+    for (let essai = 1; essai <= 12; essai++) {
+      try {
+        await ota.televerser(hote, bin.data, bin.hash, (o, t) => { const pc = Math.floor((o / t) * 10) * 10; if (pc > palier) { palier = pc; j(`envoi : ${pc} %`); } });
+        derniere = null; break;
+      } catch (e) {
+        derniere = e;
+        if (/refuse/.test(e.message)) break;
+        if (essai === 1 || essai % 4 === 0) j(`chargeur OTA pas encore joignable (${e.message}), nouvel essai…`);
+        await new Promise((r) => setTimeout(r, 4000));
+      }
+    }
+    if (derniere) throw Object.assign(new Error(`envoi impossible : ${derniere.message}. Le module garde son ancien firmware ; s’il ne revient pas seul, redémarrez-le. Si le chargeur Wi-Fi n’a jamais été installé, une mise à jour complète en USB est nécessaire une première fois.`), { code: 99 });
+    j('firmware envoyé et vérifié : redémarrage du module…');
+    for (let k = 0; k < 8; k++) {
+      await new Promise((r) => setTimeout(r, 15000));
+      try { const apres = await ota.infoModule(hote); j(`module revenu : firmware ${apres.firmware}`); return { version, nouvelle: apres.firmware }; } catch { /* pas encore revenu */ }
+    }
+    return { version, nouvelle: null, detail: 'envoyé, module pas encore revenu sur le Wi-Fi' };
+  }
+
   async function redemarrer(dest) {
     await assurerSession(dest);
     await admin(dest, { rebootSeconds: 5 }, { reponse: false });
@@ -615,7 +655,7 @@ function creerAdministration(radio, stockage) {
   function lancer(type, cibles, params, auteur) {
     const op = OPERATIONS[type];
     if (!op) throw new Error('Opération inconnue');
-    if (!radio.infos().connecte) throw new Error('Module radio non connecté : connectez-le dans Réseau > Modules Wi-Fi');
+    if (!radio.infos().connecte && !(type === 'firmware' && params && params.hote)) throw new Error('Module radio non connecté : connectez-le dans Réseau > Modules Wi-Fi');
     cibles = [...new Set((cibles || []).map((x) => Number(x) >>> 0))].filter(Boolean);
     if (!cibles.length) throw new Error('Aucun nœud choisi');
     if (cibles.length > 30) throw new Error('30 nœuds au maximum par opération');
@@ -868,6 +908,7 @@ function creerAdministration(radio, stockage) {
     modulesCles: () => modulesCles,
     lecturesConnues: () => [...lectures.entries()].map(([num, l]) => ({ num, heure: l.heure, complete: !!(l.canauxFin && l.lora && l.device) })),
     taches: () => [...taches.values()].reverse().map((t) => ({ ...t, params: undefined, resume: resumeParams(t), noeuds: t.noeuds.map(({ resultat, etapes, ...n }) => ({ ...n, partiel: !!resultat })) })),
+    infoModuleIp: (hote) => ota.infoModule(hote),
     infos: () => {
       const i = radio.infos();
       return { connecte: i.connecte, noeudLocal: i.noeudLocal, clePublique: i.clePublique, clesConnues: [...i.clesPubliques.keys()] };

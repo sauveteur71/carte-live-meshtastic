@@ -682,6 +682,39 @@ app.get('/api/admin-noeuds/firmware', (req, res) => {
   res.set('Cache-Control', 'no-store').json({ module, stable: ref.stable || null, test: ref.test || null });
 });
 
+// Mise à jour par Wi-Fi de n'importe quel module joignable en IP depuis le serveur (modules enregistrés ou adresse saisie)
+const estIp = (h) => /^[0-9a-z-]+(\.[0-9a-z-]+)+$/i.test(String(h || ''));
+app.get('/api/firmware/modules', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const ref = maintenance.firmwares().reference || {};
+  const l = sourceRadio ? sourceRadio.modules().modules : [];
+  res.set('Cache-Control', 'no-store').json({ modules: l.filter((m) => estIp(m.hote)).map((m) => ({ hote: m.hote, nom: m.nom, actif: m.actif })), stable: ref.stable || null, test: ref.test || null });
+});
+app.get('/api/firmware/info', async (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const hote = String(req.query.hote || '');
+  if (!estIp(hote)) return res.status(400).json({ erreur: 'Adresse IP ou nom invalide' });
+  const et = sourceRadio ? sourceRadio.etat() : {};
+  if (et.hote === hote) {
+    // Module de la carte : on ne lui ouvre pas une 2e connexion (elle couperait la carte)
+    const i = sourceRadio.infos(), l = administration.detailLecture(i.noeudLocal) || {}, n = stockage.q.noeud.get(i.noeudLocal >>> 0) || {};
+    return res.json({ num: i.noeudLocal, nom: n.nom_long || null, firmware: (l.materiel || {}).firmwareVersion || n.firmware || null, hwModel: (l.materiel || {}).hwModel || n.materiel || null, carte: true });
+  }
+  try { res.json(await administration.infoModuleIp(hote)); } catch (e) { res.status(502).json({ erreur: e.message }); }
+});
+app.post('/api/firmware/ota', async (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const b = req.body || {}, hote = String(b.hote || ''), version = String(b.version || '');
+  if (!estIp(hote) || !version) return res.status(400).json({ erreur: 'Adresse ou version manquante' });
+  try {
+    const et = sourceRadio ? sourceRadio.etat() : {};
+    if (et.hote === hote) return res.json(administration.lancer('firmware', [sourceRadio.infos().noeudLocal], { version }, u.identifiant));
+    const m = await administration.infoModuleIp(hote);
+    res.json(administration.lancer('firmware', [m.num], { version, hote }, u.identifiant));
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+
 // ---- QR code des réglages d'un nœud (canaux + LoRa, contient les clés : admin) ---------------
 app.get('/api/noeuds/:num/qr', async (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });

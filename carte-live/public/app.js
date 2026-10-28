@@ -2920,6 +2920,54 @@ function gerable(id) {
   const k = /^[0-9a-f]{64}$/i.test(String(id)) ? String(id).toUpperCase() : String(Number(id) >>> 0);
   return (etat.secteur || []).includes(k);
 }
+// ---- Firmware des modules Wi-Fi : version et mise à jour par le Wi-Fi ---------------------------------
+async function ficheFirmware() {
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.innerHTML = '<h2>⬆️ Firmware des modules Wi-Fi</h2><div class="vide">Chargement…</div>';
+  let r;
+  try { r = await api('/api/firmware/modules'); } catch (e) { z.innerHTML = `<h2>⬆️ Firmware des modules Wi-Fi</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  const v = (x) => (x ? x.tag.replace(/^v/, '') : null);
+  const versions = [r.stable ? [v(r.stable), `${v(r.stable)} · stable`] : null, r.test && r.test.tag !== (r.stable || {}).tag ? [v(r.test), `${v(r.test)} · test (bêta)`] : null].filter(Boolean);
+  const ligne = (m) => `<div class="carte-cle" data-hote="${esc(m.hote)}"><div class="ligne-cle"><b>${esc(m.nom || m.hote)}</b> <small class="mono">${esc(m.hote)}</small>${m.actif ? ' <span class="badge actif">module de la carte</span>' : ''}</div><div class="etat-fw note">version non vérifiée</div><div class="actions-prop"><button class="mini" data-verifier>Vérifier la version</button></div></div>`;
+  z.innerHTML = `<h2>⬆️ Firmware des modules Wi-Fi</h2>
+    <p class="note">Dernière version stable : <b>${esc(v(r.stable) || '?')}</b>${r.test && r.test.tag !== (r.stable || {}).tag ? ` · test : ${esc(v(r.test))}` : ''}. La mise à jour passe par le Wi-Fi (ESP32, firmware 2.7.18 ou plus) : le module doit être joignable en IP depuis le NAS (même réseau, ou réseau relié par VPN). Pendant 2 à 4 minutes, le module ne fonctionne plus ; ses réglages sont conservés.</p>
+    <div class="alerte attention">« Vérifier » ouvre une courte connexion au module : un autre client connecté à lui en Wi-Fi (appli, MeshMonitor) est déconnecté un instant.</div>
+    ${r.modules.map(ligne).join('') || '<div class="vide">Aucun module enregistré en IP (Réseau › Modules).</div>'}
+    <h3>Autre module</h3>
+    <form id="f-fw-ip" class="parametres compact"><label>Adresse IP <input name="hote" placeholder="192.168.0.42" required></label><button type="submit">Ajouter à la liste</button></form>
+    <p class="erreur" id="fw-retour"></p>`;
+  const brancher = (el) => {
+    el.querySelector('[data-verifier]').onclick = async (ev) => {
+      const b = ev.target, e = el.querySelector('.etat-fw'), hote = el.dataset.hote;
+      b.disabled = true; e.textContent = 'Connexion au module…';
+      try {
+        const i = await api('/api/firmware/info?hote=' + encodeURIComponent(hote));
+        const aJour = r.stable && String(i.firmware || '').startsWith(v(r.stable));
+        e.innerHTML = `${esc(i.nom || '')} · ${esc(i.hwModel || '?')} · firmware <b>${esc(i.firmware || '?')}</b> ${aJour ? '<span class="badge actif">à jour</span>' : r.stable ? '<span class="badge attente">mise à jour disponible</span>' : ''}`;
+        const act = el.querySelector('.actions-prop');
+        act.innerHTML = `<select data-version>${versions.map(([val, lib]) => `<option value="${esc(val)}" ${!aJour && val === v(r.stable) ? 'selected' : ''}>${esc(lib)}</option>`).join('')}</select><button class="mini principal" data-maj>Mettre à jour</button>`;
+        act.querySelector('[data-maj]').onclick = async () => {
+          const ver = act.querySelector('[data-version]').value;
+          if (!confirm(`Mettre à jour ${i.nom || hote} en ${ver} par le Wi-Fi ? Le module sera indisponible 2 à 4 minutes.`)) return;
+          try { const t = await postJson('/api/firmware/ota', { hote, version: ver }); $('#fw-retour').textContent = `Mise à jour lancée (opération ${t.id}) : suivez-la dans Programmer › Opérations récentes.`; suivreTaches(); } catch (x) { $('#fw-retour').textContent = x.message; }
+        };
+      } catch (x) { e.textContent = x.message; b.disabled = false; }
+    };
+  };
+  z.querySelectorAll('[data-hote]').forEach(brancher);
+  $('#f-fw-ip').onsubmit = (ev) => {
+    ev.preventDefault();
+    const hote = ev.target.hote.value.trim();
+    if (!hote) return;
+    const d = document.createElement('div'); d.innerHTML = ligne({ hote, nom: null });
+    const el = d.firstElementChild;
+    const vide = z.querySelector(':scope > .vide'); if (vide) vide.remove();
+    z.querySelector('h3').before(el); brancher(el); ev.target.reset();
+  };
+}
+
 // ---- Clés d'administration : relais par relais ------------------------------------------------------
 async function ficheCles() {
   $('#fiche').hidden = false;
@@ -2982,7 +3030,7 @@ async function rendreGestion() {
   z.innerHTML = `
     <div id="bandeau-fw">${nouveauFw ? `<div class="alerte info-lecture">⬆️ Firmware <b>${esc(fwv(fw.stable))}</b> disponible pour ${esc(fwm.nom || 'le module')} (actuel ${esc(fwm.firmware)}).${fwm.ip ? ' <button class="mini principal" id="fw-maj">Mettre à jour…</button>' : ' Module relié par agent : mise à jour en USB ou depuis son réseau local.'}</div>` : fwm && fw.test && fw.stable && fw.test.tag !== fw.stable.tag ? `<div class="note">Firmware du module : ${esc(fwm.firmware || '?')} (stable à jour) · version test ${esc(fwv(fw.test))} disponible.</div>` : ''}</div>
     ${!etat.admin ? `<div class="alerte">Compte gestionnaire : vous programmez les ${(etat.secteur || []).length} nœud(s) de votre secteur. Le module radio est géré par les administrateurs.</div>` : ''}
-    <div class="titre-programmer"><b>Nœuds Meshtastic</b><button class="mini" id="voir-cles" title="Quels modules peuvent programmer quel relais, et ce qu'il reste à faire sur place">🔑 Clés d’administration</button>${etat.config.meshcore ? '<button class="mini" id="vers-prog-mc">Répéteurs MeshCore →</button>' : ''}</div>
+    <div class="titre-programmer"><b>Nœuds Meshtastic</b><button class="mini" id="voir-cles" title="Quels modules peuvent programmer quel relais, et ce qu'il reste à faire sur place">🔑 Clés d’administration</button>${etat.admin ? '<button class="mini" id="voir-fw" title="Version et mise à jour par le Wi-Fi des modules joignables en IP">⬆️ Firmware Wi-Fi</button>' : ''}${etat.config.meshcore ? '<button class="mini" id="vers-prog-mc">Répéteurs MeshCore →</button>' : ''}</div>
     ${!i.connecte ? '<div class="alerte attention">Le module radio n’est pas connecté : connectez-le dans l’onglet Réseau, section Modules Wi-Fi.</div>' : ''}
     <details class="aide-cle"${i.clePublique ? '' : ' open'}>
       <summary>Autoriser le module à programmer vos nœuds</summary>
@@ -3015,7 +3063,8 @@ async function rendreGestion() {
   $('#btn-verif').onclick = () => formulaireVerif();
   $('#filtre-gestion').oninput = (e) => { gestion.filtre = e.target.value; clearTimeout(gestion.minFiltre); gestion.minFiltre = setTimeout(() => { rendreGestion().then(() => { const f = $('#filtre-gestion'); f.focus(); f.setSelectionRange(f.value.length, f.value.length); }); }, 250); };
   { const bc = $('#voir-cles'); if (bc) bc.onclick = ficheCles; }
-  { const bf = $('#fw-maj'); if (bf) bf.onclick = () => { gestion.selection = new Set([gestion.fw.module.num]); rendreGestion().then(() => { const b = document.querySelector('[data-act="firmware"]'); if (b) b.click(); }); }; }
+  { const bw = $('#voir-fw'); if (bw) bw.onclick = ficheFirmware; }
+  { const bf = $('#fw-maj'); if (bf) bf.onclick = ficheFirmware; }
   const vp = $('#vers-prog-mc');
   if (vp) vp.onclick = () => {
     if (etat.vueReseau === 'meshtastic') { const b = document.querySelector('[data-reseau="les-deux"]'); if (b) b.click(); }

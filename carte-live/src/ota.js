@@ -87,7 +87,70 @@ function creerOta(dossierDonnees, journal) {
     });
   }
 
-  return { materiel, binaire, televerser, PORT_OTA };
+  // ---- Session courte avec l'API TCP d'un module Wi-Fi (port 4403), comme l'appli ou le client Python --------
+  // Un seul client TCP à la fois sur un module : on ne s'en sert que pour un module qui n'est pas celui de la carte.
+  const { racine } = require('./decodeur');
+  const ToRadio = racine.lookupType('meshtastic.ToRadio'), FromRadio = racine.lookupType('meshtastic.FromRadio'), Admin = racine.lookupType('meshtastic.AdminMessage');
+  function session(hote, port = 4403) {
+    return new Promise((ok, ko) => {
+      const s = net.connect({ host: hote, port });
+      let tampon = Buffer.alloc(0), mon = null, meta = null, nom = null, fini = false;
+      const ecouteurs = new Set();
+      const minuterie = setTimeout(() => terminer(new Error('le module ne répond pas sur le port ' + port)), 20000);
+      const terminer = (err) => { if (fini) return; fini = true; clearTimeout(minuterie); if (err) { s.destroy(); ko(err); } };
+      const envoyer = (o) => { const c = ToRadio.encode(ToRadio.create(o)).finish(); const t = Buffer.from([0x94, 0xc3, 0, 0]); t.writeUInt16BE(c.length, 2); s.write(Buffer.concat([t, Buffer.from(c)])); };
+      s.on('error', (e) => terminer(new Error(`connexion à ${hote}:${port} impossible (${e.code || e.message})`)));
+      s.on('connect', () => { s.write(Buffer.alloc(32, 0xc3)); setTimeout(() => envoyer({ wantConfigId: 4242 }), 100); });
+      s.on('data', (d) => {
+        tampon = Buffer.concat([tampon, d]);
+        while (tampon.length >= 4) {
+          if (tampon[0] !== 0x94 || tampon[1] !== 0xc3) { tampon = tampon.subarray(1); continue; }
+          const n = tampon.readUInt16BE(2);
+          if (tampon.length < 4 + n) break;
+          let m; try { m = FromRadio.decode(tampon.subarray(4, 4 + n)); } catch { m = null; }
+          tampon = tampon.subarray(4 + n);
+          if (!m) continue;
+          if (m.myInfo) mon = m.myInfo.myNodeNum >>> 0;
+          if (m.metadata) meta = FromRadio.toObject(m, { enums: String, longs: Number }).metadata;
+          if (m.nodeInfo && mon != null && (m.nodeInfo.num >>> 0) === mon && m.nodeInfo.user) nom = m.nodeInfo.user.longName;
+          if (m.packet) for (const f of ecouteurs) f(m.packet);
+          if (m.configCompleteId === 4242 && !fini) {
+            fini = true; clearTimeout(minuterie);
+            ok({
+              num: mon, nom, metadata: meta,
+              // AdminMessage au module lui-même ; réponse attendue si wantResponse
+              admin: (message, attendre = true) => new Promise((ok2, ko2) => {
+                const id = (crypto.randomBytes(4).readUInt32LE(0) >>> 0) || 1;
+                const payload = Admin.encode(Admin.fromObject(message)).finish();
+                if (!attendre) { envoyer({ packet: { to: mon, id, wantAck: false, decoded: { portnum: 6, payload, wantResponse: false } } }); return setTimeout(() => ok2(null), 1500); }
+                const t = setTimeout(() => { ecouteurs.delete(f); ko2(new Error('pas de réponse du module')); }, 15000);
+                const f = (p) => { if (p.decoded && p.decoded.portnum === 6 && p.decoded.requestId === id) { clearTimeout(t); ecouteurs.delete(f); ok2(Admin.decode(p.decoded.payload)); } };
+                ecouteurs.add(f);
+                envoyer({ packet: { to: mon, id, wantAck: false, decoded: { portnum: 6, payload, wantResponse: true } } });
+              }),
+              fermer: () => { try { envoyer({ disconnect: true }); } catch { /* fermé */ } setTimeout(() => s.destroy(), 300); },
+            });
+          }
+        }
+      });
+    });
+  }
+  // Version et matériel d'un module Wi-Fi joignable en IP
+  async function infoModule(hote) {
+    const c = await session(hote);
+    try { return { num: c.num, nom: c.nom, firmware: c.metadata && c.metadata.firmwareVersion, hwModel: c.metadata && c.metadata.hwModel, wifi: c.metadata ? !!c.metadata.hasWifi : null }; } finally { c.fermer(); }
+  }
+  // Demande au module de redémarrer sur son chargeur OTA Wi-Fi (clé de session obtenue par une première lecture)
+  async function declencher(hote, hash) {
+    const c = await session(hote);
+    try {
+      let cle = null;
+      try { const r = await c.admin({ getOwnerRequest: true }); cle = r && r.sessionPasskey && r.sessionPasskey.length ? r.sessionPasskey : null; } catch { /* module local : clé facultative */ }
+      await c.admin({ otaRequest: { rebootOtaMode: 2, otaHash: hash }, ...(cle ? { sessionPasskey: cle } : {}) }, false);
+    } finally { c.fermer(); }
+  }
+
+  return { materiel, binaire, televerser, infoModule, declencher, PORT_OTA };
 }
 
 module.exports = { creerOta };
