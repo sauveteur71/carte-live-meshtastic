@@ -22,6 +22,8 @@ const { creerExports } = require('./exports');
 const { creerFederation } = require('./federation');
 const { creerReleves } = require('./releves');
 const { creerAudit } = require('./audit');
+const { creerNouveaux } = require('./nouveaux');
+const { creerRapport } = require('./rapport');
 const installations = creerInstallations(path.dirname(config.fichierBase));
 let federation = null; // créée une fois le réseau prêt (voir plus bas)
 // Zone « département + voisins », recalculée si le département ou sa zone changent (installation, réglages)
@@ -229,7 +231,7 @@ app.get('/api/couverture-mesuree', (req, res) => {
 
 // Liaisons à sens unique, déséquilibrées, et nœuds que personne n'entend
 let asymetrie = null;
-app.get('/api/liaisons/asymetrie', (req, res) => {
+function obtenirAsymetrie() {
   if (!asymetrie) asymetrie = creerAsymetrie(stockage, config, {
     // Puissance d'émission : fiche d'installation, sinon configuration LoRa lue à distance (0 = défaut du matériel, inconnue)
     puissance: (num) => {
@@ -244,8 +246,9 @@ app.get('/api/liaisons/asymetrie', (req, res) => {
       return -7.5 - 2.5 * (sf - 7);
     },
   });
-  res.json(asymetrie.calculer());
-});
+  return asymetrie;
+}
+app.get('/api/liaisons/asymetrie', (req, res) => res.json(obtenirAsymetrie().calculer()));
 
 app.get('/api/analyse', (req, res) => {
   const heures = Math.min(Math.max(Number(req.query.heures) || 24, 1), config.retentionJours * 24);
@@ -683,12 +686,15 @@ app.get('/api/admin-noeuds/firmware', (req, res) => {
 });
 
 // Mise à jour par Wi-Fi de n'importe quel module joignable en IP depuis le serveur (modules enregistrés ou adresse saisie)
-const estIp = (h) => /^[0-9a-z-]+(\.[0-9a-z-]+)+$/i.test(String(h || ''));
+const estIp = (h) => /^[0-9a-z-]+(\.[0-9a-z-]+)+$/i.test(String(h || '')) || agents.estAgent(String(h || ''));
 app.get('/api/firmware/modules', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const ref = maintenance.firmwares().reference || {};
   const l = sourceRadio ? sourceRadio.modules().modules : [];
-  res.set('Cache-Control', 'no-store').json({ modules: l.filter((m) => estIp(m.hote)).map((m) => ({ hote: m.hote, nom: m.nom, actif: m.actif })), stable: ref.stable || null, test: ref.test || null });
+  // Modules Wi-Fi enregistrés, et modules Wi-Fi d'autres réseaux reliés par un agent (la mise à jour passe par l'agent)
+  const parAgent = agents.liste().filter((a) => /wi-?fi|\d+\.\d+\.\d+\.\d+/i.test(a.source || '') && !/usb|com\d|\/dev\//i.test(a.source || ''))
+    .map((a) => ({ hote: a.hote, nom: a.nom, agent: true, versionAgent: a.version, source: a.source, actif: a.occupe }));
+  res.set('Cache-Control', 'no-store').json({ modules: [...l.filter((m) => /\./.test(m.hote)).map((m) => ({ hote: m.hote, nom: m.nom, actif: m.actif })), ...parAgent], stable: ref.stable || null, test: ref.test || null });
 });
 app.get('/api/firmware/info', async (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
@@ -714,6 +720,67 @@ app.post('/api/firmware/ota', async (req, res) => {
     res.json(administration.lancer('firmware', [m.num], { version, hote }, u.identifiant));
   } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
+
+// Nouveaux nœuds du secteur (membres : positions des particuliers arrondies comme ailleurs)
+let nouveaux = null;
+const obtenirNouveaux = () => (nouveaux = nouveaux || creerNouveaux(stockage, config, reseau));
+app.get('/api/noeuds-nouveaux', (req, res) => {
+  obtenirNouveaux();
+  const r = nouveaux.lister(Number(req.query.jours) || 7);
+  if (!estMembre(req)) for (const n of r.noeuds) { const v = reseau.vueNoeud(stockage.q.noeud.get(n.num), false); n.lat = v.lat; n.lon = v.lon; }
+  res.json(r);
+});
+
+// Conformité automatique (chaque nuit)
+app.get('/api/admin-noeuds/conformite-auto', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.set('Cache-Control', 'no-store').json(administration.conformite());
+});
+app.post('/api/admin-noeuds/conformite-auto', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try {
+    const c = administration.reglerConformite(req.body || {});
+    if ((req.body || {}).maintenant) { const u = utilisateur(req); return res.json({ ...c, tache: administration.lancerConformite(u.identifiant).id }); }
+    res.json(c);
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+
+// Rapport hebdomadaire (membres) : page imprimable des 7 derniers jours, archives du lundi
+let rapport = null;
+function obtenirRapport() {
+  if (rapport) return rapport;
+  rapport = creerRapport({
+    stockage, config, reseau, maintenance, journal,
+    alertes: () => dernieresAlertes,
+    nouveaux: obtenirNouveaux,
+    asymetrie: () => obtenirAsymetrie().calculer(),
+    conformite: () => administration.conformite(),
+    couverture: () => { const c = relief.classement(); return c && c.reseauActuel ? { pct: c.reseauActuel.pct } : null; },
+    meshcore: () => {
+      if (!config.meshcore.actif) return null;
+      const z = config.zone, dz = (n) => n.lat != null && n.lat >= z[0] && n.lat <= z[2] && n.lon >= z[1] && n.lon <= z[3];
+      const l = reseauMc.q.noeuds.all().filter(dz), lim = Date.now() - 7 * 86400000;
+      const rep = l.filter((n) => ['repeteur', 'salon'].includes(n.role));
+      return { noeuds: l.length, repeteurs: rep.length, actifs: rep.filter((n) => (n.dernier_vu || 0) >= lim).length };
+    },
+  });
+  return rapport;
+}
+app.get('/rapport', (req, res) => {
+  if (!estMembre(req)) return res.status(401).send('Connexion requise : connectez-vous sur la carte puis rouvrez cette page.');
+  try { res.set('Cache-Control', 'no-store').type('html').send(obtenirRapport().construire()); } catch (e) { res.status(500).send('Rapport indisponible : ' + e.message); }
+});
+app.get('/api/rapports', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  res.json(obtenirRapport().liste());
+});
+app.get('/rapports/:nom', (req, res) => {
+  if (!estMembre(req)) return res.status(401).send('Connexion requise');
+  const f = obtenirRapport().fichier(String(req.params.nom));
+  if (!f || !fs.existsSync(f)) return res.status(404).send('Rapport introuvable');
+  res.type('html').sendFile(f);
+});
+setTimeout(() => { try { obtenirRapport(); } catch (e) { journal('[Rapport]', e.message); } }, 120000).unref();
 
 // ---- QR code des réglages d'un nœud (canaux + LoRa, contient les clés : admin) ---------------
 app.get('/api/noeuds/:num/qr', async (req, res) => {
@@ -1625,6 +1692,23 @@ const companion = creerCompanion(config, {
 });
 if (config.meshcore.actif) companion.demarrer();
 const adminMc = creerAdministrationMc(config, companion, reseauMc, (...a) => journal('[MeshCore]', ...a), (t) => { if (['statut', 'lire', 'chemin', 'voisins'].includes(t.type)) { planifierEtatMc(); diffuser({ genre: 'mc-noeuds' }); } });
+const { creerMaintenanceMc } = require('./meshcore/maintenance');
+const maintenanceMc = creerMaintenanceMc({ config, reseauMc, adminMc, companion, journal });
+app.get('/api/mc/maintenance', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const r = maintenanceMc.etat();
+  if (!estAdmin(req)) r.noeuds = r.noeuds.filter((n) => peutGerer(req, n.cle));
+  res.set('Cache-Control', 'no-store').json(r);
+});
+app.post('/api/mc/maintenance/conformite', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try {
+    const c = maintenanceMc.regler(req.body || {});
+    if ((req.body || {}).maintenant) return res.json({ ...c, tache: maintenanceMc.lancer(u.identifiant).id });
+    res.json(c);
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   integrerEvenement: (evt) => {
     const sortie = reseau.integrer(evt);
@@ -1634,6 +1718,7 @@ const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   estSurveille: (n) => reseau.estSurveille(n),
 }, agents);
 const administration = creerAdministration(sourceRadio, stockage);
+administration.utiliserAgents(agents);
 const analyse = creerAnalyse(stockage, config, reseau, () => (sourceRadio ? sourceRadio.etat().preset : null));
 const liensMesuresNoeuds = () => fournisseursRelief.liensNoeuds(); // + mesures des nœuds mobiles (couverture mesurée)
 const fournisseursRelief = {

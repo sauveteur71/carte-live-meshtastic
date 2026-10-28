@@ -548,7 +548,7 @@ function creerAdministration(radio, stockage) {
     // Autre module Wi-Fi (pas celui de la carte) : session directe sur son API TCP
     if (p.hote && p.hote !== et.hote) return mettreAJourModuleIp(p.hote, p, j);
     if (dest >>> 0 !== info.noeudLocal >>> 0) throw Object.assign(new Error('la mise à jour par Wi-Fi ne concerne que le module connecté à la carte'), { code: 99 });
-    if (!et.hote || !/^[0-9a-z.-]+$/i.test(et.hote) || !/[.]/.test(et.hote)) throw Object.assign(new Error('module relié par un agent ou en USB : la mise à jour par Wi-Fi n’est possible que pour un module joignable en IP depuis la carte'), { code: 99 });
+    if (!et.hote || !/^[0-9a-z.-]+$/i.test(et.hote) || !/[.]/.test(et.hote)) throw Object.assign(new Error('ce module est relié à la carte par un agent : choisissez d’abord un autre module dans Réseau › Modules, puis lancez la mise à jour depuis Programmer › Firmware Wi-Fi (l’agent relaiera la mise à jour)'), { code: 99 });
     const hote = et.hote;
     const Meta = racine.lookupType('meshtastic.DeviceMetadata');
     const meta = versObjet(Meta, (await admin(dest, { getDeviceMetadataRequest: true })).getDeviceMetadataResponse);
@@ -764,6 +764,46 @@ function creerAdministration(radio, stockage) {
     });
   }
 
+  // ---- Conformité automatique : la même vérification chaque nuit (/data/conformite-auto.json) ----------------
+  const fConf = require('path').join(require('path').dirname(require('./config').fichierBase), 'conformite-auto.json');
+  let conf = { actif: false, heure: 2, reference: null, mode: 'admin', cibles: [], elements: ['canaux', 'precision', 'frequence', 'preset', 'rediffusion'], dernier: null, tache: null };
+  try { conf = { ...conf, ...JSON.parse(require('fs').readFileSync(fConf, 'utf8')) }; } catch { /* aucune */ }
+  const sauverConf = () => { try { require('fs').writeFileSync(fConf, JSON.stringify(conf)); } catch { /* lecture seule */ } };
+  function ciblesConf() {
+    const l = conf.mode === 'liste' ? conf.cibles : Object.entries(administrables).filter(([, v]) => v.ok).map(([k]) => Number(k));
+    return l.filter((k) => k && k !== (conf.reference >>> 0) && k !== (radio.infos().noeudLocal >>> 0));
+  }
+  function lancerConformite(auteur = 'automatique') {
+    if (!conf.reference) throw new Error('aucune référence choisie');
+    const cibles = ciblesConf();
+    if (!cibles.length) throw new Error('aucun nœud à vérifier');
+    const t = lancer('verifier', cibles, { reference: conf.reference, elements: conf.elements, ageMaxHeures: 0 }, auteur);
+    conf.tache = t.id; conf.lancee = Date.now(); sauverConf();
+    return t;
+  }
+  // Résumé de la dernière vérification automatique, une fois terminée
+  function resumerConformite() {
+    const t = conf.tache && taches.get(conf.tache);
+    if (!t || !t.fin || (conf.dernier && conf.dernier.tache === t.id)) return;
+    const [ref, ...autres] = t.noeuds;
+    conf.dernier = {
+      tache: t.id, date: t.fin, reference: ref.num, referenceLue: ref.statut === 'ok',
+      conformes: autres.filter((n) => n.statut === 'ok' && n.resultat && n.resultat.conforme).map((n) => n.num),
+      ecarts: autres.filter((n) => n.statut === 'ok' && n.resultat && !n.resultat.conforme).map((n) => ({ num: n.num, ecarts: (n.resultat.ecarts || []).slice(0, 12) })),
+      nonLus: autres.filter((n) => n.statut !== 'ok').map((n) => ({ num: n.num, raison: n.detail })),
+    };
+    sauverConf();
+    journal(`conformité automatique : ${conf.dernier.conformes.length} conforme(s), ${conf.dernier.ecarts.length} avec écarts, ${conf.dernier.nonLus.length} non lu(s)`);
+  }
+  const minuterieConf = setInterval(() => {
+    resumerConformite();
+    if (!conf.actif) return;
+    const h = Number(new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false }).slice(0, 2));
+    if (h !== conf.heure || (conf.lancee && Date.now() - conf.lancee < 20 * 3600000) || !radio.infos().connecte) return;
+    try { lancerConformite(); journal('conformité automatique lancée'); } catch (e) { journal('conformité automatique :', e.message); conf.lancee = Date.now(); sauverConf(); }
+  }, 5 * 60000);
+  if (minuterieConf.unref) minuterieConf.unref();
+
   // ---- Tâches persistantes : /data/taches-admin.json (les paramètres peuvent contenir des clés de canal : fichier privé)
   const fTaches = require('path').join(require('path').dirname(require('./config').fichierBase), 'taches-admin.json');
   let minuterieSauvegarde = null;
@@ -909,6 +949,19 @@ function creerAdministration(radio, stockage) {
     lecturesConnues: () => [...lectures.entries()].map(([num, l]) => ({ num, heure: l.heure, complete: !!(l.canauxFin && l.lora && l.device) })),
     taches: () => [...taches.values()].reverse().map((t) => ({ ...t, params: undefined, resume: resumeParams(t), noeuds: t.noeuds.map(({ resultat, etapes, ...n }) => ({ ...n, partiel: !!resultat })) })),
     infoModuleIp: (hote) => ota.infoModule(hote),
+    utiliserAgents: (a) => ota.utiliserAgents(a),
+    conformite: () => { resumerConformite(); return { ...conf, ciblesEffectives: ciblesConf() }; },
+    reglerConformite(b) {
+      if (b.reference != null) conf.reference = Number(b.reference) >>> 0;
+      if (b.actif != null) conf.actif = !!b.actif;
+      if (b.heure != null) conf.heure = Math.min(23, Math.max(0, Number(b.heure) || 2));
+      if (b.mode) conf.mode = b.mode === 'liste' ? 'liste' : 'admin';
+      if (Array.isArray(b.cibles)) conf.cibles = b.cibles.map((x) => Number(x) >>> 0).filter(Boolean).slice(0, 30);
+      if (Array.isArray(b.elements)) conf.elements = b.elements.filter((k) => ELEMENTS[k]);
+      sauverConf();
+      return conf;
+    },
+    lancerConformite,
     infos: () => {
       const i = radio.infos();
       return { connecte: i.connecte, noeudLocal: i.noeudLocal, clePublique: i.clePublique, clesConnues: [...i.clesPubliques.keys()] };

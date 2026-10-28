@@ -436,6 +436,37 @@ async function mcRendreAnalyse() {
 const mcGestion = { selection: new Set(), suivi: null, tache: null, info: null };
 const MC_TACHES = { lire: 'Lire la configuration', statut: 'État', voisins: 'Voisins', verifier: 'Vérification de conformité', modifier: 'Modification', cli: 'Commande', annonce: 'Annonce', horloge: 'Horloge', redemarrer: 'Redémarrage' };
 const MC_STATUTS = { en_attente: 'en attente', en_cours: 'en cours…', ok: 'réussi', echec: 'échec', annule: 'arrêté' };
+// ---- Maintenance MeshCore : firmwares, accès administrateur, conformité automatique ---------------------
+async function mcFicheMaintenance() {
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.innerHTML = '<h2>🛠️ Maintenance MeshCore</h2><div class="vide">Chargement…</div>';
+  let r;
+  try { r = await api('/api/mc/maintenance'); } catch (e) { z.innerHTML = `<h2>🛠️ Maintenance MeshCore</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  const v = r.versions || {}, c = r.conformite, d = c.dernier;
+  const badge = (n) => n.etatFw === 'a-jour' ? '<span class="badge actif">à jour</span>' : n.etatFw === 'retard' ? `<span class="badge attente">${esc(n.derniereVersion)} disponible</span>` : '';
+  const memo = r.noeuds.filter((n) => n.motDePasse);
+  z.innerHTML = `<h2>🛠️ Maintenance MeshCore</h2>
+    <p class="note">Dernières versions : répéteur <b>${esc(v.repeater ? v.repeater.version : '?')}</b> · room server <b>${esc(v['room-server'] ? v['room-server'].version : '?')}</b> · companion <b>${esc(v.companion ? v.companion.version : '?')}</b>. La version d’un nœud est connue après une lecture de sa configuration (mot de passe admin nécessaire). Mise à jour : en USB avec le flasheur MeshCore, ou sur place (« start ota » puis le Wi-Fi du nœud).</p>
+    ${r.noeuds.map((n) => `<div class="carte-cle"><div class="ligne-cle"><b>${esc(n.nom)}</b> <small>${n.role === 'salon' ? 'room server' : 'répéteur'} · vu ${ilYa(n.dernierVu)}</small></div>
+      <div class="puces-cle">${n.motDePasse ? '<span class="badge actif">🔑 mot de passe mémorisé</span>' : '<span class="badge refus">pas de mot de passe</span>'} ${n.firmware ? `<span class="badge">${esc(n.firmware)}</span> ${badge(n)}` : '<span class="badge attente">version inconnue</span>'}${n.materiel ? ` <span class="badge">${esc(n.materiel)}</span>` : ''}${n.lu ? ` <small>lu ${ilYa(n.lu)}</small>` : ''}</div>
+      ${n.aFaire.length ? `<ul class="a-faire">${n.aFaire.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}</div>`).join('') || '<div class="vide">Aucun répéteur MeshCore dans la zone.</div>'}
+    <h3>🌙 Conformité automatique chaque nuit</h3>
+    ${etat.admin ? `<form id="f-mc-conf" class="form-gestion">
+      <label>Référence <select name="reference"><option value="">—</option>${memo.map((n) => `<option value="${n.cle}" ${n.cle === c.reference ? 'selected' : ''}>${esc(n.nom)}</option>`).join('')}</select></label>
+      <fieldset class="elements-verif"><legend>Réglages comparés</legend>${c.elementsPossibles.map((e) => `<label class="case"><input type="checkbox" name="el" value="${e}" ${(c.elements || c.elementsDefaut).includes(e) ? 'checked' : ''}> ${esc(e)}</label>`).join('')}</fieldset>
+      <label class="case"><input type="checkbox" name="actif" ${c.actif ? 'checked' : ''}> Vérifier chaque nuit vers 3 h les répéteurs à mot de passe mémorisé (${memo.length})</label>
+      <div class="actions-prop"><button type="submit" class="principal">Enregistrer</button><button type="button" id="mc-conf-maintenant">Vérifier maintenant</button></div>
+      <p class="erreur" id="mc-conf-retour"></p></form>` : ''}
+    ${d ? `<p>Dernière vérification le ${new Date(d.date).toLocaleString('fr-FR')} : <b>${d.conformes.length} conforme(s)</b>, ${d.ecarts.length} avec écarts, ${d.nonLus.length} non lu(s).</p>${d.ecarts.map((e) => `<div class="alerte attention">${esc(e.nom)} : ${esc(e.ecarts.map((x) => `${x.element} = ${x.valeur} au lieu de ${x.reference}`).join(' ; '))}</div>`).join('')}${d.nonLus.length ? `<p class="note">Non lus : ${esc(d.nonLus.map((x) => x.nom).join(', '))}</p>` : ''}` : '<p class="note">Pas encore de vérification automatique.</p>'}`;
+  const f = $('#f-mc-conf');
+  if (!f) return;
+  const valeurs = () => ({ reference: f.reference.value || null, actif: f.actif.checked, elements: [...f.querySelectorAll('input[name="el"]:checked')].map((x) => x.value) });
+  f.onsubmit = async (e) => { e.preventDefault(); try { await postJson('/api/mc/maintenance/conformite', valeurs()); $('#mc-conf-retour').textContent = '✔ Enregistré'; } catch (x) { $('#mc-conf-retour').textContent = x.message; } };
+  $('#mc-conf-maintenant').onclick = async () => { try { await postJson('/api/mc/maintenance/conformite', { ...valeurs(), maintenant: true }); $('#mc-conf-retour').textContent = 'Vérification lancée : suivez-la dans la liste des tâches MeshCore.'; } catch (x) { $('#mc-conf-retour').textContent = x.message; } };
+}
+
 async function mcRendreGestion() {
   const z = $('#mc-contenu');
   if (!etat.gestion) { z.innerHTML = '<div class="vide">Réservé aux administrateurs.</div>'; return; }
@@ -446,6 +477,7 @@ async function mcRendreGestion() {
   const sel = mcGestion.selection;
   z.innerHTML = `
     ${i.companion.connecte ? '' : '<div class="alerte attention">Aucun companion relié : l’administration passe par lui (onglet Companion).</div>'}
+    <div class="actions-prop"><button class="mini" id="mc-maintenance">🛠️ Maintenance : firmwares, accès, conformité</button></div>
     <p class="note">Cochez les nœuds, puis choisissez l’opération. Il faut le <b>mot de passe admin</b> de chaque nœud (mémorisable sur le serveur). Pour une vérification, le <b>premier coché</b> sert de référence.</p>
     <div class="liste liste-mc-gestion">${liste.map((n) => `<label class="ligne-coche"><input type="checkbox" data-mc-sel="${n.cle}" ${sel.has(n.cle) ? 'checked' : ''}>
       <span class="point ${n.statut}"></span><span class="titre"><i class="role-mc ${n.role}" style="--mcc:${mcRole(n.role).hex}"></i>${esc(n.nom || n.id)}
@@ -477,6 +509,7 @@ async function mcRendreGestion() {
   z.querySelector('[data-mc-tout]').onclick = () => { liste.forEach((n) => sel.add(n.cle)); mcRendreGestion(); };
   z.querySelector('[data-mc-rien]').onclick = () => { sel.clear(); mcRendreGestion(); };
   z.querySelectorAll('[data-mc-fiche]').forEach((b) => (b.onclick = (e) => { e.preventDefault(); mcOuvrirFiche(b.dataset.mcFiche, 'admin'); }));
+  { const bm = $('#mc-maintenance'); if (bm) bm.onclick = mcFicheMaintenance; }
   z.querySelectorAll('[data-mc-tache]').forEach((l) => (l.onclick = () => mcSuivreTache(l.dataset.mcTache, $('#mc-g-tache'))));
   z.querySelectorAll('[data-mc-op]').forEach((b) => (b.onclick = async () => {
     const f = $('#mc-f-gestion');

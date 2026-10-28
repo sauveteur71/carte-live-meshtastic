@@ -880,3 +880,5 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 .journal-audit tr.refus td { color: #fca5a5; }
 .journal-audit td { vertical-align: top; }
 #ed-relire { background: var(--accent); color: #062019; border-color: var(--accent); font-weight: 600; padding: 1px 8px; }
+.nouveau-noeud .diag { display: block; margin-top: 2px; }
+.nouveau-noeud .diag.attention { color: #fcd34d; }

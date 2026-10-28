@@ -497,6 +497,97 @@ function montrerChemin(c) {
 }
 
 // ---- Liaisons à sens unique ----------------------------------------------------------------
+// ---- Nouveaux nœuds du secteur ------------------------------------------------------------------------
+async function chargerNouveaux() {
+  const z = $('#nouveaux');
+  if (!z) return;
+  let r;
+  try { r = await api('/api/noeuds-nouveaux?jours=7'); } catch { return; }
+  const l = r.noeuds;
+  const avecSouci = l.filter((n) => n.diagnostic.some((d) => d.niveau === 'attention'));
+  const p = $('#nb-nouveaux'); p.textContent = l.length; p.className = 'pastille' + (avecSouci.length ? ' attention' : '');
+  $('#resume-nouveaux').textContent = l.length ? `${l.length} en 7 jours${avecSouci.length ? ` · ${avecSouci.length} à vérifier` : ''}` : 'aucun';
+  z.innerHTML = l.map((n) => `<div class="ligne cliquable nouveau-noeud" data-num="${n.num}">
+      <span class="point ${n.diagnostic.some((d) => d.niveau === 'attention') ? 'attention' : 'actif'}"></span>
+      <span class="titre">${esc(n.nom || n.id)} <small>${esc(n.id)}${n.role ? ' · ' + esc(n.role) : ''}${n.materiel ? ' · ' + esc(n.materiel) : ''} · apparu ${ilYa(n.premierVu)} · ${n.nbPaquets} paquet(s)${n.relaye ? ` · a relayé ${n.relaye}` : ''}${n.passerelles.length ? ' · entendu par ' + esc(n.passerelles.slice(0, 3).map((g) => g.nom + (g.sautsMin === 0 ? ' (direct' + (g.snr != null ? ', ' + fmt(g.snr, 1, ' dB') : '') + ')' : ` (${g.sautsMin} saut${g.sautsMin > 1 ? 's' : ''})`)).join(', ')) : ''}</small>
+      ${n.diagnostic.map((d) => `<small class="diag ${d.niveau}">${d.niveau === 'attention' ? '⚠️' : 'ℹ️'} ${esc(d.texte)}</small>`).join('')}</span>
+      <span class="meta"><button class="mini" data-portee="${n.num}" title="Écouter ce nœud en direct">📶</button></span></div>`).join('') || '<div class="vide">Aucun nouveau nœud dans le secteur depuis 7 jours.</div>';
+  z.querySelectorAll('.nouveau-noeud').forEach((el) => (el.onclick = (e) => { if (e.target.closest('[data-portee]')) return; const n = etat.noeuds.get(Number(el.dataset.num)); if (n && n.lat != null) ouvrirFiche(n.num); else testPortee(Number(el.dataset.num)); }));
+  z.querySelectorAll('[data-portee]').forEach((b) => (b.onclick = () => testPortee(Number(b.dataset.portee))));
+}
+
+// ---- Test de portée : écoute en direct d'un nœud ------------------------------------------------------
+const portee = { num: null, fin: 0, recs: [], relaye: [], couche: null, minuterie: null };
+function arreterPortee() { portee.num = null; clearInterval(portee.minuterie); if (portee.couche) { portee.couche.remove(); portee.couche = null; } }
+// Appelé pour chaque paquet reçu en direct
+function porteeRecevoir(m) {
+  if (portee.num == null || Date.now() > portee.fin) return;
+  if (m.de === portee.num) { portee.recs.push({ passerelle: m.passerelle, snr: m.snr, rssi: m.rssi, sauts: m.sauts, relais: m.relais, port: m.port, heure: m.heure || Date.now() }); rendrePortee(); }
+  else if (m.relais === portee.num) { portee.relaye.push({ de: m.de, passerelle: m.passerelle, heure: m.heure || Date.now() }); rendrePortee(); }
+}
+async function testPortee(num) {
+  if (num == null) {
+    const t = prompt('Identifiant du nœud à écouter (!xxxxxxxx, ou son nom) :');
+    if (!t) return;
+    const s = t.trim().toLowerCase();
+    const n = [...etat.noeuds.values()].find((x) => x.id.toLowerCase() === (s.startsWith('!') ? s : '!' + s) || (x.nomLong || '').toLowerCase().includes(s) || (x.nomCourt || '').toLowerCase() === s);
+    num = n ? n.num : /^!?[0-9a-f]{8}$/.test(s) ? parseInt(s.replace('!', ''), 16) : null;
+    if (num == null) { alert('Nœud inconnu : donnez son identifiant !xxxxxxxx (affiché dans l’appli Meshtastic, Réglages › Utilisateur).'); return; }
+  }
+  arreterPortee();
+  Object.assign(portee, { num: num >>> 0, debut: Date.now(), fin: Date.now() + 30 * 60000, recs: [], relaye: [] });
+  // Ce qui a déjà été reçu dans la dernière heure
+  try {
+    const d = await api('/api/noeuds/' + num);
+    portee.historique = d.receptions || [];
+  } catch { portee.historique = []; }
+  portee.minuterie = setInterval(rendrePortee, 15000);
+  rendrePortee();
+}
+function rendrePortee() {
+  if (portee.num == null) return;
+  const n = etat.noeuds.get(portee.num);
+  const nom = n ? n.nomLong || n.id : '!' + portee.num.toString(16).padStart(8, '0');
+  const restant = Math.max(0, Math.round((portee.fin - Date.now()) / 60000)), ecoule = (Date.now() - portee.debut) / 60000;
+  const parGw = new Map();
+  for (const r of portee.recs) {
+    const g = parGw.get(r.passerelle) || { passerelle: r.passerelle, nb: 0, snr: [], sautsMin: 99, relais: new Set(), dernier: 0 };
+    g.nb++; if (r.snr != null) g.snr.push(r.snr); g.sautsMin = Math.min(g.sautsMin, r.sauts ?? 99); if (r.relais != null && r.sauts > 0) g.relais.add(r.relais); g.dernier = Math.max(g.dernier, r.heure);
+    parGw.set(r.passerelle, g);
+  }
+  const lignes = [...parGw.values()].sort((a, b) => a.sautsMin - b.sautsMin || b.nb - a.nb);
+  const moy = (l) => (l.length ? l.reduce((a, b) => a + b, 0) / l.length : null);
+  const diag = [];
+  if (!portee.recs.length && ecoule >= 5) {
+    if (portee.relaye.length) diag.push(`Il a relayé ${portee.relaye.length} paquet(s) d’autres nœuds : il fonctionne en radio, mais ses propres paquets ne remontent pas. Cochez « OK to MQTT » (Autoriser l’envoi vers MQTT) dans sa configuration LoRa.`);
+    else diag.push('Rien reçu depuis 5 minutes. Vérifiez sur le nœud : région EU_868, preset et slot identiques au réseau (fréquence), canal principal identique (nom et clé), « OK to MQTT » coché. Redémarrez-le : il envoie alors sa fiche et sa position tout de suite.');
+  }
+  if (portee.recs.length && lignes.every((g) => g.sautsMin > 0)) diag.push('Aucune passerelle ne l’entend en direct : il passe par des relais.');
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  $('#fiche-contenu').innerHTML = `<h2>📶 Test de portée</h2>
+    <div class="ident"><b>${esc(nom)}</b> · écoute en direct ${restant ? `encore ${restant} min` : 'terminée'} · ${portee.recs.length} réception(s)${portee.relaye.length ? ` · a relayé ${portee.relaye.length} paquet(s)` : ''}</div>
+    <p class="note">Faites émettre le nœud (envoyez-lui un message, une position, ou redémarrez-le) : chaque réception par une passerelle s’affiche ici et sur la carte.</p>
+    ${diag.map((d) => `<div class="alerte attention">${esc(d)}</div>`).join('')}
+    ${lignes.length ? '<h3>Entendu par</h3>' + lignes.map((g) => `<div class="ligne"><span class="point" style="background:${couleurSnr(moy(g.snr))}"></span><span class="titre">${esc(nomNoeud(g.passerelle))}<small>${g.nb} paquet(s) · ${g.sautsMin === 0 ? '<b>en direct</b>' : `${g.sautsMin} saut(s) via ${esc([...g.relais].map(nomNoeud).join(', ') || 'relais inconnu')}`}${g.snr.length ? ' · SNR moyen ' + fmt(moy(g.snr), 1, ' dB') : ''} · ${ilYa(g.dernier)}</small></span></div>`).join('') : '<div class="vide">Rien reçu pour l’instant…</div>'}
+    ${(portee.historique || []).length ? `<h3>Réceptions déjà enregistrées (avant le test)</h3>${portee.historique.map((r) => `<div class="ligne"><span class="titre">${esc(r.nom || nomNoeud(r.passerelle))}<small>${r.nb} paquet(s) · SNR ${fmt(r.snr, 1, ' dB')} · ${r.sauts_min === 0 ? 'direct' : (r.sauts_min ?? '?') + ' saut(s)'} · ${ilYa(r.dernier)}</small></span></div>`).join('')}` : ''}
+    <div class="actions-prop">${etat.admin && etat.config.radio ? '<button id="portee-tr">🧭 Traceroute maintenant</button>' : ''}<button id="portee-stop">${restant ? 'Arrêter le test' : 'Fermer'}</button></div>`;
+  $('#portee-stop').onclick = () => { arreterPortee(); $('#fiche').hidden = true; };
+  const bt = $('#portee-tr'); if (bt) bt.onclick = async () => { try { await postJson('/api/traceroute/' + portee.num); bt.textContent = '🧭 Traceroute envoyé'; } catch (e) { alert(e.message); } };
+  // Carte : liaisons du nœud vers ce qui l'entend (trait plein = direct, pointillé = par relais)
+  if (portee.couche) portee.couche.remove();
+  portee.couche = L.layerGroup().addTo(carte);
+  if (n && n.lat != null) {
+    L.circleMarker([n.lat, n.lon], { radius: 14, color: '#38bdf8', weight: 3, fillOpacity: 0.12, pane: 'traces' }).addTo(portee.couche);
+    for (const g of lignes) {
+      const p = etat.noeuds.get(g.passerelle);
+      if (!p || p.lat == null) continue;
+      L.polyline([[n.lat, n.lon], [p.lat, p.lon]], { color: couleurSnr(moy(g.snr)), weight: g.sautsMin === 0 ? 4 : 2, dashArray: g.sautsMin === 0 ? null : '6 6', pane: 'traces' }).bindTooltip(`${esc(nomNoeud(g.passerelle))} : ${g.nb} paquet(s)${g.snr.length ? ', ' + fmt(moy(g.snr), 1, ' dB') : ''}`, { className: 'info', sticky: true }).addTo(portee.couche);
+    }
+  }
+  if (!restant) { clearInterval(portee.minuterie); portee.minuterie = null; }
+}
+
 async function chargerAsymetrie() {
   let r;
   try { r = await api('/api/liaisons/asymetrie'); } catch { return; }
@@ -975,6 +1066,7 @@ async function ouvrirFiche(num) {
       ${n.lat != null && d.voisins.length ? '<button id="couverture">Liaisons mesurées</button>' : ''}
       ${n.lat != null ? `<button id="couv-relief">Couverture selon le relief</button><label class="champ-mini">antenne <input id="h-relief" type="number" min="0.5" max="80" step="0.5" value="${d.installation && d.installation.hauteur ? d.installation.hauteur : n.infrastructure ? 6 : 2}"> m</label>` : ''}
       ${gerable(n.num) && etat.config.radio && (!etat.radio || etat.radio.noeudLocal !== n.num) ? '<button id="tester">Tester (traceroute)</button>' : ''}
+      <button id="test-portee" title="Écouter ce nœud en direct : qui l’entend, avec quel signal">📶 Test de portée</button>
       ${gerable(n.num) ? '<button id="modifier-reglages" title="Lire et modifier ses réglages à distance ; canaux, redémarrage, firmware… depuis l’éditeur">✏️ Programmer ce nœud</button>' : ''}${etat.admin ? '<button id="ecrire">✉️ Message direct</button><button data-qr-reglages>🔳 QR code des réglages</button>' : ''}
     </div>
     <div id="retour-test" class="vide" hidden></div>
@@ -1042,6 +1134,8 @@ async function ouvrirFiche(num) {
     document.querySelector('.onglets button[data-onglet="messages"]').click();
     preparerEnvoi(n.num).then(() => $('#form-envoi').texte.focus());
   };
+  const btnPortee = $('#test-portee');
+  if (btnPortee) btnPortee.onclick = () => testPortee(n.num);
   const btnMod = $('#modifier-reglages');
   if (btnMod) btnMod.onclick = () => editeurReglages(n.num);
   const btnAdm = $('#administrer');
@@ -2930,7 +3024,8 @@ async function ficheFirmware() {
   try { r = await api('/api/firmware/modules'); } catch (e) { z.innerHTML = `<h2>⬆️ Firmware des modules Wi-Fi</h2><div class="vide">${esc(e.message)}</div>`; return; }
   const v = (x) => (x ? x.tag.replace(/^v/, '') : null);
   const versions = [r.stable ? [v(r.stable), `${v(r.stable)} · stable`] : null, r.test && r.test.tag !== (r.stable || {}).tag ? [v(r.test), `${v(r.test)} · test (bêta)`] : null].filter(Boolean);
-  const ligne = (m) => `<div class="carte-cle" data-hote="${esc(m.hote)}"><div class="ligne-cle"><b>${esc(m.nom || m.hote)}</b> <small class="mono">${esc(m.hote)}</small>${m.actif ? ' <span class="badge actif">module de la carte</span>' : ''}</div><div class="etat-fw note">version non vérifiée</div><div class="actions-prop"><button class="mini" data-verifier>Vérifier la version</button></div></div>`;
+  const agentOk = (m) => /^1\.([5-9]|\d\d)|^[2-9]\./.test(m.versionAgent || '');
+  const ligne = (m) => `<div class="carte-cle" data-hote="${esc(m.hote)}"><div class="ligne-cle"><b>${esc(m.nom || m.hote)}</b> <small class="mono">${esc(m.agent ? 'par agent · ' + (m.source || '') : m.hote)}</small>${m.actif ? ' <span class="badge actif">module de la carte</span>' : ''}${m.agent && !agentOk(m) ? ` <span class="badge attente">agent ${esc(m.versionAgent || '?')} : téléchargez l’agent 1.5 pour la mise à jour</span>` : ''}</div>${m.agent && m.actif ? '<div class="note">Module actif de la carte : choisissez d’abord un autre module (Réseau › Modules) pour que l’agent puisse relayer la mise à jour.</div>' : ''}<div class="etat-fw note">version non vérifiée</div><div class="actions-prop"><button class="mini" data-verifier>Vérifier la version</button></div></div>`;
   z.innerHTML = `<h2>⬆️ Firmware des modules Wi-Fi</h2>
     <p class="note">Dernière version stable : <b>${esc(v(r.stable) || '?')}</b>${r.test && r.test.tag !== (r.stable || {}).tag ? ` · test : ${esc(v(r.test))}` : ''}. La mise à jour passe par le Wi-Fi (ESP32, firmware 2.7.18 ou plus) : le module doit être joignable en IP depuis le NAS (même réseau, ou réseau relié par VPN). Pendant 2 à 4 minutes, le module ne fonctionne plus ; ses réglages sont conservés.</p>
     <div class="alerte attention">« Vérifier » ouvre une courte connexion au module : un autre client connecté à lui en Wi-Fi (appli, MeshMonitor) est déconnecté un instant.</div>
@@ -3057,10 +3152,12 @@ async function rendreGestion() {
     <div id="form-action"></div>`}
     <h3>Conformité</h3>
     <div class="actions-gestion"><button id="btn-verif" class="principal">✔ Vérifier que mes nœuds ont la même configuration…</button></div>
+    <div id="conf-auto"></div>
     <div id="form-verif"></div>
     <h3>Opérations récentes</h3>
     <div id="taches-gestion">${rendreTaches(i.taches)}</div>`;
   $('#btn-verif').onclick = () => formulaireVerif();
+  rendreConfAuto();
   $('#filtre-gestion').oninput = (e) => { gestion.filtre = e.target.value; clearTimeout(gestion.minFiltre); gestion.minFiltre = setTimeout(() => { rendreGestion().then(() => { const f = $('#filtre-gestion'); f.focus(); f.setSelectionRange(f.value.length, f.value.length); }); }, 250); };
   { const bc = $('#voir-cles'); if (bc) bc.onclick = ficheCles; }
   { const bw = $('#voir-fw'); if (bw) bw.onclick = ficheFirmware; }
@@ -3306,6 +3403,21 @@ async function formulaireAction(act) {
   }
 }
 
+// Conformité automatique : état et dernier rapport
+async function rendreConfAuto() {
+  const z = $('#conf-auto');
+  if (!z) return;
+  let c;
+  try { c = await api('/api/admin-noeuds/conformite-auto'); } catch { z.innerHTML = ''; return; }
+  const d = c.dernier;
+  z.innerHTML = c.actif ? `<div class="note conf-auto">🌙 Vérification automatique chaque nuit vers ${c.heure} h · référence ${esc(nomNoeud(c.reference))} · ${c.ciblesEffectives.length} nœud(s) · ${esc(c.elements.length + ' élément(s)')}
+      ${d ? `<br>Dernière : ${new Date(d.date).toLocaleString('fr-FR')} — <b style="color:${d.ecarts.length ? 'var(--attention)' : 'var(--ok)'}">${d.conformes.length} conforme(s), ${d.ecarts.length} avec écarts</b>${d.nonLus.length ? `, ${d.nonLus.length} non lu(s)` : ''}${d.ecarts.length ? '<br>' + d.ecarts.map((e) => `⚠️ ${esc(nomNoeud(e.num))} : ${esc(e.ecarts.map((x) => (NOMS_ECARTS[x.element] || x.element) + ' ' + x.trouve + ' au lieu de ' + x.attendu).join(' ; '))}`).join('<br>') : ''}${d.nonLus.length ? '<br><small>Non lus : ' + esc(d.nonLus.map((x) => nomNoeud(x.num)).join(', ')) + '</small>' : ''}` : '<br>Pas encore faite.'}
+      <div class="actions-prop">${etat.admin ? '<button class="mini" id="conf-maintenant">Lancer maintenant</button><button class="mini" id="conf-off">Désactiver</button>' : ''}${d ? `<button class="mini" data-voir-tache="${d.tache}">Voir le rapport</button>` : ''}</div></div>`
+    : (etat.admin ? '<p class="note">🌙 Astuce : cochez « Refaire chaque nuit » dans le formulaire de vérification pour un contrôle automatique.</p>' : '');
+  const bm = $('#conf-maintenant'); if (bm) bm.onclick = async () => { try { const r = await postJson('/api/admin-noeuds/conformite-auto', { maintenant: true }); gestion.lectureSuivie = r.tache; voirTache(r.tache); suivreTaches(); } catch (e) { alert(e.message); } };
+  const bo = $('#conf-off'); if (bo) bo.onclick = async () => { await postJson('/api/admin-noeuds/conformite-auto', { actif: false }); rendreConfAuto(); };
+  const bv = z.querySelector('[data-voir-tache]'); if (bv) bv.onclick = () => { gestion.lectureSuivie = bv.dataset.voirTache; voirTache(bv.dataset.voirTache); };
+}
 function formulaireVerif() {
   const i = gestion.info, z = $('#form-verif');
   const adm = Object.entries(i.administrables || {}).filter(([, v]) => v.ok).map(([k]) => Number(k)).filter((k) => k !== i.noeudLocal);
@@ -3322,6 +3434,7 @@ function formulaireVerif() {
       <small class="note">${adm.length ? esc(adm.map(nomNoeud).join(', ')) : 'Aucun encore : un nœud est détecté dès qu’il a répondu à une lecture ou une commande.'}</small>
       <label class="case"><input type="radio" name="quels" value="sel" ${sel.length ? 'checked' : ''}> Les nœuds cochés dans la liste (${sel.length})</label>
     </fieldset>
+    <label class="case"><input type="checkbox" name="nuit"> Refaire cette vérification <b>chaque nuit</b> (vers 2 h), avec ces réglages</label>
     <label class="ligne-age">Réutiliser les lectures de moins de <input name="age" type="number" min="0" max="168" value="24"> h <small>(0 = tout relire par LoRa)</small></label>
     <div class="actions-prop"><button type="submit" class="principal">Lancer la vérification</button><button type="button" id="annuler-verif">Fermer</button></div>
     <p class="erreur" id="retour-verif"></p>
@@ -3336,6 +3449,7 @@ function formulaireVerif() {
     if (!elements.length) { $('#retour-verif').textContent = 'Cochez au moins un élément'; return; }
     if (!cibles.length) { $('#retour-verif').textContent = 'Aucun nœud à vérifier'; return; }
     try {
+      if (fo.nuit.checked) { await postJson('/api/admin-noeuds/conformite-auto', { actif: true, reference: Number(fo.reference.value), elements, mode: fo.quels.value === 'sel' ? 'liste' : 'admin', cibles }); rendreConfAuto(); }
       const t = await postJson('/api/admin-noeuds/taches', { type: 'verifier', cibles, params: { reference: Number(fo.reference.value), elements, ageMaxHeures: Number(fo.age.value) || 0 } });
       gestion.lectureSuivie = t.id; voirTache(t.id);
       const i2 = await api('/api/admin-noeuds');
@@ -3886,6 +4000,7 @@ function connecterWs() {
         if (['position', 'nodeinfo', 'telemetrie', 'voisinage', 'traceroute', 'mapreport'].includes(m.port)) planifierRafraichissement();
       }
       animerPaquet(m);
+      porteeRecevoir(m);
       ajouterAuFlux(m);
       noterActivite(m.de, m.heure || Date.now());
       if (m.texte && etat.membre) chargerMessages();
@@ -3984,6 +4099,17 @@ function brancherInterface() {
   $('#aller-couv-reseau').onclick = couvertureReseau;
   $('#btn-couv-reseau').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; couvertureReseau(); };
   $('#btn-couv-mesuree').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; couvertureMesuree(); };
+  $('#outil-rapport').onclick = async () => {
+    const m = document.querySelector('.menu-outils'); if (m) m.open = false;
+    let l = [];
+    try { l = await api('/api/rapports'); } catch { /* aucun */ }
+    $('#fiche').hidden = false; etat.selection = null;
+    $('#fiche-contenu').innerHTML = `<h2>📄 Rapport hebdomadaire</h2>
+      <p class="note">État du réseau sur les 7 derniers jours : relais, batteries, alertes, couverture, liaisons, nouveaux nœuds, conformité, firmwares, MeshCore. La page s’imprime en PDF (bouton « Imprimer / PDF »). Un rapport est archivé chaque lundi matin.</p>
+      <div class="actions-prop"><a class="bascule principal" href="/rapport" target="_blank" rel="noopener">Ouvrir le rapport des 7 derniers jours</a></div>
+      <h3>Archives</h3>${l.map((x) => `<div class="ligne"><span class="titre"><a href="/rapports/${encodeURIComponent(x)}" target="_blank" rel="noopener">Semaine du ${esc(x.slice(8, 18).split('-').reverse().join('/'))}</a></span></div>`).join('') || '<div class="vide">Pas encore d’archive (premier rapport lundi prochain vers 7 h).</div>'}`;
+  };
+  $('#outil-portee').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; testPortee(null); };
   $('#outil-terrain').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTerrain(); };
   $('#outil-partager').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; fichePartager(); };
   $('#btn-simulation').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; simulation(); };
@@ -4381,6 +4507,7 @@ async function demarrer() {
   if (typeof demarrerMeshcore === 'function') demarrerMeshcore();
   chargerRelief();
   chargerAsymetrie(); setInterval(chargerAsymetrie, 120000);
+  chargerNouveaux(); setInterval(chargerNouveaux, 300000);
   chargerChemins(); setInterval(chargerChemins, 300000);
   chargerSanteCarte(); setInterval(chargerSanteCarte, 60000);
   chargerFederation(); setInterval(chargerFederation, 600000);

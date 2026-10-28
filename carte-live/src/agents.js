@@ -91,6 +91,16 @@ function creerAgents(config, { surArrivee } = {}) {
       if (!a.virtuel) a.socket.write('OUVRIR\n');
       return a.socket;
     },
+    // Relais vers un autre port du module Wi-Fi (3232 : chargeur de mise à jour du firmware) ; agent 1.5 ou plus
+    prendrePort(hote, port) {
+      const a = agents.get(hote);
+      if (!a || a.occupe || a.socket.destroyed || a.virtuel) return null;
+      if (!/^1\.([5-9]|\d\d)|^[2-9]\./.test(a.version || '')) throw new Error(`l’agent « ${a.nom} » (version ${a.version || '?'}) est trop ancien : téléchargez et relancez l’agent 1.5 ou plus récent`);
+      a.occupe = true;
+      clearInterval(a.ping);
+      a.socket.write(`TCP ${Number(port)}\n`);
+      return a.socket;
+    },
     // Module relié par la page web elle-même (USB ou Bluetooth du navigateur) : flux déjà ouvert
     ajouterVirtuel(nom, source, flux, ip) {
       const hote = slug(nom);

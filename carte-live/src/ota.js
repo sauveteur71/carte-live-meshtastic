@@ -49,17 +49,42 @@ function creerOta(dossierDonnees, journal) {
     return { data, hash: crypto.createHash('sha256').update(data).digest(), version, fichier: path.basename(f) };
   }
 
-  // Envoi au chargeur OTA du module (une tentative) ; progression(octets, total)
-  function televerser(hote, data, hash, progression, signalArret) {
+  // Ouverture d'une connexion TCP au module : directe (IP), ou par un agent (« agent-… ») pour un module
+  // Wi-Fi d'un autre réseau : l'agent ouvre le module (port 4403) ou son chargeur (port 3232) et relaie le flux.
+  let agents = null;
+  const utiliserAgents = (a) => { agents = a; };
+  async function ouvrir(hote, port) {
+    if (agents && agents.estAgent(hote)) {
+      // L'agent revient quelques secondes après chaque relais : on l'attend jusqu'à 45 s
+      let s = null;
+      for (let k = 0; k < 45 && !s; k++) {
+        const a = agents.liste().find((x) => x.hote === hote);
+        if (a && !a.occupe) s = port === 4403 ? agents.prendre(hote) : agents.prendrePort(hote, port);
+        if (!s) await new Promise((r) => setTimeout(r, 1000));
+      }
+      if (!s) throw new Error('agent absent ou occupé');
+      s.resume(); // le socket d'un agent en attente est en pause
+      return s;
+    }
     return new Promise((ok, ko) => {
-      const s = net.connect({ host: hote, port: PORT_OTA });
+      const s = net.connect({ host: hote, port });
+      const t = setTimeout(() => { s.destroy(); ko(new Error(`${hote}:${port} ne répond pas`)); }, 12000);
+      s.once('connect', () => { clearTimeout(t); ok(s); });
+      s.once('error', (e) => { clearTimeout(t); ko(new Error(`connexion à ${hote}:${port} impossible (${e.code || e.message})`)); });
+    });
+  }
+
+  // Envoi au chargeur OTA du module (une tentative) ; progression(octets, total)
+  async function televerser(hote, data, hash, progression, signalArret) {
+    const s = await ouvrir(hote, PORT_OTA);
+    return new Promise((ok, ko) => {
       let tampon = '', etape = 'debut', fini = false;
       const terminer = (err) => { if (fini) return; fini = true; clearTimeout(minuterie); s.destroy(); err ? ko(err) : ok(); };
       let minuterie = setTimeout(() => terminer(new Error('pas de réponse du chargeur OTA')), 20000);
       const relancer = (ms) => { clearTimeout(minuterie); minuterie = setTimeout(() => terminer(new Error(`délai dépassé (${etape})`)), ms); };
       s.on('error', (e) => terminer(e));
       s.on('close', () => terminer(new Error(`connexion fermée par le module (${etape})`)));
-      s.on('connect', () => { s.write(`OTA ${data.length} ${hash.toString('hex')}\n`); etape = 'effacement'; relancer(90000); });
+      s.write(`OTA ${data.length} ${hash.toString('hex')}\n`); etape = 'effacement'; relancer(90000);
       const envoyer = async () => {
         etape = 'envoi';
         for (let i = 0; i < data.length; i += 1024) {
@@ -91,16 +116,16 @@ function creerOta(dossierDonnees, journal) {
   // Un seul client TCP à la fois sur un module : on ne s'en sert que pour un module qui n'est pas celui de la carte.
   const { racine } = require('./decodeur');
   const ToRadio = racine.lookupType('meshtastic.ToRadio'), FromRadio = racine.lookupType('meshtastic.FromRadio'), Admin = racine.lookupType('meshtastic.AdminMessage');
-  function session(hote, port = 4403) {
+  async function session(hote, port = 4403) {
+    const s = await ouvrir(hote, port);
     return new Promise((ok, ko) => {
-      const s = net.connect({ host: hote, port });
       let tampon = Buffer.alloc(0), mon = null, meta = null, nom = null, fini = false;
       const ecouteurs = new Set();
       const minuterie = setTimeout(() => terminer(new Error('le module ne répond pas sur le port ' + port)), 20000);
       const terminer = (err) => { if (fini) return; fini = true; clearTimeout(minuterie); if (err) { s.destroy(); ko(err); } };
       const envoyer = (o) => { const c = ToRadio.encode(ToRadio.create(o)).finish(); const t = Buffer.from([0x94, 0xc3, 0, 0]); t.writeUInt16BE(c.length, 2); s.write(Buffer.concat([t, Buffer.from(c)])); };
       s.on('error', (e) => terminer(new Error(`connexion à ${hote}:${port} impossible (${e.code || e.message})`)));
-      s.on('connect', () => { s.write(Buffer.alloc(32, 0xc3)); setTimeout(() => envoyer({ wantConfigId: 4242 }), 100); });
+      s.write(Buffer.alloc(32, 0xc3)); setTimeout(() => envoyer({ wantConfigId: 4242 }), agents && agents.estAgent(hote) ? 1500 : 100);
       s.on('data', (d) => {
         tampon = Buffer.concat([tampon, d]);
         while (tampon.length >= 4) {
@@ -150,7 +175,7 @@ function creerOta(dossierDonnees, journal) {
     } finally { c.fermer(); }
   }
 
-  return { materiel, binaire, televerser, infoModule, declencher, PORT_OTA };
+  return { materiel, binaire, televerser, infoModule, declencher, utiliserAgents, PORT_OTA };
 }
 
 module.exports = { creerOta };

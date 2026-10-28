@@ -30,7 +30,7 @@ import (
 	"go.bug.st/serial"
 )
 
-const version = "1.4"
+const version = "1.5"
 
 // Une connexion gardée en mémoire : un module et le nom sous lequel il apparaît dans la carte
 type Connexion struct {
@@ -400,6 +400,10 @@ func surveiller(serveur, code string, cx Connexion) {
 }
 
 // Une session avec le serveur. Renvoie le délai avant la tentative suivante.
+// Échecs consécutifs de dialogue avec la carte : le conseil sur le port 4404 n'est donné qu'après plusieurs essais
+// (une seule coupure vient presque toujours d'un redémarrage de la carte, par exemple lors d'une mise à jour)
+var echecsServeur int
+
 func boucle(serveur, code string, cx Connexion) time.Duration {
 	c, err := net.DialTimeout("tcp", serveur, 10*time.Second)
 	if err != nil {
@@ -428,7 +432,12 @@ func boucle(serveur, code string, cx Connexion) time.Duration {
 	lecteur := bufio.NewReader(c)
 	l, err := lecteur.ReadString('\n')
 	if err != nil {
-		journal("[%s] pas de réponse du serveur (%v) — le port 4404 est-il ouvert dans docker-compose ?", cx.Nom, err)
+		echecsServeur++
+		if echecsServeur >= 4 {
+			journal("[%s] la carte ne répond toujours pas (%v) — est-elle démarrée ? le port 4404 est-il ouvert dans docker-compose (jamais sur la box) ?", cx.Nom, err)
+		} else {
+			journal("[%s] la carte ne répond pas encore (elle redémarre sans doute, par exemple après une mise à jour) : nouvel essai dans 30 s", cx.Nom)
+		}
 		return 30 * time.Second
 	}
 	l = strings.TrimSpace(l)
@@ -436,18 +445,24 @@ func boucle(serveur, code string, cx Connexion) time.Duration {
 		journal("[%s] refusé par la carte : %s", cx.Nom, strings.TrimSpace(strings.TrimPrefix(l, "ERREUR")))
 		return 60 * time.Second
 	}
-	journal("[%s] relié à la carte, en attente (%s)", cx.Nom, decrire(cx))
+	echecsServeur = 0
+	journal("[%s] relié à la carte, prêt (%s)", cx.Nom, decrire(cx))
 	c.SetDeadline(time.Time{})
 	// Attente de l'ordre d'ouverture (le serveur envoie PING régulièrement)
 	for {
 		c.SetReadDeadline(time.Now().Add(3 * time.Minute))
 		l, err = lecteur.ReadString('\n')
 		if err != nil {
-			journal("[%s] liaison avec la carte perdue (%v), reconnexion dans 5 s", cx.Nom, err)
+			journal("[%s] liaison avec la carte interrompue (redémarrage de la carte ?), reconnexion dans 5 s", cx.Nom)
 			return 5 * time.Second
 		}
 		if strings.TrimSpace(l) == "OUVRIR" {
 			break
+		}
+		// « TCP 3232 » : relais vers un autre port du module Wi-Fi (mise à jour du firmware par le Wi-Fi)
+		if strings.HasPrefix(strings.TrimSpace(l), "TCP ") {
+			c.SetReadDeadline(time.Time{})
+			return relayerPort(cx, c, lecteur, strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "TCP ")))
 		}
 		// À chaque PING : si le module a disparu (USB débranché, PC changé de réseau), on se retire de la carte
 		if ok, pourquoi := present(cx); !ok {
@@ -528,6 +543,39 @@ func relayer(cx Connexion, c net.Conn, lecteur *bufio.Reader) time.Duration {
 	<-fin
 	journal("[%s] relais terminé après %s : %s (%d octets reçus du module, %d envoyés)", cx.Nom, time.Since(debut).Round(time.Second), cote, versCarte, versModule)
 	return 5 * time.Second
+}
+
+// Relais vers un autre port TCP du module Wi-Fi (seulement 3232 : chargeur de mise à jour du firmware)
+func relayerPort(cx Connexion, c net.Conn, lecteur *bufio.Reader, port string) time.Duration {
+	if port != "3232" || !estReseau(cx.Source) {
+		journal("[%s] demande refusée : port %s (seule la mise à jour par Wi-Fi d'un module en réseau est relayée)", cx.Nom, port)
+		return 5 * time.Second
+	}
+	hote := strings.TrimSpace(cx.Source)
+	if i := strings.LastIndex(hote, ":"); i > 0 {
+		hote = hote[:i]
+	}
+	var m net.Conn
+	var err error
+	for essai := 0; essai < 3; essai++ {
+		if m, err = net.DialTimeout("tcp", hote+":"+port, 10*time.Second); err == nil {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+	if err != nil {
+		journal("[%s] mise à jour : chargeur du module injoignable sur %s:%s (%v)", cx.Nom, hote, port, err)
+		return 5 * time.Second
+	}
+	journal("[%s] mise à jour du firmware : relais vers %s:%s", cx.Nom, hote, port)
+	var once sync.Once
+	fin := make(chan struct{})
+	fermer := func() { once.Do(func() { c.Close(); m.Close(); close(fin) }) }
+	go func() { io.Copy(c, m); fermer() }()
+	go func() { io.Copy(m, lecteur); fermer() }()
+	<-fin
+	journal("[%s] relais de mise à jour terminé", cx.Nom)
+	return 3 * time.Second
 }
 
 // ---- Démarrage automatique (Windows : petit fichier dans le dossier « Démarrage » de la session) ----

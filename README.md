@@ -114,6 +114,10 @@ Dans `docker-compose.yml`, remplacez la ligne `image:` par `build: .`, puis `doc
 - **Relais sourds** (*Réseau › Liaisons*) : un relais qui émet bien mais entend mal est détecté d'après les SNR mesurés dans les deux sens, avec l'écart estimé en dB et les causes probables.
 - **Sites réalistes et plan à budget** (*Couverture*) : zones protégées écartées, châteaux d'eau et pylônes privilégiés, électricité probable ; « j'ai N relais à poser » avec surface, habitants gagnés et coût estimé.
 - **Firmware** (*Programmer*) : nouvelle version signalée pour le module connecté ; mise à jour par le Wi-Fi (ESP32 en firmware 2.7.18 ou plus, module joignable en IP depuis le serveur), avec le même protocole que `meshtastic --ota-update`.
+- **Test de portée** (fiche d'un nœud ou *Outils*) : écoute en direct d'un nœud pendant 30 min, qui l'entend, avec quel SNR, par quels relais, avec un diagnostic s'il ne remonte pas (preset, « OK to MQTT »…). *Réseau › Nouveaux nœuds* liste les nœuds apparus dans le secteur avec ce qui leur manque.
+- **Conformité automatique** : la vérification de configuration peut être refaite chaque nuit (Meshtastic et MeshCore), avec rapport.
+- **Rapport hebdomadaire** (*Outils › Rapport hebdomadaire*) : état du réseau sur 7 jours, imprimable en PDF, archivé chaque lundi.
+- **Agent 1.5** : relaie aussi la mise à jour du firmware par Wi-Fi d'un module d'un autre réseau.
 - **Bulles voisines (fédération)** : chaque carte publie ses relais sur `/api/federation`. Dans *Outils › Partager* (admin), ajoutez l'adresse des cartes des départements voisins : leurs relais s'affichent (couche *Bulles voisines*) et comptent dans les calculs de couverture près des limites.
 
 ### MeshCore

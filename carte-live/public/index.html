@@ -88,8 +88,10 @@
         <a class="bascule outils-mc" hidden href="https://app.meshcore.nz" target="_blank" rel="noopener" title="Application officielle MeshCore dans le navigateur : utiliser un companion en USB ou Bluetooth">📟 Application MeshCore</a>
         <button class="bascule outils-mc" hidden id="outil-companion-mc" title="Relier à la carte un companion MeshCore branché sur ce PC (onglet MeshCore → Companion)">🔌 Relier un companion MeshCore</button>
         <div class="titre-outils">Sur le terrain</div>
+        <button id="outil-portee" class="bascule" title="Écouter un nœud en direct : qui l’entend, avec quel signal, par quels relais, et s’il remonte sur MQTT">📶 Test de portée d’un nœud</button>
         <button id="outil-terrain" class="bascule" title="Relevé GPS avec photo et note, même sans réseau ; préparer la carte hors connexion ; installer l’application sur le téléphone">📍 Mode terrain</button>
         <div class="titre-outils">Partager</div>
+        <button id="outil-rapport" class="bascule seul-membre" hidden title="État du réseau sur 7 jours, imprimable en PDF ; archivé chaque lundi">📄 Rapport hebdomadaire</button>
         <button id="outil-partager" class="bascule" title="Carte publique à intégrer dans un site, exports GeoJSON / GPX, Grafana, Home Assistant">📤 Carte publique et exports</button>
         <small id="note-outils" class="note"></small>
       </div>
@@ -139,6 +141,10 @@
         <details class="pli-alertes" data-pli="passerelles">
           <summary><h3>Passerelles <span class="titre-reseau">Meshtastic</span> <span id="resume-passerelles" class="resume-alertes"></span></h3></summary>
           <div id="passerelles" class="liste"></div>
+        </details>
+        <details class="pli-alertes" data-pli="nouveaux">
+          <summary><h3>Nouveaux nœuds <span id="nb-nouveaux" class="pastille">0</span> <span id="resume-nouveaux" class="resume-alertes"></span></h3></summary>
+          <div id="nouveaux" class="liste"></div>
         </details>
         <details class="pli-alertes" data-pli="asym">
           <summary><h3>Liaisons à sens unique <span id="nb-asym" class="pastille">0</span> <span id="resume-asym" class="resume-alertes"></span></h3></summary>
