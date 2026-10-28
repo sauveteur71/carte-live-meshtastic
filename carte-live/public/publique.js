@@ -121,7 +121,7 @@ async function basculerCouverture(mode) {
       L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.6, pane: 'couverture', className: 'pixelise' }).addTo(g);
       info.innerHTML = `<b>Couverture ${mcSeul ? 'MeshCore' : 'Meshtastic'} estimée</b>${r.pctZone != null ? ` : <b>${String(r.pctZone).replace('.', ',')} %</b> du département` : ''} · ${r.noeuds.length} relais et passerelles<br><small>Calcul d’après le relief (IGN) et les antennes connues, corrigé par les mesures réelles du réseau.</small>`;
     } else {
-      const r = await fetch('/api/relief/plan?objectif=95&max=10&acces=voiture&realiste=1').then((x) => x.json());
+      const r = await fetch('/api/relief/plan?objectif=99&max=8&acces=voiture&realiste=1').then((x) => x.json());
       if (couv.mode !== mode) return;
       if (r.erreur) throw new Error(r.erreur);
       const e = r.emprise;
