@@ -666,6 +666,22 @@ app.post('/api/noeuds/:num/a-faire', (req, res) => {
   } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 
+// Firmware : dernières versions publiées et version du module connecté (mise à jour par Wi-Fi)
+app.get('/api/admin-noeuds/firmware', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const i = sourceRadio ? sourceRadio.infos() : {}, et = sourceRadio ? sourceRadio.etat() : {};
+  const ref = (maintenance.firmwares().reference) || {};
+  let module = null;
+  if (i.noeudLocal) {
+    const n = stockage.q.noeud.get(i.noeudLocal >>> 0) || {};
+    const l = administration.detailLecture(i.noeudLocal) || {};
+    const m = l.materiel || {};
+    module = { num: i.noeudLocal >>> 0, nom: n.nom_long || n.nom_court || null, connecte: !!i.connecte, hote: et.hote || null,
+      ip: !!(et.hote && /\./.test(et.hote)), firmware: m.firmwareVersion || n.firmware || null, materiel: m.hwModel || n.materiel || null, wifi: m.hasWifi ?? null };
+  }
+  res.set('Cache-Control', 'no-store').json({ module, stable: ref.stable || null, test: ref.test || null });
+});
+
 // ---- QR code des réglages d'un nœud (canaux + LoRa, contient les clés : admin) ---------------
 app.get('/api/noeuds/:num/qr', async (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });

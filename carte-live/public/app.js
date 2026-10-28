@@ -2963,6 +2963,10 @@ async function rendreGestion() {
   if (!etat.gestion || !z) return;
   try { gestion.info = await api('/api/admin-noeuds'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
   const i = gestion.info;
+  // Nouvelle version de firmware pour le module connecté (vérifiée au plus toutes les 10 min)
+  if (etat.admin && (!gestion.fw || Date.now() - gestion.fwHeure > 600000)) { gestion.fwHeure = Date.now(); api('/api/admin-noeuds/firmware').then((r) => { gestion.fw = r; if ($('#bandeau-fw') && !$('#bandeau-fw').innerHTML) rendreGestion(); }).catch(() => {}); }
+  const fw = gestion.fw, fwm = fw && fw.module, fwv = (x) => (x ? x.tag.replace(/^v/, '') : null);
+  const nouveauFw = fwm && fwm.firmware && fw.stable && !String(fwm.firmware).startsWith(fwv(fw.stable));
   const cles = new Set(i.clesConnues);
   const t = gestion.filtre.toLowerCase();
   const limite = Date.now() - 7 * 86400000;
@@ -2976,6 +2980,7 @@ async function rendreGestion() {
   const anc = z.querySelector('.liste-gestion');
   const defil = { liste: anc ? anc.scrollTop : 0, panneaux: [...document.querySelectorAll('#panneau, #panneau .contenu-onglet, #gestion')].map((el) => [el, el.scrollTop]) };
   z.innerHTML = `
+    <div id="bandeau-fw">${nouveauFw ? `<div class="alerte info-lecture">⬆️ Firmware <b>${esc(fwv(fw.stable))}</b> disponible pour ${esc(fwm.nom || 'le module')} (actuel ${esc(fwm.firmware)}).${fwm.ip ? ' <button class="mini principal" id="fw-maj">Mettre à jour…</button>' : ' Module relié par agent : mise à jour en USB ou depuis son réseau local.'}</div>` : fwm && fw.test && fw.stable && fw.test.tag !== fw.stable.tag ? `<div class="note">Firmware du module : ${esc(fwm.firmware || '?')} (stable à jour) · version test ${esc(fwv(fw.test))} disponible.</div>` : ''}</div>
     ${!etat.admin ? `<div class="alerte">Compte gestionnaire : vous programmez les ${(etat.secteur || []).length} nœud(s) de votre secteur. Le module radio est géré par les administrateurs.</div>` : ''}
     <div class="titre-programmer"><b>Nœuds Meshtastic</b><button class="mini" id="voir-cles" title="Quels modules peuvent programmer quel relais, et ce qu'il reste à faire sur place">🔑 Clés d’administration</button>${etat.config.meshcore ? '<button class="mini" id="vers-prog-mc">Répéteurs MeshCore →</button>' : ''}</div>
     ${!i.connecte ? '<div class="alerte attention">Le module radio n’est pas connecté : connectez-le dans l’onglet Réseau, section Modules Wi-Fi.</div>' : ''}
@@ -2998,6 +3003,7 @@ async function rendreGestion() {
       <button data-act="config">Rôle, sauts, balises…</button>
       ${un ? '<button data-act="nom">Renommer…</button><button data-act="position">Position fixe…</button>' : ''}
       <button data-act="redemarrer">Redémarrer</button>
+      ${un && etat.admin && un.num === i.noeudLocal ? '<button data-act="firmware" title="Mettre à jour le firmware du module connecté, par le Wi-Fi">⬆️ Firmware…</button>' : ''}
       <button data-act="echanger" title="Envoie le nom et la clé publique du module au nœud (indispensable pour qu'il accepte les ordres)">Envoyer la fiche du module</button>
     </div>
     <div id="form-action"></div>`}
@@ -3009,6 +3015,7 @@ async function rendreGestion() {
   $('#btn-verif').onclick = () => formulaireVerif();
   $('#filtre-gestion').oninput = (e) => { gestion.filtre = e.target.value; clearTimeout(gestion.minFiltre); gestion.minFiltre = setTimeout(() => { rendreGestion().then(() => { const f = $('#filtre-gestion'); f.focus(); f.setSelectionRange(f.value.length, f.value.length); }); }, 250); };
   { const bc = $('#voir-cles'); if (bc) bc.onclick = ficheCles; }
+  { const bf = $('#fw-maj'); if (bf) bf.onclick = () => { gestion.selection = new Set([gestion.fw.module.num]); rendreGestion().then(() => { const b = document.querySelector('[data-act="firmware"]'); if (b) b.click(); }); }; }
   const vp = $('#vers-prog-mc');
   if (vp) vp.onclick = () => {
     if (etat.vueReseau === 'meshtastic') { const b = document.querySelector('[data-reseau="les-deux"]'); if (b) b.click(); }
@@ -3107,6 +3114,29 @@ async function formulaireAction(act) {
     f.innerHTML = pied; lancerTache('lire', {}); return;
   }
   if (act === 'echanger') { f.innerHTML = pied; lancerTache('echanger', {}); return; }
+  if (act === 'firmware') {
+    f.innerHTML = '<div class="vide">Recherche des versions…</div>';
+    let r;
+    try { r = await api('/api/admin-noeuds/firmware'); } catch (e) { f.innerHTML = `<div class="vide">${esc(e.message)}</div>${pied}`; return; }
+    const m = r.module || {};
+    const v = (x) => (x ? x.tag.replace(/^v/, '') : null);
+    const options = [r.stable ? [v(r.stable), `${v(r.stable)} · stable (${new Date(r.stable.date).toLocaleDateString('fr-FR')})`] : null, r.test && r.test.tag !== (r.stable || {}).tag ? [v(r.test), `${v(r.test)} · test / bêta (${new Date(r.test.date).toLocaleDateString('fr-FR')})`] : null].filter(Boolean);
+    const aJour = m.firmware && r.stable && String(m.firmware).startsWith(v(r.stable));
+    f.innerHTML = `<form id="f-act" class="form-gestion">
+      <p><b>${esc(m.nom || '')}</b> · ${esc(m.materiel || '?')} · firmware actuel <b>${esc(m.firmware || 'inconnu')}</b>${aJour ? ' <span class="badge actif">à jour (stable)</span>' : r.stable ? ` <span class="badge attente">${esc(v(r.stable))} disponible</span>` : ''}</p>
+      ${!m.ip ? '<div class="alerte attention">Ce module est relié par un agent ou en USB : la mise à jour par Wi-Fi n’est possible que pour un module joignable en IP depuis le NAS (même réseau local).</div>' : ''}
+      <label>Version à installer <select name="version">${options.map(([val, lib]) => `<option value="${esc(val)}">${esc(lib)}</option>`).join('')}</select></label>
+      <div class="alerte attention">Mise à jour par le Wi-Fi (ESP32, firmware 2.7.18 ou plus récent) : le module redémarre sur son chargeur, reçoit le firmware (≈ 2 Mo), le vérifie puis redémarre. Comptez 2 à 4 minutes, pendant lesquelles la carte ne reçoit plus rien de ce module. Les réglages sont conservés. Une version « test » peut contenir des défauts.</div>
+      <label>Pour confirmer, tapez <b>METTRE A JOUR</b> <input name="confirmation" autocomplete="off" placeholder="METTRE A JOUR"></label>
+      <div class="actions-prop"><button type="submit" class="principal" ${!m.ip || !options.length ? 'disabled' : ''}>Mettre à jour</button></div>
+    </form>${pied}`;
+    $('#f-act').onsubmit = (e) => {
+      e.preventDefault();
+      if (e.target.confirmation.value.trim().toUpperCase() !== 'METTRE A JOUR') { alert('Tapez METTRE A JOUR pour confirmer'); return; }
+      lancerTache('firmware', { version: e.target.version.value });
+    };
+    return;
+  }
   if (act === 'redemarrer') {
     f.innerHTML = `<p>Redémarrer ${gestion.selection.size} nœud(s) ?</p><div class="actions-prop"><button id="ok-action" class="principal">Redémarrer</button></div>${pied}`;
     $('#ok-action').onclick = () => lancerTache('redemarrer', {});

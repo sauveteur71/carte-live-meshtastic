@@ -540,6 +540,60 @@ function creerAdministration(radio, stockage) {
     throw new Error(sansAccuse ? 'Modifications envoyées sans accusé, et relecture impossible : relisez la configuration dans quelques minutes pour savoir si elles sont appliquées' : 'Modifications envoyées et accusées, mais la relecture de contrôle a échoué : relisez la configuration dans quelques minutes');
   }
 
+  // ---- Mise à jour du firmware par le Wi-Fi (module connecté en IP à la carte, ESP32, firmware ≥ 2.7.18) ----
+  const ota = require('./ota').creerOta(require('path').dirname(require('./config').fichierBase), journal);
+  const versionDe = (v) => { const m = /(\d+)\.(\d+)\.(\d+)/.exec(String(v || '')); return m ? [+m[1], +m[2], +m[3]] : null; };
+  async function mettreAJourFirmware(dest, p, j) {
+    const info = radio.infos(), et = radio.etat();
+    if (dest >>> 0 !== info.noeudLocal >>> 0) throw Object.assign(new Error('la mise à jour par Wi-Fi ne concerne que le module connecté à la carte'), { code: 99 });
+    if (!et.hote || !/^[0-9a-z.-]+$/i.test(et.hote) || !/[.]/.test(et.hote)) throw Object.assign(new Error('module relié par un agent ou en USB : la mise à jour par Wi-Fi n’est possible que pour un module joignable en IP depuis la carte'), { code: 99 });
+    const hote = et.hote;
+    const Meta = racine.lookupType('meshtastic.DeviceMetadata');
+    const meta = versObjet(Meta, (await admin(dest, { getDeviceMetadataRequest: true })).getDeviceMetadataResponse);
+    const actuelle = versionDe(meta.firmwareVersion);
+    j(`module : ${meta.hwModel}, firmware ${meta.firmwareVersion}`);
+    if (!actuelle || actuelle[0] < 2 || (actuelle[0] === 2 && (actuelle[1] < 7 || (actuelle[1] === 7 && actuelle[2] < 18)))) throw Object.assign(new Error(`firmware ${meta.firmwareVersion} trop ancien pour la mise à jour par Wi-Fi (2.7.18 au minimum) : faites une première mise à jour en USB avec le flasheur`), { code: 99 });
+    if (!meta.hasWifi) throw Object.assign(new Error('ce module n’a pas de Wi-Fi'), { code: 99 });
+    const mat = await ota.materiel(meta.hwModel);
+    if (!/^esp32/.test(mat.architecture || '')) throw Object.assign(new Error(`${mat.displayName} (${mat.architecture}) : la mise à jour par Wi-Fi n’existe que pour les ESP32`), { code: 99 });
+    const version = String(p.version || '').replace(/^v/, '');
+    if (String(meta.firmwareVersion).startsWith(version) && !p.forcer) throw Object.assign(new Error(`le module est déjà en ${meta.firmwareVersion}`), { code: 99 });
+    j(`téléchargement du firmware ${version} pour ${mat.displayName} (${mat.platformioTarget})…`);
+    const bin = await ota.binaire(version, mat.platformioTarget);
+    j(`firmware prêt : ${Math.round(bin.data.length / 1024)} ko, empreinte ${bin.hash.toString('hex').slice(0, 12)}…`);
+    await admin(dest, { otaRequest: { rebootOtaMode: 2, otaHash: bin.hash } }, { reponse: false }).catch((e) => { if (erreurDefinitive(e)) throw e; });
+    j('le module redémarre sur son chargeur Wi-Fi…');
+    await new Promise((r) => setTimeout(r, 8000));
+    let derniere = null, palier = 0;
+    for (let essai = 1; essai <= 12; essai++) {
+      if (arrets.has(dest >>> 0)) throw ERREUR_ARRET();
+      try {
+        await ota.televerser(hote, bin.data, bin.hash, (o, t) => { const pc = Math.floor((o / t) * 10) * 10; if (pc > palier) { palier = pc; j(`envoi : ${pc} %`); } }, () => arrets.has(dest >>> 0));
+        derniere = null;
+        break;
+      } catch (e) {
+        if (e.arret) throw e;
+        derniere = e;
+        if (/refuse/.test(e.message)) break;
+        if (essai === 1 || essai % 4 === 0) j(`chargeur OTA pas encore joignable (${e.message}), nouvel essai…`);
+        await new Promise((r) => setTimeout(r, 4000));
+      }
+    }
+    if (derniere) throw Object.assign(new Error(`envoi impossible : ${derniere.message}. Le module garde son ancien firmware ; s’il ne revient pas seul dans quelques minutes, redémarrez-le (bouton ou alimentation). Si le chargeur Wi-Fi n’a jamais été installé, une mise à jour complète en USB avec le flasheur est nécessaire une première fois.`), { code: 99 });
+    j('firmware envoyé et vérifié par le module : redémarrage sur la nouvelle version…');
+    // Le module redémarre : la carte s'y reconnecte d'elle-même ; on relit sa version
+    const debut = Date.now();
+    await new Promise((r) => setTimeout(r, 20000));
+    while (Date.now() - debut < 4 * 60000 && !radio.infos().connecte) await new Promise((r) => setTimeout(r, 5000));
+    if (!radio.infos().connecte) return { version, nouvelle: null, detail: 'envoyé, mais le module n’est pas encore reconnecté à la carte' };
+    try {
+      const apres = versObjet(Meta, (await admin(dest, { getDeviceMetadataRequest: true })).getDeviceMetadataResponse);
+      j(`module reconnecté : firmware ${apres.firmwareVersion}`);
+      const l = lectures.get(dest >>> 0); if (l) { l.materiel = apres; sauverLectures(); }
+      return { version, nouvelle: apres.firmwareVersion };
+    } catch (e) { return { version, nouvelle: null, detail: 'reconnecté, version non relue (' + e.message + ')' }; }
+  }
+
   async function redemarrer(dest) {
     await assurerSession(dest);
     await admin(dest, { rebootSeconds: 5 }, { reponse: false });
@@ -555,6 +609,7 @@ function creerAdministration(radio, stockage) {
     nom: { nom: 'Nom du nœud', f: definirNom },
     config: { nom: 'Configuration', f: definirConfig },
     redemarrer: { nom: 'Redémarrage', f: redemarrer },
+    firmware: { nom: 'Mise à jour du firmware (Wi-Fi)', f: (d, p, j) => mettreAJourFirmware(d, p, j) },
     echanger: { nom: 'Envoi de la fiche du module', f: async (d) => { await enFile(async () => { echangerInfos(d); await new Promise((r) => setTimeout(r, 3000)); }); } },
   };
   function lancer(type, cibles, params, auteur) {
@@ -564,7 +619,7 @@ function creerAdministration(radio, stockage) {
     cibles = [...new Set((cibles || []).map((x) => Number(x) >>> 0))].filter(Boolean);
     if (!cibles.length) throw new Error('Aucun nœud choisi');
     if (cibles.length > 30) throw new Error('30 nœuds au maximum par opération');
-    if (['position', 'nom', 'lire', 'modifier'].includes(type) && cibles.length > 1) throw new Error('Cette opération se fait nœud par nœud');
+    if (['position', 'nom', 'lire', 'modifier', 'firmware'].includes(type) && cibles.length > 1) throw new Error('Cette opération se fait nœud par nœud');
     if (type === 'verifier') {
       const ref = Number(params && params.reference) >>> 0;
       if (!ref) throw new Error('Référence manquante');
@@ -610,7 +665,7 @@ function creerAdministration(radio, stockage) {
             n.resultat = await executer(true); // une lecture reprend là où elle s'était arrêtée
           }
           n.statut = 'ok';
-          n.detail = type === 'modifier' ? 'modifié et relu' : type === 'verifier' ? (n.resultat.reference ? 'référence lue' : n.resultat.conforme ? 'conforme' : `${n.resultat.ecarts.length} écart(s)`) : type === 'lire' ? 'configuration lue' : n.resultat && n.resultat.canal0 ? `canal 0 « ${n.resultat.ancien || 'preset'} » → « ${n.resultat.canal0} », vérifié` : 'appliqué (accusé reçu)';
+          n.detail = type === 'firmware' ? (n.resultat && n.resultat.nouvelle ? `firmware ${n.resultat.nouvelle} installé` : (n.resultat && n.resultat.detail) || 'firmware envoyé') : type === 'modifier' ? 'modifié et relu' : type === 'verifier' ? (n.resultat.reference ? 'référence lue' : n.resultat.conforme ? 'conforme' : `${n.resultat.ecarts.length} écart(s)`) : type === 'lire' ? 'configuration lue' : n.resultat && n.resultat.canal0 ? `canal 0 « ${n.resultat.ancien || 'preset'} » → « ${n.resultat.canal0} », vérifié` : 'appliqué (accusé reçu)';
         } catch (e) {
           if (e.partiel) n.resultat = e.partiel;
           n.statut = e.arret || tache.arret ? 'annule' : 'echec';
@@ -688,7 +743,7 @@ function creerAdministration(radio, stockage) {
     for (const t of l) {
       if (!OPERATIONS[t.type]) continue;
       if (!t.fin) {
-        if (Date.now() - t.debut < 6 * 3600000) {
+        if (Date.now() - t.debut < 6 * 3600000 && t.type !== 'firmware') {
           for (const n of t.noeuds) if (n.statut === 'en_cours' || n.statut === 'en_attente') { n.statut = 'en_attente'; n.detail = 'reprise après le redémarrage de la carte…'; }
           t.reprises = (t.reprises || 0) + 1;
           aReprendre.push(t);
@@ -723,6 +778,7 @@ function creerAdministration(radio, stockage) {
     if (t.type === 'nom') return [p.nomLong, p.nomCourt].filter(Boolean).join(' / ');
     if (t.type === 'modifier') return [p.nom ? 'nom' : '', p.voisinage ? 'voisinage (' + Object.keys(p.voisinage).join(', ') + ')' : '', ...['device', 'lora', 'position'].filter((k) => p[k] && Object.keys(p[k]).length).map((k) => k + ' (' + Object.keys(p[k]).join(', ') + ')'), p.canaux && p.canaux.length ? 'canaux ' + p.canaux.map((c) => c.index).join(', ') : ''].filter(Boolean).join(' · ');
     if (t.type === 'verifier') return `référence ${idNoeud(p.reference)} · ${(p.elements || []).map((k) => (ELEMENTS[k] || {}).nom || k).join(', ')}`;
+    if (t.type === 'firmware') return `vers ${p.version}`;
     if (t.type === 'position') return p.retirer ? 'retrait de la position fixe' : `${p.lat}, ${p.lon}`;
     return '';
   }

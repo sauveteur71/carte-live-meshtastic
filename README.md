@@ -113,6 +113,7 @@ Dans `docker-compose.yml`, remplacez la ligne `image:` par `build: .`, puis `doc
 - **Clés d'administration** (*Programmer › 🔑*) : relais par relais, les modules autorisés ou refusés, les emplacements libres, et une liste « à faire sur place » pour la prochaine visite. Les opérations de programmation en cours reprennent seules après un redémarrage de la carte.
 - **Relais sourds** (*Réseau › Liaisons*) : un relais qui émet bien mais entend mal est détecté d'après les SNR mesurés dans les deux sens, avec l'écart estimé en dB et les causes probables.
 - **Sites réalistes et plan à budget** (*Couverture*) : zones protégées écartées, châteaux d'eau et pylônes privilégiés, électricité probable ; « j'ai N relais à poser » avec surface, habitants gagnés et coût estimé.
+- **Firmware** (*Programmer*) : nouvelle version signalée pour le module connecté ; mise à jour par le Wi-Fi (ESP32 en firmware 2.7.18 ou plus, module joignable en IP depuis le serveur), avec le même protocole que `meshtastic --ota-update`.
 - **Bulles voisines (fédération)** : chaque carte publie ses relais sur `/api/federation`. Dans *Outils › Partager* (admin), ajoutez l'adresse des cartes des départements voisins : leurs relais s'affichent (couche *Bulles voisines*) et comptent dans les calculs de couverture près des limites.
 
 ### MeshCore
