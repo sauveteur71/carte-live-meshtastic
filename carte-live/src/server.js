@@ -454,12 +454,21 @@ app.post('/api/relief/simulation', async (req, res) => {
 // Plan pour couvrir le département : ?objectif=95&max=15&acces=voiture&reseau=1
 app.get('/api/relief/plan', (req, res) => {
   const filtre = ['voiture', '4x4', 'pied'].includes(req.query.acces) ? req.query.acces : null;
-  const r = R(req).planDepartement({ objectifPct: Number(req.query.objectif) || 95, max: Number(req.query.max) || 15, acces: filtre, avecReseau: req.query.reseau !== '0', realiste: req.query.realiste === '1' });
-  if (!r) return res.status(503).json({ erreur: 'Le classement des sites est en cours de calcul, réessayez dans une minute' });
-  const id = crypto.randomBytes(6).toString('hex');
-  cacheCouverture.set(id, { image: r.image });
-  if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
-  res.json({ ...r, image: `/api/relief/couverture/${id}.png`, emprise: R(req).emprise() });
+  const RR = R(req);
+  const o = { objectifPct: Number(req.query.objectif) || 95, max: Number(req.query.max) || 15, acces: filtre, avecReseau: req.query.reseau !== '0', realiste: req.query.realiste === '1' };
+  // Même demande dans les 10 minutes (carte publique très consultée) : résultat déjà calculé
+  const cle = JSON.stringify(['plan', RR.code, o, Math.floor(Date.now() / 600000), (RR.classement() || {}).date]);
+  let rep = cacheCouverture.get(cle);
+  if (!rep) {
+    const r = RR.planDepartement(o);
+    if (!r) return res.status(503).json({ erreur: 'Le classement des sites est en cours de calcul, réessayez dans une minute' });
+    const id = crypto.randomBytes(6).toString('hex');
+    cacheCouverture.set(id, { image: r.image });
+    rep = { ...r, image: `/api/relief/couverture/${id}.png`, emprise: RR.emprise() };
+    cacheCouverture.set(cle, rep);
+    if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
+  }
+  res.json(rep);
 });
 app.get('/api/relief/couverture/:id.png', (req, res) => {
   const r = cacheCouverture.get(req.params.id);

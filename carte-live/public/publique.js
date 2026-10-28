@@ -2,7 +2,7 @@
 // Carte publique allégée, à intégrer dans un site (iframe) : relais, passerelles, nœuds à position approchée,
 // liaisons radio, Meshtastic et MeshCore, avec l'animation en direct des paquets qui transitent.
 // Aucune donnée réservée aux membres (messages, positions exactes des particuliers).
-// Options d'adresse : ?reseau=meshtastic|meshcore|deux, ?animations=0, ?clients=0 (masquer les nœuds),
+// Options d'adresse : ?reseau=meshtastic|meshcore|deux, ?animations=0, ?couverture=actuelle|sites, ?fond=Plan IGN, ?clients=0 (masquer les nœuds),
 // ?liens=0 (masquer les liaisons), ?titre=…
 const params = new URLSearchParams(location.search);
 const opt = { clients: params.get('clients') !== '0', liens: params.get('liens') !== '0' };
@@ -42,9 +42,7 @@ async function demarrer() {
   carte.createPane('couverture').style.zIndex = 405;
   carte.createPane('liens').style.zIndex = 410;
   carte.createPane('traces').style.zIndex = 420;
-  const t = config.tuiles;
-  L.tileLayer(t.url, { maxZoom: 19, maxNativeZoom: t.zoomMaxNatif || 19, attribution: t.attribution }).addTo(carte);
-  if (t.etiquettes) L.tileLayer(t.etiquettes, { maxZoom: 19, maxNativeZoom: t.zoomMaxNatif || 19 }).addTo(carte);
+  installerFonds();
   if (config.zone) carte.fitBounds([[config.zone[0], config.zone[1]], [config.zone[2], config.zone[3]]], { padding: [10, 10] });
   couche = L.layerGroup().addTo(carte);
   mcp.coucheLiens = L.layerGroup().addTo(carte);
@@ -65,6 +63,80 @@ async function demarrer() {
   setInterval(rafraichirMt, 60000);
   if (config.meshcore) setInterval(rafraichirMc, 90000);
   connecterWs();
+  installerCouverture();
+}
+
+// ---- Fonds de carte au choix (mêmes fonds que la carte complète) ----------------------------------
+function installerFonds() {
+  const t = config.tuiles;
+  const wmts = (c, format = 'image/png', style = 'normal') => `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${c}&STYLE=${style}&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=${format}`;
+  const ign = '&copy; <a href="https://www.ign.fr/" target="_blank" rel="noopener">IGN</a> Géoplateforme';
+  const fonds = {
+    'Sombre': L.layerGroup([
+      L.tileLayer(t.url, { maxZoom: 19, maxNativeZoom: t.zoomMaxNatif || 19, className: t.sombre ? 'tuiles-sombres' : '', attribution: t.attribution }),
+      ...(t.etiquettes ? [L.tileLayer(t.etiquettes, { maxZoom: 19, maxNativeZoom: t.zoomMaxNatif || 19, className: 'etiquettes-claires' })] : []),
+    ]),
+    'Plan IGN': L.tileLayer(wmts('GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2'), { maxZoom: 19, maxNativeZoom: 19, attribution: ign }),
+    'Plan IGN sombre': L.tileLayer(wmts('GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2'), { maxZoom: 19, maxNativeZoom: 19, className: 'tuiles-sombres', attribution: ign }),
+    'Photos aériennes IGN': L.tileLayer(wmts('ORTHOIMAGERY.ORTHOPHOTOS', 'image/jpeg'), { maxZoom: 19, maxNativeZoom: 19, attribution: ign }),
+    'Topographique': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17, maxNativeZoom: 17, subdomains: 'abc', attribution: 'Carte &copy; <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a> (CC-BY-SA), données &copy; contributeurs OpenStreetMap' }),
+  };
+  const surcouches = { 'Relief ombré': L.tileLayer(wmts('ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW', 'image/png', 'estompage_grayscale'), { maxZoom: 19, maxNativeZoom: 15, opacity: 0.4, attribution: ign }) };
+  let choix = params.get('fond') && fonds[params.get('fond')] ? params.get('fond') : 'Sombre';
+  try { const c = localStorage.getItem('publique_fond'); if (!params.get('fond') && c && fonds[c]) choix = c; } catch { /* stockage indisponible */ }
+  fonds[choix].addTo(carte);
+  L.control.layers(fonds, surcouches, { position: 'topright', collapsed: true }).addTo(carte);
+  carte.on('baselayerchange', (e) => { try { localStorage.setItem('publique_fond', e.name); } catch { /* idem */ } });
+}
+
+// ---- Couverture radio : zone couverte aujourd'hui et emplacements conseillés pour de nouveaux relais --
+const couv = { couche: null, mode: null };
+function installerCouverture() {
+  const b = document.getElementById('b-couv'), bp = document.getElementById('b-sites');
+  b.onclick = () => basculerCouverture('actuelle');
+  bp.onclick = () => basculerCouverture('sites');
+  const demande = params.get('couverture');
+  if (demande === '1' || demande === 'actuelle') basculerCouverture('actuelle');
+  else if (demande === 'sites') basculerCouverture('sites');
+}
+async function basculerCouverture(mode) {
+  const info = document.getElementById('info-couv');
+  if (couv.couche) { couv.couche.remove(); couv.couche = null; }
+  document.getElementById('b-couv').classList.remove('actif');
+  document.getElementById('b-sites').classList.remove('actif');
+  if (couv.mode === mode) { couv.mode = null; info.hidden = true; return; }
+  couv.mode = mode;
+  document.getElementById(mode === 'actuelle' ? 'b-couv' : 'b-sites').classList.add('actif');
+  info.hidden = false;
+  info.innerHTML = '<span class="sablier"></span> Calcul de la couverture…';
+  const g = L.layerGroup();
+  try {
+    if (mode === 'actuelle') {
+      const mcSeul = vue === 'meshcore';
+      const r = await fetch(`/api/relief/couverture-reseau${mcSeul ? '?reseau=meshcore' : ''}`).then((x) => x.json());
+      if (couv.mode !== mode) return;
+      if (r.erreur) throw new Error(r.erreur);
+      if (r.vide) { info.textContent = 'Aucun relais positionné entendu depuis 24 h.'; return; }
+      const e = r.emprise;
+      L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.6, pane: 'couverture', className: 'pixelise' }).addTo(g);
+      info.innerHTML = `<b>Couverture ${mcSeul ? 'MeshCore' : 'Meshtastic'} estimée</b>${r.pctZone != null ? ` : <b>${String(r.pctZone).replace('.', ',')} %</b> du département` : ''} · ${r.noeuds.length} relais et passerelles<br><small>Calcul d’après le relief (IGN) et les antennes connues, corrigé par les mesures réelles du réseau.</small>`;
+    } else {
+      const r = await fetch('/api/relief/plan?objectif=95&max=10&acces=voiture&realiste=1').then((x) => x.json());
+      if (couv.mode !== mode) return;
+      if (r.erreur) throw new Error(r.erreur);
+      const e = r.emprise;
+      L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.55, pane: 'couverture', className: 'pixelise' }).addTo(g);
+      for (const x of r.sites) {
+        L.marker([x.lat, x.lon], { icon: L.divIcon({ className: '', html: `<div class="epingle"><b>${x.rang}</b></div>`, iconSize: [30, 38], iconAnchor: [15, 36] }), pane: 'traces', zIndexOffset: 900 })
+          .bindTooltip(`<b>${x.rang} · ${esc(x.nom || x.commune || 'Point haut')}</b><br>${x.alt} m${x.commune ? ' · ' + esc(x.commune) : ''}<br>+${x.gainKm2} km² · couverture cumulée ${String(x.totalPct).replace('.', ',')} %${x.realisme && x.realisme.support ? '<br>🗼 ' + esc(x.realisme.support.type) + ' à proximité' : ''}`).addTo(g);
+      }
+      info.innerHTML = `<b>Où poser de nouveaux relais ?</b> ${r.sites.length} emplacement${r.sites.length > 1 ? 's' : ''} conseillé${r.sites.length > 1 ? 's' : ''} : ${String(r.departPct).replace('.', ',')} % → <b>${String(r.finalPct).replace('.', ',')} %</b> du département<br><small>Bleu : déjà couvert · turquoise : apporté par les nouveaux sites · rouge : non couvert. Points hauts accessibles en voiture, hors zones protégées.</small>`;
+    }
+    g.addTo(carte);
+    couv.couche = g;
+  } catch (e) {
+    info.textContent = 'Couverture indisponible : ' + e.message;
+  }
 }
 
 function changerVue(v, sansCharger) {
