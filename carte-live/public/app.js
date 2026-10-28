@@ -975,7 +975,7 @@ async function ouvrirFiche(num) {
       ${n.lat != null && d.voisins.length ? '<button id="couverture">Liaisons mesurées</button>' : ''}
       ${n.lat != null ? `<button id="couv-relief">Couverture selon le relief</button><label class="champ-mini">antenne <input id="h-relief" type="number" min="0.5" max="80" step="0.5" value="${d.installation && d.installation.hauteur ? d.installation.hauteur : n.infrastructure ? 6 : 2}"> m</label>` : ''}
       ${gerable(n.num) && etat.config.radio && (!etat.radio || etat.radio.noeudLocal !== n.num) ? '<button id="tester">Tester (traceroute)</button>' : ''}
-      ${gerable(n.num) ? '<button id="modifier-reglages">✏️ Modifier ses réglages</button><button id="administrer">Programmer ce nœud</button>' : ''}${etat.admin ? '<button id="ecrire">✉️ Message direct</button><button data-qr-reglages>🔳 QR code des réglages</button>' : ''}
+      ${gerable(n.num) ? '<button id="modifier-reglages" title="Lire et modifier ses réglages à distance ; canaux, redémarrage, firmware… depuis l’éditeur">✏️ Programmer ce nœud</button>' : ''}${etat.admin ? '<button id="ecrire">✉️ Message direct</button><button data-qr-reglages>🔳 QR code des réglages</button>' : ''}
     </div>
     <div id="retour-test" class="vide" hidden></div>
     </div>
@@ -3366,7 +3366,7 @@ async function editeurReglages(num) {
       <td>${k > 0 && c && k === dernierCanal ? '<input type="checkbox" name="supprimer" title="Supprimer ce canal (seul le dernier peut l’être, pour ne pas laisser de trou)">' : ''}</td></tr>`;
   };
   z.innerHTML = `<h2>✏️ ${esc(r.proprietaire ? r.proprietaire.nomLong : nomNoeud(num))}</h2>
-    <div class="ident">${esc(r.id)} · ${local ? 'module connecté' : 'nœud distant (LoRa)'} · configuration lue ${ilYa(r.heure)} <button class="mini principal" id="ed-relire">↻ Relire</button></div>
+    <div class="ident">${esc(r.id)} · ${local ? 'module connecté' : 'nœud distant (LoRa)'} · configuration lue ${ilYa(r.heure)} <button class="mini principal" id="ed-relire">↻ Relire</button> <button class="mini" id="ed-autres" title="Canaux, rôle et balises, renommer, position fixe, redémarrer, firmware, conformité…">Autres actions ›</button></div>
     ${Date.now() - r.heure > 3600000 ? '<div class="alerte attention">Lecture de plus d’une heure : relisez avant de modifier si quelqu’un a pu changer ce nœud entre-temps.</div>' : ''}
     <form id="f-edit" class="form-edit">
       <h4>Nom</h4><div class="grille-edit">
@@ -3414,6 +3414,12 @@ async function editeurReglages(num) {
       <p class="erreur" id="ed-retour"></p>
     </form>`;
   $('#ed-relire').onclick = () => lireDabord(false);
+  $('#ed-autres').onclick = () => {
+    gestion.selection = new Set([num]);
+    gestion.filtre = '';
+    $('#panneau').classList.remove('replie'); $('#deplier').hidden = true;
+    document.querySelector('.onglets button[data-onglet="gestion"]').click();
+  };
   $('#ed-annuler').onclick = () => { if (gestion.marqueurPos) { gestion.marqueurPos.remove(); gestion.marqueurPos = null; } editeurReglages(num); };
   const fo = $('#f-edit');
   // Position fixe : repère sur la carte, choix au clic
