@@ -504,20 +504,40 @@ function creerAdministration(radio, stockage) {
       await admin(dest, { setChannel: { index, role: c.supprimer ? 0 : index === 0 ? 1 : 2, settings } }, { reponse: false });
       journalTache(c.supprimer ? `canal ${index} supprimé` : `canal ${index} « ${settings.name || 'preset'} » envoyé`);
     }
-    await admin(dest, { commitEditSettings: true }, { reponse: false });
-    journalTache('modifications enregistrées par le nœud (il peut redémarrer)');
+    // L'enregistrement fait souvent redémarrer le nœud : son accusé peut se perdre (liaison faible, redémarrage immédiat).
+    // Sans accusé, on ne conclut pas à l'échec : la relecture dira si les réglages ont bien été appliqués.
+    let sansAccuse = false;
+    try {
+      await admin(dest, { commitEditSettings: true }, { reponse: false });
+      journalTache('modifications enregistrées par le nœud (il peut redémarrer)');
+    } catch (e) {
+      if (erreurDefinitive(e)) throw e;
+      sansAccuse = true;
+      journalTache('enregistrement envoyé, sans accusé (le nœud redémarre peut-être) : vérification par relecture…');
+    }
     // Relecture de contrôle de ce qui a changé
     await new Promise((r) => setTimeout(r, local ? 15000 : 25000));
     clesSession.delete(dest);
     const aRelire = [...sections, ...(canaux.length ? ['canaux'] : []), ...(p.nom ? ['proprietaire'] : []), ...(voisinage ? ['voisinage'] : [])];
     for (let essai = 1; essai <= 3; essai++) {
-      try { await lire(dest, journalTache, { sections: aRelire }); journalTache('relecture de contrôle faite'); return { modifie: true, relu: aRelire }; } catch (e) {
+      try {
+        await lire(dest, journalTache, { sections: aRelire });
+        // Contrôle des valeurs demandées pour le module Voisinage (cas le plus fréquent d'accusé perdu)
+        if (voisinage) {
+          const lu = (lectures.get(dest) || {}).voisinage || {};
+          const ecarts = Object.entries(voisinage).filter(([k, v]) => (k === 'updateInterval' ? Number(lu[k] || 0) !== Number(v) : !!lu[k] !== !!v));
+          if (ecarts.length) throw Object.assign(new Error(`le nœud n’a pas appliqué : ${ecarts.map(([k, v]) => `${k} = ${lu[k] ?? '—'} au lieu de ${v}`).join(', ')}${sansAccuse ? ' (enregistrement sans accusé : il ne l’a sans doute pas reçu, réessayez)' : ' (le firmware refuse peut-être ce réglage)'}`), { definitif: true });
+        }
+        journalTache(sansAccuse ? 'relecture de contrôle faite : réglages bien appliqués malgré l’accusé perdu' : 'relecture de contrôle faite');
+        return { modifie: true, relu: aRelire };
+      } catch (e) {
+        if (e.definitif) throw e;
         if (e.arret) throw e;
         journalTache(`relecture ${essai}/3 impossible (${e.message.split(' — ')[0]})`);
         await new Promise((r) => setTimeout(r, 15000));
       }
     }
-    throw new Error('Modifications envoyées et accusées, mais la relecture de contrôle a échoué : relisez la configuration dans quelques minutes');
+    throw new Error(sansAccuse ? 'Modifications envoyées sans accusé, et relecture impossible : relisez la configuration dans quelques minutes pour savoir si elles sont appliquées' : 'Modifications envoyées et accusées, mais la relecture de contrôle a échoué : relisez la configuration dans quelques minutes');
   }
 
   async function redemarrer(dest) {
