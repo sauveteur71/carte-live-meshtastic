@@ -338,6 +338,13 @@ app.get('/api/relief/relier', (req, res) => {
   try { res.json(R(req, a, b).relierPoints(a, b, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
 });
 const cacheCouverture = new Map();
+const calculsPublics = new Map();
+function limiterCalcul(ip) {
+  const t = Date.now(), l = (calculsPublics.get(ip) || []).filter((x) => t - x < 15 * 60000);
+  l.push(t); calculsPublics.set(ip, l);
+  if (calculsPublics.size > 2000) calculsPublics.clear();
+  return l.length > 20;
+}
 app.get('/api/relief/couverture', (req, res) => {
   const lat = Number(req.query.lat), lon = Number(req.query.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ erreur: 'Point invalide' });
@@ -347,6 +354,8 @@ app.get('/api/relief/couverture', (req, res) => {
   const cle = JSON.stringify([RR.code, lat.toFixed(4), lon.toFixed(4), o, (RR.calibration() || {}).date]);
   let r = cacheCouverture.get(cle);
   if (!r) {
+    // Visiteurs non connectés (carte publique) : 20 nouveaux calculs par quart d'heure au plus
+    if (!estMembre(req) && limiterCalcul(req.ip)) return res.status(429).json({ erreur: 'Trop de calculs de couverture : réessayez dans quelques minutes' });
     r = RR.couverturePng({ lat, lon }, o);
     r.id = crypto.randomBytes(6).toString('hex');
     cacheCouverture.set(cle, r);

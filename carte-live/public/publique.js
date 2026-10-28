@@ -90,7 +90,7 @@ function installerFonds() {
 }
 
 // ---- Couverture radio : zone couverte aujourd'hui et emplacements conseillés pour de nouveaux relais --
-const couv = { couche: null, mode: null, acces: ['voiture', '4x4', 'pied', 'tous'].includes(params.get('acces')) ? params.get('acces') : 'voiture', plan: null, imagePlan: null, siteChoisi: null };
+const couv = { hauteur: 6, dernierPoint: null, couche: null, mode: null, acces: ['voiture', '4x4', 'pied', 'tous'].includes(params.get('acces')) ? params.get('acces') : 'voiture', plan: null, imagePlan: null, siteChoisi: null };
 const NOM_ACCES = { voiture: 'accessibles en voiture', '4x4': 'accessibles en 4×4 ou en voiture', pied: 'accessibles à pied, en 4×4 ou en voiture', tous: 'tous les points hauts' };
 const pc = (v) => String(v).replace('.', ',');
 // Plan : emplacements conseillés selon l'accès choisi ; un clic sur une épingle montre la couverture de ce site seul
@@ -115,6 +115,24 @@ function infoPlan(info) {
     ${r.sites.length ? `${r.sites.length} emplacement${r.sites.length > 1 ? 's' : ''} conseillé${r.sites.length > 1 ? 's' : ''} : ${pc(r.departPct)} % → <b>${pc(r.finalPct)} %</b> du département` : 'Aucun site utile avec cet accès (élargissez le choix).'}
     <br><small>Bleu : déjà couvert · turquoise : apporté par les nouveaux sites · rouge : non couvert. Points hauts ${NOM_ACCES[couv.acces]}, hors zones protégées. Cliquez sur un numéro pour voir la couverture de ce site.</small>`;
   document.getElementById('choix-acces').onchange = (ev) => { couv.acces = ev.target.value; couv.mode = null; basculerCouverture('sites'); };
+}
+async function couverturePoint(ll) {
+  const info = document.getElementById('info-couv'), g = couv.couche;
+  couv.dernierPoint = ll;
+  const h = couv.hauteur;
+  g.clearLayers();
+  L.circleMarker(ll, { radius: 6, color: '#fff', weight: 2, fillColor: '#f59e0b', fillOpacity: 1, pane: 'traces' }).addTo(g);
+  const ligne = (t) => `<b>Couverture d’un point</b> <label><small>antenne</small> <select id="h-point">${[2, 6, 10, 20, 30].map((v) => `<option value="${v}" ${v === h ? 'selected' : ''}>${v} m</option>`).join('')}</select></label><br>${t}`;
+  const brancher = () => { const sel = document.getElementById('h-point'); if (sel) sel.onchange = (e) => { couv.hauteur = Number(e.target.value); couverturePoint(couv.dernierPoint); }; };
+  info.innerHTML = ligne('<span class="sablier"></span> Calcul…'); brancher();
+  let r;
+  try { r = await fetch(`/api/relief/couverture?lat=${ll.lat.toFixed(5)}&lon=${ll.lng.toFixed(5)}&hs=${h}`).then((y) => y.json()); } catch (e) { r = { erreur: e.message }; }
+  if (couv.mode !== 'point' || couv.dernierPoint !== ll) return;
+  if (r.erreur) { info.innerHTML = ligne('Couverture indisponible : ' + esc(r.erreur)); brancher(); return; }
+  const e = r.emprise;
+  L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.65, pane: 'couverture', className: 'pixelise' }).addTo(g);
+  info.innerHTML = ligne(`${ll.lat.toFixed(4)}, ${ll.lng.toFixed(4)}${r.sol != null ? ' · sol à ' + r.sol + ' m' : ''}<br>Zone couverte : <b>${Math.round(r.surfaceKm2).toLocaleString('fr-FR')} km²</b>${r.pctZone != null ? `, soit <b>${pc(r.pctZone)} %</b> du département` : ''}<br><small>Turquoise : bonne liaison · jaune : liaison juste · orange pâle : à la limite. Cliquez ailleurs pour un autre point.</small>`);
+  brancher();
 }
 async function couvertureSite(x, g, info) {
   info.innerHTML = '<span class="sablier"></span> Calcul de la couverture de ce site…';
@@ -141,18 +159,32 @@ function installerCouverture() {
   const b = document.getElementById('b-couv'), bp = document.getElementById('b-sites');
   b.onclick = () => basculerCouverture('actuelle');
   bp.onclick = () => basculerCouverture('sites');
+  document.getElementById('b-point').onclick = () => basculerCouverture('point');
+  // Mode « couverture d'un point » : un clic sur la carte calcule la zone couverte depuis cet endroit
+  carte.on('click', (ev) => { if (couv.mode === 'point') couverturePoint(ev.latlng); });
   const demande = params.get('couverture');
   if (demande === '1' || demande === 'actuelle') basculerCouverture('actuelle');
   else if (demande === 'sites') basculerCouverture('sites');
+  else if (demande === 'point') basculerCouverture('point');
 }
 async function basculerCouverture(mode) {
   const info = document.getElementById('info-couv');
   if (couv.couche) { couv.couche.remove(); couv.couche = null; }
   document.getElementById('b-couv').classList.remove('actif');
   document.getElementById('b-sites').classList.remove('actif');
+  document.getElementById('b-point').classList.remove('actif');
+  document.body.classList.remove('mode-point');
   if (couv.mode === mode) { couv.mode = null; info.hidden = true; return; }
   couv.mode = mode;
-  document.getElementById(mode === 'actuelle' ? 'b-couv' : 'b-sites').classList.add('actif');
+  document.getElementById({ actuelle: 'b-couv', sites: 'b-sites', point: 'b-point' }[mode]).classList.add('actif');
+  if (mode === 'point') {
+    document.body.classList.add('mode-point');
+    couv.couche = L.layerGroup().addTo(carte);
+    info.hidden = false;
+    info.innerHTML = '<b>Couverture d’un point</b><br>Cliquez n’importe où sur la carte : la zone couverte par une antenne placée à cet endroit s’affiche.<br><label><small>Hauteur de l’antenne</small> <select id="h-point">' + [2, 6, 10, 20, 30].map((h) => `<option value="${h}" ${h === couv.hauteur ? 'selected' : ''}>${h} m</option>`).join('') + '</select></label>';
+    document.getElementById('h-point').onchange = (e) => { couv.hauteur = Number(e.target.value); if (couv.dernierPoint) couverturePoint(couv.dernierPoint); };
+    return;
+  }
   info.hidden = false;
   info.innerHTML = '<span class="sablier"></span> Calcul de la couverture…';
   const g = L.layerGroup();

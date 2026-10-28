@@ -50,6 +50,7 @@
     .etiquettes-claires { filter: brightness(2.8) contrast(1.25); }
     .pixelise { image-rendering: pixelated; }
     .info-couv select { background: #111a24; color: var(--texte); border: 1px solid var(--bord); border-radius: 6px; padding: 2px 6px; font: inherit; font-size: 12px; margin-left: 4px; }
+    body.mode-point #carte { cursor: crosshair; }
     .info-couv { margin-top: 8px; font-size: 12px; color: var(--texte); max-width: 420px; } .info-couv small { color: var(--doux); }
     .epingle { position: relative; width: 26px; height: 26px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: #f59e0b; border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.6); }
     .epingle b { position: absolute; inset: 0; display: grid; place-items: center; transform: rotate(45deg); color: #111; font-size: 13px; }
@@ -73,6 +74,7 @@
     <div class="reseaux">
       <button class="bascule" id="b-couv" title="Zone couverte aujourd’hui par les relais, calculée d’après le relief">📡 Couverture</button>
       <button class="bascule" id="b-sites" title="Points hauts où de nouveaux relais étendraient le plus la couverture">🎯 Où poser des relais ?</button>
+      <button class="bascule" id="b-point" title="Cliquez ensuite n’importe où sur la carte : zone couverte par une antenne placée à cet endroit">📍 Couverture d’un point</button>
     </div>
     <div id="info-couv" class="info-couv" hidden></div>
   </div>
