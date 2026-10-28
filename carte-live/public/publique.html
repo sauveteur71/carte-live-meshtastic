@@ -9,25 +9,65 @@
     :root { --fond: #0b1118; --surface: rgba(17,26,36,.92); --texte: #e8eef5; --doux: #9fb0c2; --accent: #3ee6c4; --bord: #22303f; }
     html, body { margin: 0; height: 100%; background: var(--fond); color: var(--texte); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
     #carte { position: fixed; inset: 0; background: var(--fond); }
-    .bandeau { position: fixed; top: 10px; left: 10px; z-index: 1000; background: var(--surface); border: 1px solid var(--bord); border-radius: 10px; padding: 8px 12px; max-width: calc(100% - 40px); }
+    .bandeau { position: fixed; top: 10px; left: 10px; z-index: 1000; background: var(--surface); border: 1px solid var(--bord); border-radius: 10px; padding: 8px 12px; max-width: calc(100% - 44px); }
     .bandeau b { font-size: 15px; } .bandeau small { color: var(--doux); display: block; }
-    .chiffres { display: flex; gap: 14px; margin-top: 4px; } .chiffres span { color: var(--doux); font-size: 12px; } .chiffres b { color: var(--texte); font-size: 14px; }
-    .legende { position: fixed; bottom: 22px; left: 10px; z-index: 1000; background: var(--surface); border: 1px solid var(--bord); border-radius: 10px; padding: 6px 10px; font-size: 12px; color: var(--doux); }
+    .chiffres { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; } .chiffres span { color: var(--doux); font-size: 12px; } .chiffres b { color: var(--texte); font-size: 14px; }
+    .chiffres .mc { display: none; } body.vue-meshcore .chiffres .mt, body.vue-deux .chiffres .mc, body.vue-meshcore .chiffres .mc { display: inline; } body.vue-meshcore .chiffres .mt { display: none; }
+    .reseaux { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+    .reseaux button, .bascule { background: transparent; color: var(--doux); border: 1px solid var(--bord); border-radius: 7px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+    .reseaux button.actif { background: rgba(62,230,196,.14); color: var(--texte); border-color: rgba(62,230,196,.5); }
+    .bascule.actif { color: var(--texte); border-color: rgba(253,230,138,.55); background: rgba(253,230,138,.1); }
+    .legende { position: fixed; bottom: 22px; left: 10px; z-index: 1000; background: var(--surface); border: 1px solid var(--bord); border-radius: 10px; padding: 6px 10px; font-size: 12px; color: var(--doux); max-width: calc(100% - 44px); }
     .legende i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 4px 0 8px; vertical-align: -1px; }
+    .legende .l-mc { display: none; } body.vue-meshcore .legende .l-mc, body.vue-deux .legende .l-mc { display: inline; } body.vue-meshcore .legende .l-mt { display: none; }
     a { color: var(--accent); }
-    .mk { width: 12px; height: 12px; transform: rotate(45deg); background: #60a5fa; border: 2px solid #fff; box-shadow: 0 0 4px #000; }
-    .mk.gw { background: #3ee6c4; } .mk.inactif { opacity: .45; }
-    .cl { width: 8px; height: 8px; border-radius: 50%; background: #c084fc; border: 1.5px solid #fff; }
+    /* Meshtastic : losange (relais), passerelle turquoise, nœud rond violet */
+    .mk { position: relative; width: 14px; height: 14px; }
+    .mk .c { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%) rotate(45deg); width: 11px; height: 11px; background: #60a5fa; border: 2px solid #fff; box-shadow: 0 0 4px #000; }
+    .mk.gw .c { background: #3ee6c4; } .mk.inactif { opacity: .45; }
+    .mk.cl .c { width: 8px; height: 8px; border-radius: 50%; transform: translate(-50%,-50%); background: #c084fc; border-width: 1.5px; }
+    .mk.flash .c { animation: flash-infra .9s ease-out; } .mk.cl.flash .c { animation: flash .9s ease-out; }
+    @keyframes flash { 0% { transform: translate(-50%,-50%) scale(1.9); filter: brightness(2); } 100% { transform: translate(-50%,-50%) scale(1); } }
+    @keyframes flash-infra { 0% { transform: translate(-50%,-50%) rotate(45deg) scale(1.9); filter: brightness(2); } 100% { transform: translate(-50%,-50%) rotate(45deg) scale(1); } }
+    /* MeshCore : carré orangé (répéteur), carré ambre (room server), petit rond (autres) */
+    .mkc { position: relative; width: 14px; height: 14px; }
+    .mkc .c { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 10px; height: 10px; background: #f97316; border: 2px solid #fff; border-radius: 2px; box-shadow: 0 0 4px #000; }
+    .mkc.salon .c { background: #fbbf24; } .mkc.autre .c { width: 7px; height: 7px; border-radius: 50%; background: #fdba74; border-width: 1.5px; }
+    .mkc.flash .c { animation: flash-mc .9s ease-out; }
+    @keyframes flash-mc { 0% { filter: brightness(2.2); box-shadow: 0 0 0 6px rgba(255,255,255,.35); } 100% { filter: none; } }
+    /* Animations des paquets (communes avec la carte complète) */
+    .onde { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--accent); animation: onde 1.4s ease-out forwards; }
+    @keyframes onde { from { transform: scale(1); opacity: .9; } to { transform: scale(6); opacity: 0; } }
+    .comete-tete { filter: drop-shadow(0 0 6px currentColor) drop-shadow(0 0 3px #fff); }
+    .leaflet-interactive.comete-trace, .comete-trace { stroke-linecap: round; filter: drop-shadow(0 0 3px rgba(255,255,255,.35)); transition: opacity 1.1s ease-out; }
+    .comete-fin { opacity: 0 !important; }
+    .lien-allume { animation: lien-allume 1.6s ease-out forwards; filter: blur(.4px); }
+    @keyframes lien-allume { 0% { opacity: .85; } 100% { opacity: 0; } }
+    .axe-actif { mix-blend-mode: screen; }
+    .direct { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #64748b; margin-right: 5px; vertical-align: 1px; }
+    .direct.ok { background: #3ee6c4; box-shadow: 0 0 6px #3ee6c4; }
     .leaflet-tooltip { background: var(--surface); color: var(--texte); border: 1px solid var(--bord); }
   </style>
 </head>
-<body>
+<body class="vue-meshtastic">
   <div id="carte"></div>
-  <div class="bandeau"><b id="titre">Réseau Meshtastic</b><small id="sous">carte publique · mise à jour chaque minute</small>
-    <div class="chiffres"><span><b id="n-relais">–</b> relais</span><span><b id="n-gw">–</b> passerelles</span><span><b id="n-actifs">–</b> nœuds actifs</span></div>
+  <div class="bandeau"><b id="titre">Réseau Meshtastic</b><small id="sous"><span class="direct" id="temoin"></span>carte publique en direct</small>
+    <div class="chiffres">
+      <span class="mt"><b id="n-relais">–</b> relais</span><span class="mt"><b id="n-gw">–</b> passerelles</span><span class="mt"><b id="n-actifs">–</b> nœuds actifs</span>
+      <span class="mc"><b id="n-mc-rep">–</b> répéteurs MeshCore</span><span class="mc"><b id="n-mc-actifs">–</b> nœuds MeshCore actifs</span>
+    </div>
+    <div class="reseaux" id="reseaux" hidden>
+      <button data-vue="meshtastic">Meshtastic</button><button data-vue="meshcore">MeshCore</button><button data-vue="deux">Les deux</button>
+      <button class="bascule actif" id="b-anim" title="Animation des paquets qui transitent sur le réseau">✨ Animations</button>
+    </div>
   </div>
-  <div class="legende"><i style="background:#60a5fa"></i>relais<i style="background:#3ee6c4"></i>passerelle<i style="background:#c084fc"></i>nœud (position approchée) · <a id="lien-complet" href="/" target="_blank" rel="noopener">carte complète</a></div>
+  <div class="legende">
+    <span class="l-mt"><i style="background:#60a5fa;border-radius:1px"></i>relais<i style="background:#3ee6c4;border-radius:1px"></i>passerelle<i style="background:#c084fc"></i>nœud (position approchée)</span>
+    <span class="l-mc"><i style="background:#f97316;border-radius:2px"></i>répéteur MeshCore<i style="background:#fbbf24;border-radius:2px"></i>room server</span>
+    · <a id="lien-complet" href="/" target="_blank" rel="noopener">carte complète</a>
+  </div>
   <script src="/vendor/leaflet/leaflet.js"></script>
   <script src="/publique.js"></script>
+  <script src="/animations.js"></script>
 </body>
 </html>

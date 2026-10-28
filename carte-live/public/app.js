@@ -2015,7 +2015,7 @@ function fichePartager() {
   etat.selection = null;
   $('#fiche-contenu').innerHTML = `<h2>Carte publique et exports</h2>
     <h3>Carte publique allégée</h3>
-    <p class="note">Relais, passerelles, nœuds à position approchée et liaisons, mise à jour chaque minute. Aucun message ni position exacte de particulier. Options : <span class="mono">?clients=0</span> (relais seuls), <span class="mono">?liens=0</span>, <span class="mono">?titre=…</span></p>
+    <p class="note">Relais, passerelles, nœuds à position approchée et liaisons, mise à jour chaque minute. Aucun message ni position exacte de particulier. Onglets Meshtastic / MeshCore / Les deux et animation en direct des paquets. Options : <span class="mono">?reseau=meshtastic</span> (ou <span class="mono">meshcore</span>, <span class="mono">deux</span>), <span class="mono">?animations=0</span>, <span class="mono">?clients=0</span> (relais seuls), <span class="mono">?liens=0</span>, <span class="mono">?titre=…</span></p>
     ${lien(base + '/publique', base + '/publique', 'à ouvrir ou à intégrer')}
     <label class="bloc-code">Code à coller dans une page (gaulix.fr…)<textarea readonly rows="3">${esc(iframe)}</textarea></label>
     <p class="note">La page doit être joignable depuis internet (par exemple via Tailscale Funnel ou un reverse proxy) pour être vue par les visiteurs d’un site.</p>
