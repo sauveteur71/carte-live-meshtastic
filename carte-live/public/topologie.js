@@ -136,46 +136,108 @@ function analyser() {
 }
 
 // ---- Dessin du graphe (d3) ------------------------------------------------------------------------
-let svg, racine, gLiens, gNoeuds, gOndes, simulation, zoom;
+let svg, racine, gAnneaux, gLiens, gNoeuds, gOndes, simulation, zoom, ajusteFait = false;
 function initGraphe() {
   svg = d3.select('#svg');
   const defs = svg.append('defs');
   for (const [id, c] of [['fleche', '#c3d0dc']]) defs.append('marker').attr('id', id).attr('viewBox', '0 -5 10 10').attr('refX', 10).attr('refY', 0).attr('markerUnits', 'userSpaceOnUse').attr('markerWidth', 9).attr('markerHeight', 9).attr('orient', 'auto').append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', c);
   racine = svg.append('g');
+  gAnneaux = racine.append('g');
   gLiens = racine.append('g');
   gOndes = racine.append('g');
   gNoeuds = racine.append('g');
   zoom = d3.zoom().scaleExtent([0.15, 6]).on('zoom', (e) => racine.attr('transform', e.transform));
   svg.call(zoom).on('dblclick.zoom', null);
   svg.on('click', (e) => { if (e.target === svg.node()) deselectionner(); });
-  simulation = d3.forceSimulation().alphaDecay(0.03)
-    .force('charge', d3.forceManyBody().strength(-260).distanceMax(500))
-    .force('collide', d3.forceCollide().radius((d) => rayon(d) + 6))
-    .on('tick', positionner);
+  simulation = d3.forceSimulation().alphaDecay(0.035)
+    .force('charge', d3.forceManyBody().strength(-700).distanceMax(700))
+    .force('collide', d3.forceCollide().radius((d) => rayon(d) + 26).strength(0.9))
+    .on('tick', positionner)
+    .on('end', () => { if (!ajusteFait) { ajusteFait = true; ajuster(); } });
+}
+// Recadre le graphe sur les nœuds affichés
+function ajuster() {
+  const v = etat.visibles || [];
+  if (!v.length) return;
+  const { width, height } = $('#svg').getBoundingClientRect();
+  const xs = v.map((n) => n.x), ys = v.map((n) => n.y);
+  const x0 = Math.min(...xs) - 60, x1 = Math.max(...xs) + 60, y0 = Math.min(...ys) - 60, y1 = Math.max(...ys) + 70;
+  const k = Math.min(2.5, Math.max(0.2, Math.min(width / (x1 - x0), height / (y1 - y0))));
+  svg.transition().duration(700).call(zoom.transform, d3.zoomIdentity.translate(width / 2 - ((x0 + x1) / 2) * k, height / 2 - ((y0 + y1) / 2) * k).scale(k));
+}
+// Nœuds et liaisons affichés : relais et passerelles (les clients regroupés autour de leur meilleur relais), liaisons principales
+const ROLES_RELAIS = ['ROUTER', 'ROUTER_LATE', 'CLIENT_BASE', 'REPEATER'];
+function calculerVisibles() {
+  const tous = $('#affichage').value === 'tous';
+  const visible = new Set(etat.noeuds.filter((n) => tous || n.passerelle || ROLES_RELAIS.includes(n.role)).map((n) => n.num));
+  if (etat.choisi != null && etat.parNum.has(etat.choisi)) visible.add(etat.choisi);
+  // Clients masqués : rattachés au relais visible qu'ils entendent le mieux
+  const rattaches = new Map();
+  for (const n of etat.noeuds) {
+    if (visible.has(n.num)) continue;
+    let meilleur = null, snr = -999;
+    for (const l of etat.voisins.get(n.num)) {
+      const autre = l.a === n.num ? l.b : l.a;
+      if (!visible.has(autre)) continue;
+      const s = l.meilleur ?? -40;
+      if (s > snr) { snr = s; meilleur = autre; }
+    }
+    if (meilleur != null) rattaches.set(meilleur, (rattaches.get(meilleur) || 0) + 1);
+  }
+  for (const n of etat.noeuds) n.clientsMasques = rattaches.get(n.num) || 0;
+  let liens = etat.liens.filter((l) => visible.has(l.a) && visible.has(l.b));
+  if ($('#filtre-liens').value === 'principales') {
+    const garde = new Set(etat.montrerRupture ? etat.analyse.critiques.map((c) => c.lien) : []);
+    const parNoeud = new Map();
+    for (const l of liens) for (const x of [l.a, l.b]) { if (!parNoeud.has(x)) parNoeud.set(x, []); parNoeud.get(x).push(l); }
+    for (const [, ls] of parNoeud) ls.sort((a, b) => (b.meilleur ?? -40) - (a.meilleur ?? -40)).slice(0, 3).forEach((l) => garde.add(l));
+    if (etat.choisi != null) for (const l of liens) if (l.a === etat.choisi || l.b === etat.choisi) garde.add(l);
+    liens = liens.filter((l) => garde.has(l));
+  }
+  etat.visibles = etat.noeuds.filter((n) => visible.has(n.num));
+  etat.liensVisibles = liens;
 }
 const rayon = (n) => 7 + 11 * Math.sqrt(n.inter || 0);
 const noeudDe = (x) => (typeof x === 'object' ? x : etat.parNum.get(x));
-function dessiner() {
+function dessiner(recadrer = true) {
+  calculerVisibles();
+  const vis = etat.visibles, lv = etat.liensVisibles;
   const { width, height } = $('#svg').getBoundingClientRect();
-  const geo = $('#disposition').value === 'geo';
+  const dispo = $('#disposition').value, geo = dispo === 'geo', anneaux = dispo === 'anneaux';
+  const cx = width / 2, cy = height / 2;
   // Disposition géographique : positions fixées (projection), les nœuds sans position restent libres
-  const avecPos = etat.noeuds.filter((n) => n.lat != null);
+  const avecPos = vis.filter((n) => n.lat != null);
   if (geo && avecPos.length > 1) {
     const proj = d3.geoMercator().fitExtent([[60, 60], [width - 60, height - 60]], { type: 'MultiPoint', coordinates: avecPos.map((n) => [n.lon, n.lat]) });
-    for (const n of etat.noeuds) { if (n.lat != null) { const [x, y] = proj([n.lon, n.lat]); n.fx = x; n.fy = y; } else { n.fx = null; n.fy = null; } }
-  } else for (const n of etat.noeuds) { n.fx = null; n.fy = null; }
-  for (const n of etat.noeuds) if (n.x == null) { n.x = width / 2 + (Math.random() - 0.5) * 300; n.y = height / 2 + (Math.random() - 0.5) * 300; }
+    for (const n of vis) { if (n.lat != null) { const [x, y] = proj([n.lon, n.lat]); n.fx = x; n.fy = y; } else { n.fx = null; n.fy = null; } }
+  } else for (const n of vis) { n.fx = null; n.fy = null; }
+  for (const n of vis) if (n.x == null) { n.x = cx + (Math.random() - 0.5) * 300; n.y = cy + (Math.random() - 0.5) * 300; }
+  // Anneaux : passerelles au centre, puis 1 saut, 2 sauts… ; les nœuds coupés tout autour
+  const dist = (n) => etat.analyse.dist.get(n.num);
+  const maxD = Math.max(1, ...vis.map((n) => dist(n) ?? 0));
+  const pasR = Math.max(150, Math.min(260, vis.length * 9));
+  const rayonAnneau = (n) => { const d = dist(n); return d == null ? (maxD + 1.4) * pasR : d === 0 ? 0.55 * pasR : (d + 0.3) * pasR; };
+  gAnneaux.selectAll('*').remove();
+  if (anneaux) {
+    const niveaux = [...new Set(vis.map((n) => dist(n) ?? -1))].sort((a, b) => a - b);
+    for (const d of niveaux) {
+      const r = rayonAnneau({ num: vis.find((n) => (dist(n) ?? -1) === d).num });
+      gAnneaux.append('circle').attr('class', 'anneau').attr('cx', cx).attr('cy', cy).attr('r', r);
+      // Libellé à droite de l'anneau, hors des nœuds placés dessus
+      gAnneaux.append('text').attr('class', 'anneau-lib').attr('x', cx + r * 0.71 + 8).attr('y', cy + r * 0.71 + 16).attr('text-anchor', 'start').text(d === -1 ? 'coupés des passerelles' : d === 0 ? 'passerelles' : `${d} saut${d > 1 ? 's' : ''} d’une passerelle`);
+    }
+  }
 
-  const l = gLiens.selectAll('line').data(etat.liens, (d) => d.a + '-' + d.b);
+  const l = gLiens.selectAll('line').data(lv, (d) => d.a + '-' + d.b);
   l.exit().remove();
   l.enter().append('line').attr('class', 'lien')
     .merge(l)
     .classed('unique', (d) => d.unique)
     .attr('stroke', (d) => couleurSnr(d.meilleur))
-    .attr('stroke-width', (d) => (d.meilleur == null ? 1.4 : 1.4 + Math.max(0, Math.min(3, (d.meilleur + 15) / 8))))
+    .attr('stroke-width', (d) => (d.meilleur == null ? 1.2 : 1.2 + Math.max(0, Math.min(2.5, (d.meilleur + 15) / 9))))
     .attr('marker-end', (d) => (d.unique ? 'url(#fleche)' : null));
 
-  const n = gNoeuds.selectAll('g.noeud').data(etat.noeuds, (d) => d.num);
+  const n = gNoeuds.selectAll('g.noeud').data(vis, (d) => d.num);
   n.exit().remove();
   const ne = n.enter().append('g').attr('class', 'noeud')
     .call(d3.drag().on('start', (e, d) => { if (!e.active) simulation.alphaTarget(0.2).restart(); d.fx = d.x; d.fy = d.y; })
@@ -185,19 +247,29 @@ function dessiner() {
     .on('click', (e, d) => { e.stopPropagation(); choisir(d.num); });
   ne.append('circle').attr('class', 'halo');
   ne.append('circle').attr('class', 'corps');
-  ne.append('text').attr('text-anchor', 'middle');
+  ne.append('text').attr('class', 'nom').attr('text-anchor', 'middle');
+  const badge = ne.append('g').attr('class', 'badge-g');
+  badge.append('rect').attr('class', 'badge').attr('rx', 7).attr('height', 14);
+  badge.append('text').attr('class', 'badge').attr('text-anchor', 'middle').attr('dy', 10.5);
   const tous = ne.merge(n);
+  // Pastille « +N » : clients masqués rattachés à ce relais
+  tous.select('g.badge-g').style('display', (d) => (d.clientsMasques ? null : 'none'))
+    .attr('transform', (d) => `translate(${rayon(d) * 0.75},${-rayon(d) - 10})`);
+  tous.select('rect.badge').attr('x', (d) => -(String(d.clientsMasques).length * 6 + 10) / 2).attr('width', (d) => String(d.clientsMasques).length * 6 + 10);
+  tous.select('text.badge').text((d) => '+' + d.clientsMasques).append('title').text((d) => `${d.clientsMasques} client(s) masqué(s) rattaché(s) à ce relais`);
   tous.classed('passerelle', (d) => d.passerelle)
     .classed('rupture', (d) => etat.montrerRupture && etat.analyse.ruptures.some((r) => r.num === d.num));
   tous.select('circle.corps').attr('r', rayon).attr('fill', (d) => couleurRole(d.role)).attr('opacity', (d) => (d.statut === 'inactif' ? 0.55 : 1));
   tous.select('circle.halo').attr('r', (d) => rayon(d) + 5);
-  tous.select('text').attr('dy', (d) => rayon(d) + 13).text((d) => d.nomCourt || d.id.slice(-4));
+  tous.select('text.nom').attr('dy', (d) => rayon(d) + 15).text((d) => d.nomCourt || d.id.slice(-4));
 
-  simulation.nodes(etat.noeuds)
-    .force('lien', d3.forceLink(etat.liens).id((d) => d.num).distance((d) => 55 + (10 - Math.max(-20, Math.min(10, d.meilleur ?? -10))) * 5).strength(geo ? 0.05 : 0.6))
-    .force('x', geo ? null : d3.forceX(width / 2).strength(0.04))
-    .force('y', geo ? null : d3.forceY(height / 2).strength(0.04));
-  simulation.alpha(0.9).restart();
+  simulation.nodes(vis)
+    .force('lien', d3.forceLink(lv).id((d) => d.num).distance((d) => 110 + (10 - Math.max(-20, Math.min(10, d.meilleur ?? -10))) * 5).strength(geo ? 0.03 : anneaux ? 0.08 : 0.4))
+    .force('radial', anneaux ? d3.forceRadial(rayonAnneau, cx, cy).strength(1.1) : null)
+    .force('x', geo || anneaux ? null : d3.forceX(cx).strength(0.05))
+    .force('y', geo || anneaux ? null : d3.forceY(cy).strength(0.05));
+  simulation.alpha(recadrer ? 1 : 0.25).restart();
+  if (recadrer) ajusteFait = false;
   rendreLegende();
   appliquerCritiques();
 }
@@ -229,7 +301,8 @@ function rendreLegende() {
 function survol(d, e) {
   const vois = new Set([d.num, ...etat.voisins.get(d.num).map((l) => (noeudDe(l.source).num === d.num ? noeudDe(l.target).num : noeudDe(l.source).num))]);
   gNoeuds.selectAll('g.noeud').classed('attenue', (x) => !vois.has(x.num));
-  gLiens.selectAll('line').classed('attenue', (l) => noeudDe(l.source).num !== d.num && noeudDe(l.target).num !== d.num);
+  const touche = (l) => noeudDe(l.source).num === d.num || noeudDe(l.target).num === d.num;
+  gLiens.selectAll('line').classed('attenue', (l) => !touche(l)).classed('surligne', touche);
   const dist = etat.analyse.dist.get(d.num);
   const r = etat.analyse.toutesRuptures.find((x) => x.num === d.num);
   $('#infobulle').innerHTML = `<b>${esc(d.nomLong || d.id)}</b><br>${esc(libRole(d.role))}${d.passerelle ? ' · passerelle MQTT' : ''}${d.position ? '' : ' · sans position'}<br>${etat.voisins.get(d.num).length} liaison(s) · ${dist == null ? 'coupé des passerelles' : dist === 0 ? 'passerelle' : `${dist} saut(s) d’une passerelle`}${r ? `<br><b style="color:var(--critique)">sa panne couperait ${r.coupes.length} nœud(s)</b>` : ''}`;
@@ -244,7 +317,7 @@ function placerInfobulle(e) {
 function finSurvol() {
   $('#infobulle').style.display = 'none';
   gNoeuds.selectAll('g.noeud').classed('attenue', false);
-  gLiens.selectAll('line').classed('attenue', false);
+  gLiens.selectAll('line').classed('attenue', false).classed('surligne', false);
 }
 function deselectionner() {
   etat.choisi = null;
@@ -263,7 +336,11 @@ function montrerCoupes(liste) {
   gNoeuds.selectAll('g.noeud').classed('coupe', (d) => s.has(d.num));
 }
 function choisir(num, ouvrir = true) {
+  const visible = (etat.visibles || []).some((n) => n.num === num);
+  const avant = etat.choisi;
   etat.choisi = num;
+  // Un client masqué devient visible avec ses liaisons ; en « liaisons principales », on montre toutes celles du nœud choisi
+  if (!visible || ($('#filtre-liens').value === 'principales' && avant !== num)) dessiner(false);
   gNoeuds.selectAll('g.noeud').classed('choisi', (d) => d.num === num);
   const n = etat.parNum.get(num);
   const A = etat.analyse;
@@ -427,6 +504,7 @@ function animer() {
   let i = 0;
   const debut = performance.now();
   const recu = new Set([o.emetteur]);
+  const vusAnim = new Set((etat.visibles || []).map((x) => x.num)); // clients masqués : ni onde ni éclair
   const actives = []; // ondes en cours { fin, el }
   gNoeuds.selectAll('g.noeud').select('circle.corps').attr('fill', (d) => (d.num === o.emetteur ? '#ffffff' : '#3a4654'));
   const compteurs = { emissions: 0, pertes: 0, annules: 0 };
@@ -439,16 +517,17 @@ function animer() {
       if (e.type === 'tx') {
         compteurs.emissions++;
         for (const { rx } of prep.auditeurs.get(e.num)) {
+          if (!vusAnim.has(rx) || !vusAnim.has(e.num)) continue; // clients masqués : pas d'onde dessinée
           const el = gOndes.append('line').datum({ de: e.num, vers: rx }).attr('class', 'onde').attr('stroke', recu.has(rx) ? '#8d99ae' : '#ffffff');
           actives.push({ fin: e.t + e.duree, el });
         }
-        if (n) gOndes.append('circle').attr('class', 'pulse').attr('cx', n.x).attr('cy', n.y).attr('r', rayon(n)).transition().duration(Math.max(300, e.duree / vitesse)).attr('r', rayon(n) + 30).style('opacity', 0).remove();
+        if (n && vusAnim.has(e.num)) gOndes.append('circle').attr('class', 'pulse').attr('cx', n.x).attr('cy', n.y).attr('r', rayon(n)).transition().duration(Math.max(300, e.duree / vitesse)).attr('r', rayon(n) + 30).style('opacity', 0).remove();
       } else if (e.type === 'recu') {
         recu.add(e.num);
         gNoeuds.selectAll('g.noeud').filter((d) => d.num === e.num).select('circle.corps').attr('fill', '#3ee6c4');
       } else if (e.type === 'perdu' && e.raison === 'collision') {
         compteurs.pertes++;
-        if (n) gOndes.append('circle').attr('cx', n.x).attr('cy', n.y).attr('r', rayon(n) + 4).attr('fill', 'none').attr('stroke', '#ff5c6c').attr('stroke-width', 3).transition().duration(700).style('opacity', 0).remove();
+        if (n && vusAnim.has(e.num)) gOndes.append('circle').attr('cx', n.x).attr('cy', n.y).attr('r', rayon(n) + 4).attr('fill', 'none').attr('stroke', '#ff5c6c').attr('stroke-width', 3).transition().duration(700).style('opacity', 0).remove();
       } else if (e.type === 'annule') {
         compteurs.annules++;
         gNoeuds.selectAll('g.noeud').filter((d) => d.num === e.num).select('circle.corps').attr('fill', '#1f9e86');
@@ -475,6 +554,9 @@ document.querySelectorAll('nav.onglets button').forEach((b) => (b.onclick = () =
 for (const id of ['#periode', '#zone', '#double-sens']) $(id).onchange = () => charger().catch(erreur);
 document.querySelectorAll('.source').forEach((c) => (c.onchange = () => charger().catch(erreur)));
 $('#disposition').onchange = () => dessiner();
+$('#affichage').onchange = () => dessiner();
+$('#filtre-liens').onchange = () => dessiner();
+$('#ajuster').onclick = () => ajuster();
 $('#recherche').oninput = (e) => {
   const t = e.target.value.trim().toLowerCase();
   if (t.length < 2) return;

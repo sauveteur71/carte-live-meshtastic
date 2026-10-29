@@ -67,7 +67,12 @@
     #legende span { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; white-space: nowrap; }
     #legende i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
     #infobulle { position: absolute; pointer-events: none; background: rgba(11, 17, 23, .95); border: 1px solid var(--bord); border-radius: 7px; padding: 6px 9px; font-size: 12px; display: none; max-width: 280px; z-index: 5; }
-    .lien { fill: none; stroke-linecap: round; }
+    .lien { fill: none; stroke-linecap: round; opacity: .55; }
+    .lien.surligne { opacity: 1; }
+    .anneau { fill: none; stroke: rgba(120, 160, 190, .18); stroke-dasharray: 3 6; }
+    .anneau-lib { fill: var(--tres-doux); font-size: 12px; }
+    .noeud text.badge { fill: #0b1117; stroke: none; font-size: 10.5px; font-weight: 700; }
+    .noeud rect.badge { fill: var(--doux); }
     .lien.unique { stroke-dasharray: 5 4; }
     .lien.attenue, .noeud.attenue { opacity: .14; }
     .lien.critique { stroke: var(--critique) !important; stroke-width: 4px !important; stroke-dasharray: none; filter: drop-shadow(0 0 3px rgba(255, 92, 108, .8)); }
@@ -77,7 +82,7 @@
     .noeud.rupture circle.halo { opacity: .95; }
     .noeud.choisi circle.corps { stroke: var(--accent); stroke-width: 3.5; }
     .noeud.coupe circle.corps { fill: var(--critique) !important; }
-    .noeud text { fill: var(--texte); font-size: 11px; paint-order: stroke; stroke: #0b1117; stroke-width: 3px; pointer-events: none; }
+    .noeud text { fill: var(--texte); font-size: 12.5px; font-weight: 600; paint-order: stroke; stroke: #0b1117; stroke-width: 3px; pointer-events: none; }
     .noeud { cursor: pointer; }
     .onde { stroke: #fff; stroke-width: 2.5; opacity: .85; fill: none; }
     .pulse { fill: none; stroke: #fff; stroke-width: 2; }
@@ -102,7 +107,10 @@
     <label><input type="checkbox" class="source" value="traceroute" checked> traceroutes</label>
     <label title="N'utiliser que les liaisons mesurées dans les deux sens"><input type="checkbox" id="double-sens"> double sens seulement</label>
     <label>Zone <select id="zone"><option value="1">département</option><option value="v">département et voisins</option><option value="0">tout</option></select></label>
-    <label>Disposition <select id="disposition"><option value="libre">graphe</option><option value="geo">géographique</option></select></label>
+    <label title="Les clients sont regroupés autour de leur relais (+N) ; l'analyse et la simulation utilisent toujours tout le réseau">Afficher <select id="affichage"><option value="relais" selected>relais et passerelles</option><option value="tous">tous les nœuds</option></select></label>
+    <label title="Principales : les 3 meilleures liaisons de chaque nœud">Liaisons <select id="filtre-liens"><option value="principales" selected>principales</option><option value="toutes">toutes</option></select></label>
+    <label>Disposition <select id="disposition"><option value="libre" selected>graphe libre</option><option value="anneaux">anneaux (sauts depuis les passerelles)</option><option value="geo">géographique</option></select></label>
+    <button id="ajuster" title="Recadrer le graphe">⤢ Ajuster</button>
     <input id="recherche" type="search" placeholder="Chercher un nœud…" size="16">
   </header>
   <main>
