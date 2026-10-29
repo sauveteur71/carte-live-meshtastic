@@ -24,6 +24,7 @@ const { creerReleves } = require('./releves');
 const { creerAudit } = require('./audit');
 const { creerNouveaux } = require('./nouveaux');
 const { creerRapport } = require('./rapport');
+const { creerSitesRoutiers } = require('./sites-routiers');
 const installations = creerInstallations(path.dirname(config.fichierBase));
 let federation = null; // créée une fois le réseau prêt (voir plus bas)
 // Zone « département + voisins », recalculée si le département ou sa zone changent (installation, réglages)
@@ -439,6 +440,27 @@ app.get('/api/relief/optimisation', (req, res) => {
     RR.optimiserRelais({ rayonKm: rayon, acces, progression: (f, t) => { o.progression = Math.round((f / t) * 100); } })
       .then((r) => { o.etat = 'pret'; o.resultat = r; })
       .catch((e) => { o.etat = 'erreur'; o.erreur = e.message; journal('[Relief] optimisation :', e.message); });
+  }
+  res.set('Cache-Control', 'no-store').json({ etat: o.etat, progression: o.progression, erreur: o.erreur, ...(o.resultat || {}) });
+});
+// Sites routiers (webcams du Département et de la DIR Massif Central) et leur intérêt comme sites de relais
+const sitesRoutiers = creerSitesRoutiers(config, journal);
+app.get('/api/sites-routiers', async (req, res) => { res.set('Cache-Control', 'public, max-age=3600').json(await sitesRoutiers.charger()); });
+const evaluationsRoutiers = new Map();
+app.get('/api/relief/sites-routiers', async (req, res) => {
+  const RR = R(req);
+  if (!RR.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
+  const h = Math.min(Math.max(Number(req.query.h) || 6, 2), 30);
+  const cle = JSON.stringify([RR.code, h, (RR.classement() || {}).date, Math.floor(Date.now() / 3600000)]);
+  let o = evaluationsRoutiers.get(cle);
+  if (!o) {
+    o = { etat: 'calcul', progression: 0 };
+    evaluationsRoutiers.set(cle, o);
+    if (evaluationsRoutiers.size > 6) evaluationsRoutiers.delete(evaluationsRoutiers.keys().next().value);
+    const d = await sitesRoutiers.charger();
+    RR.evaluerEmplacements(d.sites, { h, progression: (f, t) => { o.progression = Math.round((f / t) * 100); } })
+      .then((r) => { o.etat = 'pret'; o.resultat = { ...r, source: d.source, chargement: d.date }; })
+      .catch((e) => { o.etat = 'erreur'; o.erreur = e.message; });
   }
   res.set('Cache-Control', 'no-store').json({ etat: o.etat, progression: o.progression, erreur: o.erreur, ...(o.resultat || {}) });
 });

@@ -840,6 +840,40 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     };
   }
 
+  // ---- Évaluer des emplacements donnés (ex. sites routiers) comme sites de relais -----------------------------
+  // Pour chacun : surface qu'il couvrirait, dont surface nouvelle par rapport au réseau actuel, contact radio avec le réseau.
+  async function evaluerEmplacements(liste, { h = 6, progression = null } = {}) {
+    if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
+    const P = parametres({});
+    const W = Math.ceil(nbZone / 32);
+    const reseau = fournisseurs.noeudsReseau().filter((n) => celle(n.lat, n.lon) >= 0).slice(0, 60).map((n) => ({ ...n, h: n.h ?? 6 }));
+    const tous = new Uint32Array(W);
+    for (const n of reseau) { const b = bitsSite(n, P); for (let w = 0; w < W; w++) tous[w] |= b[w]; await pause(); }
+    const pop = (x) => { let n = 0; while (x) { x &= x - 1; n++; } return n; };
+    const nTous = compter(tous);
+    const sortie = [];
+    let fait = 0;
+    const dedans = liste.filter((x) => celle(x.lat, x.lon) >= 0);
+    for (const x of dedans) {
+      const site = { lat: x.lat, lon: x.lon, h };
+      const c = bitsSite(site, P);
+      let total = 0, nouveau = 0;
+      for (let w = 0; w < W; w++) { total += pop(c[w]); nouveau += pop(c[w] & ~tous[w]); }
+      let liaisons = 0;
+      for (const n of reseau) {
+        if (liaisons >= 3) break;
+        if (distanceM(site, n) > P.rayonMax) continue;
+        const l = liaison(site, n, Pinstallation(P, site, n), h, n.h);
+        if (l && l.marge >= 0) liaisons++;
+      }
+      sortie.push({ ...x, altMnt: Math.round(alt(x.lat, x.lon)), dansDepartement: dansDepartement(x.lat, x.lon), couvertureKm2: Math.round(total * aireCelleKm2), nouveauKm2: Math.round(nouveau * aireCelleKm2), apresPct: +(((nTous + nouveau) / nbZone) * 100).toFixed(1), liaisons });
+      fait++;
+      if (progression) progression(fait, dedans.length);
+      await pause();
+    }
+    return { date: Date.now(), h, actuelPct: +((nTous / nbZone) * 100).toFixed(1), sites: sortie.sort((a, b) => b.nouveauKm2 - a.nouveauKm2), horsZone: liste.length - dedans.length };
+  }
+
   // Couverture actuelle du réseau : relais et passerelles détectés (entendus depuis 24 h) et positionnés dans la zone
   function couvertureReseau(opts = {}) {
     if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
@@ -1142,6 +1176,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     planDepartement,
     planBudget,
     optimiserRelais,
+    evaluerEmplacements,
     etatRealisme: () => realisme.etat(),
     couvrirPoint,
     couvrirPoints,

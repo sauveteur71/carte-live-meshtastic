@@ -34,7 +34,7 @@ const etat = {
   coucheLiens: null,
   alertes: [],
   stats: null,
-  couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true, federation: true, releves: true },
+  couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true, federation: true, releves: true, routiers: false },
   filtresPorts: new Set(Object.keys(PORTS)),
   selection: null,
   trajet: null,
@@ -2213,6 +2213,55 @@ async function planDepartement() {
   const pc = $('#plan-couv'); if (pc) pc.onclick = () => couvertureMulti(r.sites.map((x) => ({ lat: x.lat, lon: x.lon, h: (r.parametres && r.parametres.hs) || 6, nom: nomSommet(x) })));
 }
 
+// ---- Sites routiers (webcams du Département et de la DIR Massif Central) ---------------------------------
+async function dessinerRoutiers() {
+  if (etat.coucheRoutiers) { etat.coucheRoutiers.remove(); etat.coucheRoutiers = null; }
+  if (!etat.couches.routiers) return;
+  if (!etat.routiers) { try { etat.routiers = (await api('/api/sites-routiers')).sites || []; } catch { etat.routiers = []; } }
+  const g = L.layerGroup();
+  for (const x of etat.routiers) {
+    L.marker([x.lat, x.lon], { icon: L.divIcon({ className: '', html: `<div class="mk-routier ${x.gestionnaire.startsWith('DIR') ? 'dir' : ''}">📷</div>`, iconSize: [20, 20], iconAnchor: [10, 10] }), zIndexOffset: 350 })
+      .bindTooltip(`<b>${esc(x.nom)}</b><br>${esc(x.gestionnaire)} · ${esc(x.type)}${x.altitude ? ' · ' + x.altitude + ' m' : ''}<br><small>Cliquez : couverture d’un relais posé ici</small>`, { className: 'info' })
+      .on('click', () => voirCouvertureSite({ lat: x.lat, lon: x.lon }, x.nom, 6, { cadrer: true }))
+      .addTo(g);
+  }
+  g.addTo(carte);
+  etat.coucheRoutiers = g;
+}
+async function evaluerRoutiers() {
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const z = $('#fiche-contenu');
+  let r;
+  for (let k = 0; k < 120; k++) {
+    try { r = await api('/api/relief/sites-routiers?h=6'); } catch (e) { z.innerHTML = `<h2>🛣️ Sites routiers</h2><div class="vide">${esc(e.message)}</div>`; return; }
+    if (r.etat !== 'calcul') break;
+    z.innerHTML = `<h2>🛣️ Sites routiers</h2><div class="alerte info-lecture"><span class="sablier"></span> Couverture de chaque site… ${r.progression || 0} %</div>`;
+    await new Promise((ok) => setTimeout(ok, 3000));
+    if ($('#fiche').hidden) return;
+  }
+  if (r.etat === 'erreur') { z.innerHTML = `<h2>🛣️ Sites routiers</h2><div class="vide">${esc(r.erreur)}</div>`; return; }
+  if (etat.coucheCouverture) etat.coucheCouverture.remove();
+  const g = L.layerGroup().addTo(carte);
+  etat.coucheCouverture = g;
+  $('#btn-effacer').hidden = false;
+  const utiles = r.sites.filter((x) => x.nouveauKm2 > 0);
+  utiles.slice(0, 15).forEach((x, k) => L.marker([x.lat, x.lon], { icon: L.divIcon({ className: 'relais-a-installer', html: `<div class="epingle"><b>${k + 1}</b></div>`, iconSize: [34, 44], iconAnchor: [17, 42] }), pane: 'traces', zIndexOffset: 900 })
+    .bindTooltip(`<b>${k + 1} · ${esc(x.nom)}</b><br>${esc(x.gestionnaire)}<br>+${x.nouveauKm2} km² nouveaux · ${x.couvertureKm2} km² au total`, { className: 'info' }).addTo(g));
+  if (utiles.length) carte.fitBounds(L.latLngBounds(utiles.slice(0, 15).map((x) => [x.lat, x.lon])).pad(0.2), { maxZoom: 11 });
+  z.innerHTML = `<h2>🛣️ Sites routiers pour des relais</h2>
+    <div class="ident">${r.sites.length} sites dans le département ou ses abords · couverture actuelle ${fmt(r.actuelPct, 1, ' %')} · antenne supposée à ${r.h} m</div>
+    ${r.sites.map((x, k) => `<div class="proposition etape-relier ${x.nouveauKm2 > 0 ? 'nouveau' : ''}">
+      <div class="entete-prop">${x.nouveauKm2 > 0 && k < 15 ? `<span class="lettre">${k + 1}</span>` : ''}<b>${esc(x.nom)}</b><span class="marge">${x.nouveauKm2 > 0 ? '+' + x.nouveauKm2 + ' km² nouveaux' : 'déjà couvert'}</span></div>
+      <div class="meta-longue">${esc(x.gestionnaire)} · ${esc(x.type)} · ${x.altitude || x.altMnt} m${x.dansDepartement ? '' : ' · hors du département'}</div>
+      <div class="meta-longue">Un relais ici couvrirait ${x.couvertureKm2} km² ${x.nouveauKm2 > 0 ? `→ couverture totale <b>${fmt(x.apresPct, 1, ' %')}</b>` : ''} · relié par radio à ${x.liaisons}${x.liaisons >= 3 ? ' ou plus' : ''} relais${x.liaisons ? '' : ' (isolé)'}</div>
+      ${blocCoords(x.lat, x.lon, { alt: x.altitude || x.altMnt })}
+      <div class="actions-prop"><button class="mini" data-couv-routier="${k}">Couverture de ce site</button></div>
+    </div>`).join('')}
+    <p class="note">Source : carte publique ${esc(r.source || 'inforoute43.fr')} (webcams du Département de la Haute-Loire et de la DIR Massif Central). Une installation sur ces sites demande l’accord du gestionnaire : ce classement peut appuyer la demande.</p>`;
+  z.querySelectorAll('[data-couv-routier]').forEach((b) => (b.onclick = () => { const x = r.sites[Number(b.dataset.couvRoutier)]; voirCouvertureSite({ lat: x.lat, lon: x.lon }, x.nom, r.h, { cadrer: true }); }));
+}
+
 // ---- Déplacer des relais existants ------------------------------------------------------------------------
 async function optimiserRelais(rayon, acces, recalculer) {
   $('#fiche').hidden = false;
@@ -2376,6 +2425,11 @@ async function rendreSites() {
       </div>
       <div class="actions-prop"><button id="budget-calculer" class="principal">Où poser mes relais ?</button></div>
     </div>
+    <div class="bloc-plan" id="bloc-routiers">
+      <h3>🛣️ Sites routiers (Département, DIR)</h3>
+      <p class="note">Webcams et stations routières : souvent un mât, l’électricité, parfois une liaison réseau. Classement selon la surface qu’un relais y couvrirait en plus du réseau actuel, de quoi préparer une demande au Département ou à la DIR Massif Central.</p>
+      <div class="actions-prop"><button id="routiers-evaluer" class="principal">Évaluer ces sites pour des relais</button></div>
+    </div>
     <div class="bloc-plan" id="bloc-deplacer">
       <h3>🔀 Déplacer des relais existants</h3>
       <p class="note">Pour chaque relais (rôle routeur), la carte cherche les points hauts proches où il couvrirait plus de surface, sans perdre le contact radio avec le réseau.</p>
@@ -2426,6 +2480,8 @@ async function rendreSites() {
   const bcr = $('#sites-couv-reseau'); if (bcr) bcr.onclick = couvertureReseau;
   const bcm = $('#sites-couv-mesuree'); if (bcm) bcm.onclick = () => couvertureMesuree();
   z.querySelectorAll('[data-outil]').forEach((b) => (b.onclick = () => { const t = $('#' + b.dataset.outil); if (t) t.click(); }));
+  const br = $('#routiers-evaluer');
+  if (br) br.onclick = () => evaluerRoutiers();
   const bd = $('#dep-calculer');
   if (bd) bd.onclick = () => optimiserRelais(Number($('#dep-rayon').value), $('#dep-acces').value);
   const bb = $('#budget-calculer');
@@ -4125,7 +4181,7 @@ function brancherInterface() {
     const c = b.dataset.couche;
     etat.couches[c] = !etat.couches[c];
     b.classList.toggle('actif', etat.couches[c]);
-    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
+    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
   }));
   $('#filtres').onclick = (e) => {
     const b = e.target.closest('button[data-port]');
