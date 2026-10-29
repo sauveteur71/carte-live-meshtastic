@@ -71,6 +71,13 @@ function creerInstallations(dossier) {
       return { h: f.hauteur, gain: f.gain, pertes: f.pertesCable, ptx: f.puissance };
     },
     toutes: () => donnees,
+    // Nœud renuméroté : la fiche passe au nouveau numéro (si celui-ci n'en a pas déjà une)
+    deplacer(ancien, nouveau) {
+      const a = String(ancien >>> 0), n = String(nouveau >>> 0);
+      if (!donnees[a] || donnees[n]) return false;
+      donnees[n] = donnees[a]; delete donnees[a]; sauver();
+      return true;
+    },
     PRIVES,
   };
 }

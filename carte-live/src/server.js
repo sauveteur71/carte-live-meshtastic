@@ -688,7 +688,7 @@ app.post('/api/radio/scanner', async (req, res) => {
 const tacheDuSecteur = (req, t) => !!t && peutGererTous(req, (t.noeuds || []).map((n) => n.num));
 app.get('/api/admin-noeuds', (req, res) => {
   if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
-  res.json({ ...administration.infos(), secteur: estAdmin(req) ? null : utilisateur(req).noeuds, taches: administration.taches().filter((t) => tacheDuSecteur(req, t)), roles: administration.ROLES, presets: administration.PRESETS, rediffusions: administration.REDIFFUSIONS, regions: administration.REGIONS, elements: administration.ELEMENTS, administrables: administration.administrables(), lectures: administration.lecturesConnues() });
+  res.json({ ...administration.infos(), secteur: estAdmin(req) ? null : utilisateur(req).noeuds, taches: administration.taches().filter((t) => tacheDuSecteur(req, t)), roles: administration.ROLES, signatures: administration.SIGNATURES, presets: administration.PRESETS, rediffusions: administration.REDIFFUSIONS, regions: administration.REGIONS, elements: administration.ELEMENTS, administrables: administration.administrables(), lectures: administration.lecturesConnues() });
 });
 app.post('/api/admin-noeuds/taches', (req, res) => {
   const u = utilisateur(req);
@@ -826,6 +826,80 @@ app.post('/api/admin-noeuds/conformite-auto', (req, res) => {
     if ((req.body || {}).maintenant) { const u = utilisateur(req); return res.json({ ...c, tache: administration.lancerConformite(u.identifiant).id }); }
     res.json(c);
   } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+
+// ---- Favoris entre relais (sauts gratuits), modèles de programmation, YAML, firmware 2.8 ----------------------
+let favorisPlan = null, modeles = null, renumerotation = null;
+const obtenirFavoris = () => favorisPlan || (favorisPlan = require('./favoris').creerFavoris({ stockage, config, administration }));
+const obtenirModeles = () => modeles || (modeles = require('./modeles').creerModeles(path.dirname(config.fichierBase), { ROLES: administration.ROLES, REDIFFUSIONS: administration.REDIFFUSIONS }));
+const obtenirRenumerotation = () => renumerotation || (renumerotation = require('./renumerotation').creerRenumerotation({ stockage, config, installations, comptes, administration, journal }));
+app.get('/api/admin-noeuds/favoris', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const p = obtenirFavoris().plan({ jours: Math.min(30, Math.max(1, Number(req.query.jours) || 7)) });
+  p.recepteurs = p.recepteurs.filter((r) => peutGerer(req, r.num));
+  res.set('Cache-Control', 'no-store').json(p);
+});
+app.get('/api/admin-noeuds/modeles', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.json({ modeles: obtenirModeles().liste() });
+});
+app.post('/api/admin-noeuds/modeles', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const u = utilisateur(req);
+  try { res.json(obtenirModeles().enregistrer(req.body || {}, u.indicatif || u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.delete('/api/admin-noeuds/modeles/:id', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { obtenirModeles().supprimer(req.params.id); res.json({ ok: true }); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/admin-noeuds/modeles/import', express.text({ type: '*/*', limit: '200kb' }), (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { res.json(obtenirModeles().importerYaml(typeof req.body === 'string' ? req.body : (req.body && req.body.yaml) || '')); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+// Applique un modèle : une opération « modifier » par nœud (et, si le modèle le prévoit, les favoris des routeurs voisins)
+app.post('/api/admin-noeuds/modeles/:id/appliquer', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const u = utilisateur(req), cibles = ((req.body || {}).cibles || []).map((x) => Number(x) >>> 0).filter(Boolean);
+  if (!cibles.length) return res.status(400).json({ erreur: 'Aucun nœud choisi' });
+  if (cibles.length > 20) return res.status(400).json({ erreur: '20 nœuds au maximum à la fois' });
+  if (!peutGererTous(req, cibles)) return refuserSecteur(res);
+  try {
+    const m = obtenirModeles().obtenir(req.params.id);
+    const params = obtenirModeles().versParams(req.params.id);
+    const taches = cibles.map((c) => administration.lancer('modifier', [c], params, u.identifiant).id);
+    let favoris = null;
+    if (m.favoris && (req.body || {}).favoris !== false) {
+      const plan = {};
+      for (const r of obtenirFavoris().plan().recepteurs) if (cibles.includes(r.num)) { const a = r.favoris.filter((f) => !f.pose).map((f) => f.num); if (a.length) plan[r.num] = { ajouter: a }; }
+      // Le rôle change avec le modèle : un nœud qui devient récepteur (ROUTER, ROUTER_LATE, CLIENT_BASE) n'est pas encore dans le plan
+      if (Object.keys(plan).length) favoris = administration.lancer('favoris', Object.keys(plan).map(Number), { plan }, u.identifiant).id;
+    }
+    res.json({ taches, favoris });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+// Export YAML (format `meshtastic --export-config`) de la dernière lecture d'un nœud
+app.get('/api/admin-noeuds/lecture/:num/yaml', async (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const num = Number(req.params.num) >>> 0;
+  if (!peutGerer(req, num)) return refuserSecteur(res);
+  const d = administration.detailLecture(num);
+  if (!d || !d.device) return res.status(404).json({ erreur: 'Configuration pas encore lue : lisez-la d’abord (Programmer › Lire sa configuration)' });
+  let canalUrl = null;
+  if (req.query.canaux === '1') { try { const q = await require('./reglages-noeuds').qr(num, {}); canalUrl = q && q.url; } catch { /* pas de canaux connus */ } }
+  const n = stockage.q.noeud.get(num);
+  const texte = obtenirModeles().exporterYaml(d, { canalUrl, position: n && n.lat != null ? { lat: n.lat, lon: n.lon, alt: n.alt } : null, nom: (n && (n.nom_long || n.nom_court)) || d.id, source: 'de la carte ' + (config.zoneNom || '') });
+  audit.noter(nomCompte(utilisateur(req)), req.ip, 'export YAML', `${d.id}${canalUrl ? ' (avec les clés des canaux)' : ''}`, true);
+  res.set('Content-Type', 'text/yaml; charset=utf-8').set('Content-Disposition', `attachment; filename="${(n && (n.nom_court || n.nom_long) || d.id).replace(/[^\w.-]+/g, '_')}-config.yaml"`).set('Cache-Control', 'no-store').send(texte);
+});
+// Firmware 2.8 : nœuds renumérotés (même clé publique, nouveau numéro), clés en double, réglages coupés par la 2.8
+app.get('/api/admin-noeuds/v28', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.set('Cache-Control', 'no-store').json({ ...obtenirRenumerotation().detecter(), ...maintenance.v28() });
+});
+app.post('/api/admin-noeuds/fusion', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const u = utilisateur(req), b = req.body || {};
+  try { res.json(obtenirRenumerotation().fusionner(Number(b.ancien), Number(b.nouveau), u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 
 // Rapport hebdomadaire (membres) : page imprimable des 7 derniers jours, archives du lundi

@@ -168,6 +168,18 @@ function creerComptes(db, config) {
       if (!q.parId.get(id)) throw new Error('Compte inconnu');
       q.noeuds.run(JSON.stringify(normaliserNoeuds(liste)), id);
     },
+    // Nœud renuméroté (firmware 2.8) : les secteurs des gestionnaires suivent le nouveau numéro
+    remplacerNoeud(ancien, nouveau) {
+      const a = String(ancien >>> 0), n = String(nouveau >>> 0);
+      let nb = 0;
+      for (const c of q.tous.all()) {
+        const l = lireNoeuds(c.noeuds);
+        if (!l.includes(a)) continue;
+        q.noeuds.run(JSON.stringify([...new Set(l.map((x) => (x === a ? n : x)))]), c.id);
+        nb++;
+      }
+      return nb;
+    },
     changerRole(id, role) {
       if (!ROLES.includes(role)) throw new Error('Rôle inconnu');
       const c = q.parId.get(id);

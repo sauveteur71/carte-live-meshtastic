@@ -141,7 +141,10 @@ function creerReseau(stockage, config) {
 
       // Contenu applicatif (une seule fois par paquet)
       if (premiereReception) {
-        if (evt.utilisateur) q.infos.run({ num: evt.de, ...evt.utilisateur, firmware: null, preset: null });
+        if (evt.utilisateur) {
+          q.infos.run({ num: evt.de, ...evt.utilisateur, firmware: null, preset: null });
+          if (evt.utilisateur.cle) q.clePublique.run(evt.utilisateur.cle, evt.de, evt.utilisateur.cle);
+        }
         if (evt.rapportCarte) {
           const m = evt.rapportCarte;
           q.infos.run({ num: evt.de, nomLong: m.nomLong, nomCourt: m.nomCourt, materiel: m.materiel, role: m.role, firmware: m.firmware, preset: m.preset });

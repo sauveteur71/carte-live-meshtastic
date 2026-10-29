@@ -16,6 +16,11 @@ const REGIONS_ENUM = racine.lookupEnum('meshtastic.Config.LoRaConfig.RegionCode'
 const PRESETS_ENUM = racine.lookupEnum('meshtastic.Config.LoRaConfig.ModemPreset').values;
 const TYPES_CONFIG = { device: 0, position: 1, power: 2, network: 3, display: 4, lora: 5, bluetooth: 6, security: 7 };
 const PORT_ADMIN = 6, PORT_ROUTAGE = 5;
+const SIGNATURES_ENUM = (() => { try { return racine.lookupEnum('meshtastic.Config.SecurityConfig.PacketSignaturePolicy').values; } catch { return {}; } })();
+const MODULE_TELEMETRIE = 5, MODULE_TRAFIC = 14; // AdminMessage.ModuleConfigType
+// Version de firmware « a.b.c » → [a, b, c] ; vrai si v ≥ min
+const versionTab = (v) => { const m = /(\d+)\.(\d+)\.(\d+)/.exec(String(v || '')); return m ? [+m[1], +m[2], +m[3]] : null; };
+const auMoins = (v, min) => { const a = versionTab(v), b = versionTab(min); if (!a || !b) return false; for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i]; return true; };
 
 const journal = (...a) => console.log(new Date().toISOString(), '[Administration]', ...a);
 const versObjet = (type, m) => type.toObject(m, { longs: Number, enums: String, bytes: String, defaults: true });
@@ -183,12 +188,32 @@ function creerAdministration(radio, stockage) {
           journalTache(`module Voisinage lu (${l.voisinage.enabled ? 'activé' : 'désactivé'})`);
         } catch (e) { if (e.arret) throw e; journalTache('module Voisinage : non lu (' + e.message.split(' — ')[0] + ')'); }
       }
+      // Module Télémétrie (intervalle des mesures de l'appareil ; 2.8 : envoi désactivable)
+      if (!l.telemetrie && (!sections || sections.includes('telemetrie'))) {
+        try {
+          const m = (await demande({ getModuleConfigRequest: MODULE_TELEMETRIE }, 'module Télémétrie')).getModuleConfigResponse;
+          const t = versObjet(racine.lookupType('meshtastic.ModuleConfig'), m).telemetry || {};
+          l.telemetrie = { deviceUpdateInterval: t.deviceUpdateInterval || 0, deviceTelemetryEnabled: !!t.deviceTelemetryEnabled };
+          l.heure = Date.now(); sauverLectures();
+          journalTache(`module Télémétrie lu (toutes les ${l.telemetrie.deviceUpdateInterval || 'défaut'} s)`);
+        } catch (e) { if (e.arret) throw e; journalTache('module Télémétrie : non lu (' + e.message.split(' — ')[0] + ')'); }
+      }
+      // Gestion du trafic (firmware 2.8) : seulement si le nœud est en 2.8 ou plus
+      const fwLu = l.materiel && l.materiel.firmwareVersion;
+      if (!l.trafic && auMoins(fwLu, '2.8.0') && (!sections || sections.includes('trafic'))) {
+        try {
+          const m = (await demande({ getModuleConfigRequest: MODULE_TRAFIC }, 'gestion du trafic')).getModuleConfigResponse;
+          l.trafic = versObjet(racine.lookupType('meshtastic.ModuleConfig'), m).trafficManagement || {};
+          l.heure = Date.now(); sauverLectures();
+          journalTache('module Gestion du trafic lu');
+        } catch (e) { if (e.arret) throw e; journalTache('gestion du trafic : non lue (' + e.message.split(' — ')[0] + ')'); }
+      }
       // Sécurité : clés d'administration autorisées (la clé privée n'est jamais gardée)
       if (!l.securite && (!sections || sections.includes('securite'))) {
         try {
           const sc = versObjet(Config, (await demande({ getConfigRequest: TYPES_CONFIG.security }, 'sécurité')).getConfigResponse).security || {};
           const b64 = (x) => (x ? Buffer.from(typeof x === 'string' ? Buffer.from(x, 'base64') : x).toString('base64') : null);
-          l.securite = { adminKeys: (sc.adminKey || []).map(b64).filter((x) => x && x !== 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='), clePublique: b64(sc.publicKey), gere: !!sc.isManaged, canalAdmin: !!sc.adminChannelEnabled };
+          l.securite = { adminKeys: (sc.adminKey || []).map(b64).filter((x) => x && x !== 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='), clePublique: b64(sc.publicKey), gere: !!sc.isManaged, canalAdmin: !!sc.adminChannelEnabled, signature: sc.packetSignaturePolicy || 'PACKET_SIGNATURE_POLICY_COMPATIBLE' };
           l.heure = Date.now(); sauverLectures();
           noterCles(dest, l.securite);
           journalTache(`sécurité lue (${l.securite.adminKeys.length} clé(s) d’administration)`);
@@ -217,6 +242,8 @@ function creerAdministration(radio, stockage) {
     return {
       num: dest, id: idNoeud(dest), heure: l.heure, complet: !!(l.canauxFin && ETAPES_FIXES.every(([k]) => l[k])),
       materiel: l.materiel || null, proprietaire: l.proprietaire || null, device: l.device || null, lora: l.lora || null, position: l.position || null, voisinage: l.voisinage || null,
+      telemetrie: l.telemetrie || null, trafic: l.trafic || null, signature: l.securite ? l.securite.signature || null : null,
+      firmware: (l.materiel && l.materiel.firmwareVersion) || null,
       canaux: (l.canauxBruts || []).filter((ch) => ch && ch.role !== 'DISABLED').map((ch) => ({ index: ch.index, role: ch.role, nom: ch.settings.name, psk: ch.settings.psk, montant: ch.settings.uplinkEnabled, descendant: ch.settings.downlinkEnabled, precision: ch.settings.moduleSettings ? ch.settings.moduleSettings.positionPrecision : 0 })),
       canauxComplets: !!l.canauxFin,
     };
@@ -414,6 +441,20 @@ function creerAdministration(radio, stockage) {
     return r;
   }
   function entier(v, min, max) { const n = Number(v); if (!Number.isInteger(n) || n < min || n > max) throw new Error(`Valeur hors limites (${min} à ${max})`); return n; }
+  // Module Télémétrie : intervalle des mesures de l'appareil, envoi sur le maillage (désactivé par défaut en 2.8 sur canal public)
+  function valeursTelemetrie(v) {
+    const r = {};
+    if ('deviceUpdateInterval' in v) { const n = Number(v.deviceUpdateInterval); if (!Number.isInteger(n) || !(n === 0 || (n >= 900 && n <= 86400 * 7))) throw new Error('Intervalle de télémétrie : 0 (défaut) ou de 15 min (900 s) à 7 jours'); r.deviceUpdateInterval = n; }
+    if ('deviceTelemetryEnabled' in v) r.deviceTelemetryEnabled = !!v.deviceTelemetryEnabled;
+    return r;
+  }
+  // Gestion du trafic (2.8) : une valeur à 0 désactive la fonction correspondante
+  const CHAMPS_TRAFIC = { positionMinIntervalSecs: [0, 86400 * 7], nodeinfoDirectResponseMaxHops: [0, 7], rateLimitWindowSecs: [0, 86400], rateLimitMaxPackets: [0, 1000], unknownPacketThreshold: [0, 1000] };
+  function valeursTrafic(v) {
+    const r = {};
+    for (const [k, [min, max]] of Object.entries(CHAMPS_TRAFIC)) if (k in v) r[k] = entier(v[k], min, max);
+    return r;
+  }
   async function definirConfig(dest, p) {
     const section = p.section;
     if (section === 'voisinage') {
@@ -447,7 +488,14 @@ function creerAdministration(radio, stockage) {
     const canaux = Array.isArray(p.canaux) ? p.canaux : [];
     const sections = ['device', 'lora', 'position'].filter((k) => p[k] && Object.keys(p[k]).length);
     const voisinage = p.voisinage && Object.keys(p.voisinage).length ? valeursVoisinage(p.voisinage) : null;
-    if (!canaux.length && !sections.length && !p.nom && !voisinage) throw new Error('Aucune modification');
+    const telemetrie = p.telemetrie && Object.keys(p.telemetrie).length ? valeursTelemetrie(p.telemetrie) : null;
+    const trafic = p.trafic && Object.keys(p.trafic).length ? valeursTrafic(p.trafic) : null;
+    let signature = null;
+    if (p.securite && p.securite.packetSignaturePolicy) {
+      if (!(p.securite.packetSignaturePolicy in SIGNATURES_ENUM)) throw new Error('Politique de signature inconnue');
+      signature = p.securite.packetSignaturePolicy;
+    }
+    if (!canaux.length && !sections.length && !p.nom && !voisinage && !telemetrie && !trafic && !signature) throw new Error('Aucune modification');
     // Valeurs vérifiées avant tout envoi
     const valeurs = {};
     for (const k of sections) {
@@ -460,6 +508,16 @@ function creerAdministration(radio, stockage) {
     const c0 = canaux.find((c) => Number(c.index) === 0);
     if (c0 && p.confirmation !== CONFIRMATION_PRINCIPAL) throw new Error(`Confirmation manquante pour le canal 0 : tapez « ${CONFIRMATION_PRINCIPAL} »`);
     await assurerSession(dest);
+    // Réglages 2.8 (gestion du trafic, signature) : refusés sur un firmware plus ancien.
+    // Sécurité : en 2.7, renvoyer la configuration sécurité sans la clé privée régénère les clés du nœud
+    // (nouvelle identité, contact perdu) ; seul le 2.8.1 et plus garde ses clés : on l'exige.
+    if (trafic || signature) {
+      const meta = (await admin(dest, { getDeviceMetadataRequest: true })).getDeviceMetadataResponse || {};
+      const fw = meta.firmwareVersion;
+      if (trafic && !auMoins(fw, '2.8.0')) throw new Error(`Gestion du trafic : firmware 2.8 requis (nœud en ${fw || 'version inconnue'})`);
+      if (signature && !auMoins(fw, '2.8.1')) throw new Error(`Politique de signature : firmware 2.8.1 requis (nœud en ${fw || 'version inconnue'}) — en dessous, modifier la sécurité à distance changerait ses clés`);
+      journalTache(`firmware ${fw} : réglages 2.8 acceptés`);
+    }
     // Garde-fou canal 0 : sur un nœud distant, la fréquence ne doit pas dépendre du nom du canal principal
     if (c0 && !local) {
       const lo = versObjet(Config, (await admin(dest, { getConfigRequest: TYPES_CONFIG.lora })).getConfigResponse).lora || {};
@@ -491,6 +549,25 @@ function creerAdministration(radio, stockage) {
       await admin(dest, { setModuleConfig: { neighborInfo: { ...actuel, ...voisinage } } }, { reponse: false });
       journalTache(`module Voisinage envoyé (${Object.entries(voisinage).map(([k, v]) => k + ' = ' + v).join(', ')})`);
     }
+    if (telemetrie) {
+      const ModuleConfig = racine.lookupType('meshtastic.ModuleConfig');
+      const actuel = versObjet(ModuleConfig, (await admin(dest, { getModuleConfigRequest: MODULE_TELEMETRIE })).getModuleConfigResponse).telemetry || {};
+      await admin(dest, { setModuleConfig: { telemetry: { ...actuel, ...telemetrie } } }, { reponse: false });
+      journalTache(`module Télémétrie envoyé (${Object.entries(telemetrie).map(([k, v]) => k + ' = ' + v).join(', ')})`);
+    }
+    if (trafic) {
+      const ModuleConfig = racine.lookupType('meshtastic.ModuleConfig');
+      const actuel = versObjet(ModuleConfig, (await admin(dest, { getModuleConfigRequest: MODULE_TRAFIC })).getModuleConfigResponse).trafficManagement || {};
+      await admin(dest, { setModuleConfig: { trafficManagement: { ...actuel, ...trafic } } }, { reponse: false });
+      journalTache(`gestion du trafic envoyée (${Object.entries(trafic).map(([k, v]) => k + ' = ' + v).join(', ')})`);
+    }
+    if (signature) {
+      // Configuration sécurité relue juste avant (clés d'admin conservées ; la clé privée n'est pas transmise à distance)
+      const sc = (await admin(dest, { getConfigRequest: TYPES_CONFIG.security })).getConfigResponse.security;
+      if (!sc) throw new Error('Configuration sécurité illisible');
+      await admin(dest, { setConfig: { security: { ...sc, packetSignaturePolicy: SIGNATURES_ENUM[signature] } } }, { reponse: false });
+      journalTache(`politique de signature → ${signature.replace('PACKET_SIGNATURE_POLICY_', '').toLowerCase()}`);
+    }
     for (const c of canaux.sort((a, b) => b.index - a.index)) { // les canaux supprimés d'abord, en partant de la fin
       const index = Number(c.index);
       if (!Number.isInteger(index) || index < 0 || index > 7) throw new Error('Canal invalide');
@@ -518,7 +595,7 @@ function creerAdministration(radio, stockage) {
     // Relecture de contrôle de ce qui a changé
     await new Promise((r) => setTimeout(r, local ? 15000 : 25000));
     clesSession.delete(dest);
-    const aRelire = [...sections, ...(canaux.length ? ['canaux'] : []), ...(p.nom ? ['proprietaire'] : []), ...(voisinage ? ['voisinage'] : [])];
+    const aRelire = [...sections, ...(canaux.length ? ['canaux'] : []), ...(p.nom ? ['proprietaire'] : []), ...(voisinage ? ['voisinage'] : []), ...(telemetrie ? ['telemetrie'] : []), ...(trafic ? ['trafic'] : []), ...(signature ? ['securite'] : [])];
     for (let essai = 1; essai <= 3; essai++) {
       try {
         await lire(dest, journalTache, { sections: aRelire });
@@ -634,6 +711,37 @@ function creerAdministration(radio, stockage) {
     return { version, nouvelle: null, detail: 'envoyé, module pas encore revenu sur le Wi-Fi' };
   }
 
+  // ---- Favoris (« sauts gratuits », firmware 2.7.11+) --------------------------------------------
+  // Un ROUTER, ROUTER_LATE ou CLIENT_BASE ne décompte pas le saut d'un paquet relayé par un routeur de ses favoris.
+  // Le firmware ne permet pas de relire les favoris à distance : on garde ce qui a été posé (/data/favoris.json).
+  const fFavoris = require('path').join(require('path').dirname(require('./config').fichierBase), 'favoris.json');
+  let favoris = {};
+  try { favoris = JSON.parse(require('fs').readFileSync(fFavoris, 'utf8')); } catch { /* aucun */ }
+  const sauverFavoris = () => { try { require('fs').writeFileSync(fFavoris, JSON.stringify(favoris)); } catch { /* lecture seule */ } };
+  async function definirFavoris(dest, p, journalTache) {
+    dest = dest >>> 0;
+    const plan = (p.plan || {})[dest] || (p.plan || {})[String(dest)] || {};
+    const ajouter = [...new Set((plan.ajouter || []).map((x) => Number(x) >>> 0))].filter((x) => x && x !== dest);
+    const retirer = [...new Set((plan.retirer || []).map((x) => Number(x) >>> 0))].filter((x) => x && x !== dest);
+    if (!ajouter.length && !retirer.length) throw new Error('Aucun favori à poser pour ce nœud');
+    await assurerSession(dest);
+    const k = String(dest);
+    favoris[k] = favoris[k] || {};
+    for (const f of ajouter) {
+      await admin(dest, { setFavoriteNode: f }, { reponse: false });
+      favoris[k][f] = { heure: Date.now(), par: p.auteur || null };
+      sauverFavoris();
+      journalTache(`favori ajouté : ${idNoeud(f)}`);
+    }
+    for (const f of retirer) {
+      await admin(dest, { removeFavoriteNode: f }, { reponse: false });
+      delete favoris[k][f];
+      sauverFavoris();
+      journalTache(`favori retiré : ${idNoeud(f)}`);
+    }
+    return { ajoutes: ajouter.length, retires: retirer.length };
+  }
+
   async function redemarrer(dest) {
     await assurerSession(dest);
     await admin(dest, { rebootSeconds: 5 }, { reponse: false });
@@ -649,6 +757,7 @@ function creerAdministration(radio, stockage) {
     nom: { nom: 'Nom du nœud', f: definirNom },
     config: { nom: 'Configuration', f: definirConfig },
     redemarrer: { nom: 'Redémarrage', f: redemarrer },
+    favoris: { nom: 'Favoris entre relais', f: (d, p, j) => definirFavoris(d, p, j) },
     firmware: { nom: 'Mise à jour du firmware (Wi-Fi)', f: (d, p, j) => mettreAJourFirmware(d, p, j) },
     echanger: { nom: 'Envoi de la fiche du module', f: async (d) => { await enFile(async () => { echangerInfos(d); await new Promise((r) => setTimeout(r, 3000)); }); } },
   };
@@ -667,6 +776,7 @@ function creerAdministration(radio, stockage) {
       cibles = [ref, ...cibles.filter((c) => c !== ref)]; // la référence est lue en premier
       if (cibles.length < 2) throw new Error('Choisissez au moins un nœud à comparer à la référence');
     }
+    if (type === 'favoris') params = { ...(params || {}), auteur };
     const id = crypto.randomBytes(6).toString('hex');
     const tache = { id, type, nom: op.nom, auteur, debut: Date.now(), fin: null, params, noeuds: cibles.map((num) => ({ num, statut: 'en_attente', detail: null, resultat: null })) };
     taches.set(id, tache);
@@ -705,7 +815,7 @@ function creerAdministration(radio, stockage) {
             n.resultat = await executer(true); // une lecture reprend là où elle s'était arrêtée
           }
           n.statut = 'ok';
-          n.detail = type === 'firmware' ? (n.resultat && n.resultat.nouvelle ? `firmware ${n.resultat.nouvelle} installé` : (n.resultat && n.resultat.detail) || 'firmware envoyé') : type === 'modifier' ? 'modifié et relu' : type === 'verifier' ? (n.resultat.reference ? 'référence lue' : n.resultat.conforme ? 'conforme' : `${n.resultat.ecarts.length} écart(s)`) : type === 'lire' ? 'configuration lue' : n.resultat && n.resultat.canal0 ? `canal 0 « ${n.resultat.ancien || 'preset'} » → « ${n.resultat.canal0} », vérifié` : 'appliqué (accusé reçu)';
+          n.detail = type === 'favoris' ? `${n.resultat.ajoutes} favori(s) posé(s)${n.resultat.retires ? `, ${n.resultat.retires} retiré(s)` : ''}` : type === 'firmware' ? (n.resultat && n.resultat.nouvelle ? `firmware ${n.resultat.nouvelle} installé` : (n.resultat && n.resultat.detail) || 'firmware envoyé') : type === 'modifier' ? 'modifié et relu' : type === 'verifier' ? (n.resultat.reference ? 'référence lue' : n.resultat.conforme ? 'conforme' : `${n.resultat.ecarts.length} écart(s)`) : type === 'lire' ? 'configuration lue' : n.resultat && n.resultat.canal0 ? `canal 0 « ${n.resultat.ancien || 'preset'} » → « ${n.resultat.canal0} », vérifié` : 'appliqué (accusé reçu)';
         } catch (e) {
           if (e.partiel) n.resultat = e.partiel;
           n.statut = e.arret || tache.arret ? 'annule' : 'echec';
@@ -856,9 +966,10 @@ function creerAdministration(radio, stockage) {
     if (t.type === 'canal') return p.role === 'DISABLED' ? `suppression du canal ${p.index}` : `canal ${p.index} « ${p.nom || ''} »${Number(p.index) === 0 ? ' (principal)' : ''}`;
     if (t.type === 'config') return `${p.section} : ${Object.entries(p.valeurs || {}).map(([k, v]) => k + '=' + v).join(', ')}`;
     if (t.type === 'nom') return [p.nomLong, p.nomCourt].filter(Boolean).join(' / ');
-    if (t.type === 'modifier') return [p.nom ? 'nom' : '', p.voisinage ? 'voisinage (' + Object.keys(p.voisinage).join(', ') + ')' : '', ...['device', 'lora', 'position'].filter((k) => p[k] && Object.keys(p[k]).length).map((k) => k + ' (' + Object.keys(p[k]).join(', ') + ')'), p.canaux && p.canaux.length ? 'canaux ' + p.canaux.map((c) => c.index).join(', ') : ''].filter(Boolean).join(' · ');
+    if (t.type === 'modifier') return [p.modele ? `modèle « ${p.modele} »` : '', p.nom ? 'nom' : '', p.voisinage ? 'voisinage (' + Object.keys(p.voisinage).join(', ') + ')' : '', p.telemetrie ? 'télémétrie' : '', p.trafic ? 'gestion du trafic' : '', p.securite ? 'signature' : '', ...['device', 'lora', 'position'].filter((k) => p[k] && Object.keys(p[k]).length).map((k) => k + ' (' + Object.keys(p[k]).join(', ') + ')'), p.canaux && p.canaux.length ? 'canaux ' + p.canaux.map((c) => c.index).join(', ') : ''].filter(Boolean).join(' · ');
     if (t.type === 'verifier') return `référence ${idNoeud(p.reference)} · ${(p.elements || []).map((k) => (ELEMENTS[k] || {}).nom || k).join(', ')}`;
     if (t.type === 'firmware') return `vers ${p.version}`;
+    if (t.type === 'favoris') { const v = Object.values(p.plan || {}); return `${v.reduce((a, x) => a + (x.ajouter || []).length, 0)} favori(s) à poser sur ${v.length} relais`; }
     if (t.type === 'position') return p.retirer ? 'retrait de la position fixe' : `${p.lat}, ${p.lon}`;
     return '';
   }
@@ -944,6 +1055,17 @@ function creerAdministration(radio, stockage) {
     relancer,
     ELEMENTS: Object.fromEntries(Object.entries(ELEMENTS).map(([k, v]) => [k, v.nom])),
     administrables: () => administrables,
+    favoris: () => favoris,
+    // Nœud renuméroté (2.8) : son état d'administration, sa dernière lecture et ses favoris suivent le nouveau numéro
+    renumeroter(ancien, nouveau) {
+      const a = String(ancien >>> 0), n = String(nouveau >>> 0);
+      if (administrables[a] && !administrables[n]) { administrables[n] = administrables[a]; delete administrables[a]; try { require('fs').writeFileSync(fAdmin, JSON.stringify(administrables)); } catch { /* lecture seule */ } }
+      if (lectures.has(ancien >>> 0) && !lectures.has(nouveau >>> 0)) { lectures.set(nouveau >>> 0, lectures.get(ancien >>> 0)); lectures.delete(ancien >>> 0); sauverLectures(); }
+      if (favoris[a] && !favoris[n]) { favoris[n] = favoris[a]; delete favoris[a]; }
+      for (const f of Object.values(favoris)) if (f[a]) { f[n] = f[a]; delete f[a]; }
+      sauverFavoris();
+    },
+    SIGNATURES: Object.keys(SIGNATURES_ENUM),
     etatCles,
     modulesCles: () => modulesCles,
     lecturesConnues: () => [...lectures.entries()].map(([num, l]) => ({ num, heure: l.heure, complete: !!(l.canauxFin && l.lora && l.device) })),

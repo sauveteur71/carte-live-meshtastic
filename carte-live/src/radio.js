@@ -198,7 +198,10 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
     stockage.assurerNoeud(num, vu || maintenant);
     if (n.user) {
       const u = n.user;
-      if (u.publicKey && u.publicKey.length === 32) clesPubliques.set(num, Buffer.from(u.publicKey).toString('base64'));
+      if (u.publicKey && u.publicKey.length === 32) {
+        clesPubliques.set(num, Buffer.from(u.publicKey).toString('base64'));
+        try { q.clePublique.run(clesPubliques.get(num), num, clesPubliques.get(num)); } catch { /* ancienne base */ }
+      }
       if (num === etat.noeudLocal) utilisateurLocal = u; // fiche du module (envoyée aux nœuds qui ne le connaissent pas)
       q.infos.run({
         num,

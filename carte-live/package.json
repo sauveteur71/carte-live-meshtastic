@@ -1,6 +1,6 @@
 {
   "name": "carte-live-meshtastic",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Carte live, supervision et administration d’un réseau Meshtastic (MQTT, LoRa)",
   "main": "src/server.js",
   "type": "commonjs",
@@ -12,6 +12,7 @@
     "better-sqlite3": "^11.10.0",
     "compression": "^1.8.1",
     "express": "^4.21.2",
+    "js-yaml": "^4.1.0",
     "leaflet": "1.9.4",
     "mqtt": "^5.10.4",
     "protobufjs": "^7.4.0",

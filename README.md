@@ -2,7 +2,7 @@
 
 [![Dernière version](https://img.shields.io/github/v/release/sauveteur71/carte-live-meshtastic?label=derni%C3%A8re%20version)](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest)
 
-**Version actuelle : 1.8.0** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
+**Version actuelle : 1.9.0** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
 
 Carte en temps réel, supervision et **administration à distance** d'un réseau [Meshtastic](https://meshtastic.org) — et désormais [MeshCore](https://meshcore.co.uk) — local ou départemental : elle écoute votre broker MQTT et/ou un module radio, décode les paquets, garde l'historique et permet de programmer vos nœuds par LoRa.
 
@@ -47,6 +47,10 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - **Éditeur de réglages** complet (nom, rôle, rediffusion, LoRa, position, 8 canaux) envoyé en une seule transaction et relu pour contrôle
 - Lecture de configuration **reprenable**, opérations multi-nœuds, arrêt et « réessayer », garde-fous pour le canal principal
 - **Vérification de conformité** : comparer tous vos nœuds à une référence (canaux, précision, fréquence, preset, rediffusion…)
+- **Favoris entre relais** (« sauts gratuits », firmware 2.7.11 et plus) : la carte propose, pour chaque ROUTER, ROUTER_LATE ou CLIENT_BASE, les routeurs qu'il entend directement et les pose en favoris à distance ; un paquet relayé entre favoris ne consomme plus de saut
+- **Modèles de programmation** : réglages types par usage (relais point haut, relais de comblement, base sur toit, mobile, client fixe), modèles personnels, application à plusieurs nœuds en une fois ; **export YAML** d'un nœud au format de `meshtastic --export-config` (à remettre en USB avec `meshtastic --configure`) et **import** d'un YAML en modèle
+- **Conseiller de rôle** selon les règles de Meshtastic (ROUTER sur point haut, ROUTER_LATE seulement si indispensable, CLIENT_BASE sur un toit, seuils d'émission et d'occupation), avec bouton « Passer en… »
+- **Firmware 2.8** : nœuds renumérotés repérés par leur clé publique et fusion de leur historique, clés en double (configurations clonées), position et télémétrie coupées par la 2.8, 2.8.0 retirée ; réglages 2.8 dans l'éditeur (télémétrie, gestion du trafic, politique de signature)
 - QR code des réglages d'un nœud, messages directs ou sur un canal (un clic sur un message bascule sur son canal pour répondre)
 - Client et flasheur officiels Meshtastic intégrés (menu *Outils*)
 

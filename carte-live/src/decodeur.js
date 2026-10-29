@@ -177,6 +177,7 @@ function decoderCharge(portnum, payload) {
             materiel: MATERIELS[u.hwModel] || null,
             role: ROLES[u.role || 0] || 'CLIENT',
             licencie: !!u.isLicensed,
+            cle: u.publicKey && u.publicKey.length === 32 ? Buffer.from(u.publicKey).toString('base64') : null,
           },
         };
       }

@@ -1450,8 +1450,18 @@ async function chargerMaintenance(quoi) {
   } else if (quoi === 'roles') {
     r$.textContent = r.conseils.length ? `${r.conseils.length} conseil${r.conseils.length > 1 ? 's' : ''}` : 'rien à signaler';
     z.innerHTML = `<div class="rang">${Object.entries(r.repartition).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<span class="pastille">${esc(ROLES_LIB[k] || k)} : ${n}</span>`).join(' ')}</div>
-      ${r.conseils.map((c) => `<div class="proposition conseil-role ${c.niveau}" data-fiche="${c.num}"><div class="entete-prop"><b>${esc(c.nom)}</b><span class="marge">${esc(ROLES_LIB[c.role] || c.role)} → <b>${esc(c.conseil)}</b></span></div><div class="meta-longue">${esc(c.raison)}</div></div>`).join('') || '<div class="vide">Aucun conseil : les rôles paraissent cohérents.</div>'}
-      <p class="note">Conseils calculés d’après la couverture de chaque relais (relief)${r.relief ? '' : ' — <b>relief pas encore prêt : conseils partiels</b>'}, la densité de routeurs et les meilleurs points hauts. Pour changer un rôle : fiche du nœud › Modifier ses réglages, ou onglet Programmer.</p>`;
+      ${r.conseils.map((c) => `<div class="proposition conseil-role ${c.niveau}" data-fiche="${c.num}"><div class="entete-prop"><b>${esc(c.nom)}</b><span class="marge">${esc(ROLES_LIB[c.role] || c.role)} → <b>${esc(c.conseil)}</b></span></div><div class="meta-longue">${esc(c.raison)}</div>${c.roleCible && etat.gestion && gerable(c.num) ? `<div class="actions-prop"><button class="mini principal" data-role-num="${c.num}" data-role-cible="${esc(c.roleCible)}">Passer en ${esc(c.roleCible)}</button></div>` : ''}</div>`).join('') || '<div class="vide">Aucun conseil : les rôles paraissent cohérents.</div>'}
+      <p class="note">Conseils d’après les règles de Meshtastic : ROUTER seulement sur un point haut et dégagé, ROUTER_LATE seulement pour un site indispensable qui ne voit aucun routeur (il réémet tout), CLIENT_BASE sur un toit, CLIENT par défaut ; changer de rôle au-delà de 7-8 % d’émission ou 25 % d’occupation du canal. Calculés avec la couverture de chaque relais (relief)${r.relief ? '' : ' — <b>relief pas encore prêt : conseils partiels</b>'}, les liaisons directes, la télémétrie et les fiches d’installation (« toit » dans le champ Site).</p>`;
+    z.querySelectorAll('[data-role-num]').forEach((b) => (b.onclick = async (e) => {
+      e.stopPropagation();
+      const num = Number(b.dataset.roleNum), role = b.dataset.roleCible;
+      if (!confirm(`Passer ${nomNoeud(num)} en ${role} ? Le nœud redémarre après le changement de rôle.`)) return;
+      b.disabled = true;
+      try {
+        await postJson('/api/admin-noeuds/taches', { type: 'config', cibles: [num], params: { section: 'device', valeurs: { role } } });
+        b.textContent = 'Lancé : suivi dans Programmer › Opérations récentes';
+      } catch (err) { b.disabled = false; alert(err.message); }
+    }));
   }
   clic();
 }
@@ -3276,6 +3286,217 @@ async function ficheCles() {
     try { await postJson(`/api/noeuds/${t.dataset.note}/a-faire`, { texte: t.value }); $('#cles-retour').textContent = '✔ Note enregistrée (elle figure aussi dans la fiche d’installation).'; } catch (e) { $('#cles-retour').textContent = e.message; }
   }));
 }
+// ---- Version de firmware : vrai si v ≥ min (« 2.7.26.54e0d8d » ≥ « 2.7.11 ») ----------------------------
+function fwAuMoins(v, min) {
+  const t = (x) => { const m = /(\d+)\.(\d+)\.(\d+)/.exec(String(x || '')); return m ? [+m[1], +m[2], +m[3]] : null; };
+  const a = t(v), b = t(min);
+  if (!a || !b) return false;
+  for (let k = 0; k < 3; k++) if (a[k] !== b[k]) return a[k] > b[k];
+  return true;
+}
+const SIGNATURES_FR = {
+  PACKET_SIGNATURE_POLICY_COMPATIBLE: 'Compatible (accepte les nœuds 2.7)',
+  PACKET_SIGNATURE_POLICY_BALANCED: 'Équilibrée',
+  PACKET_SIGNATURE_POLICY_STRICT: 'Stricte (signés seulement)',
+};
+const dureeCourte = (s) => (s == null ? '–' : s === 0 ? 'défaut' : s % 3600 === 0 ? `${s / 3600} h` : s % 60 === 0 ? `${s / 60} min` : `${s} s`);
+
+// ---- Favoris entre relais : « sauts gratuits » (firmware 2.7.11+) -------------------------------------------
+async function ficheFavoris() {
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.dataset.tache = '';
+  z.innerHTML = '<div class="vide">Recherche des routeurs que chaque relais entend…</div>';
+  let r;
+  try { r = await api('/api/admin-noeuds/favoris'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const rec = r.recepteurs;
+  z.innerHTML = `<h2>⭐ Favoris entre relais</h2>
+    <p class="note">Depuis le firmware <b>2.7.11</b>, un ROUTER, ROUTER_LATE ou CLIENT_BASE <b>ne décompte pas le saut</b> d’un paquet que lui transmet un routeur de ses favoris : les paquets vont plus loin avec la même limite de sauts. Le favori se pose sur le relais <b>qui reçoit</b> ; entre deux routeurs, dans les deux sens. La carte propose, pour chaque relais, les routeurs qu’il entend directement (7 derniers jours).</p>
+    ${rec.length ? `<div class="resume-tache">${rec.length} relais · ${r.totalAPoser} favori(s) à poser</div>` + rec.map((x) => `<div class="proposition fav-recepteur">
+      <div class="entete-prop"><label class="case"><input type="checkbox" data-rec="${x.num}" ${x.aPoser && x.admin !== false ? 'checked' : ''}> <b>${esc(x.nom)}</b></label><span class="marge">${esc(ROLES_FR_ADMIN[x.role] || x.role)}${x.firmware ? ' · ' + esc(x.firmware) : ''}</span></div>
+      ${x.firmwareOk === false ? '<div class="note" style="color:var(--attention)">⚠ Firmware antérieur au 2.7.11 : les favoris seront enregistrés mais ne feront gagner des sauts qu’après la mise à jour.</div>' : ''}
+      ${x.admin === false ? '<div class="note">⛔ Ce relais a refusé les commandes du module (clé d’administration absente) : à poser sur place, dans l’appli (appui long sur le nœud › Favori).</div>' : x.admin == null ? '<div class="note">Programmation à distance pas encore essayée sur ce relais.</div>' : ''}
+      <div class="fav-liste">${x.favoris.map((f) => `<label class="case"><input type="checkbox" data-fav="${x.num}:${f.num}" ${f.pose ? '' : 'checked'}> ${esc(f.nom)} <small>${esc(ROLES_FR_ADMIN[f.role] || f.role)} · ${f.snr != null ? fmt(f.snr, 1, ' dB') : 'SNR ?'} · ${f.preuve === 'entendu' ? 'entendu directement' : 'l’entend (liaison sans doute réciproque)'}${f.pose ? ' · ✔ posé ' + ilYa(f.pose) : ''}</small></label>`).join('')}</div>
+    </div>`).join('') : '<div class="vide">Aucun relais ROUTER, ROUTER_LATE ou CLIENT_BASE de votre secteur n’entend directement un routeur ces 7 derniers jours.</div>'}
+    ${rec.length ? '<div class="actions-prop"><button id="fav-poser" class="principal">Poser les favoris cochés</button><button id="fav-tout">Tout cocher</button></div>' : ''}
+    <p class="erreur" id="fav-retour"></p>
+    <p class="note">Les ordres partent en LoRa, chiffrés, un relais à la fois. Le firmware ne permet pas de relire les favoris à distance : la carte retient ceux qu’elle a posés. Un relais n’enregistre un favori que s’il connaît déjà ce nœud. Pour voir le gain : un traceroute avant et après montre moins de sauts consommés.</p>`;
+  const bt = $('#fav-tout');
+  if (bt) bt.onclick = () => z.querySelectorAll('input[data-rec], input[data-fav]').forEach((c) => (c.checked = true));
+  const bp = $('#fav-poser');
+  if (bp) bp.onclick = async () => {
+    const plan = {};
+    z.querySelectorAll('input[data-rec]:checked').forEach((c) => {
+      const R = c.dataset.rec;
+      const a = [...z.querySelectorAll(`input[data-fav^="${R}:"]:checked`)].map((x) => Number(x.dataset.fav.split(':')[1]));
+      if (a.length) plan[R] = { ajouter: a };
+    });
+    const cibles = Object.keys(plan).map(Number);
+    if (!cibles.length) { $('#fav-retour').textContent = 'Cochez au moins un relais et un favori.'; return; }
+    const nb = Object.values(plan).reduce((t, x) => t + x.ajouter.length, 0);
+    if (!confirm(`Poser ${nb} favori(s) sur ${cibles.length} relais ? (un relais à la fois, par LoRa)`)) return;
+    try {
+      await postJson('/api/admin-noeuds/taches', { type: 'favoris', cibles, params: { plan } });
+      $('#fav-retour').textContent = 'Opération lancée : suivez-la dans Programmer › Opérations récentes.';
+      if (typeof rendreGestion === 'function') { rendreGestion(); suivreTaches(); }
+    } catch (e) { $('#fav-retour').textContent = e.message; }
+  };
+}
+
+// ---- Modèles de programmation : réglages types par usage, export / import YAML ----------------------------
+function resumeModele(m) {
+  const t = [];
+  const d = m.device || {}, l = m.lora || {}, p = m.position || {}, v = m.voisinage || {}, te = m.telemetrie || {};
+  if (d.role) t.push(`rôle ${d.role}`);
+  if (d.rebroadcastMode) t.push(`rediffusion ${d.rebroadcastMode}`);
+  if (d.nodeInfoBroadcastSecs != null) t.push(`fiche toutes les ${dureeCourte(d.nodeInfoBroadcastSecs)}`);
+  if (l.hopLimit) t.push(`${l.hopLimit} sauts`);
+  if (l.configOkToMqtt != null) t.push(`MQTT ${l.configOkToMqtt ? 'autorisé' : 'refusé'}`);
+  if (l.sx126xRxBoostedGain) t.push('réception boostée');
+  if (p.positionBroadcastSecs != null) t.push(`position ${p.positionBroadcastSmartEnabled ? 'intelligente, ' : ''}toutes les ${dureeCourte(p.positionBroadcastSecs)}`);
+  if (v.enabled != null) t.push(v.enabled ? `voisinage ${dureeCourte(v.updateInterval)}${v.transmitOverLora ? ' sur LoRa' : ''}` : 'sans voisinage');
+  if (te.deviceTelemetryEnabled != null || te.deviceUpdateInterval != null) t.push(te.deviceTelemetryEnabled === false ? 'sans télémétrie' : `télémétrie ${dureeCourte(te.deviceUpdateInterval)}`);
+  if (m.favoris) t.push('favoris des routeurs voisins');
+  return t.join(' · ');
+}
+async function ficheModeles(prerempli) {
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.dataset.tache = '';
+  let r;
+  try { r = await api('/api/admin-noeuds/modeles'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const sel = [...gestion.selection];
+  z.innerHTML = `<h2>📋 Modèles de programmation</h2>
+    <p class="note">Un modèle regroupe les réglages d’un usage (rôle, sauts, intervalles, voisinage, télémétrie). Il s’applique en une fois, nœud par nœud, avec relecture de contrôle. Les canaux et la radio (région, preset, slot) ne sont jamais touchés : utilisez la vérification de conformité pour eux.</p>
+    ${sel.length ? `<div class="alerte info-lecture">${sel.length} nœud(s) coché(s) dans Programmer : ${esc(sel.slice(0, 6).map(nomNoeud).join(', '))}${sel.length > 6 ? '…' : ''}</div>` : '<div class="note">Cochez des nœuds dans Programmer pour pouvoir leur appliquer un modèle.</div>'}
+    ${r.modeles.map((m) => `<div class="proposition modele" data-id="${esc(m.id)}">
+      <div class="entete-prop"><b>${esc(m.nom)}</b><span class="marge">${m.integre ? 'intégré' : 'personnel' + (m.auteur ? ' · ' + esc(m.auteur) : '')}</span></div>
+      ${m.description ? `<div class="meta-longue">${esc(m.description)}</div>` : ''}
+      <div class="note">${esc(resumeModele(m))}</div>
+      <div class="actions-prop">${sel.length ? `<button class="mini principal" data-appliquer="${esc(m.id)}">Appliquer à ${sel.length} nœud(s)</button>` : ''}${etat.admin ? `<button class="mini" data-copier-modele="${esc(m.id)}">${m.integre ? 'Copier pour l’adapter' : 'Modifier'}</button>${m.integre ? '' : `<button class="mini" data-suppr-modele="${esc(m.id)}">Supprimer</button>`}` : ''}</div>
+    </div>`).join('')}
+    ${etat.admin ? `<h3>Nouveau modèle</h3>
+    <div class="actions-prop"><button id="mod-nouveau">Créer un modèle…</button><label class="bouton-lien">Importer un YAML (meshtastic --export-config)<input type="file" id="mod-fichier" accept=".yaml,.yml,text/yaml,text/plain" hidden></label></div>
+    <div id="mod-edition"></div>` : ''}
+    <p class="erreur" id="mod-retour"></p>
+    <p class="note">Export : dans l’éditeur d’un nœud (✏️ Modifier ses réglages), « ⬇ YAML » donne sa configuration au format de l’outil officiel, à appliquer en USB avec <span class="mono">meshtastic --configure fichier.yaml</span> (pratique pour préparer un relais de remplacement avant de monter au point haut).</p>`;
+  z.querySelectorAll('[data-appliquer]').forEach((b) => (b.onclick = async () => {
+    const m = r.modeles.find((x) => x.id === b.dataset.appliquer);
+    if (!confirm(`Appliquer « ${m.nom} » à ${sel.length} nœud(s) ?\n${resumeModele(m)}\n\nLes nœuds enregistrent puis redémarrent si besoin ; comptez 1 à 3 min par nœud.`)) return;
+    try {
+      const x = await postJson(`/api/admin-noeuds/modeles/${encodeURIComponent(m.id)}/appliquer`, { cibles: sel });
+      $('#mod-retour').textContent = `${x.taches.length} opération(s) lancée(s)${x.favoris ? ' + pose des favoris' : ''} : suivez-les dans Programmer › Opérations récentes.`;
+      if (typeof rendreGestion === 'function') { rendreGestion(); suivreTaches(); }
+    } catch (e) { $('#mod-retour').textContent = e.message; }
+  }));
+  z.querySelectorAll('[data-copier-modele]').forEach((b) => (b.onclick = () => {
+    const m = r.modeles.find((x) => x.id === b.dataset.copierModele);
+    editerModele(m.integre ? { ...m, id: null, nom: m.nom + ' (copie)' } : m);
+  }));
+  z.querySelectorAll('[data-suppr-modele]').forEach((b) => (b.onclick = async () => {
+    if (!confirm('Supprimer ce modèle ?')) return;
+    try { await api('/api/admin-noeuds/modeles/' + encodeURIComponent(b.dataset.supprModele), { method: 'DELETE' }); ficheModeles(); } catch (e) { $('#mod-retour').textContent = e.message; }
+  }));
+  const bn = $('#mod-nouveau');
+  if (bn) bn.onclick = () => editerModele({ nom: '', device: {}, lora: {}, position: {}, voisinage: {}, telemetrie: {} });
+  const fi = $('#mod-fichier');
+  if (fi) fi.onchange = async () => {
+    const f = fi.files[0];
+    if (!f) return;
+    try {
+      const x = await api('/api/admin-noeuds/modeles/import', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: await f.text() });
+      editerModele({ nom: x.nom, ...x.reglages }, x.ignores.length ? `Ignorés (propres à un nœud) : ${x.ignores.join(', ')}. Seuls les réglages d’usage sont repris.` : '');
+    } catch (e) { $('#mod-retour').textContent = e.message; }
+    fi.value = '';
+  };
+  if (prerempli) editerModele(prerempli);
+}
+function editerModele(m, note = '') {
+  const zone = $('#mod-edition');
+  if (!zone) return;
+  const d = m.device || {}, l = m.lora || {}, p = m.position || {}, v = m.voisinage || {}, t = m.telemetrie || {};
+  const i = gestion.info || {};
+  const opt = (liste, val, fr = {}) => `<option value="">inchangé</option>` + liste.map((x) => `<option value="${x}" ${String(x) === String(val ?? '') ? 'selected' : ''}>${esc(fr[x] || x)}</option>`).join('');
+  const oui = (val) => `<option value="">inchangé</option><option value="1" ${val === true ? 'selected' : ''}>oui</option><option value="0" ${val === false ? 'selected' : ''}>non</option>`;
+  const dur = (liste, val) => `<option value="">inchangé</option>` + liste.map(([s, txt]) => `<option value="${s}" ${val === s ? 'selected' : ''}>${txt}</option>`).join('') + (val != null && !liste.some(([s]) => s === val) ? `<option value="${val}" selected>${dureeCourte(val)}</option>` : '');
+  zone.innerHTML = `<form id="f-modele" class="form-edit">
+    ${note ? `<div class="note">${esc(note)}</div>` : ''}
+    <div class="grille-edit"><label>Nom <input name="nom" maxlength="60" required value="${esc(m.nom || '')}"></label>
+      <label>Description <input name="description" maxlength="300" value="${esc(m.description || '')}"></label></div>
+    <h4>Appareil</h4><div class="grille-edit">
+      <label>Rôle <select name="role">${opt(i.roles || ['CLIENT', 'CLIENT_BASE', 'ROUTER', 'ROUTER_LATE'], d.role, ROLES_FR_ADMIN)}</select></label>
+      <label>Rediffusion <select name="rebroadcastMode">${opt(i.rediffusions || ['ALL'], d.rebroadcastMode, REDIFFUSION_FR)}</select></label>
+      <label>Fiche (NodeInfo) <select name="nodeInfoBroadcastSecs">${dur([[3600, '1 h'], [10800, '3 h'], [21600, '6 h'], [43200, '12 h'], [86400, '24 h']], d.nodeInfoBroadcastSecs)}</select></label></div>
+    <h4>LoRa (sans toucher à la fréquence ni au preset)</h4><div class="grille-edit">
+      <label>Sauts <select name="hopLimit">${opt([1, 2, 3, 4, 5, 6, 7], l.hopLimit)}</select></label>
+      <label>Autoriser MQTT <select name="configOkToMqtt">${oui(l.configOkToMqtt)}</select></label>
+      <label>Réception boostée <select name="sx126xRxBoostedGain">${oui(l.sx126xRxBoostedGain)}</select></label></div>
+    <h4>Position</h4><div class="grille-edit">
+      <label>Toutes les <select name="positionBroadcastSecs">${dur([[900, '15 min'], [1800, '30 min'], [3600, '1 h'], [10800, '3 h'], [21600, '6 h'], [43200, '12 h'], [86400, '24 h']], p.positionBroadcastSecs)}</select></label>
+      <label>Position intelligente <select name="positionBroadcastSmartEnabled">${oui(p.positionBroadcastSmartEnabled)}</select></label></div>
+    <h4>Voisinage et télémétrie</h4><div class="grille-edit">
+      <label>Voisinage <select name="voisinage"><option value="">inchangé</option><option value="off" ${v.enabled === false ? 'selected' : ''}>désactivé</option>${[[21600, true, 'toutes les 6 h, sur LoRa'], [43200, true, 'toutes les 12 h, sur LoRa'], [14400, false, 'toutes les 4 h, sans LoRa (passerelle MQTT)'], [21600, false, 'toutes les 6 h, sans LoRa']].map(([s, lo, txt]) => `<option value="${s}-${lo ? 1 : 0}" ${v.enabled && v.updateInterval === s && !!v.transmitOverLora === lo ? 'selected' : ''}>${txt}</option>`).join('')}</select></label>
+      <label>Télémétrie <select name="telemetrie"><option value="">inchangé</option><option value="off" ${t.deviceTelemetryEnabled === false ? 'selected' : ''}>désactivée</option>${[[1800, '30 min'], [3600, '1 h'], [10800, '3 h']].map(([s, txt]) => `<option value="${s}" ${t.deviceTelemetryEnabled !== false && t.deviceUpdateInterval === s ? 'selected' : ''}>toutes les ${txt}</option>`).join('')}</select></label>
+      <label class="case"><input type="checkbox" name="favoris" ${m.favoris ? 'checked' : ''}> Poser aussi les favoris des routeurs voisins</label></div>
+    <div class="actions-prop"><button type="submit" class="principal">Enregistrer le modèle</button><button type="button" id="mod-annuler">Annuler</button></div>
+  </form>`;
+  $('#mod-annuler').onclick = () => (zone.innerHTML = '');
+  $('#f-modele').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target, vv = (n) => f.elements[n].value, num = (n) => (vv(n) === '' ? undefined : Number(vv(n))), bool = (n) => (vv(n) === '' ? undefined : vv(n) === '1');
+    const corps = {
+      id: m.id || undefined, nom: vv('nom'), description: vv('description'), favoris: f.favoris.checked,
+      device: { role: vv('role') || undefined, rebroadcastMode: vv('rebroadcastMode') || undefined, nodeInfoBroadcastSecs: num('nodeInfoBroadcastSecs') },
+      lora: { hopLimit: num('hopLimit'), configOkToMqtt: bool('configOkToMqtt'), sx126xRxBoostedGain: bool('sx126xRxBoostedGain') },
+      position: { positionBroadcastSecs: num('positionBroadcastSecs'), positionBroadcastSmartEnabled: bool('positionBroadcastSmartEnabled') },
+    };
+    if (vv('voisinage') === 'off') corps.voisinage = { enabled: false };
+    else if (vv('voisinage')) { const [s, lo] = vv('voisinage').split('-'); corps.voisinage = { enabled: true, updateInterval: Number(s), transmitOverLora: lo === '1' }; }
+    if (vv('telemetrie') === 'off') corps.telemetrie = { deviceTelemetryEnabled: false };
+    else if (vv('telemetrie')) corps.telemetrie = { deviceTelemetryEnabled: true, deviceUpdateInterval: Number(vv('telemetrie')) };
+    try { await postJson('/api/admin-noeuds/modeles', corps); ficheModeles(); } catch (err) { $('#mod-retour').textContent = err.message; }
+  };
+  zone.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+// ---- Firmware 2.8 : préparation, nœuds renumérotés, clés en double -------------------------------------------
+async function ficheV28() {
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.dataset.tache = '';
+  z.innerHTML = '<div class="vide">Analyse…</div>';
+  let r;
+  try { r = await api('/api/admin-noeuds/v28'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const ligneN = (x) => `<b>${esc(x.nom)}</b> <small class="mono">${esc(x.id)}</small>`;
+  z.innerHTML = `<h2>Firmware 2.8</h2>
+    <div class="alerte attention">La 2.8.1 est encore une version de test (alpha) ; la 2.8.0 a été retirée. Meshtastic conseille d’attendre pour la plupart des nœuds. Les nœuds 2.7 et 2.8 continuent de se parler.</div>
+    <p class="note"><b>Ce qui change à la mise à jour :</b> le <b>numéro du nœud change</b> (calculé à partir de sa clé) ; <b>position et télémétrie sont coupées</b> sur les canaux publics ; les noms longs sont limités à 24 octets ; il faut souvent reconfigurer (système de fichiers modifié). <b>Avant de mettre à jour un relais</b> : exportez sa configuration (éditeur › ⬇ YAML + canaux) pour pouvoir la remettre en USB.</p>
+    <div class="grille"><div class="mesure"><span>Relais en 2.7</span><b>${r.n27}</b></div><div class="mesure"><span>Relais en 2.8</span><b>${r.n28}</b></div></div>
+    ${r.noeuds.length ? `<h3>Relais déjà en 2.8</h3>${r.noeuds.map((x) => `<div class="proposition"><div class="entete-prop"><b>${esc(x.nom)}</b><span class="marge">${esc(x.firmware || '')}</span></div>${x.problemes.length ? x.problemes.map((p) => `<div class="meta-longue" style="color:var(--${p.niveau === 'critique' ? 'critique' : 'attention'})">⚠ ${esc(p.texte)}</div>`).join('') : '<div class="note">✔ rien à signaler</div>'}<div class="actions-prop"><button class="mini" data-editer="${x.num}">✏️ Modifier ses réglages</button></div></div>`).join('')}` : ''}
+    <h3>Nœuds renumérotés</h3>
+    ${r.renumerotations.length ? r.renumerotations.map((x) => `<div class="proposition"><div>${ligneN(x.ancien)} → ${ligneN(x.nouveau)}</div>
+      <div class="note">Même clé publique. Ancien numéro vu pour la dernière fois ${ilYa(x.ancien.dernierVu)} ; nouveau apparu ${ilYa(x.nouveau.premierVu)}${x.nouveau.firmware ? ' (' + esc(x.nouveau.firmware) + ')' : ''}.</div>
+      ${etat.admin ? `<div class="actions-prop"><button class="mini principal" data-fusion="${x.ancien.num}:${x.nouveau.num}">Fusionner l’historique</button></div>` : ''}</div>`).join('') : '<div class="vide">Aucun : la carte repère un nœud renuméroté grâce à sa clé publique (fiche NodeInfo) dès qu’elle a reçu la fiche de l’ancien et du nouveau numéro.</div>'}
+    <p class="note">La fusion rattache au nouveau numéro l’historique de l’ancien (positions, télémétrie, paquets, liaisons, traceroutes), sa fiche d’installation, son état d’administration, ses favoris et les secteurs des gestionnaires. L’ancien numéro disparaît de la carte.</p>
+    ${r.doublons.length ? `<h3>Clés publiques en double</h3>${r.doublons.map((x) => `<div class="proposition"><div>${ligneN(x.ancien)} et ${ligneN(x.nouveau)}</div><div class="meta-longue" style="color:var(--attention)">Les deux sont actifs avec la même clé (configuration clonée, ${x.chevauchementH} h en même temps) : les messages directs et l’administration à distance peuvent partir vers le mauvais. Régénérez la clé de l’un des deux (appli › Sécurité › Régénérer la clé privée), puis remettez la clé d’administration.</div></div>`).join('')}` : ''}
+    ${r.historique.length ? `<h3>Fusions faites</h3>${r.historique.map((h) => `<div class="note">${new Date(h.heure).toLocaleString('fr-FR')} · ${esc(h.nom || '')} ${esc(h.idAncien)} → ${esc(h.idNouveau)} par ${esc(h.par || '?')}</div>`).join('')}` : ''}
+    <p class="erreur" id="v28-retour"></p>`;
+  z.querySelectorAll('[data-editer]').forEach((b) => (b.onclick = () => editeurReglages(Number(b.dataset.editer))));
+  z.querySelectorAll('[data-fusion]').forEach((b) => (b.onclick = async () => {
+    const [a, n] = b.dataset.fusion.split(':').map(Number);
+    if (!confirm(`Fusionner ${nomNoeud(a)} dans ${nomNoeud(n)} ? L’historique de l’ancien numéro passe au nouveau ; c’est définitif.`)) return;
+    try {
+      const h = await postJson('/api/admin-noeuds/fusion', { ancien: a, nouveau: n });
+      $('#v28-retour').textContent = `Fusionné : ${Object.entries(h.lignes).map(([k, v]) => `${v} ${k}`).join(', ')}.`;
+      setTimeout(ficheV28, 1500);
+      chargerNoeuds().catch(() => {});
+    } catch (e) { $('#v28-retour').textContent = e.message; }
+  }));
+}
+
 async function rendreGestion() {
   const z = $('#gestion');
   if (!etat.gestion || !z) return;
@@ -3300,7 +3521,7 @@ async function rendreGestion() {
   z.innerHTML = `
     <div id="bandeau-fw">${nouveauFw ? `<div class="alerte info-lecture">⬆️ Firmware <b>${esc(fwv(fw.stable))}</b> disponible pour ${esc(fwm.nom || 'le module')} (actuel ${esc(fwm.firmware)}).${fwm.ip ? ' <button class="mini principal" id="fw-maj">Mettre à jour…</button>' : ' Module relié par agent : mise à jour en USB ou depuis son réseau local.'}</div>` : fwm && fw.test && fw.stable && fw.test.tag !== fw.stable.tag ? `<div class="note">Firmware du module : ${esc(fwm.firmware || '?')} (stable à jour) · version test ${esc(fwv(fw.test))} disponible.</div>` : ''}</div>
     ${!etat.admin ? `<div class="alerte">Compte gestionnaire : vous programmez les ${(etat.secteur || []).length} nœud(s) de votre secteur. Le module radio est géré par les administrateurs.</div>` : ''}
-    <div class="titre-programmer"><b>Nœuds Meshtastic</b><button class="mini" id="voir-cles" title="Quels modules peuvent programmer quel relais, et ce qu'il reste à faire sur place">🔑 Clés d’administration</button>${etat.admin ? '<button class="mini" id="voir-fw" title="Version et mise à jour par le Wi-Fi des modules joignables en IP">⬆️ Firmware Wi-Fi</button>' : ''}${etat.config.meshcore ? '<button class="mini" id="vers-prog-mc">Répéteurs MeshCore →</button>' : ''}</div>
+    <div class="titre-programmer"><b>Nœuds Meshtastic</b><button class="mini" id="voir-cles" title="Quels modules peuvent programmer quel relais, et ce qu'il reste à faire sur place">🔑 Clés d’administration</button><button class="mini" id="voir-favoris" title="Favoris entre relais : sauts gratuits (firmware 2.7.11+)">⭐ Favoris relais</button><button class="mini" id="voir-modeles" title="Réglages types par usage, export et import YAML">📋 Modèles</button><button class="mini" id="voir-v28" title="Préparer le passage au firmware 2.8">🆕 Firmware 2.8</button>${etat.admin ? '<button class="mini" id="voir-fw" title="Version et mise à jour par le Wi-Fi des modules joignables en IP">⬆️ Firmware Wi-Fi</button>' : ''}${etat.config.meshcore ? '<button class="mini" id="vers-prog-mc">Répéteurs MeshCore →</button>' : ''}</div>
     ${!i.connecte ? '<div class="alerte attention">Le module radio n’est pas connecté : connectez-le dans l’onglet Réseau, section Modules Wi-Fi.</div>' : ''}
     <details class="aide-cle"${i.clePublique ? '' : ' open'}>
       <summary>Autoriser le module à programmer vos nœuds</summary>
@@ -3319,6 +3540,7 @@ async function rendreGestion() {
       ${un ? '<button data-act="editer" class="principal">✏️ Modifier ses réglages…</button><button data-act="lire">Lire sa configuration</button>' : ''}
       <button data-act="canal">Canaux (0 à 7)…</button>
       <button data-act="config">Rôle, sauts, balises…</button>
+      <button data-act="modele" title="Appliquer des réglages types (relais point haut, toit, mobile…)">📋 Appliquer un modèle…</button>
       ${un ? '<button data-act="nom">Renommer…</button><button data-act="position">Position fixe…</button>' : ''}
       <button data-act="redemarrer">Redémarrer</button>
       ${un && etat.admin && un.num === i.noeudLocal ? '<button data-act="firmware" title="Mettre à jour le firmware du module connecté, par le Wi-Fi">⬆️ Firmware…</button>' : ''}
@@ -3335,6 +3557,9 @@ async function rendreGestion() {
   rendreConfAuto();
   $('#filtre-gestion').oninput = (e) => { gestion.filtre = e.target.value; clearTimeout(gestion.minFiltre); gestion.minFiltre = setTimeout(() => { rendreGestion().then(() => { const f = $('#filtre-gestion'); f.focus(); f.setSelectionRange(f.value.length, f.value.length); }); }, 250); };
   { const bc = $('#voir-cles'); if (bc) bc.onclick = ficheCles; }
+  { const b = $('#voir-favoris'); if (b) b.onclick = ficheFavoris; }
+  { const b = $('#voir-modeles'); if (b) b.onclick = () => ficheModeles(); }
+  { const b = $('#voir-v28'); if (b) b.onclick = ficheV28; }
   { const bw = $('#voir-fw'); if (bw) bw.onclick = ficheFirmware; }
   { const bf = $('#fw-maj'); if (bf) bf.onclick = ficheFirmware; }
   const vp = $('#vers-prog-mc');
@@ -3435,6 +3660,7 @@ async function formulaireAction(act) {
     f.innerHTML = pied; lancerTache('lire', {}); return;
   }
   if (act === 'echanger') { f.innerHTML = pied; lancerTache('echanger', {}); return; }
+  if (act === 'modele') { f.innerHTML = pied; ficheModeles(); return; }
   if (act === 'firmware') {
     f.innerHTML = '<div class="vide">Recherche des versions…</div>';
     let r;
@@ -3688,7 +3914,8 @@ async function editeurReglages(num) {
     return;
   }
   const lo = r.lora, d = r.device, po = r.position;
-  const vo = r.voisinage;
+  const vo = r.voisinage, te = r.telemetrie, tr = r.trafic;
+  const v28 = fwAuMoins(r.firmware, '2.8.0'), v281 = fwAuMoins(r.firmware, '2.8.1');
   const nPos = etat.noeuds.get(num);
   const posActuelle = nPos && nPos.lat != null ? { lat: nPos.lat, lon: nPos.lon, alt: nPos.alt ?? null } : null;
   const opt = (liste, v, fr = {}) => liste.map((x) => `<option value="${x}" ${x === v ? 'selected' : ''}>${esc(fr[x] || x)}</option>`).join('');
@@ -3704,7 +3931,11 @@ async function editeurReglages(num) {
       <td>${k > 0 && c && k === dernierCanal ? '<input type="checkbox" name="supprimer" title="Supprimer ce canal (seul le dernier peut l’être, pour ne pas laisser de trou)">' : ''}</td></tr>`;
   };
   z.innerHTML = `<h2>✏️ ${esc(r.proprietaire ? r.proprietaire.nomLong : nomNoeud(num))}</h2>
-    <div class="ident">${esc(r.id)} · ${local ? 'module connecté' : 'nœud distant (LoRa)'} · configuration lue ${ilYa(r.heure)} <button class="mini principal" id="ed-relire">↻ Relire</button> <button class="mini" id="ed-autres" title="Canaux, rôle et balises, renommer, position fixe, redémarrer, firmware, conformité…">Autres actions ›</button></div>
+    <div class="ident">${esc(r.id)} · ${local ? 'module connecté' : 'nœud distant (LoRa)'} · configuration lue ${ilYa(r.heure)} <button class="mini principal" id="ed-relire">↻ Relire</button> <button class="mini" id="ed-autres" title="Canaux, rôle et balises, renommer, position fixe, redémarrer, firmware, conformité…">Autres actions ›</button>
+      <a class="bouton-lien" href="/api/admin-noeuds/lecture/${num}/yaml" download title="Configuration au format de « meshtastic --export-config », sans les clés des canaux">⬇ YAML</a>
+      <a class="bouton-lien" href="/api/admin-noeuds/lecture/${num}/yaml?canaux=1" download title="Avec le lien des canaux (clés incluses) : pour reprogrammer ce nœud ou un remplaçant en USB avec « meshtastic --configure ». Ne pas diffuser.">⬇ YAML + canaux</a></div>
+    ${r.firmware ? `<div class="note">Firmware ${esc(r.firmware)}${v28 ? ' · réglages 2.8 disponibles ci-dessous' : ''}</div>` : ''}
+    <div class="parametres compact"><label>Préremplir avec un modèle <select id="ed-modele"><option value="">— choisir —</option></select></label></div>
     ${Date.now() - r.heure > 3600000 ? '<div class="alerte attention">Lecture de plus d’une heure : relisez avant de modifier si quelqu’un a pu changer ce nœud entre-temps.</div>' : ''}
     <form id="f-edit" class="form-edit">
       <h4>Nom</h4><div class="grille-edit">
@@ -3743,6 +3974,24 @@ async function editeurReglages(num) {
         <label class="case"><input type="checkbox" name="voisLora" ${vo.transmitOverLora ? 'checked' : ''}> Envoyer aussi sur LoRa</label></div>
         <p class="note">Indispensable pour savoir ce qu’entend un relais qui n’est pas passerelle MQTT (liaisons à sens unique, SNR de chaque voisin). « Envoyer aussi sur LoRa » est nécessaire pour un nœud sans MQTT ; le firmware l’ignore sur un canal principal à clé et nom par défaut, et impose au moins 4 h entre deux envois.</p>`
       : '<p class="note">Réglage du module Voisinage non encore lu : « Relire » ci-dessus le récupère (firmware récent).</p>'}
+      <h4>Télémétrie de l’appareil</h4>
+      ${te ? `<div class="grille-edit">
+        <label class="case"><input type="checkbox" name="telEnabled" ${te.deviceTelemetryEnabled ? 'checked' : ''}> Envoyer batterie, tension, occupation du canal sur le maillage</label>
+        <label>Toutes les <select name="telInterval">${[[0, 'défaut (30 min)'], [900, '15 min'], [1800, '30 min'], [3600, '1 h'], [7200, '2 h'], [10800, '3 h'], [21600, '6 h']].map(([v, t]) => `<option value="${v}" ${(te.deviceUpdateInterval || 0) === v ? 'selected' : ''}>${t}</option>`).join('')}${te.deviceUpdateInterval && ![0, 900, 1800, 3600, 7200, 10800, 21600].includes(te.deviceUpdateInterval) ? `<option value="${te.deviceUpdateInterval}" selected>${Math.round(te.deviceUpdateInterval / 60)} min</option>` : ''}</select></label></div>
+        <p class="note">Sans télémétrie, la carte ne voit ni la batterie ni la charge radio du nœud. En 2.8, cet envoi est désactivé par défaut sur les canaux publics.</p>`
+      : '<p class="note">Module Télémétrie non encore lu : « Relire » ci-dessus le récupère.</p>'}
+      ${v28 ? `<h4>Gestion du trafic (2.8)</h4>
+      ${tr ? `<div class="grille-edit">
+        <label>Positions d’un même nœud : au plus une toutes les (s, 0 = non) <input name="trPos" type="number" min="0" value="${tr.positionMinIntervalSecs || 0}"></label>
+        <label>Répondre aux demandes de fiche jusqu’à (sauts, 0 = non) <input name="trInfo" type="number" min="0" max="7" value="${tr.nodeinfoDirectResponseMaxHops || 0}"></label>
+        <label>Limite de débit : fenêtre (s, 0 = non) <input name="trFen" type="number" min="0" value="${tr.rateLimitWindowSecs || 0}"></label>
+        <label>Paquets max par nœud et par fenêtre (0 = non) <input name="trMax" type="number" min="0" value="${tr.rateLimitMaxPackets || 0}"></label>
+        <label>Paquets illisibles avant blocage (0 = non) <input name="trInc" type="number" min="0" value="${tr.unknownPacketThreshold || 0}"></label></div>
+        <p class="note">Module du firmware 2.8 pour les grands maillages : un relais ne retransmet plus les positions trop fréquentes ni les nœuds trop bavards. Une valeur à 0 désactive la fonction.</p>`
+      : '<p class="note">Gestion du trafic non encore lue : « Relire » ci-dessus la récupère.</p>'}` : ''}
+      ${v281 ? `<h4>Signature des paquets (2.8.1)</h4><div class="grille-edit">
+        <label>Paquets acceptés <select name="signature">${(i.signatures || []).map((x) => `<option value="${x}" ${x === r.signature ? 'selected' : ''}>${esc(SIGNATURES_FR[x] || x)}</option>`).join('')}</select></label></div>
+        <p class="note">« Compatible » accepte les nœuds 2.7 qui ne signent pas : à garder tant que le réseau n’est pas entièrement en 2.8. « Équilibrée » exige la signature des nœuds qui ont déjà signé. « Stricte » n’accepte que les paquets signés ou chiffrés PKI.</p>` : ''}
       <h4>Canaux</h4>
       <div class="defil-canaux"><table class="canaux-edit"><thead><tr><th>#</th><th>Nom</th><th>Clé</th><th>Position</th><th>↑</th><th>↓</th><th>🗑</th></tr></thead><tbody>
         ${[0, 1, 2, 3, 4, 5, 6, 7].map(ligneCanal).join('')}</tbody></table></div>
@@ -3801,6 +4050,20 @@ async function editeurReglages(num) {
       if (val('voisLora').checked !== !!vo.transmitOverLora) { v.transmitOverLora = val('voisLora').checked; chg.push(v.transmitOverLora ? 'voisinage sur LoRa' : 'voisinage hors LoRa'); }
       if (Object.keys(v).length) p.voisinage = v;
     }
+    if (te && val('telEnabled')) {
+      const t = {};
+      if (val('telEnabled').checked !== !!te.deviceTelemetryEnabled) { t.deviceTelemetryEnabled = val('telEnabled').checked; chg.push(t.deviceTelemetryEnabled ? 'télémétrie activée' : 'télémétrie désactivée'); }
+      if (Number(val('telInterval').value) !== (te.deviceUpdateInterval || 0)) { t.deviceUpdateInterval = Number(val('telInterval').value); chg.push('intervalle de télémétrie'); }
+      if (Object.keys(t).length) p.telemetrie = t;
+    }
+    if (tr && val('trPos')) {
+      const t = {};
+      for (const [champ, cle, lib] of [['trPos', 'positionMinIntervalSecs', 'intervalle mini des positions'], ['trInfo', 'nodeinfoDirectResponseMaxHops', 'réponse aux fiches'], ['trFen', 'rateLimitWindowSecs', 'fenêtre de limite de débit'], ['trMax', 'rateLimitMaxPackets', 'paquets max'], ['trInc', 'unknownPacketThreshold', 'seuil de paquets illisibles']]) {
+        if (Number(val(champ).value) !== (tr[cle] || 0)) { t[cle] = Number(val(champ).value); chg.push(lib); }
+      }
+      if (Object.keys(t).length) p.trafic = t;
+    }
+    if (val('signature') && val('signature').value !== r.signature) { p.securite = { packetSignaturePolicy: val('signature').value }; chg.push('signature des paquets'); }
     const nb = (x) => Number(String(x || '').trim().replace(',', '.'));
     if (val('pfRetirer') && val('pfRetirer').checked) { p.positionFixe = { retirer: true }; chg.push('retrait de la position fixe'); }
     else if (val('pfLat').value.trim() || val('pfLon').value.trim()) {
@@ -3820,6 +4083,25 @@ async function editeurReglages(num) {
   };
   const majResume = () => { const { chg } = diff(); $('#ed-resume').textContent = chg.length ? 'Modifié : ' + chg.join(', ') : 'Aucune modification.'; };
   fo.oninput = majResume; fo.onchange = majResume; majResume();
+  // Préremplissage par un modèle : seuls les champs prévus par le modèle changent, rien n'est envoyé avant « Appliquer »
+  api('/api/admin-noeuds/modeles').then(({ modeles }) => {
+    const sel = $('#ed-modele');
+    if (!sel) return;
+    sel.innerHTML += modeles.map((m) => `<option value="${esc(m.id)}">${esc(m.nom)}</option>`).join('');
+    sel.onchange = () => {
+      const m = modeles.find((x) => x.id === sel.value);
+      if (!m) return;
+      const mettre = (n, v) => { const el = fo.elements[n]; if (!el || v == null) return; if (el.type === 'checkbox') el.checked = !!v; else el.value = v; };
+      const dv = m.device || {}, lv = m.lora || {}, pv = m.position || {}, vv = m.voisinage || {}, tv = m.telemetrie || {};
+      mettre('role', dv.role); mettre('rebroadcastMode', dv.rebroadcastMode); mettre('nodeInfoBroadcastSecs', dv.nodeInfoBroadcastSecs);
+      mettre('hopLimit', lv.hopLimit); mettre('configOkToMqtt', lv.configOkToMqtt); mettre('sx126xRxBoostedGain', lv.sx126xRxBoostedGain);
+      mettre('positionBroadcastSecs', pv.positionBroadcastSecs); mettre('positionBroadcastSmartEnabled', pv.positionBroadcastSmartEnabled);
+      mettre('voisEnabled', vv.enabled); if (vv.enabled) { mettre('voisInterval', vv.updateInterval); mettre('voisLora', vv.transmitOverLora); }
+      mettre('telEnabled', tv.deviceTelemetryEnabled); mettre('telInterval', tv.deviceUpdateInterval);
+      majResume();
+      $('#ed-retour').textContent = `Modèle « ${m.nom} » appliqué au formulaire : vérifiez puis « Appliquer les modifications ».${m.favoris ? ' Pensez aux favoris des routeurs voisins (Programmer › ⭐ Favoris relais).' : ''}`;
+    };
+  }).catch(() => {});
   fo.onsubmit = async (e) => {
     e.preventDefault();
     const { p, chg } = diff();
