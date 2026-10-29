@@ -286,10 +286,32 @@ function R(req, ...pts) {
     const eR = r.emprise(), eC = relief.emprise();
     if (pts.some((x) => !dans(x, eR)) && pts.every((x) => dans(x, eC))) return relief;
   }
+  // Point hors du relief chargé (ex. clic dans un département voisin) : relief du département de ce point
+  // (chargé à la demande pour les membres connectés ; il faut quelques minutes la première fois)
+  const p = pts.find((x) => x && Number.isFinite(x.lat) && !dansEmprise(x, r.emprise()));
+  if (p && estMembre(req)) {
+    const dep = departementDuPoint(p.lat, p.lon);
+    if (dep) return Rdep(req, dep);
+  }
   return r;
 }
-function Rdep(req) {
-  const dep = String(req.query.dep || (req.body && req.body.dep) || '').toUpperCase();
+const dansEmprise = (x, e) => x.lat >= e.sud && x.lat <= e.nord && x.lon >= e.ouest && x.lon <= e.est;
+// Département contenant un point (contours nationaux, test du point dans le polygone)
+let contoursDeps = null;
+function departementDuPoint(lat, lon) {
+  if (!contoursDeps) {
+    try {
+      contoursDeps = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'), 'utf8')).features.map((f) => ({
+        code: f.properties.code, poly: f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates,
+      }));
+    } catch { contoursDeps = []; }
+  }
+  const dansAnneau = (a) => { let d = false; for (let i = 0, j = a.length - 1; i < a.length; j = i++) { const [xi, yi] = a[i], [xj, yj] = a[j]; if ((yi > lat) !== (yj > lat) && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) d = !d; } return d; };
+  const f = contoursDeps.find((c) => c.poly.some((pg) => dansAnneau(pg[0]) && !pg.slice(1).some(dansAnneau)));
+  return f ? String(f.code).toUpperCase() : null;
+}
+function Rdep(req, depForce) {
+  const dep = String(depForce || req.query.dep || (req.body && req.body.dep) || '').toUpperCase();
   if (!dep || dep === String(config.departement.code).toUpperCase() || !/^(\d{2}|2A|2B)$/.test(dep)) return relief;
   if (!reliefsEtude.has(dep)) {
     if (!listeDepartements.some((d) => d.code === dep)) return relief;
@@ -353,7 +375,8 @@ app.get('/api/relief/couverture', (req, res) => {
   const lat = Number(req.query.lat), lon = Number(req.query.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ erreur: 'Point invalide' });
   const RR = R(req, { lat, lon });
-  if (!RR.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
+  if (!dansEmprise({ lat, lon }, RR.emprise())) return res.status(400).json({ erreur: estMembre(req) ? 'Point hors de France métropolitaine : pas de relief disponible' : 'Point hors de la zone couverte par le modèle de relief (département et ses abords)' });
+  if (!RR.pret()) return res.status(503).json({ erreur: `Relief du département ${RR.code || ''} en cours de chargement (IGN) : réessayez dans quelques minutes` });
   const o = optsRelief(req.query);
   const cle = JSON.stringify([RR.code, lat.toFixed(4), lon.toFixed(4), o, (RR.calibration() || {}).date]);
   let r = cacheCouverture.get(cle);
@@ -366,7 +389,7 @@ app.get('/api/relief/couverture', (req, res) => {
     cacheCouverture.set(r.id, r);
     if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
   }
-  res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sol: r.sol, env: r.env, rayonKm: r.rayonKm });
+  res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), departement: RR.etat().departement, surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sol: r.sol, env: r.env, rayonKm: r.rayonKm });
 });
 // Couverture cumulée : ?pts=lat,lon[,hauteur];lat,lon[,hauteur];… (2 à 10 sites)
 app.get('/api/relief/couverture-multi', (req, res) => {
@@ -384,7 +407,7 @@ app.get('/api/relief/couverture-multi', (req, res) => {
     cacheCouverture.set(cle, r); cacheCouverture.set(r.id, r);
     if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
   }
-  res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sites: r.sites, env: r.env, rayonKm: r.rayonKm });
+  res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), departement: RR.etat().departement, surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sites: r.sites, env: r.env, rayonKm: r.rayonKm });
 });
 // Couverture actuelle du réseau (relais et passerelles détectés) : ?reseau=meshcore pour les répéteurs MeshCore
 function couvertureReseauCachee(RR, o, reseauCle) {

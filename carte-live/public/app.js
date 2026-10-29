@@ -1641,7 +1641,7 @@ function dessinerSommets() {
 async function voirCouvertureSite(p, titre, hauteur, opts = {}) {
   const hs = hauteur ?? ($('#relief-hs') ? $('#relief-hs').value : 6);
   let r;
-  try { r = await api(`/api/relief/couverture?lat=${p.lat}&lon=${p.lon}&hs=${hs}${opts.preset ? '&preset=' + opts.preset : ''}`); } catch (e) { alert(e.message); return; }
+  try { r = await api(`/api/relief/couverture?lat=${p.lat}&lon=${p.lon}&hs=${hs}${opts.preset ? '&preset=' + opts.preset : ''}`); } catch (e) { if (opts.erreurs) return { erreur: e.message }; alert(e.message); return; }
   if (etat.coucheCouverture) etat.coucheCouverture.remove();
   const e = r.emprise;
   const g = L.layerGroup();
@@ -1707,14 +1707,22 @@ async function couvertureIci(latlng, hauteur) {
   $('#fiche').hidden = false;
   etat.selection = null;
   $('#fiche-contenu').innerHTML = '<div class="vide">Calcul de la couverture depuis ce point…</div>';
-  const r = await voirCouvertureSite(p, 'Point choisi', h, { cadrer: true, preset: etat.vueReseau === 'meshcore' ? 'MESHCORE_FR' : undefined });
-  if (!r) { $('#fiche-contenu').innerHTML = '<div class="vide">Calcul impossible.</div>'; return; }
+  let r;
+  // Point dans un autre département : son relief IGN se charge à la demande (quelques minutes la première fois)
+  for (let essai = 0; essai < 20; essai++) {
+    r = await voirCouvertureSite(p, 'Point choisi', h, { cadrer: true, erreurs: true, preset: etat.vueReseau === 'meshcore' ? 'MESHCORE_FR' : undefined });
+    if (!r || !r.erreur || !/chargement/.test(r.erreur)) break;
+    $('#fiche-contenu').innerHTML = `<div class="vide">${esc(r.erreur)}<br><small>Nouvel essai automatique dans 20 s (${essai + 1}/20)…</small></div>`;
+    await new Promise((ok) => setTimeout(ok, 20000));
+    if (!$('#fiche-contenu').textContent.includes('Nouvel essai')) return; // fiche fermée ou remplacée
+  }
+  if (!r || r.erreur) { $('#fiche-contenu').innerHTML = `<div class="vide">${esc(r && r.erreur ? r.erreur : 'Calcul impossible.')}</div>`; return; }
   $('#fiche-contenu').innerHTML = `
     <h2>Couverture depuis ce point</h2>
     ${blocCoords(p.lat, p.lon, { alt: r.sol })}
     <div class="grille">
       <div class="mesure"><span>Surface couverte</span><b>${r.surfaceKm2} km²</b></div>
-      <div class="mesure"><span>Part du département</span><b>${fmt(r.pctZone, 1, ' %')}</b></div>
+      <div class="mesure"><span>Part du département${r.departement && r.departement.nom ? ' (' + esc(r.departement.nom) + ')' : ''}</span><b>${fmt(r.pctZone, 1, ' %')}</b></div>
       <div class="mesure"><span>Antenne</span><b>${h} m</b></div>
     </div>
     <div class="parametres compact">
