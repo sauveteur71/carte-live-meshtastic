@@ -6,10 +6,15 @@
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (v, d = 0, u = '') => (v == null || Number.isNaN(v) ? '–' : Number(v).toFixed(d).replace('.', ',') + u);
-const ROLES = {
+// Réseau affiché : Meshtastic (par défaut) ou MeshCore (?reseau=mc)
+const MC = new URLSearchParams(location.search).get('reseau') === 'mc';
+const ROLES = MC ? {
+  repeteur: ['Répéteur', 'var(--r-router)'], salon: ['Room server', 'var(--r-base)'], companion: ['Companion', 'var(--r-client)'], capteur: ['Capteur', 'var(--r-muet)'],
+} : {
   ROUTER: ['Routeur', 'var(--r-router)'], ROUTER_LATE: ['Routeur tardif', 'var(--r-late)'], CLIENT_BASE: ['Client de base', 'var(--r-base)'],
   CLIENT: ['Client', 'var(--r-client)'], CLIENT_MUTE: ['Client muet', 'var(--r-muet)'], REPEATER: ['Répéteur', 'var(--r-late)'],
 };
+const PASSERELLE = MC ? 'observateur' : 'passerelle MQTT';
 const couleurRole = (r) => (ROLES[r] || [null, 'var(--r-autre)'])[1];
 const libRole = (r) => (ROLES[r] || [r || 'inconnu'])[0];
 const NE_RELAIENT_PAS = ['CLIENT_MUTE', 'CLIENT_HIDDEN'];
@@ -25,7 +30,7 @@ const courtDe = (num) => { const n = etat.parNum.get(num); return n ? n.nomCourt
 // ---- Chargement ------------------------------------------------------------------------------
 async function charger(recadrer = true) {
   const sources = [...document.querySelectorAll('.source:checked')].map((c) => c.value).join(',');
-  const r = await fetch(`/api/topologie?heures=${$('#periode').value}&zone=${$('#zone').value}&sources=${sources}`, { credentials: 'same-origin' });
+  const r = await fetch(`/api/${MC ? 'mc/' : ''}topologie?heures=${$('#periode').value}&zone=${$('#zone').value}&sources=${sources}`, { credentials: 'same-origin' });
   if (!r.ok) throw new Error('Données indisponibles');
   const d = await r.json();
   etat.donnees = d;
@@ -39,6 +44,7 @@ async function charger(recadrer = true) {
   const anciens = new Map(etat.noeuds.map((n) => [n.num, n]));
   etat.noeuds = d.noeuds.filter((n) => relies.has(n.num) || n.passerelle).map((n) => { const a = anciens.get(n.num); return a ? { ...n, x: a.x, y: a.y, vx: 0, vy: 0 } : { ...n }; });
   etat.parNum = new Map(etat.noeuds.map((n) => [n.num, n]));
+  etat.parCle = new Map(etat.noeuds.filter((n) => n.cle).map((n) => [n.cle, n.num]));
   etat.liens = etat.liens.filter((l) => etat.parNum.has(l.a) && etat.parNum.has(l.b));
   etat.voisins = new Map(etat.noeuds.map((n) => [n.num, []]));
   for (const l of etat.liens) { etat.voisins.get(l.a).push(l); etat.voisins.get(l.b).push(l); }
@@ -56,7 +62,7 @@ function analyser() {
   const nums = etat.noeuds.map((n) => n.num);
   const adj = new Map(nums.map((n) => [n, []]));
   for (const l of etat.liens) { adj.get(l.a).push(l.b); adj.get(l.b).push(l.a); }
-  const relaie = (n) => !NE_RELAIENT_PAS.includes(etat.parNum.get(n).role);
+  const relaie = (n) => { const x = etat.parNum.get(n); return x.relaie != null ? x.relaie : !NE_RELAIENT_PAS.includes(x.role); };
   const passerelles = nums.filter((n) => etat.parNum.get(n).passerelle);
   // Parcours en largeur depuis les passerelles (sans traverser `sauf`, ni la liaison `sansLien`)
   const depuisPasserelles = (sauf = null, sansLien = null) => {
@@ -169,7 +175,7 @@ function ajuster() {
 const ROLES_RELAIS = ['ROUTER', 'ROUTER_LATE', 'CLIENT_BASE', 'REPEATER'];
 function calculerVisibles() {
   const tous = $('#affichage').value === 'tous';
-  const visible = new Set(etat.noeuds.filter((n) => tous || n.passerelle || ROLES_RELAIS.includes(n.role)).map((n) => n.num));
+  const visible = new Set(etat.noeuds.filter((n) => tous || n.passerelle || n.infra || ROLES_RELAIS.includes(n.role)).map((n) => n.num));
   if (etat.choisi != null && etat.parNum.has(etat.choisi)) visible.add(etat.choisi);
   // Clients masqués : rattachés au relais visible qu'ils entendent le mieux
   const rattaches = new Map();
@@ -294,7 +300,7 @@ function appliquerCritiques() {
 }
 function rendreLegende() {
   $('#legende').innerHTML = Object.entries(ROLES).filter(([k]) => k !== 'REPEATER').map(([, [lib, c]]) => `<span><i style="background:${c}"></i>${lib}</span>`).join('')
-    + '<span><i style="background:transparent;border:2px solid #fff"></i>passerelle MQTT</span><span>taille = relais traversé</span><span>- - - sens unique (→ qui entend)</span>'
+    + `<span><i style="background:transparent;border:2px solid #fff"></i>${PASSERELLE}</span><span>taille = relais traversé</span><span>- - - sens unique (→ qui entend)</span>`
     + (etat.montrerRupture ? '<span><i style="background:transparent;border:2px solid var(--critique)"></i>point de rupture</span>' : '');
 }
 
@@ -306,7 +312,7 @@ function survol(d, e) {
   gLiens.selectAll('line').classed('attenue', (l) => !touche(l)).classed('surligne', touche);
   const dist = etat.analyse.dist.get(d.num);
   const r = etat.analyse.toutesRuptures.find((x) => x.num === d.num);
-  $('#infobulle').innerHTML = `<b>${esc(d.nomLong || d.id)}</b><br>${esc(libRole(d.role))}${d.passerelle ? ' · passerelle MQTT' : ''}${d.position ? '' : ' · sans position'}<br>${etat.voisins.get(d.num).length} liaison(s) · ${dist == null ? 'coupé des passerelles' : dist === 0 ? 'passerelle' : `${dist} saut(s) d’une passerelle`}${r ? `<br><b style="color:var(--critique)">sa panne couperait ${r.coupes.length} nœud(s)</b>` : ''}`;
+  $('#infobulle').innerHTML = `<b>${esc(d.nomLong || d.id)}</b><br>${esc(libRole(d.role))}${d.passerelle ? ' · ' + PASSERELLE : ''}${d.position ? '' : ' · sans position'}<br>${etat.voisins.get(d.num).length} liaison(s) · ${dist == null ? 'coupé des passerelles' : dist === 0 ? 'passerelle' : `${dist} saut(s) d’une passerelle`}${r ? `<br><b style="color:var(--critique)">sa panne couperait ${r.coupes.length} nœud(s)</b>` : ''}`;
   $('#infobulle').style.display = 'block';
   placerInfobulle(e);
 }
@@ -357,16 +363,16 @@ function choisir(num, ouvrir = true) {
   const dist = A.dist.get(num);
   const sensTxt = (d) => (d ? `${d.snr != null ? fmt(d.snr, 1, ' dB') : 'SNR ?'} <small>(${d.sources.join(', ')})</small>` : '<small>—</small>');
   $('#vue-noeud').innerHTML = `<h2>${esc(n.nomLong || n.id)}</h2>
-    <div class="note">${esc(n.id)} · ${esc(libRole(n.role))}${n.materiel ? ' · ' + esc(n.materiel) : ''}${n.firmware ? ' · ' + esc(n.firmware) : ''}${n.passerelle ? ' · passerelle MQTT' : ''}${n.position ? '' : ' · <b>sans position</b> (absent de la carte)'}</div>
+    <div class="note">${esc(n.id)} · ${esc(libRole(n.role))}${n.materiel ? ' · ' + esc(n.materiel) : ''}${n.firmware ? ' · ' + esc(n.firmware) : ''}${n.passerelle ? ' · ' + PASSERELLE : ''}${n.position ? '' : ' · <b>sans position</b> (absent de la carte)'}</div>
     <div class="grille"><div class="mesure"><span>Liaisons</span><b>${liens.length}</b></div><div class="mesure"><span>Vers passerelle</span><b>${dist == null ? 'coupé' : dist === 0 ? 'est passerelle' : dist + ' saut' + (dist > 1 ? 's' : '')}</b></div><div class="mesure"><span>Traversé</span><b>${rang}ᵉ</b></div></div>
     ${r ? `<div class="alerte"><b>Point de rupture</b> : sa panne couperait de toute passerelle ${r.coupes.length} nœud(s) (en rouge) : ${esc(r.coupes.slice(0, 12).map(courtDe).join(', '))}${r.coupes.length > 12 ? '…' : ''}.</div>` : ''}
-    ${dist != null && dist > (etat.donnees.hopLimit || 3) ? `<div class="alerte">À ${dist} sauts de la passerelle la plus proche : avec une limite de ${etat.donnees.hopLimit} sauts, ses paquets n’arrivent pas sur MQTT.</div>` : ''}
-    <div class="actions"><button class="principal" id="n-simuler">▶ Simuler depuis ce nœud</button><a href="./?noeud=${num}" target="_blank" rel="noopener"><button>Ouvrir sur la carte</button></a></div>
-    <label class="note">Rôle dans la simulation <select id="n-role">${['', 'CLIENT', 'CLIENT_BASE', 'ROUTER', 'ROUTER_LATE', 'CLIENT_MUTE'].map((x) => `<option value="${x}" ${(etat.rolesSim[num] || '') === x ? 'selected' : ''}>${x ? libRole(x) : 'réel (' + libRole(n.role) + ')'}</option>`).join('')}</select></label>
+    ${!MC && dist != null && dist > (etat.donnees.hopLimit || 3) ? `<div class="alerte">À ${dist} sauts de la passerelle la plus proche : avec une limite de ${etat.donnees.hopLimit} sauts, ses paquets n’arrivent pas sur MQTT.</div>` : ''}
+    <div class="actions"><button class="principal" id="n-simuler">▶ Simuler depuis ce nœud</button>${MC ? '' : `<a href="./?noeud=${num}" target="_blank" rel="noopener"><button>Ouvrir sur la carte</button></a>`}</div>
+    <label class="note">Rôle dans la simulation <select id="n-role">${(MC ? ['', 'repeteur', 'companion'] : ['', 'CLIENT', 'CLIENT_BASE', 'ROUTER', 'ROUTER_LATE', 'CLIENT_MUTE']).map((x) => `<option value="${x}" ${(etat.rolesSim[num] || '') === x ? 'selected' : ''}>${x ? libRole(x) : 'réel (' + libRole(n.role) + ')'}</option>`).join('')}</select></label>
     <h2>Liaisons</h2>
     <table><thead><tr><th>Voisin</th><th>il l’entend</th><th>l’autre l’entend</th></tr></thead><tbody>
     ${liens.map((x) => `<tr data-n="${x.autre}" style="cursor:pointer"><td>${esc(courtDe(x.autre))} <small class="note">${esc(libRole(etat.parNum.get(x.autre).role))}</small></td><td>${sensTxt(x.entend)}</td><td>${sensTxt(x.entendu)}</td></tr>`).join('')}</tbody></table>
-    <p class="note">« il l’entend » : ce nœud reçoit le voisin ; « l’autre l’entend » : le voisin le reçoit. Un « — » veut souvent dire que ce nœud ne rapporte pas ce qu’il entend (ni passerelle MQTT, ni module Voisinage).</p>`;
+    <p class="note">« il l’entend » : ce nœud reçoit le voisin ; « l’autre l’entend » : le voisin le reçoit. Un « — » veut souvent dire que ce nœud ne rapporte pas ce qu’il entend (${MC ? 'seuls les observateurs et les voisins déclarés des répéteurs le disent' : 'ni passerelle MQTT, ni module Voisinage'}).</p>`;
   $('#n-simuler').onclick = () => { etat.emetteur = num; ouvrirVue('simulation'); rendreSimulation(); };
   $('#n-role').onchange = (e) => { if (e.target.value) etat.rolesSim[num] = e.target.value; else delete etat.rolesSim[num]; rendreSimulation(); };
   document.querySelectorAll('#vue-noeud tr[data-n]').forEach((tr) => (tr.onclick = () => { choisir(Number(tr.dataset.n)); centrerSur(Number(tr.dataset.n)); }));
@@ -395,7 +401,7 @@ function rendreAnalyse() {
       <div class="mesure"><span>Sans position</span><b>${sansPos.length}</b></div>
     </div>
     <label class="note"><input type="checkbox" id="a-rupture" ${etat.montrerRupture ? 'checked' : ''}> Montrer sur le graphe les points de rupture (cercle rouge) et les liaisons critiques</label>
-    <h2>Distance aux passerelles MQTT</h2>
+    <h2>Distance aux ${MC ? 'observateurs' : 'passerelles MQTT'}</h2>
     ${cles.map((k) => `<div class="barre"><span>${k === 'coupé' ? 'coupé' : k === '0' ? 'passerelle' : k + ' saut' + (k === '1' ? '' : 's')}</span><i class="${k === 'coupé' || (k !== '6+' && Number(k) > H) || k === '6+' ? 'trop' : ''}" style="width:${(hist.get(k) / maxH) * 200}px"></i><b>${hist.get(k)}</b></div>`).join('')}
     <p class="note">Nombre de relais à traverser pour atteindre la passerelle la plus proche (seuls les nœuds qui relaient sont traversés). Au-delà de la limite de sauts (${H}), les paquets n’arrivent pas sur MQTT ni sur la carte.</p>
     ${loin.length ? `<div class="alerte">${loin.length} nœud(s) à plus de ${H} sauts : ${esc(loin.slice(0, 10).map((n) => courtDe(n.num)).join(', '))}${loin.length > 10 ? '…' : ''}. Les favoris entre relais (sauts gratuits) ou une passerelle plus proche les rapprocheraient.</div>` : ''}
@@ -422,17 +428,20 @@ function rendreAnalyse() {
 }
 
 // ---- Onglet Simulation --------------------------------------------------------------------------
-const PAQUETS = { texte: ['Message texte (≈ 40 o, accusé implicite)', 40, true], position: ['Position (≈ 50 o)', 50, false], telemetrie: ['Télémétrie (≈ 45 o)', 45, false], nodeinfo: ['Fiche NodeInfo (≈ 75 o)', 75, false] };
+const PAQUETS = MC ? {
+  canal: ['Message de canal (≈ 60 o)', 60, false], annonce: ['Annonce (≈ 110 o, 8 sauts max par défaut)', 110, false], direct: ['Message direct en inondation (≈ 50 o)', 50, false],
+} : { texte: ['Message texte (≈ 40 o, accusé implicite)', 40, true], position: ['Position (≈ 50 o)', 50, false], telemetrie: ['Télémétrie (≈ 45 o)', 45, false], nodeinfo: ['Fiche NodeInfo (≈ 75 o)', 75, false] };
 function optsSim() {
   const v = (id) => $(id).value;
   const p = PAQUETS[v('#s-paquet')];
   return {
     emetteur: Number(v('#s-emetteur')), preset: v('#s-preset'), presetMesure: etat.donnees.preset, hopLimit: Number(v('#s-sauts')),
-    octets: p[1], texte: p[2], favoris: v('#s-favoris'), symetrique: $('#s-sym').checked, roles: { ...etat.rolesSim }, graine: Math.floor(Math.random() * 1e6) + 1,
+    octets: p[1], texte: p[2], favoris: MC ? 'aucun' : v('#s-favoris'), symetrique: $('#s-sym').checked, roles: { ...etat.rolesSim }, graine: Math.floor(Math.random() * 1e6) + 1,
+    protocole: MC ? 'meshcore' : 'meshtastic', txDelayFactor: MC ? Number(v('#s-txdelay')) : undefined,
   };
 }
 function reseauSim() {
-  return { noeuds: etat.noeuds.map((n) => ({ num: n.num, role: n.role, canal: n.canal || 0, favoris: n.favoris || [] })), liens: etat.liens.map((l) => ({ a: l.a, b: l.b, ab: l.ab, ba: l.ba })) };
+  return { noeuds: etat.noeuds.map((n) => ({ num: n.num, role: n.role, relaie: n.relaie, canal: n.canal || 0, favoris: n.favoris || [] })), liens: etat.liens.map((l) => ({ a: l.a, b: l.b, ab: l.ab, ba: l.ba })) };
 }
 function rendreSimulation() {
   const d = etat.donnees;
@@ -442,13 +451,15 @@ function rendreSimulation() {
   const em = etat.emetteur ?? (anc && anc.emetteur) ?? (etat.noeuds.find((n) => n.passerelle) || etat.noeuds[0] || {}).num;
   const modifs = Object.entries(etat.rolesSim);
   $('#vue-simulation').innerHTML = `
-    <p class="note">Simule la diffusion d’un paquet dans le maillage, avec les liaisons mesurées et la logique du firmware 2.7 : attente avant réémission selon le SNR (un ROUTER passe en premier), annulation par un CLIENT qui entend un autre relais, ROUTER_LATE en fenêtre tardive, sauts gratuits entre favoris, écoute du canal avant d’émettre, collisions.</p>
+    <p class="note">${MC ? 'Simule la diffusion d’un paquet en inondation MeshCore, avec les liaisons mesurées et la logique du firmware répéteur : chaque répéteur réémet une fois ce qu’il entend pour la première fois, après une attente aléatoire de 0 à 5 × (temps d’antenne × tx_delay_factor) ; pas d’annulation sur doublon ; canal occupé → nouvel essai 120 à 360 ms plus tard ; limite flood.max ; collisions. Les companions et room servers ne relaient pas.' : 'Simule la diffusion d’un paquet dans le maillage, avec les liaisons mesurées et la logique du firmware 2.7 : attente avant réémission selon le SNR (un ROUTER passe en premier), annulation par un CLIENT qui entend un autre relais, ROUTER_LATE en fenêtre tardive, sauts gratuits entre favoris, écoute du canal avant d’émettre, collisions.'}</p>
     <div class="form">
       <label style="grid-column:1/-1">Émetteur <select id="s-emetteur">${tri.map((n) => `<option value="${n.num}" ${n.num === em ? 'selected' : ''}>${esc(n.nomLong || n.id)}</option>`).join('')}</select></label>
       <label>Paquet <select id="s-paquet">${Object.entries(PAQUETS).map(([k, [lib]]) => `<option value="${k}" ${anc && PAQUETS[k][1] === anc.octets ? 'selected' : ''}>${lib}</option>`).join('')}</select></label>
-      <label>Preset <select id="s-preset">${Object.keys(SimMaillage.PRESETS).map((k) => `<option ${k === ((anc && anc.preset) || d.preset) ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
-      <label>Limite de sauts <select id="s-sauts">${[1, 2, 3, 4, 5, 6, 7].map((k) => `<option ${k === ((anc && anc.hopLimit) || d.hopLimit || 3) ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
-      <label>Favoris (sauts gratuits) <select id="s-favoris">${[['poses', 'posés par la carte'], ['tous', 'tous ceux possibles'], ['aucun', 'aucun']].map(([k, t]) => `<option value="${k}" ${anc && anc.favoris === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label>Preset <select id="s-preset">${Object.keys(SimMaillage.PRESETS).filter((k) => MC === k.startsWith('MESHCORE')).map((k) => `<option ${k === ((anc && anc.preset) || d.preset) ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
+      ${MC ? `<label>Sauts max (flood.max) <select id="s-sauts">${[2, 3, 4, 5, 6, 8, 12, 16, 32, 64].map((k) => `<option ${k === ((anc && anc.hopLimit) || 64) ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
+      <label>tx_delay_factor <select id="s-txdelay">${[0.25, 0.5, 0.75, 1, 1.5, 2].map((k) => `<option value="${k}" ${k === ((anc && anc.txDelayFactor) || 0.5) ? 'selected' : ''}>${String(k).replace('.', ',')}${k === 0.5 ? ' (défaut)' : ''}</option>`).join('')}</select></label>`
+      : `<label>Limite de sauts <select id="s-sauts">${[1, 2, 3, 4, 5, 6, 7].map((k) => `<option ${k === ((anc && anc.hopLimit) || d.hopLimit || 3) ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
+      <label>Favoris (sauts gratuits) <select id="s-favoris">${[['poses', 'posés par la carte'], ['tous', 'tous ceux possibles'], ['aucun', 'aucun']].map(([k, t]) => `<option value="${k}" ${anc && anc.favoris === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label>`}
       <label class="case"><input type="checkbox" id="s-sym" ${!anc || anc.symetrique ? 'checked' : ''}> Liaisons mesurées dans un seul sens supposées réciproques</label>
     </div>
     ${modifs.length ? `<div class="note">Rôles modifiés pour la simulation : ${modifs.map(([num, r]) => `<span class="pastille">${esc(courtDe(Number(num)))} → ${esc(libRole(r))}</span>`).join(' ')} <button id="s-raz-roles">Rétablir</button></div>` : '<div class="note">Astuce : onglet Nœud › « Rôle dans la simulation » pour essayer un autre rôle sur un relais.</div>'}
@@ -463,7 +474,7 @@ function rendreSimulation() {
 }
 function libelleEssai(o) {
   const modifs = Object.keys(o.roles).length;
-  return `${courtDe(o.emetteur)} · ${o.preset} · ${o.hopLimit} saut${o.hopLimit > 1 ? 's' : ''} · favoris ${o.favoris === 'poses' ? 'posés' : o.favoris}${modifs ? ` · ${modifs} rôle(s) modifié(s)` : ''}${o.symetrique ? '' : ' · sens mesurés seulement'}`;
+  return `${courtDe(o.emetteur)} · ${o.preset} · ${o.hopLimit} saut${o.hopLimit > 1 ? 's' : ''} · ${MC ? 'tx_delay ' + String(o.txDelayFactor).replace('.', ',') : 'favoris ' + (o.favoris === 'poses' ? 'posés' : o.favoris)}${modifs ? ` · ${modifs} rôle(s) modifié(s)` : ''}${o.symetrique ? '' : ' · sens mesurés seulement'}`;
 }
 function statistiques() {
   arreterAnim();
@@ -553,7 +564,17 @@ const PORTS = {
   routage: ['Routage / ACK', '#8d99ae'], traceroute: ['Traceroute', '#ffd166'], voisinage: ['Voisinage', '#06d6a0'], mapreport: ['Rapport carte', '#a0c4ff'],
   chiffre: ['Chiffré', '#8b95a1'], autre: ['Autre', '#c9a7eb'],
 };
-const port = (p) => PORTS[p] || PORTS.autre;
+const PORTS_MC = {
+  ADVERT: ['Annonce', '#22c55e'], GRP_TXT: ['Canal', '#f72585'], TXT_MSG: ['Message direct', '#e879f9'], REQ: ['Requête', '#60a5fa'], RESPONSE: ['Réponse', '#38bdf8'],
+  ACK: ['Accusé', '#94a3b8'], PATH: ['Chemin', '#fb923c'], TRACE: ['Trace', '#facc15'], ANON_REQ: ['Connexion', '#a78bfa'], GRP_DATA: ['Données', '#f472b6'], CONTROL: ['Contrôle', '#64748b'],
+};
+const port = (p) => (MC ? PORTS_MC[p] || PORTS.autre : PORTS[p] || PORTS.autre);
+// Paquet MeshCore → même forme que Meshtastic (numéros du graphe) ; le chemin résolu donne les relais
+function normaliserMc(m) {
+  const n = (cle) => (cle ? etat.parCle.get(String(cle).toUpperCase()) ?? null : null);
+  const relais = (m.cheminResolu || []).map(n);
+  return { de: n(m.de), passerelle: n(m.observateur), relaisMc: relais, sauts: m.sauts, snr: m.snr, port: m.type, premiere: m.premiere, heure: m.heure, nomMc: m.nom };
+}
 const direct = { flux: [], comètes: 0, usage: new Map(), parMinute: [], emetteurs: new Map() };
 // Trajet probable : liaisons connues, exactement `liens` sauts, en préférant les liaisons les plus observées
 function cheminProbable(de, fin, nbLiens) {
@@ -633,6 +654,7 @@ function majAxes() {
 setInterval(majAxes, 5000);
 function recevoirPaquet(m) {
   const filtre = $('#trafic').value;
+  if (MC) return recevoirPaquetMc(normaliserMc(m), filtre);
   const n = m.de >>> 0;
   if (!etat.parNum.has(n) && !etat.parNum.has(m.passerelle >>> 0)) return; // hors de la zone affichée
   // Flux et statistiques (une ligne par paquet, à sa première réception)
@@ -656,6 +678,23 @@ function recevoirPaquet(m) {
   }
   if (chemin && chemin.every((x) => etat.parNum.has(x))) animerComete(chemin, port(m.port)[1], estime);
 }
+function recevoirPaquetMc(m, filtre) {
+  const n = m.de, gw = m.passerelle;
+  if (n == null && gw == null) return;
+  if (m.premiere) {
+    direct.flux.unshift({ ...m, de: n ?? m.relaisMc.find((x) => x != null) ?? gw });
+    direct.flux = direct.flux.slice(0, 60);
+    direct.parMinute.push(Date.now());
+    if (n != null) direct.emetteurs.set(n, (direct.emetteurs.get(n) || 0) + 1);
+    rendreDirect();
+  }
+  if (filtre === 'aucun' || (filtre !== 'tous' && m.port !== filtre) || gw == null) return;
+  // Chaîne connue : émetteur (s'il est connu), relais résolus, observateur ; les trous rendent le trajet « déduit »
+  const chaine = [n, ...m.relaisMc, gw];
+  const connus = chaine.filter((x) => x != null);
+  const dedoublon = connus.filter((x, i) => i === 0 || x !== connus[i - 1]);
+  if (dedoublon.length >= 2) animerComete(dedoublon, port(m.port)[1], chaine.some((x) => x == null));
+}
 function rendreDirect() {
   const z = $('#vue-direct');
   if (!z.classList.contains('actif')) return;
@@ -667,14 +706,14 @@ function rendreDirect() {
     ${top.length ? `<h2>Les plus bavards (depuis l’ouverture)</h2>${top.map(([num, nb]) => `<div class="ligne" data-n="${num}"><span class="titre">${esc(nomDe(num))}</span><span class="val">${nb}</span></div>`).join('')}` : ''}
     <h2>Derniers paquets</h2>
     ${direct.flux.map((m) => `<div class="flux-l" data-n="${m.de >>> 0}"><span class="note">${hm(m.heure || Date.now())}</span><span><i style="background:${port(m.port)[1]}"></i>${esc(port(m.port)[0])} · <b>${esc(courtDe(m.de >>> 0))}</b>${m.passerelle != null ? ` → ${esc(courtDe(m.passerelle >>> 0))}` : ''}</span><span class="note">${m.sauts === 0 ? 'direct' : m.sauts != null ? m.sauts + ' saut' + (m.sauts > 1 ? 's' : '') : ''}${m.snr != null ? ' · ' + fmt(m.snr, 1, ' dB') : ''}</span></div>`).join('') || '<div class="note">En attente de paquets…</div>'}
-    <p class="note">Une comète par réception : émetteur → relais → passerelle (pointillé : trajet déduit des liaisons connues, Meshtastic ne transmettant que le dernier relais). Un client masqué part de son relais. Les liaisons empruntées le plus souvent depuis 10 min sont soulignées.</p>`;
+    <p class="note">${MC ? 'Une comète par réception : émetteur → répéteurs → observateur, d’après le chemin du paquet (pointillé : une partie du chemin n’a pas pu être identifiée, préfixes de clé ambigus).' : 'Une comète par réception : émetteur → relais → passerelle (pointillé : trajet déduit des liaisons connues, Meshtastic ne transmettant que le dernier relais).'} Un client masqué part de son relais. Les liaisons empruntées le plus souvent depuis 10 min sont soulignées.</p>`;
   z.querySelectorAll('[data-n]').forEach((el) => (el.onclick = () => { const k = Number(el.dataset.n); if (etat.parNum.has(k)) { choisir(k); centrerSur(k); } }));
 }
 function connecterDirect() {
   const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
   const t = $('#temoin-direct');
   ws.onopen = () => { t.textContent = '● en direct'; t.className = 'note ok'; };
-  ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch { return; } if (m.genre === 'paquet' && etat.donnees) recevoirPaquet(m); };
+  ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch { return; } if (m.genre === (MC ? 'mc-paquet' : 'paquet') && etat.donnees) recevoirPaquet(m); };
   ws.onclose = () => { t.textContent = '○ reconnexion…'; t.className = 'note'; setTimeout(connecterDirect, 4000); };
 }
 
@@ -699,6 +738,28 @@ $('#recherche').oninput = (e) => {
 };
 function erreur(e) { $('#vue-analyse').innerHTML = `<div class="alerte">${esc(e.message)}</div>`; }
 window.addEventListener('resize', () => { if (etat.noeuds.length) dessiner(); });
+// En-tête selon le réseau : sources de liaisons, types de paquets, lien vers l'autre réseau
+(function preparerEntete() {
+  const autre = document.createElement('a');
+  autre.className = 'retour';
+  autre.href = MC ? 'topologie.html' : 'topologie.html?reseau=mc';
+  autre.textContent = MC ? '⇄ Meshtastic' : '⇄ MeshCore';
+  autre.title = 'Topologie de l’autre réseau';
+  $('header h1').after(autre);
+  document.title = MC ? 'Topologie MeshCore' : 'Topologie Meshtastic';
+  $('header h1').firstChild.textContent = MC ? 'Topologie MeshCore ' : 'Topologie Meshtastic ';
+  if (!MC) return;
+  const src = [...document.querySelectorAll('.source')];
+  const lib = [['rf', 'dernier saut mesuré'], ['voisinage', 'voisins déclarés'], ['trace', 'traces'], ['chemin', 'chemins déduits']];
+  src.forEach((c, i) => { if (lib[i]) { c.value = lib[i][0]; c.parentNode.lastChild.textContent = ' ' + lib[i][1]; } });
+  if (lib.length > src.length) {
+    const l = document.createElement('label');
+    l.innerHTML = `<input type="checkbox" class="source" value="chemin" checked> chemins déduits`;
+    src[src.length - 1].parentNode.after(l);
+    l.querySelector('input').onchange = () => charger().catch(erreur);
+  }
+  $('#trafic').innerHTML = [['tous', 'tous les paquets'], ['ADVERT', 'annonces'], ['GRP_TXT', 'messages de canal'], ['TXT_MSG', 'messages directs'], ['ACK', 'accusés'], ['PATH', 'chemins'], ['TRACE', 'traces'], ['aucun', 'arrêté']].map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+})();
 initGraphe();
 charger().catch(erreur);
 connecterDirect();

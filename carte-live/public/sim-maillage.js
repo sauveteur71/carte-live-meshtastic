@@ -21,6 +21,8 @@
     MEDIUM_SLOW: { sf: 10, bw: 250, cr: 5 }, MEDIUM_FAST: { sf: 9, bw: 250, cr: 5 }, SHORT_SLOW: { sf: 8, bw: 250, cr: 5 },
     SHORT_FAST: { sf: 7, bw: 250, cr: 5 }, LONG_MODERATE: { sf: 11, bw: 125, cr: 8 }, SHORT_TURBO: { sf: 7, bw: 500, cr: 5 },
     LONG_TURBO: { sf: 11, bw: 500, cr: 8 },
+    // MeshCore (réglage français 869,618 MHz) ; « EU/UK narrow » courant ailleurs en Europe
+    MESHCORE_FR: { sf: 8, bw: 62.5, cr: 8 }, MESHCORE_EU_NARROW: { sf: 8, bw: 62.5, cr: 8 }, MESHCORE_SF10: { sf: 10, bw: 62.5, cr: 5 },
   };
   // SNR minimal démodulable par facteur d'étalement (dB)
   const SNR_LIMITE = { 7: -7.5, 8: -10, 9: -12.5, 10: -15, 11: -17.5, 12: -20 };
@@ -36,10 +38,10 @@
   }
 
   // Durée d'émission (ms) d'une trame LoRa (formule Semtech, préambule de 16 symboles, en-tête Meshtastic de 16 octets)
-  function tempsEmissionMs(octets, p) {
+  function tempsEmissionMs(octets, p, entete = 16) {
     const tsym = 2 ** p.sf / (p.bw * 1000);
     const de = tsym > 0.016 ? 1 : 0;
-    const nb = 8 + Math.max(Math.ceil((8 * (octets + 16) - 4 * p.sf + 28 + 16) / (4 * (p.sf - 2 * de))) * p.cr, 0);
+    const nb = 8 + Math.max(Math.ceil((8 * (octets + entete) - 4 * p.sf + 28 + 16) / (4 * (p.sf - 2 * de))) * p.cr, 0);
     return ((16 + 4.25) * tsym + nb * tsym) * 1000;
   }
   // « Slot time » du firmware (RadioInterface::computeSlotTimeMsec) : CAD (2 symboles + 0,5) + 0,2 + 0,4 + 7 ms
@@ -90,15 +92,23 @@
     // qui entend tx : liste inverse
     const auditeurs = new Map(reseau.noeuds.map((n) => [n.num, []]));
     for (const [rx, m] of entend) for (const [tx, snr] of m) auditeurs.get(tx).push({ rx, snr });
-    return { p, seuil, roleDe, canalDe, entend, auditeurs, favoris, airtime: tempsEmissionMs(opts.octets || 40, p), slot: slotMs(p) };
+    // Qui relaie : fourni par la carte (MeshCore : seuls les répéteurs), sinon tout sauf les rôles muets
+    const relaieDe = new Map(reseau.noeuds.map((n) => [n.num, (opts.roles && opts.roles[n.num]) ? (opts.protocole === 'meshcore' ? opts.roles[n.num] === 'repeteur' : !NE_RELAIENT_PAS.includes(opts.roles[n.num])) : n.relaie != null ? !!n.relaie : !NE_RELAIENT_PAS.includes(roleDe.get(n.num))]));
+    const mc = opts.protocole === 'meshcore';
+    // MeshCore : en-tête (1) + longueur de chemin (1) ; Meshtastic : en-tête de 16 octets
+    return { p, seuil, roleDe, relaieDe, canalDe, entend, auditeurs, favoris, airtime: tempsEmissionMs(opts.octets || 40, p, mc ? 2 : 16), slot: slotMs(p) };
   }
 
   function simuler(reseau, opts, prep) {
     prep = prep || preparer(reseau, opts);
-    const { roleDe, canalDe, auditeurs, favoris, airtime, slot } = prep;
+    const { roleDe, relaieDe, canalDe, auditeurs, favoris, airtime, slot } = prep;
+    const mc = opts.protocole === 'meshcore';
+    // MeshCore (firmware répéteur) : délai de réémission aléatoire 0…5·t, t = temps d'antenne × tx_delay_factor (0,5) ;
+    // pas d'annulation sur doublon ; canal occupé → nouvel essai après 120 à 360 ms ; flood.max (64, annonces 8)
+    const txDelayFactor = opts.txDelayFactor ?? 0.5;
     const alea = aleatoire(opts.graine || 1);
     const tirer = (n) => Math.floor(alea() * n); // entier de 0 à n-1 (comme random(0, n) Arduino)
-    const H = Math.min(7, Math.max(0, opts.hopLimit ?? 3));
+    const H = Math.min(mc ? 64 : 7, Math.max(0, opts.hopLimit ?? (mc ? 64 : 3)));
     const E = opts.emetteur;
     const dureeMax = opts.dureeMax || 180000;
     const journal = [];
@@ -120,10 +130,11 @@
     // Départ : l'émetteur envoie (délai d'accès au canal aléatoire)
     const se = etat.get(E);
     se.recu = true; se.t = 0; se.sauts = 0; se.hop = H;
-    se.attente = { t: tirer(2 ** cwCanal(E)) * slot, hop: H, snr: null, tardif: false, origine: true, id: 1 };
+    if (mc) { se.hop = 0; } // MeshCore : « hop » = longueur du chemin déjà parcouru
+    se.attente = { t: mc ? 0 : tirer(2 ** cwCanal(E)) * slot, hop: mc ? 0 : H, snr: null, tardif: false, origine: true, id: 1 };
     planifier({ t: se.attente.t, type: 'tx', num: E, id: 1 });
     let retx = 0, entenduRelais = false;
-    if (opts.texte) planifier({ t: se.attente.t + 2 * airtime + (2 ** CW_MIN + 2 * CW_MAX + 2 ** 5) * slot + PROCESSING_TIME_MS, type: 'retx' });
+    if (opts.texte && !mc) planifier({ t: se.attente.t + 2 * airtime + (2 ** CW_MIN + 2 * CW_MAX + 2 ** 5) * slot + PROCESSING_TIME_MS, type: 'retx' });
 
     let fin = 0;
     while (file.length) {
@@ -135,7 +146,7 @@
         if (!s.attente || s.attente.id !== ev.id) continue; // annulé ou replanifié
         // Écoute du canal : une réception en cours → nouvelle attente
         if (s.rx.some((r) => r.fin > t) || s.emet > t) {
-          s.attente.t = t + tirer(2 ** cwCanal(ev.num)) * slot + slot;
+          s.attente.t = t + (mc ? (1 + tirer(3)) * 120 : tirer(2 ** cwCanal(ev.num)) * slot + slot);
           s.attente.id = ++seq;
           stats.reportsCanal++;
           journal.push({ t, type: 'report', num: ev.num });
@@ -188,7 +199,7 @@
           s.doublons++;
           stats.doublons++;
           journal.push({ t, type: 'doublon', num, de: rec.de });
-          if (s.attente) {
+          if (s.attente && !mc) {
             const favEmetteur = favoris.get(num).has(E);
             const annulable = !['ROUTER', 'ROUTER_LATE'].includes(role) && !(role === 'CLIENT_BASE' && favEmetteur);
             if (rec.hop > s.attente.hop && rec.hop > 0) {
@@ -211,7 +222,16 @@
         s.recu = true; s.t = t; s.de = rec.de; s.hop = rec.hop;
         s.sauts = (etat.get(rec.de).sauts ?? 0) + 1;
         journal.push({ t, type: 'recu', num, de: rec.de, hop: rec.hop, snr: rec.snr });
-        if (NE_RELAIENT_PAS.includes(role) || rec.hop <= 0) continue;
+        if (!relaieDe.get(num)) continue;
+        if (mc) {
+          // Répéteur MeshCore : ajoute son empreinte au chemin et réémet si flood.max le permet
+          if (rec.hop + 1 > H) continue;
+          const id = ++seq;
+          s.attente = { t: t + tirer(Math.floor(5 * airtime * txDelayFactor) + 1), hop: rec.hop + 1, snr: rec.snr, tardif: false, id };
+          planifier({ t: s.attente.t, type: 'tx', num, id });
+          continue;
+        }
+        if (rec.hop <= 0) continue;
         // Saut gratuit : relais favori (ROUTER, ROUTER_LATE, CLIENT_BASE) reçu d'un relais favori, pas au premier saut
         let hop = rec.hop - 1;
         const premierSaut = rec.de === E;

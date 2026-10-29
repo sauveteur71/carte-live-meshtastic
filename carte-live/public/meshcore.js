@@ -329,6 +329,10 @@ function mcAjouterAuFlux(p) {
 }
 
 // ---- Messages : lecture (membres), envoi sur un canal ou en direct (admin, par le companion) ----------
+// Filtre des messages MeshCore : tous, un canal, ou les messages directs (retenu dans le navigateur)
+let mcFiltreMsg = (() => { try { return localStorage.getItem('mcFiltreMessages') || ''; } catch { return ''; } })();
+const memeCanalMc = (a, b) => String(a || '').replace(/^#/, '').toLowerCase() === String(b || '').replace(/^#/, '').toLowerCase();
+function choisirFiltreMc(v) { mcFiltreMsg = v || ''; try { localStorage.setItem('mcFiltreMessages', mcFiltreMsg); } catch { /* navigation privée */ } }
 async function mcRendreMessages() {
   const z = $('#mc-contenu');
   if (!etat.membre) { z.innerHTML = '<div class="vide">Connectez-vous pour lire les messages MeshCore.</div>'; return; }
@@ -338,9 +342,14 @@ async function mcRendreMessages() {
   const c = (mc.etat && mc.etat.companion) || {};
   const canaux = c.canaux || [];
   const peutEnvoyer = etat.admin && c.connecte;
-  const dest = mc.destMessage || (canaux[0] ? 'canal:' + canaux[0].index : '');
+  const kf = mcFiltreMsg.startsWith('c:') ? canaux.find((x) => memeCanalMc(x.nom, mcFiltreMsg.slice(2))) : null;
+  const dest = mc.destMessage || (kf ? 'canal:' + kf.index : canaux[0] ? 'canal:' + canaux[0].index : '');
   const destDirect = dest.startsWith('direct:') ? dest.slice(7) : null;
   const ancienTexte = $('#mc-texte') ? $('#mc-texte').value : '';
+  // Filtre : canaux du companion et canaux vus dans les messages
+  const filtreCanaux = [];
+  for (const x of [...canaux.map((k) => k.nom), ...l.filter((m) => m.genre !== 'direct').map((m) => m.canal)]) if (x && !filtreCanaux.some((y) => memeCanalMc(x, y))) filtreCanaux.push(x);
+  const vus = !mcFiltreMsg ? l : mcFiltreMsg === 'direct' ? l.filter((m) => m.genre === 'direct') : l.filter((m) => m.genre !== 'direct' && memeCanalMc(m.canal, mcFiltreMsg.slice(2)));
   z.innerHTML = `
     ${peutEnvoyer ? `<form id="mc-envoi" class="envoi">
       <div class="envoi-ligne"><select id="mc-dest" aria-label="Destinataire">
@@ -351,7 +360,13 @@ async function mcRendreMessages() {
       <div class="envoi-ligne"><textarea id="mc-texte" rows="2" maxlength="140" placeholder="Votre message (envoyé par ${esc(c.nom || 'le companion')})…" required></textarea><button type="submit" class="principal">Envoyer</button></div>
       <div class="note" id="mc-retour-envoi"></div>
     </form>` : `<p class="note">${etat.admin ? 'Reliez un companion (onglet Companion) pour envoyer des messages.' : 'L’envoi est réservé aux administrateurs.'}</p>`}
-    <div id="mc-messages" class="flux">${l.length ? l.map(mcLigneMessage).join('') : '<div class="vide">Aucun message pour l’instant.</div>'}</div>`;
+    <div class="filtre-messages"><label>Afficher <select id="mc-filtre-msg">
+      <option value="">Tous (${l.length})</option>
+      ${filtreCanaux.map((x) => `<option value="c:${esc(x)}" ${mcFiltreMsg === 'c:' + x ? 'selected' : ''}>📢 ${esc(x)} (${l.filter((m) => m.genre !== 'direct' && memeCanalMc(m.canal, x)).length})</option>`).join('')}
+      <option value="direct" ${mcFiltreMsg === 'direct' ? 'selected' : ''}>✉️ Messages directs (${l.filter((m) => m.genre === 'direct').length})</option>
+    </select></label></div>
+    <div id="mc-messages" class="flux">${vus.length ? vus.map(mcLigneMessage).join('') : `<div class="vide">${mcFiltreMsg ? 'Aucun message dans ce choix.' : 'Aucun message pour l’instant.'}</div>`}</div>`;
+  $('#mc-filtre-msg').onchange = (e) => { choisirFiltreMc(e.target.value); mcRendreMessages(); };
   if (!peutEnvoyer) return;
   const ta = $('#mc-texte');
   ta.value = ancienTexte;
@@ -368,6 +383,10 @@ async function mcRendreMessages() {
       return;
     }
     mc.destMessage = e.target.value;
+    // Choisir un canal (ou un message direct) filtre aussi la liste
+    const k = canaux.find((x) => 'canal:' + x.index === e.target.value);
+    choisirFiltreMc(k ? 'c:' + k.nom : e.target.value.startsWith('direct:') ? 'direct' : mcFiltreMsg);
+    mcRendreMessages();
   };
   $('#mc-envoi').onsubmit = async (e) => {
     e.preventDefault();

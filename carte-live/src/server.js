@@ -1154,6 +1154,7 @@ app.get('/api/topologie', (req, res) => {
     return {
       num, id: v.id, nomCourt: v.nomCourt, nomLong: v.nomLong, role: v.role || 'CLIENT', materiel: v.materiel, firmware: v.firmware,
       lat: v.lat, lon: v.lon, position: v.lat != null, passerelle: v.passerelle, infrastructure: v.infrastructure, statut: v.statut,
+      infra: ['ROUTER', 'ROUTER_LATE', 'CLIENT_BASE', 'REPEATER'].includes(v.role), relaie: !['CLIENT_MUTE', 'CLIENT_HIDDEN'].includes(v.role || 'CLIENT'),
       dernierVu: v.dernierVu, batterie: v.batterie, canal: v.canal, emission: v.emission,
       favoris: Object.keys(favoris[String(num)] || {}).map(Number),
     };
@@ -1163,6 +1164,58 @@ app.get('/api/topologie', (req, res) => {
   const preset = (sourceRadio && sourceRadio.etat().preset) || presetMajoritaire() || config.reseauPreset || 'LONG_FAST';
   const hop = (() => { try { return sourceRadio.infos().hopLimit || 3; } catch { return 3; } })();
   res.set('Cache-Control', 'no-store').json({ heures, sources, preset, hopLimit: hop, zoneNom: config.zoneNom, noeuds, liens, genere: Date.now() });
+});
+
+// Topologie MeshCore : mêmes données que /api/topologie (numéros locaux pour le graphe, clé publique en plus)
+app.get('/api/mc/topologie', (req, res) => {
+  if (!exigerMc(res)) return;
+  const heures = Math.min(Math.max(Number(req.query.heures) || 72, 1), config.retentionJours * 24);
+  const depuis = Date.now() - heures * 3600000;
+  const sources = String(req.query.sources || 'rf,voisinage,trace,chemin').split(',').filter((x) => ['rf', 'voisinage', 'trace', 'chemin'].includes(x));
+  const bbox = bboxZone(req.query.zone || '1');
+  const dansZ = (n) => !bbox || (n.lat != null && n.lat >= bbox[0] && n.lat <= bbox[2] && n.lon >= bbox[1] && n.lon <= bbox[3]);
+  const membre = estMembre(req), maintenant = Date.now();
+  const tous = new Map(reseauMc.q.noeuds.all().map((n) => [n.cle, n]));
+  const paires = new Map();
+  for (const l of reseauMc.liens(heures * 3600000)) {
+    if (!sources.includes(l.source)) continue;
+    const a = l.a, b = l.b;
+    if (a === b || !tous.has(a) || !tous.has(b)) continue;
+    const [x, y] = a < b ? [a, b] : [b, a];
+    const k = x + '-' + y;
+    const p = paires.get(k) || { a: x, b: y, ab: null, ba: null };
+    const sens = a === x ? 'ab' : 'ba';
+    const d = p[sens] || { snr: null, sources: [], nb: 0, dernierVu: 0 };
+    if (l.snr != null) d.snr = d.snr == null ? l.snr : Math.max(d.snr, l.snr);
+    if (!d.sources.includes(l.source)) d.sources.push(l.source);
+    d.nb += l.nb || 1; d.dernierVu = Math.max(d.dernierVu, l.dernierVu || 0);
+    p[sens] = d;
+    paires.set(k, p);
+  }
+  const garde = new Set();
+  for (const n of tous.values()) if ((n.dernier_vu || 0) >= depuis && n.lat != null && dansZ(n)) garde.add(n.cle);
+  for (const p of paires.values()) {
+    const na = tous.get(p.a), nb = tous.get(p.b);
+    if (garde.has(p.a) && na.lat != null && nb.lat == null) garde.add(p.b);
+    if (garde.has(p.b) && nb.lat != null && na.lat == null) garde.add(p.a);
+  }
+  const relies = new Set();
+  const liensCle = [...paires.values()].filter((p) => garde.has(p.a) && garde.has(p.b));
+  for (const p of liensCle) { relies.add(p.a); relies.add(p.b); }
+  // Numéros locaux (le graphe et la simulation travaillent avec des nombres) ; la clé reste fournie
+  const cles = [...garde].filter((c) => relies.has(c) || tous.get(c).observateur).sort();
+  const num = new Map(cles.map((c, i) => [c, i + 1]));
+  const noeuds = cles.map((c) => {
+    const v = reseauMc.vueNoeud(tous.get(c), membre, maintenant);
+    const obsActif = v.observateur && (v.observateurVu || 0) > maintenant - 3600000;
+    return {
+      num: num.get(c), cle: c, id: c.slice(0, 8), nomCourt: (v.nom || c.slice(0, 4)).slice(0, 12), nomLong: v.nom || c.slice(0, 8), role: v.role, roleFr: v.roleFr,
+      lat: v.lat, lon: v.lon, position: v.lat != null, passerelle: obsActif, infra: v.role === 'repeteur' || v.role === 'salon', relaie: v.role === 'repeteur',
+      statut: v.statut, dernierVu: v.dernierVu, favoris: [],
+    };
+  });
+  const liens = liensCle.filter((p) => num.has(p.a) && num.has(p.b)).map((p) => { const [a, b] = [num.get(p.a), num.get(p.b)]; return a < b ? { a, b, ab: p.ab, ba: p.ba } : { a: b, b: a, ab: p.ba, ba: p.ab }; });
+  res.set('Cache-Control', 'no-store').json({ reseau: 'meshcore', heures, sources, preset: 'MESHCORE_FR', hopLimit: 64, zoneNom: config.zoneNom, noeuds, liens, genere: Date.now() });
 });
 
 app.get('/api/paquets', (req, res) => {
