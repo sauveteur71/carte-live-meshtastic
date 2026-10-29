@@ -23,7 +23,7 @@ const nomDe = (num) => { const n = etat.parNum.get(num); return n ? n.nomLong ||
 const courtDe = (num) => { const n = etat.parNum.get(num); return n ? n.nomCourt || n.id.slice(-4) : '?'; };
 
 // ---- Chargement ------------------------------------------------------------------------------
-async function charger() {
+async function charger(recadrer = true) {
   const sources = [...document.querySelectorAll('.source:checked')].map((c) => c.value).join(',');
   const r = await fetch(`/api/topologie?heures=${$('#periode').value}&zone=${$('#zone').value}&sources=${sources}`, { credentials: 'same-origin' });
   if (!r.ok) throw new Error('Données indisponibles');
@@ -44,7 +44,7 @@ async function charger() {
   for (const l of etat.liens) { etat.voisins.get(l.a).push(l); etat.voisins.get(l.b).push(l); }
   $('#titre-zone').textContent = `· ${d.zoneNom || ''} · ${etat.noeuds.length} nœuds · ${etat.liens.length} liaisons · preset ${d.preset}`;
   etat.analyse = analyser();
-  dessiner();
+  dessiner(recadrer);
   rendreAnalyse();
   rendreSimulation();
   if (etat.choisi && etat.parNum.has(etat.choisi)) choisir(etat.choisi, false);
@@ -173,6 +173,7 @@ function calculerVisibles() {
   if (etat.choisi != null && etat.parNum.has(etat.choisi)) visible.add(etat.choisi);
   // Clients masqués : rattachés au relais visible qu'ils entendent le mieux
   const rattaches = new Map();
+  etat.parent = new Map(); // client masqué → relais visible auquel il est rattaché
   for (const n of etat.noeuds) {
     if (visible.has(n.num)) continue;
     let meilleur = null, snr = -999;
@@ -182,7 +183,7 @@ function calculerVisibles() {
       const s = l.meilleur ?? -40;
       if (s > snr) { snr = s; meilleur = autre; }
     }
-    if (meilleur != null) rattaches.set(meilleur, (rattaches.get(meilleur) || 0) + 1);
+    if (meilleur != null) { rattaches.set(meilleur, (rattaches.get(meilleur) || 0) + 1); etat.parent.set(n.num, meilleur); }
   }
   for (const n of etat.noeuds) n.clientsMasques = rattaches.get(n.num) || 0;
   let liens = etat.liens.filter((l) => visible.has(l.a) && visible.has(l.b));
@@ -539,16 +540,149 @@ function animer() {
     if (i < ev.length || actives.length) etat.anim.raf = requestAnimationFrame(pas);
     else {
       $('#horloge').innerHTML += ' · <b>terminé</b>';
+      etat.anim = null; // le trafic en direct peut reprendre
       $('#s-resultat').innerHTML = `<h2>Ce tirage</h2><p class="note">${res.atteints} nœud(s) atteint(s) sur ${res.total} en ${fmt(res.fin / 1000, 1, ' s')} · ${res.stats.emissions} émission(s), ${res.stats.collisions} réception(s) perdue(s) par collision, ${res.stats.annulations} réémission(s) annulée(s), ${res.stats.reportsCanal} report(s) (canal occupé)${res.stats.sautsGratuits ? `, ${res.stats.sautsGratuits} saut(s) gratuit(s)` : ''}. Chaque tirage est différent : « 200 tirages » donne la moyenne.</p>`;
     }
   };
   etat.anim = { raf: requestAnimationFrame(pas) };
 }
 
+// ---- Trafic en direct : paquets reçus par les passerelles, animés sur le graphe ------------------------
+const PORTS = {
+  position: ['Position', '#4cc9f0'], telemetrie: ['Télémétrie', '#80ed99'], texte: ['Texte', '#f72585'], nodeinfo: ['Infos nœud', '#b8b8ff'],
+  routage: ['Routage / ACK', '#8d99ae'], traceroute: ['Traceroute', '#ffd166'], voisinage: ['Voisinage', '#06d6a0'], mapreport: ['Rapport carte', '#a0c4ff'],
+  chiffre: ['Chiffré', '#8b95a1'], autre: ['Autre', '#c9a7eb'],
+};
+const port = (p) => PORTS[p] || PORTS.autre;
+const direct = { flux: [], comètes: 0, usage: new Map(), parMinute: [], emetteurs: new Map() };
+// Trajet probable : liaisons connues, exactement `liens` sauts, en préférant les liaisons les plus observées
+function cheminProbable(de, fin, nbLiens) {
+  if (nbLiens < 1 || nbLiens > 8) return null;
+  let couche = new Map([[de, { score: 0, chemin: [de] }]]);
+  for (let k = 1; k <= nbLiens; k++) {
+    const suiv = new Map();
+    for (const [n, v] of couche) {
+      for (const l of etat.voisins.get(n) || []) {
+        const m = l.a === n ? l.b : l.a;
+        if (v.chemin.includes(m) || (k < nbLiens && m === fin)) continue;
+        const poids = Math.log2(1 + ((l.ab ? l.ab.nb : 0) + (l.ba ? l.ba.nb : 0))) + (l.unique ? 0 : 1);
+        const sc = v.score + poids, a = suiv.get(m);
+        if (!a || sc > a.score) suiv.set(m, { score: sc, chemin: [...v.chemin, m] });
+      }
+    }
+    couche = suiv;
+    if (!couche.size) return null;
+  }
+  const r = couche.get(fin);
+  return r ? r.chemin : null;
+}
+// Position affichée d'un nœud : le sien s'il est visible, sinon celle du relais auquel il est rattaché
+function ptAffiche(num) {
+  const vis = etat.visibles && etat.visibles.find((n) => n.num === num);
+  if (vis) return vis;
+  const p = etat.parent && etat.parent.get(num);
+  return p != null ? etat.visibles.find((n) => n.num === p) || null : null;
+}
+function animerComete(chemin, couleur, estime) {
+  const pts = chemin.map(ptAffiche);
+  // Points consécutifs confondus (client rattaché à son relais) : un seul
+  const etapes = pts.filter((x, i) => x && (i === 0 || x !== pts[i - 1]));
+  if (etapes.length < 2 || pts.some((x) => !x) || document.hidden || direct.comètes >= 30 || etat.anim) return;
+  direct.comètes++;
+  const trace = gOndes.append('polyline').attr('class', 'comete-trace' + (estime ? ' estime' : '')).attr('stroke', couleur);
+  const tete = gOndes.append('circle').attr('class', 'comete-tete').attr('r', 5).attr('fill', couleur);
+  let i = 0, debut = performance.now();
+  const faits = [];
+  const D = 520;
+  const pas = (t) => {
+    const a = etapes[i], b = etapes[i + 1];
+    const f = Math.min(1, (t - debut) / D), e = f < 0.5 ? 2 * f * f : 1 - (-2 * f + 2) ** 2 / 2;
+    const x = a.x + (b.x - a.x) * e, y = a.y + (b.y - a.y) * e;
+    tete.attr('cx', x).attr('cy', y);
+    trace.attr('points', [...faits.map((p) => p.x + ',' + p.y), a.x + ',' + a.y, x + ',' + y].join(' '));
+    if (f < 1) { requestAnimationFrame(pas); return; }
+    faits.push(a);
+    noterUsage(a.num, b.num);
+    i++;
+    if (i >= etapes.length - 1) {
+      tete.remove();
+      trace.transition().duration(900).style('opacity', 0).remove();
+      gOndes.append('circle').attr('cx', b.x).attr('cy', b.y).attr('r', rayon(b)).attr('fill', 'none').attr('stroke', couleur).attr('stroke-width', 2.5)
+        .transition().duration(1100).attr('r', rayon(b) + 26).style('opacity', 0).remove();
+      direct.comètes--;
+      return;
+    }
+    debut = performance.now();
+    requestAnimationFrame(pas);
+  };
+  requestAnimationFrame(pas);
+}
+// Axes les plus empruntés depuis 10 min : liaisons soulignées
+function noterUsage(a, b) {
+  const k = a < b ? a + '-' + b : b + '-' + a;
+  const l = direct.usage.get(k) || [];
+  l.push(Date.now());
+  direct.usage.set(k, l);
+}
+function majAxes() {
+  const lim = Date.now() - 600000;
+  for (const [k, l] of direct.usage) { const r = l.filter((t) => t >= lim); if (r.length) direct.usage.set(k, r); else direct.usage.delete(k); }
+  const max = Math.max(1, ...[...direct.usage.values()].map((l) => l.length));
+  gLiens.selectAll('line').classed('axe', (d) => { const n = (direct.usage.get(d.a + '-' + d.b) || []).length; return n >= 3 && n >= max * 0.3; });
+}
+setInterval(majAxes, 5000);
+function recevoirPaquet(m) {
+  const filtre = $('#trafic').value;
+  const n = m.de >>> 0;
+  if (!etat.parNum.has(n) && !etat.parNum.has(m.passerelle >>> 0)) return; // hors de la zone affichée
+  // Flux et statistiques (une ligne par paquet, à sa première réception)
+  if (m.premiere) {
+    direct.flux.unshift(m);
+    direct.flux = direct.flux.slice(0, 60);
+    direct.parMinute.push(Date.now());
+    direct.emetteurs.set(n, (direct.emetteurs.get(n) || 0) + 1);
+    rendreDirect();
+  }
+  if (filtre === 'aucun' || (filtre === 'clairs' && m.port === 'chiffre') || (!['tous', 'clairs'].includes(filtre) && m.port !== filtre)) return;
+  const gw = m.passerelle >>> 0;
+  if (m.passerelle == null || gw === n || !etat.parNum.has(n) || !etat.parNum.has(gw)) return;
+  let chemin = null, estime = false;
+  if (m.sauts === 0) chemin = [n, gw];
+  else if (m.relais != null && m.sauts === 1) chemin = [n, m.relais >>> 0, gw];
+  else if (m.sauts > 0) {
+    const avant = m.relais != null ? cheminProbable(n, m.relais >>> 0, m.sauts) : cheminProbable(n, gw, m.sauts + 1);
+    chemin = avant ? (m.relais != null ? [...avant, gw] : avant) : m.relais != null ? [n, m.relais >>> 0, gw] : [n, gw];
+    estime = true;
+  }
+  if (chemin && chemin.every((x) => etat.parNum.has(x))) animerComete(chemin, port(m.port)[1], estime);
+}
+function rendreDirect() {
+  const z = $('#vue-direct');
+  if (!z.classList.contains('actif')) return;
+  const lim = Date.now() - 600000;
+  direct.parMinute = direct.parMinute.filter((t) => t >= lim);
+  const top = [...direct.emetteurs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const hm = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  z.innerHTML = `<div class="grille"><div class="mesure"><span>Paquets / min</span><b>${fmt(direct.parMinute.length / 10, 1)}</b></div><div class="mesure"><span>Depuis l’ouverture</span><b>${[...direct.emetteurs.values()].reduce((a, b) => a + b, 0)}</b></div><div class="mesure"><span>Émetteurs</span><b>${direct.emetteurs.size}</b></div></div>
+    ${top.length ? `<h2>Les plus bavards (depuis l’ouverture)</h2>${top.map(([num, nb]) => `<div class="ligne" data-n="${num}"><span class="titre">${esc(nomDe(num))}</span><span class="val">${nb}</span></div>`).join('')}` : ''}
+    <h2>Derniers paquets</h2>
+    ${direct.flux.map((m) => `<div class="flux-l" data-n="${m.de >>> 0}"><span class="note">${hm(m.heure || Date.now())}</span><span><i style="background:${port(m.port)[1]}"></i>${esc(port(m.port)[0])} · <b>${esc(courtDe(m.de >>> 0))}</b>${m.passerelle != null ? ` → ${esc(courtDe(m.passerelle >>> 0))}` : ''}</span><span class="note">${m.sauts === 0 ? 'direct' : m.sauts != null ? m.sauts + ' saut' + (m.sauts > 1 ? 's' : '') : ''}${m.snr != null ? ' · ' + fmt(m.snr, 1, ' dB') : ''}</span></div>`).join('') || '<div class="note">En attente de paquets…</div>'}
+    <p class="note">Une comète par réception : émetteur → relais → passerelle (pointillé : trajet déduit des liaisons connues, Meshtastic ne transmettant que le dernier relais). Un client masqué part de son relais. Les liaisons empruntées le plus souvent depuis 10 min sont soulignées.</p>`;
+  z.querySelectorAll('[data-n]').forEach((el) => (el.onclick = () => { const k = Number(el.dataset.n); if (etat.parNum.has(k)) { choisir(k); centrerSur(k); } }));
+}
+function connecterDirect() {
+  const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  const t = $('#temoin-direct');
+  ws.onopen = () => { t.textContent = '● en direct'; t.className = 'note ok'; };
+  ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch { return; } if (m.genre === 'paquet' && etat.donnees) recevoirPaquet(m); };
+  ws.onclose = () => { t.textContent = '○ reconnexion…'; t.className = 'note'; setTimeout(connecterDirect, 4000); };
+}
+
 // ---- Interface ------------------------------------------------------------------------------
 function ouvrirVue(v) {
   document.querySelectorAll('nav.onglets button').forEach((b) => b.classList.toggle('actif', b.dataset.vue === v));
   document.querySelectorAll('.vue').forEach((s) => s.classList.toggle('actif', s.id === 'vue-' + v));
+  if (v === 'direct') rendreDirect();
 }
 document.querySelectorAll('nav.onglets button').forEach((b) => (b.onclick = () => ouvrirVue(b.dataset.vue)));
 for (const id of ['#periode', '#zone', '#double-sens']) $(id).onchange = () => charger().catch(erreur);
@@ -567,3 +701,5 @@ function erreur(e) { $('#vue-analyse').innerHTML = `<div class="alerte">${esc(e.
 window.addEventListener('resize', () => { if (etat.noeuds.length) dessiner(); });
 initGraphe();
 charger().catch(erreur);
+connecterDirect();
+setInterval(() => { if (!etat.anim) charger(false).catch(() => {}); }, 300000); // liaisons et nœuds rafraîchis toutes les 5 min
