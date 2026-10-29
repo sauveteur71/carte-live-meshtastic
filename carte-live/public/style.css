@@ -890,3 +890,7 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 .fav-liste small { color: var(--doux); }
 .proposition.modele .actions-prop { margin-top: 6px; }
 .bouton-lien { cursor: pointer; }
+
+/* Menu du haut ouvert : au-dessus de tout (légende, panneaux, autres menus) */
+.menu-couches[open] { z-index: 1200; }
+.menu-couches[open] .menu { z-index: 1200; }

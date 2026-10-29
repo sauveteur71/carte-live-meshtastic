@@ -396,6 +396,18 @@ function resumeAlertes(a) {
   const c = a.filter((x) => x.niveau === 'critique').length, w = a.length - c;
   return a.length ? [c ? `${c} critique${c > 1 ? 's' : ''}` : '', w ? `${w} attention` : ''].filter(Boolean).join(' · ') : 'aucune';
 }
+// Menus du haut (Couches, Couverture radio, Outils) : un seul ouvert à la fois ; un clic ailleurs (carte, panneau)
+// ou Échap les referme
+document.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (!d.matches || !d.matches('details.menu-couches') || !d.open) return;
+  document.querySelectorAll('details.menu-couches[open]').forEach((x) => { if (x !== d) x.open = false; });
+}, true);
+document.addEventListener('pointerdown', (e) => {
+  for (const d of document.querySelectorAll('details.menu-couches[open]')) if (!d.contains(e.target)) d.open = false;
+}, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.querySelectorAll('details.menu-couches[open]').forEach((d) => (d.open = false)); });
+
 // Menus dépliants des alertes : fermés par défaut, état retenu dans ce navigateur
 document.querySelectorAll('details.pli-alertes').forEach((d) => {
   try { d.open = localStorage.getItem('pli-' + d.dataset.pli) === '1'; } catch { /* stockage indisponible */ }
