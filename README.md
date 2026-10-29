@@ -2,7 +2,7 @@
 
 [![Dernière version](https://img.shields.io/github/v/release/sauveteur71/carte-live-meshtastic?label=derni%C3%A8re%20version)](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest)
 
-**Version actuelle : 1.7.0** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
+**Version actuelle : 1.8.0** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
 
 Carte en temps réel, supervision et **administration à distance** d'un réseau [Meshtastic](https://meshtastic.org) — et désormais [MeshCore](https://meshcore.co.uk) — local ou départemental : elle écoute votre broker MQTT et/ou un module radio, décode les paquets, garde l'historique et permet de programmer vos nœuds par LoRa.
 
@@ -118,6 +118,7 @@ Dans `docker-compose.yml`, remplacez la ligne `image:` par `build: .`, puis `doc
 - **Conformité automatique** : la vérification de configuration peut être refaite chaque nuit (Meshtastic et MeshCore), avec rapport.
 - **Rapport hebdomadaire** (*Outils › Rapport hebdomadaire*) : état du réseau sur 7 jours, imprimable en PDF, archivé chaque lundi.
 - **Agent 1.5** : relaie aussi la mise à jour du firmware par Wi-Fi d'un module d'un autre réseau.
+- **Déplacer des relais** et **sites routiers** (*Couverture*) : points hauts proches où un relais existant couvrirait plus ; webcams du Département et de la DIR Massif Central affichées et classées comme sites de relais.
 - **Bulles voisines (fédération)** : chaque carte publie ses relais sur `/api/federation`. Dans *Outils › Partager* (admin), ajoutez l'adresse des cartes des départements voisins : leurs relais s'affichent (couche *Bulles voisines*) et comptent dans les calculs de couverture près des limites.
 
 ### MeshCore
