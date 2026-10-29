@@ -764,6 +764,82 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     };
   }
 
+  // ---- Déplacer des relais existants : pour chaque relais, les points hauts proches où il couvrirait plus -------
+  // Gain net d'un déplacement = surface nouvellement couverte au nouvel endroit − surface que lui seul couvre aujourd'hui.
+  // On vérifie aussi qu'au nouvel endroit il reste relié par radio à au moins un autre relais ou passerelle.
+  const ROLES_DEPLACABLES = new Set(['ROUTER', 'ROUTER_LATE', 'REPEATER', 'ROUTER_CLIENT']);
+  async function optimiserRelais({ rayonKm = 6, acces: filtre = null, progression = null } = {}) {
+    if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
+    if (!sommets.length) throw new Error('Points hauts pas encore calculés');
+    const P = parametres({});
+    const min = niveauMin(filtre);
+    const W = Math.ceil(nbZone / 32);
+    const reseau = fournisseurs.noeudsReseau().filter((n) => celle(n.lat, n.lon) >= 0 && !n.voisin).slice(0, 60).map((n) => ({ ...n, h: n.h ?? 6 }));
+    const bits = [];
+    for (const n of reseau) { bits.push(bitsSite(n, P)); await pause(); }
+    // Masques : couvert par au moins un relais (tous), par exactement un (seul)
+    const tous = new Uint32Array(W), deux = new Uint32Array(W);
+    for (const b of bits) for (let w = 0; w < W; w++) { deux[w] |= tous[w] & b[w]; tous[w] |= b[w]; }
+    const pop = (x) => { let n = 0; while (x) { x &= x - 1; n++; } return n; };
+    const nTous = compter(tous);
+    const mobiles = reseau.map((n, i) => ({ n, i })).filter(({ n }) => ROLES_DEPLACABLES.has(n.role) && !n.passerelle);
+    const propositions = [], bilan = [];
+    let fait = 0;
+    for (const { n, i } of mobiles) {
+      const b = bits[i];
+      let propre = 0;
+      for (let w = 0; w < W; w++) propre += pop(b[w] & ~deux[w]);
+      // Candidats : points hauts à moins de rayonKm, plus hauts que l'emplacement actuel ou dominants, accessibles si demandé
+      const altActuelle = alt(n.lat, n.lon);
+      const cands = sommets.filter((s) => distanceM(s, n) <= rayonKm * 1000 && distanceM(s, n) >= 300 && accessible(s, min) && !(s.realisme && s.realisme.protege))
+        .sort((a, c) => c.alt - a.alt).slice(0, 10);
+      const essais = [];
+      for (const s of cands) {
+        const site = { lat: s.lat, lon: s.lon, h: n.h, gain: n.gain, pertes: n.pertes, ptx: n.ptx };
+        const c = bitsSite(site, P);
+        let nouveau = 0, perdu = 0;
+        for (let w = 0; w < W; w++) { nouveau += pop(c[w] & ~tous[w]); perdu += pop(b[w] & ~deux[w] & ~c[w]); }
+        const net = nouveau - perdu;
+        // Liaison radio avec le reste du réseau depuis le nouvel endroit
+        let liaisons = 0;
+        for (let k = 0; k < reseau.length && liaisons < 3; k++) {
+          if (k === i || distanceM(site, reseau[k]) > P.rayonMax) continue;
+          const l = liaison(site, reseau[k], Pinstallation(P, site, reseau[k]), site.h, reseau[k].h);
+          if (l && l.marge >= 0) liaisons++;
+        }
+        essais.push({ s, net, nouveau, perdu, liaisons });
+        await pause();
+      }
+      let actuellesLiaisons = 0;
+      for (let k = 0; k < reseau.length && actuellesLiaisons < 3; k++) {
+        if (k === i || distanceM(n, reseau[k]) > P.rayonMax) continue;
+        const l = liaison(n, reseau[k], Pinstallation(P, n, reseau[k]), n.h, reseau[k].h);
+        if (l && l.marge >= 0) actuellesLiaisons++;
+      }
+      const km2 = (x) => Math.round(x * aireCelleKm2);
+      const meilleurs = essais.filter((e) => e.net * aireCelleKm2 >= 10 && e.liaisons > 0).sort((a, c) => c.net - a.net).slice(0, 3);
+      bilan.push({ num: n.num, nom: n.nom, propreKm2: km2(propre), altitude: Math.round(altActuelle), hauteur: n.h, liaisons: actuellesLiaisons, candidats: cands.length, propositions: meilleurs.length });
+      for (const e of meilleurs) {
+        const sm = e.s;
+        propositions.push({
+          num: n.num, nom: n.nom, de: { lat: n.lat, lon: n.lon, alt: Math.round(altActuelle) },
+          vers: { id: sm.id, nom: sm.nom, commune: sm.commune, lat: sm.lat, lon: sm.lon, alt: sm.alt, acces: sm.acces || null, realisme: sm.realisme || null },
+          distanceKm: +(distanceM(n, sm) / 1000).toFixed(1), hauteur: n.h,
+          gainNetKm2: km2(e.net), nouveauKm2: km2(e.nouveau), perduKm2: km2(e.perdu), propreKm2: km2(propre),
+          apresPct: +(((nTous + e.net) / nbZone) * 100).toFixed(1), liaisons: e.liaisons,
+        });
+      }
+      fait++;
+      if (progression) progression(fait, mobiles.length);
+    }
+    propositions.sort((a, c) => c.gainNetKm2 - a.gainNetKm2);
+    return {
+      date: Date.now(), rayonKm, filtreAcces: filtre || 'tous', actuelPct: +((nTous / nbZone) * 100).toFixed(1),
+      relaisEtudies: mobiles.length, bilan: bilan.sort((a, c) => a.propreKm2 - c.propreKm2), propositions: propositions.slice(0, 20),
+      parametres: { preset: P.preset, env: P.env, rayonKm: P.rayonMax / 1000 },
+    };
+  }
+
   // Couverture actuelle du réseau : relais et passerelles détectés (entendus depuis 24 h) et positionnés dans la zone
   function couvertureReseau(opts = {}) {
     if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
@@ -1065,6 +1141,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     simuler,
     planDepartement,
     planBudget,
+    optimiserRelais,
     etatRealisme: () => realisme.etat(),
     couvrirPoint,
     couvrirPoints,

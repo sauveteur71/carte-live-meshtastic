@@ -423,6 +423,25 @@ async function villesDepartement(code) {
   fs.writeFileSync(f, JSON.stringify(l));
   return l;
 }
+// Déplacer des relais existants : calcul en arrière-plan (1 à 3 min), résultat gardé jusqu'au prochain classement
+const optimisations = new Map(); // clé -> { etat, progression, resultat, erreur }
+app.get('/api/relief/optimisation', (req, res) => {
+  const RR = R(req);
+  if (!RR.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
+  const rayon = Math.min(Math.max(Number(req.query.rayon) || 6, 2), 15);
+  const acces = ['voiture', '4x4', 'pied'].includes(req.query.acces) ? req.query.acces : null;
+  const cle = JSON.stringify([RR.code, rayon, acces, (RR.classement() || {}).date, Math.floor(Date.now() / 3600000)]);
+  let o = optimisations.get(cle);
+  if (!o || req.query.recalculer === '1') {
+    o = { etat: 'calcul', progression: 0 };
+    optimisations.set(cle, o);
+    if (optimisations.size > 10) optimisations.delete(optimisations.keys().next().value);
+    RR.optimiserRelais({ rayonKm: rayon, acces, progression: (f, t) => { o.progression = Math.round((f / t) * 100); } })
+      .then((r) => { o.etat = 'pret'; o.resultat = r; })
+      .catch((e) => { o.etat = 'erreur'; o.erreur = e.message; journal('[Relief] optimisation :', e.message); });
+  }
+  res.set('Cache-Control', 'no-store').json({ etat: o.etat, progression: o.progression, erreur: o.erreur, ...(o.resultat || {}) });
+});
 // Toutes les communes d'un département (centre, population), pour les habitants couverts
 async function communesDepartement(code) {
   const f = path.join(path.dirname(config.fichierBase), `communes-${code}.json`);
@@ -1728,7 +1747,7 @@ const fournisseursRelief = {
     const limite = Date.now() - 24 * 3600000;
     return stockage.q.noeuds.all()
       .filter((n) => n.lat != null && (n.vu || n.dernier_vu || 0) >= limite && reseau.estSurveille(n))
-      .map((n) => ({ num: n.num, nom: n.nom_long || n.nom_court || n.id, lat: n.lat, lon: n.lon, ...installations.radio(n.num) }))
+      .map((n) => ({ num: n.num, nom: n.nom_long || n.nom_court || n.id, lat: n.lat, lon: n.lon, role: n.role, passerelle: !!n.est_passerelle, ...installations.radio(n.num) }))
       .concat(federation ? federation.noeudsCalcul() : []); // relais des bulles voisines (près des limites du département)
   },
   // Liaisons radio directes avec SNR mesuré (pour calibrer le modèle)

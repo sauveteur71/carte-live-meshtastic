@@ -2213,6 +2213,64 @@ async function planDepartement() {
   const pc = $('#plan-couv'); if (pc) pc.onclick = () => couvertureMulti(r.sites.map((x) => ({ lat: x.lat, lon: x.lon, h: (r.parametres && r.parametres.hs) || 6, nom: nomSommet(x) })));
 }
 
+// ---- Déplacer des relais existants ------------------------------------------------------------------------
+async function optimiserRelais(rayon, acces, recalculer) {
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const z = $('#fiche-contenu');
+  let r;
+  for (let k = 0; k < 120; k++) {
+    try { r = await api(`/api/relief/optimisation?rayon=${rayon}&acces=${acces}${recalculer && k === 0 ? '&recalculer=1' : ''}`); } catch (e) { z.innerHTML = `<h2>🔀 Déplacer des relais</h2><div class="vide">${esc(e.message)}</div>`; return; }
+    if (r.etat !== 'calcul') break;
+    z.innerHTML = `<h2>🔀 Déplacer des relais</h2><div class="alerte info-lecture"><span class="sablier"></span> Étude des emplacements autour de chaque relais… ${r.progression || 0} %</div><p class="note">Une à trois minutes : la couverture de chaque point haut proche est calculée d’après le relief.</p>`;
+    await new Promise((ok) => setTimeout(ok, 3000));
+    if (!$('#fiche-contenu') || $('#fiche').hidden) return;
+  }
+  if (r.etat === 'erreur') { z.innerHTML = `<h2>🔀 Déplacer des relais</h2><div class="vide">${esc(r.erreur)}</div>`; return; }
+  if (etat.coucheCouverture) etat.coucheCouverture.remove();
+  const g = L.layerGroup().addTo(carte);
+  etat.coucheCouverture = g;
+  $('#btn-effacer').hidden = false;
+  r.propositions.forEach((p, k) => {
+    const coul = '#f59e0b';
+    L.polyline([[p.de.lat, p.de.lon], [p.vers.lat, p.vers.lon]], { color: coul, weight: 3, dashArray: '6 6', pane: 'traces' }).addTo(g);
+    L.marker([p.vers.lat, p.vers.lon], { icon: L.divIcon({ className: 'relais-a-installer', html: `<div class="epingle"><b>${k + 1}</b></div>`, iconSize: [34, 44], iconAnchor: [17, 42] }), pane: 'traces', zIndexOffset: 900 })
+      .bindTooltip(`<b>${k + 1} · ${esc(p.nom)} → ${esc(nomSommet(p.vers))}</b><br>+${p.gainNetKm2} km² nets · ${p.distanceKm} km`, { className: 'info' }).addTo(g);
+  });
+  const pts = r.propositions.flatMap((p) => [[p.de.lat, p.de.lon], [p.vers.lat, p.vers.lon]]);
+  if (pts.length) carte.fitBounds(L.latLngBounds(pts).pad(0.2), { maxZoom: 11 });
+  const nomAcces = { tous: 'tous les points hauts', voiture: 'accessibles en voiture', '4x4': 'accessibles en 4×4 ou en voiture', pied: 'accessibles à pied ou mieux' }[r.filtreAcces];
+  z.innerHTML = `<h2>🔀 Déplacer des relais</h2>
+    <div class="ident">Couverture actuelle ${fmt(r.actuelPct, 1, ' %')} · ${r.relaisEtudies} relais étudiés · points hauts à moins de ${r.rayonKm} km, ${esc(nomAcces)}</div>
+    ${r.propositions.length ? r.propositions.map((p, k) => `<div class="proposition etape-relier nouveau">
+      <div class="entete-prop"><span class="lettre">${k + 1}</span><b>${esc(p.nom)}</b><span class="marge">+${p.gainNetKm2} km² nets</span></div>
+      <div class="meta-longue">Vers <b>${esc(nomSommet(p.vers))}</b>${p.vers.commune ? ' · ' + esc(p.vers.commune) : ''} · ${p.vers.alt} m (aujourd’hui ${p.de.alt} m) · à ${p.distanceKm} km</div>
+      <div class="meta-longue">Gagne ${p.nouveauKm2} km² jamais couverts, perd ${p.perduKm2} km² que lui seul couvre aujourd’hui → couverture totale <b>${fmt(p.apresPct, 1, ' %')}</b> · reste relié par radio à ${p.liaisons}${p.liaisons >= 3 ? ' ou plus' : ''} relais</div>
+      <div class="meta-longue">Accès : ${texteAcces(p.vers.acces)}</div>
+      <div class="meta-longue">Site : ${texteRealisme(p.vers.realisme)}</div>
+      ${blocCoords(p.vers.lat, p.vers.lon, { alt: p.vers.alt })}
+      <div class="actions-prop"><button class="mini" data-voir-dep="${k}">Voir gagné / perdu sur la carte</button></div>
+    </div>`).join('') : '<div class="vide">Aucun déplacement intéressant (au moins 10 km² de gain net, contact radio conservé) : vos relais sont déjà bien placés dans ce rayon.</div>'}
+    <h3>Apport propre de chaque relais</h3>
+    <p class="note">Surface que lui seul couvre aujourd’hui. Un relais qui couvre peu seul est soit redondant (bon pour la fiabilité), soit mal placé.</p>
+    ${r.bilan.map((b) => `<div class="ligne"><span class="titre">${esc(b.nom)}<small>${b.propreKm2} km² couverts par lui seul · ${b.altitude} m · antenne ${b.hauteur} m · relié à ${b.liaisons}${b.liaisons >= 3 ? '+' : ''} relais${b.propositions ? ` · ${b.propositions} proposition(s)` : ''}</small></span></div>`).join('')}
+    <div class="actions-prop"><button id="dep-recalc">Recalculer</button></div>
+    <p class="note">Calcul d’après le relief IGN, la fiche d’installation de chaque relais (hauteur, antenne) et les pertes d’environnement mesurées (${r.parametres.env} dB). Les passerelles chez des particuliers et les nœuds non routeurs ne sont pas proposés au déplacement.</p>`;
+  $('#dep-recalc').onclick = () => optimiserRelais(rayon, acces, true);
+  z.querySelectorAll('[data-voir-dep]').forEach((b) => (b.onclick = async () => {
+    const p = r.propositions[Number(b.dataset.voirDep)];
+    b.disabled = true; b.textContent = 'Calcul…';
+    try {
+      const s = await postJson('/api/relief/simulation', { retirer: [p.num], ajouter: [{ lat: p.vers.lat, lon: p.vers.lon, h: p.hauteur, nom: p.nom + ' (déplacé)' }] });
+      const e = s.emprise;
+      if (etat.coucheSimDep) etat.coucheSimDep.remove();
+      etat.coucheSimDep = L.imageOverlay(s.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.7, pane: 'couverture', className: 'pixelise' }).addTo(g);
+      b.textContent = `Vert : gagné (${s.gagneKm2} km²) · rouge : perdu (${s.perduKm2} km²)`;
+      carte.fitBounds(L.latLngBounds([[p.de.lat, p.de.lon], [p.vers.lat, p.vers.lon]]).pad(1.5), { maxZoom: 11 });
+    } catch (err) { b.textContent = err.message; }
+  }));
+}
+
 // ---- Plan à budget -------------------------------------------------------------------------------------
 async function planBudget(o) {
   $('#fiche').hidden = false;
@@ -2318,6 +2376,15 @@ async function rendreSites() {
       </div>
       <div class="actions-prop"><button id="budget-calculer" class="principal">Où poser mes relais ?</button></div>
     </div>
+    <div class="bloc-plan" id="bloc-deplacer">
+      <h3>🔀 Déplacer des relais existants</h3>
+      <p class="note">Pour chaque relais (rôle routeur), la carte cherche les points hauts proches où il couvrirait plus de surface, sans perdre le contact radio avec le réseau.</p>
+      <div class="parametres compact">
+        <label>Chercher dans un rayon de <select id="dep-rayon"><option value="3">3 km</option><option value="6" selected>6 km</option><option value="10">10 km</option></select></label>
+        <label>Accès exigé <select id="dep-acces"><option value="voiture">🚗 En voiture</option><option value="4x4" selected>🚙 En 4×4 ou voiture</option><option value="pied">🥾 À pied ou mieux</option><option value="tous">Tous les points hauts</option></select></label>
+      </div>
+      <div class="actions-prop"><button id="dep-calculer" class="principal">Où déplacer mes relais ?</button></div>
+    </div>
     <h3>🧭 Outils sur la carte</h3>
     <div class="outils-couv">
       <button data-outil="btn-couv-ici">📍 Couverture depuis un point<small>zone couverte par une antenne placée où vous cliquez (puis ＋ d’autres sites)</small></button>
@@ -2359,6 +2426,8 @@ async function rendreSites() {
   const bcr = $('#sites-couv-reseau'); if (bcr) bcr.onclick = couvertureReseau;
   const bcm = $('#sites-couv-mesuree'); if (bcm) bcm.onclick = () => couvertureMesuree();
   z.querySelectorAll('[data-outil]').forEach((b) => (b.onclick = () => { const t = $('#' + b.dataset.outil); if (t) t.click(); }));
+  const bd = $('#dep-calculer');
+  if (bd) bd.onclick = () => optimiserRelais(Number($('#dep-rayon').value), $('#dep-acces').value);
   const bb = $('#budget-calculer');
   if (bb) {
     try { const v = localStorage.getItem('gaulix_budget'); if (v) { const o = JSON.parse(v); for (const k of ['n', 'acces', 'secteur', 'solaire', 'mat']) if (o[k] != null) $('#budget-' + k).value = o[k]; } } catch { /* ignoré */ }
