@@ -290,7 +290,7 @@ function R(req, ...pts) {
   // (chargé à la demande pour les membres connectés ; il faut quelques minutes la première fois)
   const p = pts.find((x) => x && Number.isFinite(x.lat) && !dansEmprise(x, r.emprise()));
   if (p && estMembre(req)) {
-    const dep = departementDuPoint(p.lat, p.lon);
+    const dep = meilleurDepartement(p.lat, p.lon, Number(req.query.rayon) || 40);
     if (dep) return Rdep(req, dep);
   }
   return r;
@@ -309,6 +309,25 @@ function departementDuPoint(lat, lon) {
   const dansAnneau = (a) => { let d = false; for (let i = 0, j = a.length - 1; i < a.length; j = i++) { const [xi, yi] = a[i], [xj, yj] = a[j]; if ((yi > lat) !== (yj > lat) && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) d = !d; } return d; };
   const f = contoursDeps.find((c) => c.poly.some((pg) => dansAnneau(pg[0]) && !pg.slice(1).some(dansAnneau)));
   return f ? String(f.code).toUpperCase() : null;
+}
+// Parmi les départements dont le relief (rectangle + 0,2°) contient le point, celui qui contient la plus grande
+// part du disque de calcul : évite une couverture tronquée par le bord du relief chargé
+function meilleurDepartement(lat, lon, rayonKm) {
+  departementDuPoint(lat, lon);
+  const dLat = rayonKm / 111.32, dLon = rayonKm / (111.32 * Math.cos((lat * Math.PI) / 180));
+  let meilleur = null, max = -1;
+  for (const c of contoursDeps) {
+    if (!c.rect) {
+      let s = 90, o = 180, n = -90, e = -180;
+      for (const pg of c.poly) for (const [x, y] of pg[0]) { s = Math.min(s, y); n = Math.max(n, y); o = Math.min(o, x); e = Math.max(e, x); }
+      c.rect = { s: s - 0.2, o: o - 0.2, n: n + 0.2, e: e + 0.2 };
+    }
+    const r = c.rect;
+    if (lat < r.s || lat > r.n || lon < r.o || lon > r.e) continue;
+    const part = Math.max(0, Math.min(r.n, lat + dLat) - Math.max(r.s, lat - dLat)) * Math.max(0, Math.min(r.e, lon + dLon) - Math.max(r.o, lon - dLon));
+    if (part > max + 1e-9) { max = part; meilleur = String(c.code).toUpperCase(); }
+  }
+  return meilleur || departementDuPoint(lat, lon);
 }
 function Rdep(req, depForce) {
   const dep = String(depForce || req.query.dep || (req.body && req.body.dep) || '').toUpperCase();

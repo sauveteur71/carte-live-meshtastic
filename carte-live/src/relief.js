@@ -394,6 +394,8 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     const cosLat = Math.cos((site.lat * Math.PI) / 180);
     const budget = P.ptx + P.gains - P.pertes - P.seuil - P.margeSecurite - P.env;
     const nPas = Math.floor(P.rayonMax / pas);
+    const precis = !!P.precis; // couverture d'un seul site : diffraction sur l'obstacle le plus pénalisant (plus lent)
+    const profTheta = precis ? new Float64Array(nPas) : null;
     for (let r = 0; r < nbRayons; r++) {
       const az = (2 * Math.PI * r) / nbRayons;
       const dLat = Math.cos(az) / M_PAR_DEG, dLon = Math.sin(az) / (M_PAR_DEG * cosLat);
@@ -406,7 +408,17 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
         const ze = z - (d * d) / (2 * K * R_TERRE);
         const thetaCible = (ze + P.ht - hS) / d;
         let perte = 0;
-        if (dObs > 0) {
+        if (precis) {
+          // Obstacle donnant le plus grand paramètre de Fresnel v parmi tous les points du profil (pas seulement
+          // le plus haut en angle) : la couverture ne peut alors que croître quand on monte l'antenne
+          let vMax = -Infinity;
+          for (let o = 0; o < k - 1; o++) {
+            const dO = (o + 1) * pas;
+            const v = (profTheta[o] - thetaCible) * Math.sqrt((2 * d * dO) / (LAMBDA * (d - dO)));
+            if (v > vMax) vMax = v;
+          }
+          if (k > 1) perte = diffraction(vMax);
+        } else if (dObs > 0) {
           const h = (thetaMax - thetaCible) * dObs;
           const v = h * Math.sqrt((2 * d) / (LAMBDA * dObs * (d - dObs)));
           perte = diffraction(v);
@@ -414,6 +426,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
         const m = budget - fspl(d) - perte;
         rappel(celle(lat, lon), m, d);
         const thetaSol = (ze - hS) / d;
+        if (precis) profTheta[k - 1] = thetaSol;
         if (thetaSol > thetaMax) { thetaMax = thetaSol; dObs = d; }
       }
     }
@@ -472,7 +485,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   }
 
   function couverturePng(site, opts) {
-    const P = parametres(opts);
+    const P = { ...parametres(opts), precis: true };
     const marges = new Float32Array(nLat * nLon).fill(-Infinity);
     balayer(site, P, 1440, 150, (k, m) => { if (k >= 0 && m > marges[k]) marges[k] = m; });
     const rgba = Buffer.alloc(nLat * nLon * 4);
