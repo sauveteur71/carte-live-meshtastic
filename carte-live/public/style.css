@@ -883,3 +883,5 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 .nouveau-noeud .diag { display: block; margin-top: 2px; }
 .nouveau-noeud .diag.attention { color: #fcd34d; }
 .mk-routier { width: 20px; height: 20px; border-radius: 5px; background: #1e293b; border: 2px solid #a3e635; display: grid; place-items: center; font-size: 11px; box-shadow: 0 1px 4px rgba(0,0,0,.5); } .mk-routier.dir { border-color: #fbbf24; }
+.filtre-messages label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--texte-2, #c9d4e5); margin: 0 0 8px; }
+.filtre-messages select { flex: 1; min-width: 0; }

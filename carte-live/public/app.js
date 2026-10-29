@@ -794,9 +794,12 @@ async function preparerEnvoi(dest) {
   f.vers.innerHTML = i.canaux.map((c) => `<option value="c${c.index}" data-nom="${esc(c.nom)}">📢 Canal ${esc(c.nom)}</option>`).join('')
     + (n ? `<option value="d${n.num}" selected>✉️ Direct → ${esc(n.nomLong || n.id)}</option>` : '')
     + '<option value="choisir">✉️ Message direct… (choisir un nœud)</option>';
+  if (dest === undefined && filtreMessages.startsWith('c:')) { const o = [...f.vers.options].find((x) => x.dataset.nom != null && memeCanal(x.dataset.nom, filtreMessages.slice(2))); if (o) f.vers.value = o.value; }
   f.querySelector('button[type=submit]').disabled = !i.connecte;
   $('#retour-envoi').textContent = i.connecte ? '' : 'Module radio non connecté : connectez-le dans Réseau › Modules Wi-Fi.';
   f.vers.onchange = () => {
+    if (f.vers.value.startsWith('c')) { const o = f.vers.selectedOptions[0]; if (o && o.dataset.nom != null) choisirFiltreMessages('c:' + o.dataset.nom); return; }
+    if (f.vers.value.startsWith('d')) { choisirFiltreMessages('direct'); return; }
     if (f.vers.value !== 'choisir') return;
     const nom = prompt('Nom, nom court ou !identifiant du nœud :');
     if (!nom) { f.vers.selectedIndex = 0; return; }
@@ -905,13 +908,44 @@ async function afficherParcours(rowid) {
     <p class="note">Meshtastic ne transmet que le nombre de sauts et le dernier octet du dernier relais : les relais intermédiaires sont déduits des liaisons déjà observées (tracé en pointillé, « trajet probable »). Vert = reçu par ton module, bleu = passerelle MQTT.</p>`;
   if (pts.length) carte.fitBounds(L.latLngBounds(pts), { padding: [80, 80], maxZoom: 12 });
 }
+// Filtre des messages : tous, un canal, ou les messages directs (retenu dans le navigateur)
+let filtreMessages = (() => { try { return localStorage.getItem('filtreMessages') || ''; } catch { return ''; } })();
+let derniersMessages = [];
+function choisirFiltreMessages(v) {
+  filtreMessages = v || '';
+  try { localStorage.setItem('filtreMessages', filtreMessages); } catch { /* navigation privée */ }
+  rendreMessages();
+}
+const memeCanal = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
 async function chargerMessages() {
   if (!etat.membre) return;
-  if (etat.admin && ($('#form-envoi').hidden || !$('#form-envoi').vers.querySelector('option[data-nom]'))) preparerEnvoi();
-  const msgs = await api('/api/messages?limite=300');
+  if (etat.admin && ($('#form-envoi').hidden || !$('#form-envoi').vers.querySelector('option[data-nom]'))) await preparerEnvoi();
+  derniersMessages = await api('/api/messages?limite=300');
+  rendreMessages();
+}
+function rendreMessages() {
+  const tous = derniersMessages;
+  // Canaux proposés : ceux du module connecté puis ceux vus dans les messages
+  const canaux = [];
+  for (const c of [...(envoi.canaux || []).map((c) => c.nom), ...tous.filter((m) => m.vers === 0xffffffff).map((m) => m.canal)]) {
+    if (c && !canaux.some((x) => memeCanal(x, c))) canaux.push(c);
+  }
+  const nb = (f) => tous.filter(f).length;
+  const zf = $('#filtre-messages');
+  if (zf) {
+    zf.innerHTML = `<label>Afficher <select id="sel-filtre-messages">
+      <option value="">Tous les canaux (${tous.length})</option>
+      ${canaux.map((c) => `<option value="c:${esc(c)}" ${filtreMessages === 'c:' + c ? 'selected' : ''}>📢 ${esc(c)} (${nb((m) => m.vers === 0xffffffff && memeCanal(m.canal, c))})</option>`).join('')}
+      <option value="direct" ${filtreMessages === 'direct' ? 'selected' : ''}>✉️ Messages directs (${nb((m) => m.vers !== 0xffffffff)})</option>
+    </select></label>`;
+    $('#sel-filtre-messages').onchange = (e) => choisirFiltreMessages(e.target.value);
+  }
+  const msgs = !filtreMessages ? tous
+    : filtreMessages === 'direct' ? tous.filter((m) => m.vers !== 0xffffffff)
+      : tous.filter((m) => m.vers === 0xffffffff && memeCanal(m.canal, filtreMessages.slice(2)));
   $('#messages').innerHTML = msgs.length
     ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-rowid="${m.rowid}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b> · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${esc(m.texte || '(non conservé)')}</div>${origineMessage(m)}</div>`).join('')
-    : '<div class="vide">Aucun message texte sur la période.</div>';
+    : `<div class="vide">${filtreMessages ? 'Aucun message dans ce choix sur la période.' : 'Aucun message texte sur la période.'}</div>`;
   if (etat.admin) $('#messages').querySelectorAll('.message[data-de]').forEach((el) => (el.onclick = () => repondreA(el)));
   $('#messages').querySelectorAll('.origines').forEach((el) => {
     el.title = 'Voir le parcours du message sur la carte';
