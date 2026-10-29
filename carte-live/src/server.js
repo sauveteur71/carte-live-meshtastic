@@ -1158,7 +1158,9 @@ app.get('/api/topologie', (req, res) => {
       favoris: Object.keys(favoris[String(num)] || {}).map(Number),
     };
   });
-  const preset = (sourceRadio && sourceRadio.etat().preset) || config.reseauPreset || 'LONG_FAST';
+  // Preset du module connecté ; sinon le plus fréquent parmi les nœuds affichés (rapports de carte)
+  const presetMajoritaire = () => { const c = {}; for (const num of garde) { const x = tous.get(num).preset; if (x) c[x] = (c[x] || 0) + 1; } return Object.entries(c).sort((a, b) => b[1] - a[1]).map(([k]) => k)[0]; };
+  const preset = (sourceRadio && sourceRadio.etat().preset) || presetMajoritaire() || config.reseauPreset || 'LONG_FAST';
   const hop = (() => { try { return sourceRadio.infos().hopLimit || 3; } catch { return 3; } })();
   res.set('Cache-Control', 'no-store').json({ heures, sources, preset, hopLimit: hop, zoneNom: config.zoneNom, noeuds, liens, genere: Date.now() });
 });
