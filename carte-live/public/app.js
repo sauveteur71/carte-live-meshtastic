@@ -4961,6 +4961,8 @@ async function demarrer() {
   appliquerZone(etat.zone);
   await Promise.all([chargerLiens(), chargerEtat(), chargerFlux()]);
   connecterWs();
+  // Lien direct vers la fiche d'un nœud (?noeud=NUM, ex. depuis la page Topologie)
+  { const pn = Number(new URLSearchParams(location.search).get('noeud')) >>> 0; if (pn && etat.noeuds.has(pn)) setTimeout(() => ouvrirFiche(pn), 300); }
   if (typeof demarrerMeshcore === 'function') demarrerMeshcore();
   chargerRelief();
   chargerAsymetrie(); setInterval(chargerAsymetrie, 120000);

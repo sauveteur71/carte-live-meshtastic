@@ -30,6 +30,7 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - **Sauvegarde automatique des réglages** chaque nuit (comptes, fiches, configurations, mots de passe MeshCore), téléchargeable et restaurable (*Connexion › Sauvegardes*)
 - **Fiche d'installation des relais** : antenne, hauteur, gain, câble, puissance, alimentation, site ; utilisée par les calculs de couverture
 - Analyse du trafic, rejeu de l'historique, profils radio entre deux points quelconques
+- **Topologie et simulation** (*Outils › Topologie et simulation*) : graphe des liaisons mesurées (libre ou géographique), points de rupture et liaisons critiques (ce qui serait coupé de toute passerelle), relais les plus traversés, distance aux passerelles face à la limite de sauts, îlots, nœuds sans position ; **simulation de la propagation d'un paquet** d'après la logique du firmware 2.7 (attente selon le SNR, priorité des ROUTER, annulation par les CLIENT, ROUTER_LATE, sauts gratuits entre favoris, écoute du canal, collisions), animée ou sur 200 tirages, pour comparer preset, limite de sauts, favoris et rôles
 
 **Relief et sites** (onglet *Couverture* et menu *Couverture radio*)
 - **Couverture actuelle du réseau** : zone desservie par les relais et passerelles détectés, part du département, et ce que chaque relais est seul à couvrir (doublons, points critiques)

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Topologie du réseau</title>
+  <link rel="icon" href="icone-192.png">
+  <style>
+    :root {
+      --fond: #0b1117; --surface: #111a23; --surface-2: #151f29; --bord: rgba(120, 160, 190, 0.22);
+      --texte: #f1f5f9; --doux: #c3d0dc; --tres-doux: #9fb1c1; --accent: #3ee6c4;
+      --critique: #ff5c6c; --attention: #ffb547; --ok: #3ee6c4;
+      --r-router: #b48cff; --r-late: #e07bff; --r-base: #4cc9f0; --r-client: #80ed99; --r-muet: #6c8cff; --r-autre: #c3d0dc;
+      --police: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--fond); color: var(--texte); font: 13px/1.45 var(--police); }
+    body { display: flex; flex-direction: column; overflow: hidden; }
+    header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 14px; background: var(--surface); border-bottom: 1px solid var(--bord); }
+    header h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 650; }
+    header a.retour { color: var(--accent); text-decoration: none; font-weight: 600; }
+    header label { display: inline-flex; align-items: center; gap: 5px; color: var(--doux); }
+    select, input[type=search], button { font: inherit; color: var(--texte); background: var(--surface-2); border: 1px solid var(--bord); border-radius: 7px; padding: 5px 9px; }
+    button { cursor: pointer; }
+    button.principal { background: var(--accent); color: #062019; border-color: var(--accent); font-weight: 650; }
+    button:disabled { opacity: .5; cursor: default; }
+    input[type=checkbox] { accent-color: var(--accent); }
+    main { flex: 1; display: flex; min-height: 0; }
+    #graphe { flex: 1; position: relative; min-width: 0; }
+    #graphe svg { width: 100%; height: 100%; display: block; cursor: grab; }
+    #graphe svg:active { cursor: grabbing; }
+    aside { width: 400px; max-width: 46vw; display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--bord); min-height: 0; }
+    nav.onglets { display: flex; border-bottom: 1px solid var(--bord); }
+    nav.onglets button { flex: 1; border: 0; border-radius: 0; background: none; padding: 10px 6px; color: var(--doux); font-weight: 600; letter-spacing: .02em; }
+    nav.onglets button.actif { color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+    .vue { display: none; overflow: auto; padding: 12px 14px 20px; flex: 1; }
+    .vue.actif { display: block; }
+    h2 { font-size: 14px; margin: 16px 0 6px; color: var(--texte); }
+    h2:first-child { margin-top: 2px; }
+    .note { color: var(--doux); font-size: 12px; }
+    .grille { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 6px 0; }
+    .mesure { background: var(--surface-2); border: 1px solid var(--bord); border-radius: 8px; padding: 6px 8px; }
+    .mesure span { display: block; font-size: 11px; color: var(--tres-doux); text-transform: uppercase; letter-spacing: .04em; }
+    .mesure b { font-size: 16px; }
+    .ligne { display: flex; align-items: baseline; gap: 8px; padding: 5px 6px; border-radius: 6px; cursor: pointer; }
+    .ligne:hover { background: var(--surface-2); }
+    .ligne .titre { flex: 1; min-width: 0; }
+    .ligne small { color: var(--doux); }
+    .ligne .val { font-variant-numeric: tabular-nums; font-weight: 650; white-space: nowrap; }
+    .barre { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+    .barre span:first-child { width: 70px; color: var(--doux); }
+    .barre i { height: 12px; background: var(--accent); border-radius: 3px; display: inline-block; }
+    .barre i.trop { background: var(--critique); }
+    .form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .form label { display: flex; flex-direction: column; gap: 3px; color: var(--doux); font-size: 12px; min-width: 0; }
+    .form select { width: 100%; min-width: 0; }
+    .form label.case { flex-direction: row; align-items: center; grid-column: 1 / -1; }
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { text-align: left; padding: 4px 5px; border-bottom: 1px solid var(--bord); }
+    th { color: var(--tres-doux); font-weight: 600; }
+    td.n { text-align: right; font-variant-numeric: tabular-nums; }
+    .alerte { border-left: 3px solid var(--attention); background: rgba(255, 181, 71, .08); padding: 6px 9px; border-radius: 6px; margin: 6px 0; }
+    .pastille { display: inline-block; padding: 0 7px; border-radius: 10px; font-size: 11px; background: var(--surface-2); border: 1px solid var(--bord); }
+    #horloge { position: absolute; left: 12px; top: 10px; background: rgba(17, 26, 35, .9); border: 1px solid var(--bord); border-radius: 8px; padding: 6px 10px; display: none; font-variant-numeric: tabular-nums; }
+    #legende { position: absolute; left: 12px; bottom: 10px; background: rgba(17, 26, 35, .9); border: 1px solid var(--bord); border-radius: 8px; padding: 6px 10px; font-size: 11.5px; color: var(--doux); max-width: calc(100% - 24px); }
+    #legende span { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; white-space: nowrap; }
+    #legende i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    #infobulle { position: absolute; pointer-events: none; background: rgba(11, 17, 23, .95); border: 1px solid var(--bord); border-radius: 7px; padding: 6px 9px; font-size: 12px; display: none; max-width: 280px; z-index: 5; }
+    .lien { fill: none; stroke-linecap: round; }
+    .lien.unique { stroke-dasharray: 5 4; }
+    .lien.attenue, .noeud.attenue { opacity: .14; }
+    .lien.critique { stroke: var(--critique) !important; stroke-width: 4px !important; stroke-dasharray: none; filter: drop-shadow(0 0 3px rgba(255, 92, 108, .8)); }
+    .noeud circle.corps { stroke: #0b1117; stroke-width: 1.5; }
+    .noeud.passerelle circle.corps { stroke: #fff; stroke-width: 2.5; }
+    .noeud circle.halo { fill: none; stroke: var(--critique); stroke-width: 3; opacity: 0; }
+    .noeud.rupture circle.halo { opacity: .95; }
+    .noeud.choisi circle.corps { stroke: var(--accent); stroke-width: 3.5; }
+    .noeud.coupe circle.corps { fill: var(--critique) !important; }
+    .noeud text { fill: var(--texte); font-size: 11px; paint-order: stroke; stroke: #0b1117; stroke-width: 3px; pointer-events: none; }
+    .noeud { cursor: pointer; }
+    .onde { stroke: #fff; stroke-width: 2.5; opacity: .85; fill: none; }
+    .pulse { fill: none; stroke: #fff; stroke-width: 2; }
+    @media (max-width: 900px) {
+      body { overflow: auto; }
+      main { flex-direction: column; }
+      #graphe { height: 62vh; flex: none; }
+      aside { width: 100%; max-width: none; border-left: 0; border-top: 1px solid var(--bord); }
+      header { gap: 6px 10px; padding: 6px 10px; }
+      header h1 { width: 100%; font-size: 14px; }
+      .vue { overflow: visible; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="retour" href="./">← Carte</a>
+    <h1>Topologie du réseau <span id="titre-zone" class="note"></span></h1>
+    <label>Période <select id="periode"><option value="24">24 h</option><option value="72" selected>3 jours</option><option value="168">7 jours</option></select></label>
+    <label><input type="checkbox" class="source" value="rf" checked> radio</label>
+    <label><input type="checkbox" class="source" value="voisinage" checked> voisinage</label>
+    <label><input type="checkbox" class="source" value="traceroute" checked> traceroutes</label>
+    <label title="N'utiliser que les liaisons mesurées dans les deux sens"><input type="checkbox" id="double-sens"> double sens seulement</label>
+    <label>Zone <select id="zone"><option value="1">département</option><option value="v">département et voisins</option><option value="0">tout</option></select></label>
+    <label>Disposition <select id="disposition"><option value="libre">graphe</option><option value="geo">géographique</option></select></label>
+    <input id="recherche" type="search" placeholder="Chercher un nœud…" size="16">
+  </header>
+  <main>
+    <div id="graphe">
+      <svg id="svg" aria-label="Graphe des liaisons radio entre nœuds"></svg>
+      <div id="horloge"></div>
+      <div id="infobulle"></div>
+      <div id="legende"></div>
+    </div>
+    <aside>
+      <nav class="onglets">
+        <button data-vue="analyse" class="actif">Analyse</button>
+        <button data-vue="simulation">Simulation</button>
+        <button data-vue="noeud">Nœud</button>
+      </nav>
+      <section class="vue actif" id="vue-analyse"><div class="note">Chargement…</div></section>
+      <section class="vue" id="vue-simulation"></section>
+      <section class="vue" id="vue-noeud"><div class="note">Cliquez un nœud du graphe.</div></section>
+    </aside>
+  </main>
+  <script src="vendor/d3-7.9.0.min.js"></script>
+  <script src="sim-maillage.js"></script>
+  <script src="topologie.js"></script>
+</body>
+</html>

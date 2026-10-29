@@ -1112,6 +1112,57 @@ app.get('/api/liens', (req, res) => {
   res.json(reseau.liens(heures * 3600000));
 });
 
+// Topologie du réseau Meshtastic (vue en graphe et simulation de propagation) : nœuds et liaisons fusionnées par paire
+app.get('/api/topologie', (req, res) => {
+  const heures = Math.min(Math.max(Number(req.query.heures) || 72, 1), config.retentionJours * 24);
+  const depuis = Date.now() - heures * 3600000;
+  const sources = String(req.query.sources || 'rf,voisinage,traceroute').split(',').filter((x) => ['rf', 'voisinage', 'traceroute'].includes(x));
+  const bbox = bboxZone(req.query.zone || '1');
+  const dansZ = (n) => !bbox || (n.lat != null && n.lat >= bbox[0] && n.lat <= bbox[2] && n.lon >= bbox[1] && n.lon <= bbox[3]);
+  const admin = estMembre(req);
+  const tous = new Map(stockage.q.noeuds.all().map((n) => [n.num >>> 0, n]));
+  // Paires de nœuds : a→b = « b a entendu a »
+  const paires = new Map();
+  for (const l of stockage.q.liens.all(depuis)) {
+    if (!sources.includes(l.source)) continue;
+    const a = l.a >>> 0, b = l.b >>> 0;
+    if (a === b || !tous.has(a) || !tous.has(b)) continue;
+    const [x, y] = a < b ? [a, b] : [b, a];
+    const k = x + '-' + y;
+    const p = paires.get(k) || { a: x, b: y, ab: null, ba: null };
+    const sens = a === x ? 'ab' : 'ba';
+    const d = p[sens] || { snr: null, sources: [], nb: 0, dernierVu: 0 };
+    if (l.snr != null && (d.snr == null || l.source !== 'traceroute')) d.snr = d.snr == null ? l.snr : Math.max(d.snr, l.snr);
+    if (!d.sources.includes(l.source)) d.sources.push(l.source);
+    d.nb += l.nb; d.dernierVu = Math.max(d.dernierVu, l.dernier_vu);
+    p[sens] = d;
+    paires.set(k, p);
+  }
+  // Nœuds : dans la zone et actifs sur la période, ou sans position mais reliés à un nœud de la zone
+  const garde = new Set();
+  for (const n of tous.values()) if ((n.dernier_vu || 0) >= depuis && n.lat != null && dansZ(n)) garde.add(n.num >>> 0);
+  for (const p of paires.values()) {
+    const na = tous.get(p.a), nb = tous.get(p.b);
+    if (garde.has(p.a) && na.lat != null && nb.lat == null) garde.add(p.b);
+    if (garde.has(p.b) && nb.lat != null && na.lat == null) garde.add(p.a);
+  }
+  const liens = [...paires.values()].filter((p) => garde.has(p.a) && garde.has(p.b));
+  const relies = new Set(liens.flatMap((p) => [p.a, p.b]));
+  const favoris = (() => { try { return administration.favoris(); } catch { return {}; } })();
+  const noeuds = [...garde].filter((num) => relies.has(num) || (tous.get(num).dernier_vu || 0) >= depuis).map((num) => {
+    const v = reseau.vueNoeud(tous.get(num), admin);
+    return {
+      num, id: v.id, nomCourt: v.nomCourt, nomLong: v.nomLong, role: v.role || 'CLIENT', materiel: v.materiel, firmware: v.firmware,
+      lat: v.lat, lon: v.lon, position: v.lat != null, passerelle: v.passerelle, infrastructure: v.infrastructure, statut: v.statut,
+      dernierVu: v.dernierVu, batterie: v.batterie, canal: v.canal, emission: v.emission,
+      favoris: Object.keys(favoris[String(num)] || {}).map(Number),
+    };
+  });
+  const preset = (sourceRadio && sourceRadio.etat().preset) || config.reseauPreset || 'LONG_FAST';
+  const hop = (() => { try { return sourceRadio.infos().hopLimit || 3; } catch { return 3; } })();
+  res.set('Cache-Control', 'no-store').json({ heures, sources, preset, hopLimit: hop, zoneNom: config.zoneNom, noeuds, liens, genere: Date.now() });
+});
+
 app.get('/api/paquets', (req, res) => {
   const admin = estMembre(req);
   const n = Math.min(Number(req.query.limite) || 200, 1000);
