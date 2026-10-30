@@ -58,6 +58,8 @@ function creerAdministration(radio, stockage) {
       const code = r.errorReason || 0;
       if (code) {
         if (code === 33 || code === 37) noterAdmin(de, false);
+        // Échec passager (pas d'accusé, pas de route, temps d'émission) : nouvel essai s'il en reste
+        if (a.transitoire && ERREURS_PASSAGERES.has(code) && a.transitoire(code)) return;
         clearTimeout(a.minuterie); attentes.delete(d.requestId);
         a.reject(Object.assign(new Error(ERREURS_ROUTAGE[code] || `erreur de routage ${code}`), { code }));
       } else if (!a.reponse && de === a.dest) {
@@ -69,27 +71,82 @@ function creerAdministration(radio, stockage) {
 
   const ERREUR_ARRET = () => Object.assign(new Error('arrêtée à votre demande'), { arret: true });
   const arrets = new Set(); // nœuds dont l'opération en cours doit s'arrêter
-  function envoyerAdmin(dest, message, { reponse = true, delai = 120000 } = {}) {
-    if (arrets.has(dest >>> 0)) return Promise.reject(ERREUR_ARRET());
-    const info = radio.infos();
-    if (!info.connecte) return Promise.reject(new Error('Module radio non connecté'));
+  // Erreurs de routage passagères : la liaison a raté, la commande peut être renvoyée telle quelle
+  const ERREURS_PASSAGERES = new Set([1, 3, 5, 8, 9, 38]);
+  // Suivi des essais par nœud (pour afficher « nouvel essai 2/3 » dans l'opération en cours)
+  const suivis = new Map();
+  // Attente d'une réponse, par essai : selon la distance du nœud (sauts), au lieu d'un seul essai de 2 min
+  function delaiEssai(dest) {
+    let sauts = 2;
+    try { const n = stockage && stockage.q && stockage.q.noeud && stockage.q.noeud.get(dest); if (n) sauts = Math.max(n.sauts_min ?? 0, n.sauts_dernier ?? 0, 1); } catch { /* inconnu */ }
+    return Math.min(85000, 35000 + 15000 * sauts);
+  }
+  // Message d'absence de réponse : si ce nœud a déjà accepté une commande de ce module, la clé n'est pas en cause
+  function messageSansReponse(dest, nbEssais) {
+    const e = administrables[String(dest >>> 0)];
+    const pm = e && e.parModule && e.parModule[radio.infos().noeudLocal >>> 0];
+    const dejaOk = pm ? pm.ok : e && e.ok;
+    if (dejaOk) return `pas de réponse après ${nbEssais} essai(s) : liaison radio trop faible ou nœud occupé (il a déjà accepté ce module, la clé d’admin n’est pas en cause)`;
+    return `pas de réponse après ${nbEssais} essai(s) : nœud hors de portée, ou clé d’admin du module absente, ou firmware < 2.5`;
+  }
+  // Une demande d'administration, renvoyée jusqu'à 3 fois si le nœud ne répond pas (même contenu, nouvel identifiant).
+  // Une réponse tardive à un essai précédent est acceptée : tous les identifiants restent écoutés jusqu'au bout.
+  // Le dernier essai part avec un saut de plus, au cas où le chemin aurait changé.
+  function envoyerAdmin(dest, message, { reponse = true, delai = null, essais = 3 } = {}) {
     dest = dest >>> 0;
-    const local = dest === info.noeudLocal;
-    const corps = { ...message };
-    const cs = clesSession.get(dest);
-    if (cs && Date.now() - cs.heure < 280000) corps.sessionPasskey = cs.cle;
-    const id = crypto.randomBytes(4).readUInt32LE(0) >>> 0 || 1;
+    if (arrets.has(dest)) return Promise.reject(ERREUR_ARRET());
+    const info0 = radio.infos();
+    if (!info0.connecte) return Promise.reject(new Error('Module radio non connecté'));
+    const local = dest === info0.noeudLocal;
+    const nbEssais = local ? 1 : Math.max(1, essais);
+    const parEssai = local ? 15000 : delai || delaiEssai(dest);
     return new Promise((resolve, reject) => {
-      const minuterie = setTimeout(() => { attentes.delete(id); reject(new Error(local ? 'pas de réponse du module' : 'pas de réponse (nœud hors de portée, clé d’admin absente ou firmware < 2.5)')); }, local ? 15000 : delai);
-      attentes.set(id, { resolve, reject, minuterie, reponse, dest });
-      try {
-        radio.envoyerPaquet({
-          to: dest, id, channel: 0, wantAck: !local, hopLimit: info.hopLimit, pkiEncrypted: !local,
-          decoded: { portnum: PORT_ADMIN, payload: AdminMessage.encode(AdminMessage.create(corps)).finish(), wantResponse: reponse },
+      const ids = [];
+      let fini = false, essai = 0, minuterie = null, relance = null;
+      const terminer = (f, v) => {
+        if (fini) return; fini = true;
+        clearTimeout(minuterie); clearTimeout(relance);
+        for (const i of ids) attentes.delete(i);
+        f(v);
+      };
+      const ok = (v) => terminer(resolve, v), ko = (e) => terminer(reject, e);
+      const suivant = (raison) => {
+        if (fini || essai >= nbEssais) return false;
+        clearTimeout(minuterie); clearTimeout(relance);
+        const s = suivis.get(dest);
+        if (s) s(`↻ ${raison}, nouvel essai ${essai + 1}/${nbEssais}…`);
+        relance = setTimeout(envoyer, 4000 + Math.floor(Math.random() * 4000)); // laisse passer le trafic en cours
+        return true;
+      };
+      const envoyer = () => {
+        if (fini) return;
+        if (arrets.has(dest)) return ko(ERREUR_ARRET());
+        const info = radio.infos();
+        if (!info.connecte) return ko(new Error('Module radio non connecté'));
+        essai++;
+        const corps = { ...message };
+        const cs = clesSession.get(dest);
+        if (cs && Date.now() - cs.heure < 280000) corps.sessionPasskey = cs.cle;
+        const id = crypto.randomBytes(4).readUInt32LE(0) >>> 0 || 1;
+        ids.push(id);
+        minuterie = setTimeout(() => {
+          if (!suivant('pas de réponse')) ko(new Error(local ? 'pas de réponse du module' : messageSansReponse(dest, nbEssais)));
+        }, parEssai);
+        attentes.set(id, {
+          resolve: ok, reject: ko, minuterie, reponse, dest,
+          transitoire: (code) => suivant(ERREURS_ROUTAGE[code] || `erreur ${code}`),
         });
-        // Commande au module local : pas d'accusé radio, elle est appliquée dès réception
-        if (local && !reponse) { clearTimeout(minuterie); attentes.delete(id); setTimeout(() => resolve(null), 300); }
-      } catch (e) { clearTimeout(minuterie); attentes.delete(id); reject(e); }
+        try {
+          const sauts = Math.min(7, (info.hopLimit || 3) + (essai > 1 && essai === nbEssais ? 1 : 0));
+          radio.envoyerPaquet({
+            to: dest, id, channel: 0, wantAck: !local, hopLimit: sauts, pkiEncrypted: !local,
+            decoded: { portnum: PORT_ADMIN, payload: AdminMessage.encode(AdminMessage.create(corps)).finish(), wantResponse: reponse },
+          });
+          // Commande au module local : pas d'accusé radio, elle est appliquée dès réception
+          if (local && !reponse) setTimeout(() => ok(null), 300);
+        } catch (e) { ko(e); }
+      };
+      envoyer();
     });
   }
   // Toutes les opérations passent par une file : une à la fois sur l'air
@@ -161,14 +218,8 @@ function creerAdministration(radio, stockage) {
     if (p.reprendre && dejaFaites) journalTache(`reprise : ${dejaFaites} élément(s) déjà lus conservés`);
     const Config = racine.lookupType('meshtastic.Config');
     const Channel = racine.lookupType('meshtastic.Channel');
-    // Une demande, réessayée une fois si le nœud n'a pas répondu (liaison faible)
-    const demande = async (message, libelle) => {
-      try { return await admin(dest, message); } catch (e) {
-        if (erreurDefinitive(e)) throw e;
-        journalTache(`${libelle} : pas de réponse, nouvel essai…`);
-        return admin(dest, message);
-      }
-    };
+    // (chaque demande est déjà renvoyée jusqu'à 3 fois par envoyerAdmin)
+    const demande = (message) => admin(dest, message);
     const resultatPartiel = () => construireResultat(dest, l);
     try {
       for (const [cle, libelle] of ETAPES_FIXES) {
@@ -382,10 +433,12 @@ function creerAdministration(radio, stockage) {
     await new Promise((r) => setTimeout(r, 20000));
     clesSession.delete(dest);
     let verif = null;
-    for (let essai = 1; essai <= 3 && !verif; essai++) {
+    // (chaque relecture est déjà renvoyée jusqu'à 3 fois)
+    for (let essai = 1; essai <= 2 && !verif; essai++) {
       try { verif = versObjet(Channel, (await admin(dest, { getChannelRequest: 1 })).getChannelResponse); } catch (e) {
-        journalTache(`vérification ${essai}/3 sans réponse (${e.message})`);
-        if (essai < 3) await new Promise((r) => setTimeout(r, 15000));
+        if (e.arret) throw e;
+        journalTache(`↻ relecture ${essai}/2 impossible (${e.message.split(' : ')[0]}), on patiente…`);
+        if (essai < 2) await new Promise((r) => setTimeout(r, 30000));
       }
     }
     if (!verif) throw new Error('Canal 0 envoyé et accusé, mais le nœud ne répond plus à la relecture : vérifiez-le sur la carte dans quelques minutes');
@@ -761,7 +814,7 @@ function creerAdministration(radio, stockage) {
     firmware: { nom: 'Mise à jour du firmware (Wi-Fi)', f: (d, p, j) => mettreAJourFirmware(d, p, j) },
     echanger: { nom: 'Envoi de la fiche du module', f: async (d) => { await enFile(async () => { echangerInfos(d); await new Promise((r) => setTimeout(r, 3000)); }); } },
   };
-  function lancer(type, cibles, params, auteur) {
+  function lancer(type, cibles, params, auteur, options = {}) {
     const op = OPERATIONS[type];
     if (!op) throw new Error('Opération inconnue');
     if (!radio.infos().connecte && !(type === 'firmware' && params && params.hote)) throw new Error('Module radio non connecté : connectez-le dans Réseau > Modules Wi-Fi');
@@ -778,7 +831,7 @@ function creerAdministration(radio, stockage) {
     }
     if (type === 'favoris') params = { ...(params || {}), auteur };
     const id = crypto.randomBytes(6).toString('hex');
-    const tache = { id, type, nom: op.nom, auteur, debut: Date.now(), fin: null, params, noeuds: cibles.map((num) => ({ num, statut: 'en_attente', detail: null, resultat: null })) };
+    const tache = { id, type, nom: op.nom, auteur, debut: Date.now(), fin: null, params, insister: !!options.insister && type !== 'firmware', noeuds: cibles.map((num) => ({ num, statut: 'en_attente', detail: null, resultat: null })) };
     taches.set(id, tache);
     if (taches.size > 50) taches.delete(taches.keys().next().value);
     journal(`${op.nom} lancée par ${auteur} sur ${cibles.length} nœud(s)`);
@@ -800,7 +853,10 @@ function creerAdministration(radio, stockage) {
         const etapes = [];
         try {
           n.etapes = etapes;
-          const executer = (reprise) => op.f(n.num, reprise && type === 'lire' ? { ...(params || {}), reprendre: true } : params || {}, (t) => { etapes.push(t); n.detail = t; });
+          n.debutNoeud = Date.now();
+          const suivi = (t) => { etapes.push(t); n.detail = t; };
+          suivis.set(n.num >>> 0, suivi);
+          const executer = (reprise) => op.f(n.num, reprise && type === 'lire' ? { ...(params || {}), reprendre: true } : params || {}, suivi);
           try {
             n.resultat = await executer();
           } catch (e) {
@@ -819,16 +875,44 @@ function creerAdministration(radio, stockage) {
         } catch (e) {
           if (e.partiel) n.resultat = e.partiel;
           n.statut = e.arret || tache.arret ? 'annule' : 'echec';
+          n.definitif = !!(e.garde || erreurDefinitive(e) || /invalide|Confirmation|inconnu/i.test(e.message));
           n.detail = e.code === 35 ? 'le nœud ne connaît toujours pas la clé du module (fiche envoyée, réessayez dans une minute)'
             : e.code === 37 ? 'clé du module absente des clés d’administration de ce nœud' : e.message;
           // Où en était-on ? (ex. pour le canal 0 : avant ou après l'écriture)
-          const derniere = n.etapes && n.etapes.length ? n.etapes[n.etapes.length - 1] : null;
+          const derniere = n.etapes && [...n.etapes].reverse().find((x) => !x.startsWith('↻'));
           if (derniere && type !== 'lire') n.detail += ` — dernière étape réussie : ${derniere}`;
         }
+        suivis.delete(n.num >>> 0);
         arrets.delete(n.num >>> 0);
+        if (n.statut === 'echec') n.echecs = (n.echecs || 0) + 1;
         journal(`${op.nom} → ${idNoeud(n.num)} : ${n.statut}${n.detail ? ' (' + n.detail + ')' : ''}`);
         sauverTaches();
       }
+      // Mode « insister » : les nœuds en échec passager sont repris toutes les 10 min, pendant 2 h au plus
+      // (un mobile qui revient à portée, un relais occupé, un chemin qui se rétablit…)
+      const reprendre = tache.insister && !tache.arret ? tache.noeuds.filter((n) => n.statut === 'echec' && !n.definitif) : [];
+      if (reprendre.length && Date.now() - tache.debut < 2 * 3600000) {
+        const quand = Date.now() + 10 * 60000;
+        tache.prochainEssai = quand;
+        const hh = new Date(quand).toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
+        for (const n of reprendre) { n.statut = 'en_attente'; n.detail = `${n.detail} — nouvel essai automatique à ${hh} (${n.echecs} échec(s))`; }
+        journal(`${tache.nom} : ${reprendre.length} nœud(s) repris à ${hh}`);
+        sauverTaches();
+        const attente = setInterval(() => {
+          if (tache.arret) {
+            clearInterval(attente);
+            for (const n of reprendre) if (n.statut === 'en_attente') { n.statut = 'annule'; n.detail = 'non retenté (opération arrêtée)'; }
+            tache.prochainEssai = null; tache.fin = Date.now(); sauverTaches();
+          } else if (Date.now() >= quand && radio.infos().connecte) {
+            clearInterval(attente);
+            tache.prochainEssai = null;
+            executerTache(tache);
+          }
+        }, 5000);
+        if (attente.unref) attente.unref();
+        return;
+      }
+      tache.prochainEssai = null;
       tache.fin = Date.now();
       sauverTaches();
     })();
@@ -976,14 +1060,14 @@ function creerAdministration(radio, stockage) {
 
   // Nouvel essai d'une opération terminée, avec les mêmes réglages, sur les nœuds en échec ou arrêtés seulement.
   // Une lecture reprend là où elle s'était arrêtée.
-  function relancer(id, auteur) {
+  function relancer(id, auteur, options = {}) {
     const t = taches.get(id);
     if (!t) throw new Error('Opération introuvable (la carte a peut-être redémarré) : relancez-la depuis le formulaire');
     if (!t.fin) throw new Error('Opération encore en cours');
     const cibles = t.noeuds.filter((n) => n.statut === 'echec' || n.statut === 'annule').map((n) => n.num);
     if (!cibles.length) throw new Error('Aucun nœud en échec à relancer');
     const params = t.type === 'lire' ? { ...(t.params || {}), reprendre: true } : t.params;
-    return lancer(t.type, cibles, params, auteur);
+    return lancer(t.type, cibles, params, auteur, options);
   }
 
   // Arrêt d'une opération en cours : la demande radio en attente est abandonnée tout de suite,

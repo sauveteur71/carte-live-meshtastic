@@ -3614,7 +3614,7 @@ async function rendreGestion() {
 function rendreTaches(liste) {
   if (!liste || !liste.length) return '<div class="vide">Aucune.</div>';
   return liste.slice(0, 8).map((t) => `<div class="tache">
-    <div class="entete-tache"><b>${esc(t.nom)}</b><small>${heure(t.debut)} · ${esc(t.auteur)}${t.fin ? '' : ' · en cours'}</small>${!t.fin && !t.arret ? `<button class="mini arreter" data-arreter-tache="${t.id}" title="Arrêter cette opération">■ Arrêter</button>` : ''}${t.fin && t.noeuds.some((x) => x.statut === 'echec' || x.statut === 'annule') ? `<button class="mini" data-relancer-tache="${t.id}" data-resume="${esc(t.resume || '')}" data-nb="${t.noeuds.filter((x) => x.statut === 'echec' || x.statut === 'annule').length}" title="Relancer avec les mêmes réglages, sur les nœuds en échec">↻ Réessayer</button>` : ''}${(t.type === 'verifier' || (t.type === 'lire' && (!t.fin || t.noeuds.some((x) => x.statut === 'ok' || x.partiel)))) ? `<button class="mini" data-voir-tache="${t.id}">${t.fin ? 'Voir' : 'Suivre'}</button>` : ''}</div>
+    <div class="entete-tache"><b>${esc(t.nom)}</b><small>${heure(t.debut)} · ${esc(t.auteur)}${t.fin ? '' : t.prochainEssai ? ` · insiste : prochain essai à ${heure(t.prochainEssai)}` : ' · en cours'}${t.insister && t.fin ? ' · insistance terminée' : ''}</small>${!t.fin && !t.arret ? `<button class="mini arreter" data-arreter-tache="${t.id}" title="Arrêter cette opération">■ Arrêter</button>` : ''}${t.fin && t.noeuds.some((x) => x.statut === 'echec' || x.statut === 'annule') ? `<button class="mini" data-relancer-tache="${t.id}" data-resume="${esc(t.resume || '')}" data-nb="${t.noeuds.filter((x) => x.statut === 'echec' || x.statut === 'annule').length}" title="Relancer avec les mêmes réglages, sur les nœuds en échec">↻ Réessayer</button><button class="mini" data-relancer-tache="${t.id}" data-insister="1" data-resume="${esc(t.resume || '')}" data-nb="${t.noeuds.filter((x) => x.statut === 'echec' || x.statut === 'annule').length}" title="Relancer, puis reprendre automatiquement les nœuds en échec toutes les 10 min pendant 2 h">🔁 Insister 2 h</button>` : ''}${(t.type === 'verifier' || (t.type === 'lire' && (!t.fin || t.noeuds.some((x) => x.statut === 'ok' || x.partiel)))) ? `<button class="mini" data-voir-tache="${t.id}">${t.fin ? 'Voir' : 'Suivre'}</button>` : ''}</div>
     ${t.resume ? `<div class="resume-tache">${esc(t.resume)}</div>` : ''}
     ${t.noeuds.map((n) => `<div class="etape ${n.statut}"><span>${esc(nomNoeud(n.num))}</span><span>${STATUTS_TACHE[n.statut]}${n.detail && n.statut !== 'ok' ? ' · ' + esc(n.detail) : ''}</span></div>`).join('')}
   </div>`).join('');
@@ -3626,13 +3626,13 @@ function brancherArrets() {
     if (principal && !confirm(`Réessayer « ${b.dataset.resume} » sur ${b.dataset.nb} nœud(s) ?\nLe canal PRINCIPAL sera réécrit (mêmes garde-fous : contrôle de fréquence et vérification).`)) return;
     b.disabled = true; b.textContent = '↻ …';
     try {
-      const t = await postJson(`/api/admin-noeuds/taches/${b.dataset.relancerTache}/relancer`, {});
+      const t = await postJson(`/api/admin-noeuds/taches/${b.dataset.relancerTache}/relancer`, { insister: b.dataset.insister === '1' });
       if (t && (t.type === 'lire' || t.type === 'verifier')) { gestion.lectureSuivie = t.id; voirTache(t.id); }
       const i = await api('/api/admin-noeuds');
       $('#taches-gestion').innerHTML = rendreTaches(i.taches);
       brancherArrets();
       suivreTaches();
-    } catch (e) { alert(e.message); b.disabled = false; b.textContent = '↻ Réessayer'; }
+    } catch (e) { alert(e.message); b.disabled = false; b.textContent = b.dataset.insister === '1' ? '🔁 Insister 2 h' : '↻ Réessayer'; }
   }));
   $('#taches-gestion').querySelectorAll('[data-arreter-tache]').forEach((b) => (b.onclick = async () => {
     b.disabled = true; b.textContent = 'arrêt…';
@@ -3662,7 +3662,8 @@ function suivreTaches() {
 async function lancerTache(type, params, cibles = [...gestion.selection]) {
   const zone = $('#retour-action');
   try {
-    const t = await postJson('/api/admin-noeuds/taches', { type, cibles, params });
+    const ins = $('#insister-action');
+    const t = await postJson('/api/admin-noeuds/taches', { type, cibles, params, insister: !!(ins && ins.checked) });
     if ((type === 'lire' || type === 'verifier') && t && t.id) { gestion.lectureSuivie = t.id; voirTache(t.id); }
     if (zone) zone.textContent = 'Opération lancée : suivez-la ci-dessous.';
     const i = await api('/api/admin-noeuds');
@@ -3676,7 +3677,7 @@ async function formulaireAction(act) {
   const f = $('#form-action');
   const num = [...gestion.selection][0];
   const n = etat.noeuds.get(num);
-  const pied = '<p class="erreur" id="retour-action"></p>';
+  const pied = '<label class="case-insister" title="Pour un nœud mobile, lointain ou souvent occupé : les nœuds en échec sont repris automatiquement"><input type="checkbox" id="insister-action"> Insister en cas d’échec : nouvel essai toutes les 10 min pendant 2 h</label><p class="erreur" id="retour-action"></p>';
   if (act === 'editer') { f.innerHTML = pied; editeurReglages(num); return; }
   if (act === 'lire') {
     let l = null;

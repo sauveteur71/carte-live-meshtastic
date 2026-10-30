@@ -695,7 +695,7 @@ app.post('/api/admin-noeuds/taches', (req, res) => {
   if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const b = req.body || {};
   if (!peutGererTous(req, [...(b.cibles || []), ...(b.params && b.params.reference ? [b.params.reference] : [])])) return refuserSecteur(res);
-  try { res.json(administration.lancer(String(b.type), b.cibles, b.params || {}, u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+  try { res.json(administration.lancer(String(b.type), b.cibles, b.params || {}, u.identifiant, { insister: !!b.insister })); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 app.get('/api/admin-noeuds/lecture/:num/detail', (req, res) => {
   if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
@@ -711,7 +711,7 @@ app.post('/api/admin-noeuds/taches/:id/relancer', (req, res) => {
   const u = utilisateur(req);
   if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   if (!tacheDuSecteur(req, administration.tache(req.params.id))) return refuserSecteur(res);
-  try { res.json(administration.relancer(req.params.id, u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+  try { res.json(administration.relancer(req.params.id, u.identifiant, { insister: !!(req.body && req.body.insister) })); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 app.post('/api/admin-noeuds/taches/:id/arreter', (req, res) => {
   const u = utilisateur(req);

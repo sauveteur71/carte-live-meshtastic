@@ -899,3 +899,5 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 /* Menu du haut ouvert : au-dessus de tout (légende, panneaux, autres menus) */
 .menu-couches[open] { z-index: 1200; }
 .menu-couches[open] .menu { z-index: 1200; }
+
+.case-insister { display: flex; gap: 6px; align-items: center; margin: 8px 0 2px; font-size: 0.9em; color: var(--texte-2, var(--texte)); cursor: pointer; }
