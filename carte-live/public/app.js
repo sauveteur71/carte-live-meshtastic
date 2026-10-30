@@ -103,8 +103,28 @@ function blocCoords(lat, lon, opts = {}) {
       <a href="https://www.google.com/maps/search/?api=1&query=${lat.toFixed(6)},${lon.toFixed(6)}" target="_blank" rel="noopener">Google Maps</a>
       <a href="geo:${lat.toFixed(6)},${lon.toFixed(6)}">GPS du téléphone</a></div>
     ${opts.approx ? '<div class="note">Position publique arrondie (≈ 100 m) : connectez-vous pour la position exacte.</div>' : ''}
+    ${opts.couv ? `<div class="actions-prop"><button class="mini principal" data-couv-pt="${lat},${lon}" data-couv-nom="${esc(opts.couv.nom || '')}" data-couv-h="${opts.couv.h || 6}" title="Couverture radio d’un relais posé ici (antenne à ${opts.couv.h || 6} m)">📡 Couverture de ce site</button></div>` : ''}
   </div>`;
 }
+// « Couverture de ce site » dans une liste de propositions : la vue précédente (plan, classement) reste disponible
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-couv-pt]');
+  if (b) {
+    const [lat, lon] = b.dataset.couvPt.split(',').map(Number);
+    const precedente = etat.coucheCouverture;
+    b.disabled = true; b.textContent = 'Calcul…';
+    const r = await voirCouvertureSite({ lat, lon }, b.dataset.couvNom || 'Site', Number(b.dataset.couvH) || 6, { cadrer: true });
+    b.disabled = false; b.textContent = '📡 Couverture de ce site';
+    document.querySelectorAll('.couv-pt-resultat').forEach((x) => x.remove());
+    if (!r) return;
+    const d = document.createElement('div');
+    d.className = 'note couv-pt-resultat';
+    d.innerHTML = `<b>${r.surfaceKm2} km²</b> couverts par ce site seul, ${fmt(r.pctZone, 1, ' %')} du département (antenne ${Number(b.dataset.couvH) || 6} m). ${precedente ? '<button class="mini" data-couv-retour>↩ Revoir la vue précédente</button>' : ''}`;
+    b.parentNode.after(d);
+    const rb = d.querySelector('[data-couv-retour]');
+    if (rb) rb.onclick = () => { if (etat.coucheCouverture) etat.coucheCouverture.remove(); precedente.addTo(carte); etat.coucheCouverture = precedente; d.remove(); };
+  }
+});
 document.addEventListener('click', async (e) => {
   const b = e.target.closest('[data-copier]');
   if (!b) return;
@@ -2268,7 +2288,7 @@ async function planDepartement() {
       <div class="meta-longue">${x.alt} m${x.commune ? ' · ' + esc(x.commune) : ''}</div>
       <div class="meta-longue">Accès : ${texteAcces(x.acces)}</div>
       <div class="meta-longue">Site : ${texteRealisme(x.realisme)}</div>
-      ${blocCoords(x.lat, x.lon, { alt: x.alt })}
+      ${blocCoords(x.lat, x.lon, { alt: x.alt, couv: { nom: `${x.rang} · ${nomSommet(x)}`, h: (r.parametres && r.parametres.hs) || 6 } })}
     </div>`).join('') || '<div class="vide">Aucun site ne répond à ces critères.</div>'}
     ${r.realiste && r.realismeEtat && !r.realismeEtat.pret ? '<div class="alerte attention">Données OpenStreetMap des sites (supports, zones protégées, habitations) pas encore chargées : le plan n’a pas pu en tenir compte. Réessayez dans quelques minutes.</div>' : ''}
     <div class="actions-prop"><button id="plan-gpx">Télécharger les sites (GPX)</button>${r.sites.length >= 2 && r.sites.length <= 10 ? '<button id="plan-couv">Couverture détaillée (marges)</button>' : ''}</div>
@@ -2319,7 +2339,7 @@ async function evaluerRoutiers() {
       <div class="entete-prop">${x.nouveauKm2 > 0 && k < 15 ? `<span class="lettre">${k + 1}</span>` : ''}<b>${esc(x.nom)}</b><span class="marge">${x.nouveauKm2 > 0 ? '+' + x.nouveauKm2 + ' km² nouveaux' : 'déjà couvert'}</span></div>
       <div class="meta-longue">${esc(x.gestionnaire)} · ${esc(x.type)} · ${x.altitude || x.altMnt} m${x.dansDepartement ? '' : ' · hors du département'}</div>
       <div class="meta-longue">Un relais ici couvrirait ${x.couvertureKm2} km² ${x.nouveauKm2 > 0 ? `→ couverture totale <b>${fmt(x.apresPct, 1, ' %')}</b>` : ''} · relié par radio à ${x.liaisons}${x.liaisons >= 3 ? ' ou plus' : ''} relais${x.liaisons ? '' : ' (isolé)'}</div>
-      ${blocCoords(x.lat, x.lon, { alt: x.altitude || x.altMnt })}
+      ${blocCoords(x.lat, x.lon, { alt: x.altitude || x.altMnt, couv: { nom: x.nom, h: r.h || 6 } })}
       <div class="actions-prop"><button class="mini" data-couv-routier="${k}">Couverture de ce site</button></div>
     </div>`).join('')}
     <p class="note">Source : carte publique ${esc(r.source || 'inforoute43.fr')} (webcams du Département de la Haute-Loire et de la DIR Massif Central). Une installation sur ces sites demande l’accord du gestionnaire : ce classement peut appuyer la demande.</p>`;
@@ -2361,7 +2381,7 @@ async function optimiserRelais(rayon, acces, recalculer) {
       <div class="meta-longue">Gagne ${p.nouveauKm2} km² jamais couverts, perd ${p.perduKm2} km² que lui seul couvre aujourd’hui → couverture totale <b>${fmt(p.apresPct, 1, ' %')}</b> · reste relié par radio à ${p.liaisons}${p.liaisons >= 3 ? ' ou plus' : ''} relais</div>
       <div class="meta-longue">Accès : ${texteAcces(p.vers.acces)}</div>
       <div class="meta-longue">Site : ${texteRealisme(p.vers.realisme)}</div>
-      ${blocCoords(p.vers.lat, p.vers.lon, { alt: p.vers.alt })}
+      ${blocCoords(p.vers.lat, p.vers.lon, { alt: p.vers.alt, couv: { nom: `${p.nom} → ${nomSommet(p.vers)}`, h: p.hauteur || 6 } })}
       <div class="actions-prop"><button class="mini" data-voir-dep="${k}">Voir gagné / perdu sur la carte</button></div>
     </div>`).join('') : '<div class="vide">Aucun déplacement intéressant (au moins 10 km² de gain net, contact radio conservé) : vos relais sont déjà bien placés dans ce rayon.</div>'}
     <h3>Apport propre de chaque relais</h3>
@@ -2414,7 +2434,7 @@ async function planBudget(o) {
       <div class="meta-longue">${x.alt} m${x.commune ? ' · ' + esc(x.commune) : ''} · alimentation ${x.alimentation}</div>
       <div class="meta-longue">Accès : ${texteAcces(x.acces)}</div>
       <div class="meta-longue">Site : ${texteRealisme(x.realisme)}</div>
-      ${blocCoords(x.lat, x.lon, { alt: x.alt })}
+      ${blocCoords(x.lat, x.lon, { alt: x.alt, couv: { nom: `${x.rang} · ${nomSommet(x)}`, h: 6 } })}
     </div>`).join('') || '<div class="vide">Aucun site ne répond à ces critères.</div>'}
     <div class="actions-prop"><button id="budget-gpx">Télécharger les sites (GPX)</button>${r.sites.length >= 2 ? '<button id="budget-couv">Couverture détaillée</button>' : ''}</div>
     <p class="note">Ordre de pose conseillé : chaque relais est celui qui apporte le plus de surface nouvelle${r.realiste ? ' (sites en zone protégée écartés, préférence aux châteaux d’eau, pylônes et au secteur proche)' : ''}. Habitants : population des communes dont le bourg passe en zone couverte (${pop.communes} communes, ${pop.totale.toLocaleString('fr-FR')} habitants). Coût : relais ${r.couts.secteur} € (secteur) ou ${r.couts.solaire} € (solaire), + ${r.couts.mat} € de mât s’il n’y a pas de support existant ; hors main-d’œuvre et convention avec le propriétaire.</p>`;
@@ -2666,7 +2686,7 @@ async function relierPoints(a, b, opts = {}) {
       <div class="proposition etape-relier ${c.type}" data-etape="${k}" data-lat="${c.lat}" data-lon="${c.lon}">
         <div class="entete-prop"><span class="lettre">${k === 0 ? 'A' : k === r.chemin.length - 1 ? 'B' : k}</span><b>${esc(c.nom || nomSommet(c))}</b><span class="marge">${titre}</span></div>
         <div class="meta-longue">${c.alt} m${c.commune ? ' · ' + esc(c.commune) : ''} · antenne ${c.hauteur} m${c.type === 'nouveau' ? ` · Accès : ${texteAcces(c.acces)}` : ''}</div>
-        ${c.type === 'nouveau' ? blocCoords(c.lat, c.lon, { alt: c.alt }) : ''}
+        ${c.type === 'nouveau' ? blocCoords(c.lat, c.lon, { alt: c.alt, couv: { nom: c.nom || nomSommet(c), h: c.hauteur || 6 } }) : ''}
         ${alt && alt.options.length ? `<details class="alt-relier"><summary>Autres emplacements possibles (${alt.options.length})</summary>${alt.options.map((o, j) => `<div class="ligne-alt" data-lat="${o.lat}" data-lon="${o.lon}"><b class="repere-alt">${k}${String.fromCharCode(97 + j)}</b> ${esc(o.nom || nomSommet(o))} · ${o.alt} m${o.commune ? ' · ' + esc(o.commune) : ''} · marge mini ${fmt(o.margeMin, 1, ' dB')} ${o.acces ? ACCES[o.acces.type].icone : ''}</div>`).join('')}</details>` : ''}
       </div>`;
   };
@@ -2793,7 +2813,7 @@ async function couvrirPoints(cibles) {
       <div class="points-couverts">${ligneLiaisons(p)}</div>
       <div class="meta-longue">Accès : ${texteAcces(p.acces)}</div>
       <div class="meta-longue">${p.raccord ? `Raccord au réseau : <b>${esc(p.raccord.nom)}</b> à ${fmt(p.raccord.distanceKm, 1, ' km')}, marge <span style="color:${couleurMarge(p.raccord.marge)}">${fmt(p.raccord.marge, 1, ' dB')}</span>` : '<span style="color:var(--critique)">Aucun relais existant joignable depuis ce site</span>'}</div>
-      ${blocCoords(p.lat, p.lon, { alt: p.alt })}
+      ${blocCoords(p.lat, p.lon, { alt: p.alt, couv: { nom: nomSommet(p), h: 6 } })}
     </div>`;
   const listeCibles = r.cibles.map((c, i) => `<div class="ligne-cible"><span class="cible-multi petit"><span>${i + 1}</span></span><span class="mono">${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}</span>${c.alt != null ? ` · ${c.alt} m` : ''}${cibles.length > 2 ? `<button class="mini" data-retirer="${i}" title="Retirer ce point">✕</button>` : ''}</div>`).join('');
   $('#fiche-contenu').innerHTML = `<h2>Couvrir ${r.cibles.length} points avec un seul site</h2>
@@ -3222,7 +3242,7 @@ async function ficheFirmware() {
   const v = (x) => (x ? x.tag.replace(/^v/, '') : null);
   const versions = [r.stable ? [v(r.stable), `${v(r.stable)} · stable`] : null, r.test && r.test.tag !== (r.stable || {}).tag ? [v(r.test), `${v(r.test)} · test (bêta)`] : null].filter(Boolean);
   const agentOk = (m) => /^1\.([5-9]|\d\d)|^[2-9]\./.test(m.versionAgent || '');
-  const ligne = (m) => `<div class="carte-cle" data-hote="${esc(m.hote)}"><div class="ligne-cle"><b>${esc(m.nom || m.hote)}</b> <small class="mono">${esc(m.agent ? 'par agent · ' + (m.source || '') : m.hote)}</small>${m.actif ? ' <span class="badge actif">module de la carte</span>' : ''}${m.agent && !agentOk(m) ? ` <span class="badge attente">agent ${esc(m.versionAgent || '?')} : téléchargez l’agent 1.5 pour la mise à jour</span>` : ''}</div>${m.agent && m.actif ? '<div class="note">Module actif de la carte : choisissez d’abord un autre module (Réseau › Modules) pour que l’agent puisse relayer la mise à jour.</div>' : ''}<div class="etat-fw note">version non vérifiée</div><div class="actions-prop"><button class="mini" data-verifier>Vérifier la version</button></div></div>`;
+  const ligne = (m) => `<div class="carte-cle" data-hote="${esc(m.hote)}"><div class="ligne-cle"><b>${esc(m.nom || m.hote)}</b> <small class="mono">${esc(m.agent ? 'par agent · ' + (m.source || '') : m.hote)}</small>${m.actif ? ' <span class="badge actif">module de la carte</span>' : ''}${m.agent && !agentOk(m) ? ` <span class="badge attente">agent ${esc(m.versionAgent || '?')} : téléchargez l’agent 1.5 pour la mise à jour</span>` : ''}</div>${m.agent && m.actif ? '<div class="note">Module actif de la carte : choisissez d’abord un autre module (Réseau › Modules) pour que l’agent puisse relayer la mise à jour.</div>' : ''}<div class="etat-module note">version non vérifiée</div><div class="actions-prop"><button class="mini" data-verifier>Vérifier la version</button></div></div>`;
   z.innerHTML = `<h2>⬆️ Firmware des modules Wi-Fi</h2>
     <p class="note">Dernière version stable : <b>${esc(v(r.stable) || '?')}</b>${r.test && r.test.tag !== (r.stable || {}).tag ? ` · test : ${esc(v(r.test))}` : ''}. La mise à jour passe par le Wi-Fi (ESP32, firmware 2.7.18 ou plus) : le module doit être joignable en IP depuis le NAS (même réseau, ou réseau relié par VPN). Pendant 2 à 4 minutes, le module ne fonctionne plus ; ses réglages sont conservés.</p>
     <div class="alerte attention">« Vérifier » ouvre une courte connexion au module : un autre client connecté à lui en Wi-Fi (appli, MeshMonitor) est déconnecté un instant.</div>
@@ -3232,7 +3252,7 @@ async function ficheFirmware() {
     <p class="erreur" id="fw-retour"></p>`;
   const brancher = (el) => {
     el.querySelector('[data-verifier]').onclick = async (ev) => {
-      const b = ev.target, e = el.querySelector('.etat-fw'), hote = el.dataset.hote;
+      const b = ev.target, e = el.querySelector('.etat-module'), hote = el.dataset.hote;
       b.disabled = true; e.textContent = 'Connexion au module…';
       try {
         const i = await api('/api/firmware/info?hote=' + encodeURIComponent(hote));

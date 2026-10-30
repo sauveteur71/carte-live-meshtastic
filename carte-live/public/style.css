@@ -28,6 +28,11 @@
 [hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; background: var(--fond); color: var(--texte); font: 13px/1.4 var(--police); overflow: hidden; }
 button, input, select { font: inherit; color: inherit; }
+/* Listes déroulantes et champs sans style particulier : fond sombre, texte clair (jamais de rectangle blanc illisible) */
+:where(select, textarea, input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=color])) { background-color: var(--surface-2); color: var(--texte); border: 1px solid var(--bord); border-radius: 6px; }
+:where(select) { padding: 4px 6px; }
+:where(option, optgroup) { background-color: var(--surface-2); color: var(--texte); }
+.etat-module { margin: 4px 0; line-height: 1.6; }
 #carte { position: fixed; inset: 0; background: var(--fond); }
 .leaflet-container { background: var(--fond); font-family: var(--police); }
 .leaflet-control-attribution { background: rgba(11,17,23,.7) !important; color: var(--tres-doux) !important; }
