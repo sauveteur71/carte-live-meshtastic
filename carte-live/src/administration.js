@@ -882,6 +882,7 @@ function creerAdministration(radio, stockage) {
           const derniere = n.etapes && [...n.etapes].reverse().find((x) => !x.startsWith('↻'));
           if (derniere && type !== 'lire') n.detail += ` — dernière étape réussie : ${derniere}`;
         }
+        n.finNoeud = Date.now();
         suivis.delete(n.num >>> 0);
         arrets.delete(n.num >>> 0);
         if (n.statut === 'echec') n.echecs = (n.echecs || 0) + 1;
