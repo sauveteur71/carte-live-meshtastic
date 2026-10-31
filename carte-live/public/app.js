@@ -866,6 +866,7 @@ function suivreEnvoi(id, direct) {
     let e;
     try { e = await api('/api/envoi/' + id); } catch { return; }
     const r$ = $('#retour-envoi');
+    if (e.statut !== 'envoye' && e.statut !== suivreEnvoi.dernier) { suivreEnvoi.dernier = e.statut; chargerMessages().catch(() => {}); }
     if (e.statut === 'recu') { r$.innerHTML = '<span class="succes">✓ Reçu par le destinataire</span>'; clearInterval(t); }
     else if (e.statut === 'relaye') { r$.innerHTML = `<span class="succes">✓ ${direct ? 'Relayé par un voisin, en route' : 'Émis et relayé par un voisin'}</span>`; if (!direct) clearInterval(t); }
     else if (e.statut === 'echec') { r$.innerHTML = `<span class="erreur">✗ Échec : ${esc(e.detail || '')}</span>`; clearInterval(t); }
@@ -882,6 +883,30 @@ function origineMessage(m) {
   if (m.mqtt) b.push(`<span class="orig mqtt" title="Publié sur le broker MQTT par ${m.mqtt} passerelle(s) qui l’ont entendu">🌐 MQTT · ${m.mqtt} passerelle${m.mqtt > 1 ? 's' : ''}</span>`);
   if (m.viaMqtt) b.push('<span class="orig internet" title="Le message a été réinjecté sur le maillage par une passerelle MQTT : il a traversé internet avant d’arriver en radio (pont, autre région…)">⚠ Passé par internet</span>');
   return b.length ? `<div class="origines">${b.join('')}</div>` : '';
+}
+// Suivi d'un message : accusé radio (messages envoyés depuis la carte) et récepteurs qui l'ont remonté (passerelles, module)
+function suiviMessage(m) {
+  const local = etat.radio ? etat.radio.noeudLocal : null;
+  const moi = !!m.accuse || (local != null && m.de === local);
+  const l = [];
+  const a = m.accuse;
+  if (a) {
+    const age = Date.now() - m.heure;
+    const h = a.heure ? ` <small>à ${heure(a.heure)}</small>` : '';
+    if (a.statut === 'recu') l.push(`<span class="acc ok" title="Le destinataire a renvoyé un accusé de réception">✓✓ Reçu par ${esc(nomNoeud(a.dest))}${h}</span>`);
+    else if (a.statut === 'relaye') l.push(`<span class="acc ok" title="Le module de la carte a entendu un voisin retransmettre le message (accusé implicite). Cela prouve qu’il est parti, pas que tous l’ont reçu.">✓ Relayé par un voisin${h}</span>`);
+    else if (a.statut === 'echec') l.push(`<span class="acc ko">✗ ${esc(a.detail || 'échec')}${h}</span>`);
+    else l.push(age > 120000 ? '<span class="acc ko" title="Aucun accusé radio reçu (la carte a peut-être redémarré pendant l’envoi)">⚠ Aucun accusé reçu</span>' : '<span class="acc">⏳ Émis, en attente d’un relais…</span>');
+  }
+  const ent = Array.isArray(m.entendus) ? m.entendus : [];
+  if (ent.length) {
+    const vus = new Map();
+    for (const r of ent) if (!vus.has(r.g) || (r.s ?? 9) < (vus.get(r.g).s ?? 9)) vus.set(r.g, r);
+    const desc = (r) => `${nomNoeud(r.g)} (${r.s === 0 ? 'direct' : r.s != null ? r.s + ' saut' + (r.s > 1 ? 's' : '') : '?'}${r.snr != null ? ', ' + fmt(r.snr, 1, ' dB') : ''}${r.rel && r.s > 0 ? ', via ' + nomNoeud(r.rel) : ''})`;
+    const liste = [...vus.values()].sort((x, y) => (x.s ?? 9) - (y.s ?? 9));
+    l.push(`<span class="acc ent" title="${esc(liste.map(desc).join('\n'))}">📡 Entendu par ${liste.length} récepteur${liste.length > 1 ? 's' : ''} : ${esc(liste.slice(0, 3).map(desc).join(', '))}${liste.length > 3 ? ` +${liste.length - 3}` : ''}</span>`);
+  } else if (moi) l.push('<span class="acc ko" title="Aucune passerelle MQTT ni aucun module de la carte n’a remonté ce message : soit personne ne l’a entendu, soit seuls des nœuds sans passerelle l’ont reçu.">📡 Aucun récepteur ne l’a remonté</span>');
+  return l.length ? `<div class="suivi-msg">${l.join('')}</div>` : '';
 }
 // Parcours d'un message : pour chaque réception, émetteur → relais (connu ou probable) → passerelle / module
 async function afficherParcours(rowid) {
@@ -976,10 +1001,10 @@ function rendreMessages() {
     : filtreMessages === 'direct' ? tous.filter((m) => m.vers !== 0xffffffff)
       : tous.filter((m) => m.vers === 0xffffffff && memeCanal(m.canal, filtreMessages.slice(2)));
   $('#messages').innerHTML = msgs.length
-    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-rowid="${m.rowid}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b> · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${esc(m.texte || '(non conservé)')}</div>${origineMessage(m)}</div>`).join('')
+    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-rowid="${m.rowid}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b> · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${esc(m.texte || '(non conservé)')}</div>${origineMessage(m)}${suiviMessage(m)}</div>`).join('')
     : `<div class="vide">${filtreMessages ? 'Aucun message dans ce choix sur la période.' : 'Aucun message texte sur la période.'}</div>`;
   if (etat.admin) $('#messages').querySelectorAll('.message[data-de]').forEach((el) => (el.onclick = () => repondreA(el)));
-  $('#messages').querySelectorAll('.origines').forEach((el) => {
+  $('#messages').querySelectorAll('.origines, .suivi-msg').forEach((el) => {
     el.title = 'Voir le parcours du message sur la carte';
     el.onclick = (e) => { e.stopPropagation(); afficherParcours(Number(el.closest('.message').dataset.rowid)); };
   });

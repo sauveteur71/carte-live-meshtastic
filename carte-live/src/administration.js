@@ -1092,16 +1092,29 @@ function creerAdministration(radio, stockage) {
   }
 
   // ---- Messages texte ---------------------------------------------------------------------
-  const envois = new Map(); // id -> { statut, dest, heure }
+  // Accusés des messages envoyés depuis la carte, gardés dans /data/envois.json (affichés dans la liste des messages)
+  const fEnvois = require('path').join(require('path').dirname(require('./config').fichierBase), 'envois.json');
+  const envois = new Map(); // id -> { statut, dest, heure, de, detail, heureAccuse }
+  try { for (const [k, v] of JSON.parse(require('fs').readFileSync(fEnvois, 'utf8'))) envois.set(Number(k), v); } catch { /* aucun */ }
+  let minuterieEnvois = null;
+  const sauverEnvois = () => {
+    clearTimeout(minuterieEnvois);
+    minuterieEnvois = setTimeout(() => { try { require('fs').writeFileSync(fEnvois, JSON.stringify([...envois].slice(-500))); } catch { /* lecture seule */ } }, 1000);
+  };
   radio.ecouter((p) => {
     const d = p.decoded;
     if (!d || d.portnum !== PORT_ROUTAGE || !d.requestId || !envois.has(d.requestId)) return;
     const e = envois.get(d.requestId);
     const code = Routing.decode(d.payload).errorReason || 0;
     const de = p.from >>> 0;
-    if (code) { e.statut = 'echec'; e.detail = ERREURS_ROUTAGE[code] || `erreur ${code}`; }
-    else if (de === e.dest) e.statut = 'recu'; // accusé du destinataire (message direct)
+    if (code) {
+      if (e.statut === 'recu' || e.statut === 'relaye') return; // un accusé est déjà arrivé
+      e.statut = 'echec';
+      e.detail = code === 5 ? (e.dest === 0xffffffff ? 'aucun voisin n’a relayé le message (aucun relais entendu après 3 émissions)' : 'aucun accusé du destinataire après 3 émissions') : ERREURS_ROUTAGE[code] || `erreur ${code}`;
+    } else if (de === e.dest) e.statut = 'recu'; // accusé du destinataire (message direct)
     else if (e.statut !== 'recu') e.statut = 'relaye'; // un voisin a retransmis (accusé implicite)
+    e.heureAccuse = Date.now();
+    sauverEnvois();
   });
   function envoyerTexte({ texte, canal, dest }, auteur) {
     const info = radio.infos();
@@ -1117,8 +1130,9 @@ function creerAdministration(radio, stockage) {
     const id = crypto.randomBytes(4).readUInt32LE(0) >>> 0 || 1;
     const paquet = { from: info.noeudLocal, to: vers, id, channel: index, wantAck: true, hopLimit: info.hopLimit, decoded: { portnum: 1, payload: octets } };
     radio.envoyerPaquet({ to: vers, id, channel: index, wantAck: true, hopLimit: info.hopLimit, decoded: { portnum: 1, payload: octets } });
-    envois.set(id, { statut: 'envoye', dest: vers, heure: Date.now() });
-    if (envois.size > 200) envois.delete(envois.keys().next().value);
+    envois.set(id, { statut: 'envoye', dest: vers, heure: Date.now(), de: info.noeudLocal >>> 0 });
+    if (envois.size > 500) envois.delete(envois.keys().next().value);
+    sauverEnvois();
     try { radio.injecter({ ...paquet, rxTime: Math.floor(Date.now() / 1000), hopStart: info.hopLimit }); } catch (e) { journal('enregistrement du message :', e.message); }
     journal(`message ${direct ? 'direct vers ' + idNoeud(vers) : 'sur le canal ' + index} envoyé par ${auteur}`);
     return { id, dest: vers, canal: index };
@@ -1127,6 +1141,8 @@ function creerAdministration(radio, stockage) {
   return {
     envoyerTexte,
     etatEnvoi: (id) => envois.get(Number(id) >>> 0) || null,
+    // Accusé d'un message de la liste (même identifiant de paquet et même émetteur)
+    accuseMessage: (idPaquet, de) => { const e = envois.get(Number(idPaquet) >>> 0); return e && (e.de == null || e.de === de >>> 0) ? e : null; },
     canaux: () => radio.infos().canaux,
     lancer,
     // Pendant une lecture, le résultat partiel est fourni au fur et à mesure

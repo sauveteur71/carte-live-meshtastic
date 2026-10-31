@@ -902,3 +902,8 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 
 .case-insister { display: flex; gap: 6px; align-items: center; margin: 8px 0 2px; font-size: 0.9em; color: var(--texte-2, var(--texte)); cursor: pointer; }
 .heure-etape { opacity: .8; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.suivi-msg { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; font-size: .82em; cursor: pointer; }
+.suivi-msg .acc { padding: 1px 6px; border-radius: 8px; background: var(--surface-2); color: var(--texte); }
+.suivi-msg .acc.ok { color: var(--ok); }
+.suivi-msg .acc.ko { color: var(--attention); }
+.suivi-msg .acc small { opacity: .8; }

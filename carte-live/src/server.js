@@ -1236,7 +1236,12 @@ app.get('/api/etat', (req, res) => {
 
 app.get('/api/messages', (req, res) => {
   if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
-  res.json(stockage.q.messages.all(Math.min(Number(req.query.limite) || 300, 2000)));
+  res.json(stockage.q.messages.all(Math.min(Number(req.query.limite) || 300, 2000)).map((m) => {
+    const a = administration.accuseMessage(m.idPaquet, m.de);
+    let entendus = [];
+    try { entendus = JSON.parse(m.entendus || '[]'); } catch { /* vide */ }
+    return { ...m, entendus, accuse: a ? { statut: a.statut, detail: a.detail || null, heure: a.heureAccuse || null, dest: a.dest } : null };
+  }));
 });
 
 app.post('/api/connexion', (req, res) => {

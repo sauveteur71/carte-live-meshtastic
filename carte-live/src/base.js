@@ -145,7 +145,10 @@ function creerStockage(fichier) {
         (SELECT COUNT(*) FROM receptions r WHERE r.paquet = p.rowid AND r.sujet LIKE 'radio%') AS radio,
         (SELECT r.snr FROM receptions r WHERE r.paquet = p.rowid AND r.sujet LIKE 'radio%' LIMIT 1) AS snrRadio,
         (SELECT r.sauts FROM receptions r WHERE r.paquet = p.rowid AND r.sujet LIKE 'radio%' LIMIT 1) AS sautsRadio,
-        (SELECT COUNT(*) FROM receptions r WHERE r.paquet = p.rowid AND (r.sujet IS NULL OR r.sujet NOT LIKE 'radio%')) AS mqtt
+        (SELECT COUNT(*) FROM receptions r WHERE r.paquet = p.rowid AND (r.sujet IS NULL OR r.sujet NOT LIKE 'radio%')) AS mqtt,
+        p.id_paquet AS idPaquet,
+        (SELECT json_group_array(json_object('g', r.passerelle, 's', r.sauts, 'snr', r.snr, 'rel', r.relais_num, 'h', r.heure))
+          FROM receptions r WHERE r.paquet = p.rowid AND r.passerelle <> p.de) AS entendus
       FROM paquets p WHERE p.port = 'texte' ORDER BY p.heure DESC LIMIT ?`),
   };
 
