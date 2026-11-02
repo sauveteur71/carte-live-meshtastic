@@ -29,7 +29,8 @@ const PARAMS = [
   { cle: 'lon', nom: 'Longitude', type: 'nombre', min: -180, max: 180, pas: 0.000001 },
   { cle: 'owner.info', nom: 'Infos propriétaire', type: 'texte', max: 120 },
 ];
-const INFOS = [{ cmd: 'ver', cle: 'version', nom: 'Firmware' }, { cmd: 'board', cle: 'carte', nom: 'Matériel' }, { cmd: 'get role', cle: 'role', nom: 'Rôle' }, { cmd: 'clock', cle: 'horloge', nom: 'Horloge du nœud' }];
+const INFOS = [{ cmd: 'ver', cle: 'version', nom: 'Firmware' }, { cmd: 'board', cle: 'carte', nom: 'Matériel' }, { cmd: 'get role', cle: 'role', nom: 'Rôle' }, { cmd: 'clock', cle: 'horloge', nom: 'Horloge du nœud' },
+  { cmd: 'region home', cle: 'regionMaison', nom: 'Région d’attache (v1.10+)' }, { cmd: 'region default', cle: 'regionDefaut', nom: 'Région par défaut des envois (v1.10+)' }];
 // Éléments comparables entre nœuds (vérification de conformité)
 const ELEMENTS = ['radio', 'tx', 'repeat', 'flood.max', 'flood.max.advert', 'advert.interval', 'flood.advert.interval', 'path.hash.mode', 'txdelay', 'direct.txdelay', 'dutycycle', 'multi.acks', 'loop.detect'];
 const ELEMENTS_DEFAUT = ['radio', 'repeat', 'flood.max', 'advert.interval', 'flood.advert.interval', 'path.hash.mode'];
@@ -63,6 +64,9 @@ function lireVoisins(t) {
   return String(t || '').split(/\r?\n/).map((l) => l.trim().replace(/^>\s?/, '')).map((l) => /^([0-9A-Fa-f]{2,64}):(\d+):(-?\d+)/.exec(l)).filter(Boolean)
     .map((m) => ({ prefixe: m[1].toUpperCase(), vu: Number(m[2]) * 1000 || null, snr: Number(m[3]) / 4 }));
 }
+
+// Opérations possibles sans mot de passe admin (une connexion est tentée si un mot de passe est connu)
+const SANS_ADMIN = ['statut', 'chemin', 'tracer', 'telemetrie'];
 
 function creerAdministrationMc(config, companion, reseauMc, journal, surFin = () => {}) {
   const dossier = path.dirname(config.fichierBase);
@@ -101,7 +105,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
       }
     }
     if (type === 'verifier' && liste.length < 2) throw new Error('choisissez au moins 2 nœuds (le premier sert de référence)');
-    if (!['lire', 'statut', 'voisins', 'cli', 'modifier', 'verifier', 'annonce', 'horloge', 'redemarrer', 'chemin'].includes(type)) throw new Error('opération inconnue');
+    if (!['lire', 'statut', 'voisins', 'cli', 'modifier', 'verifier', 'annonce', 'horloge', 'redemarrer', 'chemin', 'tracer', 'telemetrie'].includes(type)) throw new Error('opération inconnue');
     const t = {
       id: crypto.randomBytes(5).toString('hex'), type, cles: liste.map((n) => n.cle), noms: Object.fromEntries(liste.map((n) => [n.cle, n.nom])), params: { ...params, motDePasse: undefined },
       motDePasse: params.motDePasse || null, memoriser: !!params.memoriser, statut: 'en_attente', creee: Date.now(), auteur, etapes: [], resultats: {}, arret: false,
@@ -131,7 +135,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
       t.motDePasse = null;
       if (t.statut === 'en_attente' || t.statut === 'en_cours') {
         const restants = t.cles.filter((c) => !(t.resultats[c] && t.resultats[c].ok));
-        const sansMdp = !['statut', 'chemin'].includes(t.type) && restants.some((c) => motsDePasse[c] == null);
+        const sansMdp = !SANS_ADMIN.includes(t.type) && restants.some((c) => motsDePasse[c] == null);
         if (Date.now() - (t.creee || 0) > 6 * 3600000 || sansMdp) {
           t.statut = 'annule'; t.fin = Date.now();
           t.etapes.push({ heure: Date.now(), cle: null, texte: sansMdp ? 'interrompue par un redémarrage de la carte : mot de passe non mémorisé, relancez-la' : 'interrompue par un redémarrage de la carte (trop ancienne pour reprendre)', ok: false });
@@ -210,6 +214,36 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     etape(t, n.cle, `batterie ${(s.batterieMv / 1000).toFixed(2)} V · bruit ${s.bruitDbm} dBm · émission ${s.occupationEmissionPct ?? '?'} % du temps`);
   }
 
+  // Trace aller-retour vers un nœud par son chemin connu (ou découvert), avec le SNR de chaque saut, sans mot de passe
+  async function tracer(t, n) {
+    const lu = (lectures[n.cle] || {}).chemin;
+    let aller;
+    if (lu && Date.now() - (lu.heure || 0) < 12 * 3600000) aller = lu.aller.map((x) => x.prefixe);
+    else {
+      etape(t, n.cle, 'recherche du chemin (inondation)…');
+      const r = await companion.decouvrirChemin(n);
+      aller = r.aller;
+      const rs = reseauMc.resoudreChemin(r.aller, null, null);
+      lectures[n.cle] = { ...(lectures[n.cle] || {}), chemin: { aller: r.aller.map((h, i) => ({ prefixe: h, cle: rs[i] ? rs[i].cle : null, nom: rs[i] ? rs[i].nom : null })), retour: [], dureeMs: r.dureeMs, heure: Date.now() } };
+    }
+    let taille = aller.length ? aller[0].length / 2 : 1;
+    if (taille === 3) { taille = 2; aller = aller.map((h) => h.slice(0, 4)); } // le firmware ne trace qu'en 1, 2, 4 ou 8 octets
+    const cible = n.cle.slice(0, taille * 2);
+    const chemin = [...aller, cible, ...[...aller].reverse()];
+    etape(t, n.cle, `trace aller-retour par ${aller.length ? aller.length + ' relais' : 'liaison directe'}…`);
+    const r = await avecReprise(() => companion.tracer(chemin));
+    const moi = companion.etat();
+    const resolus = reseauMc.resoudreChemin(r.hachages, null, null);
+    const etapes = [{ cle: moi.cle, nom: moi.nom || 'companion' }, ...r.hachages.map((h, i) => (h === cible ? { cle: n.cle, nom: n.nom } : { cle: resolus[i] ? resolus[i].cle : null, nom: resolus[i] ? resolus[i].nom : h, prefixe: h })), { cle: moi.cle, nom: moi.nom || 'companion' }];
+    const sauts = etapes.slice(0, -1).map((de, i) => ({ de, vers: etapes[i + 1], snr: i < r.snrs.length ? r.snrs[i] : r.final }));
+    for (const x of sauts) if (x.de.cle && x.vers.cle) reseauMc.lierMesure(x.de.cle, x.vers.cle, 'trace', x.snr);
+    lectures[n.cle] = { ...(lectures[n.cle] || {}), trace: { sauts, dureeMs: r.dureeMs, heure: Date.now() } };
+    ecrire(fLectures, lectures);
+    t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), trace: sauts };
+    const f = (v) => (v > 0 ? '+' : '') + String(v).replace('.', ',');
+    etape(t, n.cle, `${sauts.map((x, i) => (i === 0 ? x.de.nom : '') + ` ─(${f(x.snr)} dB)→ ${x.vers.nom}`).join('')} · ${(r.dureeMs / 1000).toFixed(1)} s`);
+  }
+
   async function voisins(t, n) {
     const brut = await cli(t, n, 'neighbors');
     const v = reseauMc.lierVoisins(n.cle, lireVoisins(brut));
@@ -228,7 +262,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
       t.courant = cle;
       try {
         // L'état et la découverte de chemin ne demandent pas de connexion admin
-        if (!['statut', 'chemin'].includes(t.type) || t.motDePasse || motsDePasse[n.cle]) await seConnecter(t, n).catch((e) => { if (!['statut', 'chemin'].includes(t.type)) throw e; etape(t, n.cle, 'connexion : ' + e.message + ' (on continue sans)', false); });
+        if (t.type !== 'tracer' && (!SANS_ADMIN.includes(t.type) || t.motDePasse || motsDePasse[n.cle])) await seConnecter(t, n).catch((e) => { if (!SANS_ADMIN.includes(t.type)) throw e; etape(t, n.cle, 'connexion : ' + e.message + ' (on continue sans)', false); });
         switch (t.type) {
           case 'lire': await lireConfig(t, n); await statut(t, n).catch((e) => etape(t, n.cle, 'état : ' + e.message, false)); await voisins(t, n).catch((e) => etape(t, n.cle, 'voisins : ' + e.message, false)); break;
           case 'statut': await statut(t, n); break;
@@ -246,6 +280,19 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
             break;
           }
           case 'voisins': await voisins(t, n); break;
+          case 'tracer': await tracer(t, n); break;
+          case 'telemetrie': {
+            etape(t, n.cle, 'demande de télémétrie…');
+            const l = await avecReprise(() => companion.telemetrie(n));
+            lectures[n.cle] = { ...(lectures[n.cle] || {}), telemetrie: { mesures: l, heure: Date.now() } };
+            ecrire(fLectures, lectures);
+            t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), telemetrie: l };
+            const LIB = { tension: 'tension', temperature: 'température', humidite: 'humidité', pression: 'pression', courant: 'courant', pourcentage: 'charge', luminosite: 'luminosité' };
+            etape(t, n.cle, l.length ? l.map((m) => `${LIB[m.type] || m.type}${m.canal > 1 ? ' (canal ' + m.canal + ')' : ''} ${typeof m.valeur === 'object' ? JSON.stringify(m.valeur) : String(m.valeur).replace('.', ',')} ${m.unite}`.trim()).join(' · ') : 'aucune mesure renvoyée');
+            const v = l.find((m) => m.type === 'tension' && m.canal === 1);
+            if (v) reseauMc.noterEtat(n.cle, { batterieMv: Math.round(v.valeur * 1000) });
+            break;
+          }
           case 'verifier': await lireConfig(t, n, elements); break;
           case 'annonce': etape(t, n.cle, nettoyer(await cli(t, n, t.params.inondation === false ? 'advert.zerohop' : 'advert'))); break;
           case 'horloge': etape(t, n.cle, nettoyer(await cli(t, n, 'clock sync'))); break;
@@ -347,6 +394,15 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
       .slice(0, config.meshcore.supervisionMax).map((n) => n.cle);
     if (cibles.length) { journal(`supervision : état de ${cibles.length} répéteur(s)`); lancer('statut', cibles, {}, 'supervision'); }
   }, 60000);
+  // Traces de nuit (vers 3 h) vers les répéteurs surveillés : SNR de chaque liaison, suivi dans le temps
+  let derniereTraceNuit = 0;
+  setInterval(() => {
+    const h = Number(new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false }).slice(0, 2));
+    if (h !== 3 || enCours || file.length || !companion.etat().pret || Date.now() - derniereTraceNuit < 20 * 3600000) return;
+    derniereTraceNuit = Date.now();
+    const cibles = reseauMc.surveilles(Object.keys(motsDePasse)).filter((n) => n.role === 'repeteur').slice(0, config.meshcore.supervisionMax).map((n) => n.cle);
+    if (cibles.length) { journal(`traces de nuit vers ${cibles.length} répéteur(s)`); lancer('tracer', cibles, {}, 'supervision'); }
+  }, 5 * 60000);
 
   return {
     PARAMS, ELEMENTS, ELEMENTS_DEFAUT,

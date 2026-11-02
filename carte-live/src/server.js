@@ -1679,6 +1679,80 @@ app.delete('/api/mc/companion', (req, res) => {
   companion.deconnecter();
   res.json({ ok: true });
 });
+// ---- Outils du companion (firmware MeshCore récent) ---------------------------------------------------
+// Découverte des répéteurs entendus en direct : liaison mesurée dans les deux sens, sans mot de passe
+let decouverteMc = null; // { heure, liste }
+async function decouvrirMc() {
+  const moi = companion.etat();
+  const liste = await companion.decouvrirVoisins(15000);
+  const n0 = reseauMc.q.noeud.get(moi.cle);
+  const res = liste.map((v) => {
+    const n = v.complete ? reseauMc.q.noeud.get(v.cle) : null;
+    if (n && moi.cle) {
+      reseauMc.lierMesure(moi.cle, v.cle, 'trace', v.snrAller); // le répéteur entend le companion
+      reseauMc.lierMesure(v.cle, moi.cle, 'trace', v.snrRetour); // le companion entend le répéteur
+    }
+    const lat = n0 && n0.lat != null ? n0.lat : moi.lat, lon = n0 && n0.lon != null ? n0.lon : moi.lon;
+    const d = n && n.lat != null && lat != null ? Math.round(Math.hypot((n.lat - lat) * 111.2, (n.lon - lon) * 111.2 * Math.cos((lat * Math.PI) / 180)) * 10) / 10 : null;
+    return { ...v, nom: n ? n.nom : null, lat: n ? n.lat : null, lon: n ? n.lon : null, distanceKm: d };
+  });
+  decouverteMc = { heure: Date.now(), companion: moi.nom, liste: res };
+  journal(`[MeshCore] découverte : ${res.length} nœud(s) entendu(s) en direct par le companion`);
+  planifierEtatMc(); diffuser({ genre: 'mc-noeuds' });
+  return decouverteMc;
+}
+app.post('/api/mc/companion/decouvrir', async (req, res) => {
+  if (!exigerAdmin(req, res) || !exigerMc(res)) return;
+  try { res.json(await decouvrirMc()); } catch (e) { res.status(409).json({ erreur: e.message }); }
+});
+app.get('/api/mc/companion/decouverte', (req, res) => { if (!exigerAdmin(req, res)) return; res.json(decouverteMc || { liste: null }); });
+// Statistiques radio du companion (bruit, temps d'antenne) : relevées toutes les 15 min pour la courbe
+async function statsCompanionMc() {
+  const s = await companion.statistiques();
+  const moi = companion.etat();
+  if (moi.cle && reseauMc.q.noeud.get(moi.cle)) reseauMc.noterEtat(moi.cle, { batterieMv: s.batterieMv, bruitDbm: s.bruitDbm, occupationEmissionPct: s.occupationEmissionPct, recus: s.recus, emis: s.emis, allumeS: s.allumeS, dernierSnr: s.dernierSnr, fileEmission: s.file });
+  return s;
+}
+app.get('/api/mc/companion/stats', async (req, res) => {
+  if (!exigerAdmin(req, res) || !exigerMc(res)) return;
+  try {
+    const s = await statsCompanionMc();
+    const moi = companion.etat();
+    const histo = moi.cle ? reseauMc.telemetrie(moi.cle, Date.now() - 7 * 86400000).map((t) => ({ heure: t.heure, bruit: t.bruit, batterieMv: t.batterie_mv, emissionPct: t.emission_pct })) : [];
+    res.json({ ...s, historique: histo });
+  } catch (e) { res.status(409).json({ erreur: e.message }); }
+});
+app.get('/api/mc/companion/telemetrie', async (req, res) => {
+  if (!exigerAdmin(req, res) || !exigerMc(res)) return;
+  try { res.json({ mesures: await companion.telemetrie(null) }); } catch (e) { res.status(409).json({ erreur: e.message }); }
+});
+app.get('/api/mc/companion/zone', async (req, res) => {
+  if (!exigerAdmin(req, res) || !exigerMc(res)) return;
+  try { res.json({ zone: await companion.lireZone() }); } catch (e) { res.status(409).json({ erreur: e.message }); }
+});
+app.post('/api/mc/companion/zone', async (req, res) => {
+  if (!exigerAdmin(req, res) || !exigerMc(res)) return;
+  try { const z = await companion.definirZone((req.body || {}).zone); journal(`[MeshCore] région par défaut du companion : ${z || 'aucune'} (${utilisateur(req).identifiant})`); res.json({ zone: z }); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/mc/companion/cli', async (req, res) => {
+  if (!exigerAdmin(req, res) || !exigerMc(res)) return;
+  const commande = String((req.body || {}).commande || '').trim();
+  if (/^(erase|factory|set prv\.key|get prv\.key)/i.test(commande)) return res.status(400).json({ erreur: 'commande refusée depuis la carte' });
+  try {
+    const r = await companion.cliLocal(commande);
+    journal(`[MeshCore] commande sur le companion par ${utilisateur(req).identifiant} : ${commande.replace(/^(set (wifi\.pwd|pin))\s+.*/i, '$1 ••••')}`);
+    res.json({ reponse: /^get wifi\.pwd/i.test(commande) ? '(masqué)' : r });
+  } catch (e) { res.status(409).json({ erreur: e.message }); }
+});
+// Relevés automatiques : statistiques toutes les 15 min, découverte toutes les 6 h
+setInterval(() => { if (config.meshcore.actif && companion.etat().pret) statsCompanionMc().catch(() => {}); }, 15 * 60000);
+let derniereDecouverteMc = 0;
+setInterval(() => {
+  if (!config.meshcore.actif || !companion.etat().pret || Date.now() - derniereDecouverteMc < 6 * 3600000) return;
+  derniereDecouverteMc = Date.now();
+  decouvrirMc().catch((e) => journal('[MeshCore] découverte automatique :', e.message));
+}, 5 * 60000);
+
 app.post('/api/mc/companion/annonce', (req, res) => {
   if (!exigerAdmin(req, res)) return;
   try { companion.annoncer(!!(req.body || {}).inondation); res.json({ ok: true }); } catch (e) { res.status(409).json({ erreur: e.message }); }
@@ -2017,7 +2091,7 @@ const companion = creerCompanion(config, {
   },
 });
 if (config.meshcore.actif) companion.demarrer();
-const adminMc = creerAdministrationMc(config, companion, reseauMc, (...a) => journal('[MeshCore]', ...a), (t) => { if (['statut', 'lire', 'chemin', 'voisins'].includes(t.type)) { planifierEtatMc(); diffuser({ genre: 'mc-noeuds' }); } });
+const adminMc = creerAdministrationMc(config, companion, reseauMc, (...a) => journal('[MeshCore]', ...a), (t) => { if (['statut', 'lire', 'chemin', 'voisins', 'tracer', 'telemetrie'].includes(t.type)) { planifierEtatMc(); diffuser({ genre: 'mc-noeuds' }); } });
 const { creerMaintenanceMc } = require('./meshcore/maintenance');
 const maintenanceMc = creerMaintenanceMc({ config, reseauMc, adminMc, companion, journal });
 app.get('/api/mc/maintenance', (req, res) => {

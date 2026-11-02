@@ -750,7 +750,7 @@ window.addEventListener('resize', () => { if (etat.noeuds.length) dessiner(); })
   $('header h1').firstChild.textContent = MC ? 'Topologie MeshCore ' : 'Topologie Meshtastic ';
   if (!MC) return;
   const src = [...document.querySelectorAll('.source')];
-  const lib = [['rf', 'dernier saut mesuré'], ['voisinage', 'voisins déclarés'], ['trace', 'traces'], ['chemin', 'chemins déduits']];
+  const lib = [['rf', 'dernier saut mesuré'], ['voisinage', 'voisins déclarés'], ['trace', 'mesures (traces, découverte)'], ['chemin', 'chemins déduits']];
   src.forEach((c, i) => { if (lib[i]) { c.value = lib[i][0]; c.parentNode.lastChild.textContent = ' ' + lib[i][1]; } });
   if (lib.length > src.length) {
     const l = document.createElement('label');

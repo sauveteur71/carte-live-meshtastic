@@ -63,8 +63,8 @@ function mcVisible(n) {
 // Avec beaucoup de nœuds (flux national), on ne dessine que ce qui est autour de la vue
 function mcDansVue(n) {
   if (mc.noeuds.size < 400 || typeof carte === 'undefined' || !carte) return true;
-  if (!mc.vue) mc.vue = carte.getBounds().pad(0.3);
-  return mc.vue.contains([n.lat, n.lon]);
+  if (!mc.emprise) mc.emprise = carte.getBounds().pad(0.3);
+  return mc.emprise.contains([n.lat, n.lon]);
 }
 // Liaisons invraisemblables : un chemin déduit des empreintes de répéteurs (1 octet = collisions fréquentes)
 // au-delà de 60 km est presque toujours une mauvaise identification ; au-delà de 150 km pour une mesure.
@@ -173,7 +173,7 @@ function mcDessinerLiens() {
     });
     const d = distanceKm(l.na, l.nbN);
     ligne.bindTooltip(`<b>${esc(l.na.nom || l.na.id)} ↔ ${esc(l.nbN.nom || l.nbN.id)}</b> <small>MeshCore</small><br>` +
-      `${{ rf: 'Liaison radio mesurée (dernier saut vers un observateur)', chemin: 'Liaison déduite du chemin d’un paquet', trace: 'Trace (SNR mesuré au saut)', voisinage: 'Voisin déclaré par le répéteur (SNR mesuré par lui)' }[l.source]}` +
+      `${{ rf: 'Liaison radio mesurée (dernier saut vers un observateur)', chemin: 'Liaison déduite du chemin d’un paquet', trace: 'Mesure directe (trace ou découverte, SNR mesuré)', voisinage: 'Voisin déclaré par le répéteur (SNR mesuré par lui)' }[l.source]}` +
       `${l.snr != null ? '<br>SNR ' + fmt(l.snr, 1, ' dB') : ''}${l.rssi != null ? ' · RSSI ' + fmt(l.rssi, 0, ' dBm') : ''}` +
       `<br>${l.nb} observation${l.nb > 1 ? 's' : ''}${d != null ? ' · ' + fmt(d, 1, ' km') : ''} · ${ilYa(l.dernierVu)}`, { className: 'info', sticky: true });
     ligne.addTo(mc.coucheLiens);
@@ -453,7 +453,8 @@ async function mcRendreAnalyse() {
 
 // ---- Gestion : administration des répéteurs et room servers (admin) ---------------------------
 const mcGestion = { selection: new Set(), suivi: null, tache: null, info: null };
-const MC_TACHES = { lire: 'Lire la configuration', statut: 'État', voisins: 'Voisins', verifier: 'Vérification de conformité', modifier: 'Modification', cli: 'Commande', annonce: 'Annonce', horloge: 'Horloge', redemarrer: 'Redémarrage' };
+const MC_LPP = { tension: 'Tension', temperature: 'Température', humidite: 'Humidité', pression: 'Pression', courant: 'Courant', pourcentage: 'Charge', luminosite: 'Luminosité', altitude: 'Altitude', puissance: 'Puissance', energie: 'Énergie', concentration: 'Concentration', gps: 'Position', analogique: 'Entrée analogique', entree: 'Entrée', sortie: 'Sortie', generique: 'Capteur', presence: 'Présence', interrupteur: 'Interrupteur' };
+const MC_TACHES = { lire: 'Lire la configuration', statut: 'État', voisins: 'Voisins', verifier: 'Vérification de conformité', modifier: 'Modification', cli: 'Commande', annonce: 'Annonce', horloge: 'Horloge', redemarrer: 'Redémarrage', chemin: 'Chemin', tracer: 'Trace (SNR par saut)', telemetrie: 'Télémétrie' };
 const MC_STATUTS = { en_attente: 'en attente', en_cours: 'en cours…', ok: 'réussi', echec: 'échec', annule: 'arrêté' };
 // ---- Maintenance MeshCore : firmwares, accès administrateur, conformité automatique ---------------------
 async function mcFicheMaintenance() {
@@ -518,6 +519,8 @@ async function mcRendreGestion() {
         <button type="button" data-mc-op="verifier">Vérifier la conformité</button>
         <button type="button" data-mc-op="horloge">Mettre à l’heure</button>
         <button type="button" data-mc-op="annonce">Annonce</button>
+        <button type="button" data-mc-op="tracer" title="Aller-retour le long du chemin, avec le SNR de chaque saut (sans mot de passe)">Tracer</button>
+        <button type="button" data-mc-op="telemetrie" title="Batterie, température, capteurs (selon les droits du nœud)">Télémétrie</button>
       </div>
       <p class="erreur" id="mc-g-retour"></p>
     </form>
@@ -608,9 +611,13 @@ async function mcRendreAdminFiche(n, z) {
       <div class="actions-prop">
         <button type="button" data-a="lire" class="principal">Lire la configuration</button><button type="button" data-a="statut">État</button><button type="button" data-a="voisins">Voisins</button>
         <button type="button" data-a="horloge">Mettre à l’heure</button><button type="button" data-a="annonce">Annonce</button><button type="button" data-a="redemarrer">Redémarrer</button>
+        <button type="button" data-a="tracer" title="Aller-retour le long du chemin, SNR de chaque saut (sans mot de passe)">Tracer</button><button type="button" data-a="telemetrie" title="Batterie, température, capteurs">Télémétrie</button>
         ${l.memorise ? '<button type="button" data-a="oublier">Oublier le mot de passe</button>' : ''}
       </div>
       ${lu.heure ? `<p class="note">Configuration lue ${ilYa(lu.heure)}${inf.version ? ` · ${esc(inf.version)}` : ''}${inf.carte ? ` · ${esc(inf.carte)}` : ''}</p>` : '<p class="note">Configuration jamais lue : commencez par « Lire la configuration ».</p>'}
+      ${inf.regionMaison && !/unknown|err|\?/i.test(inf.regionMaison) ? `<p class="note">Région d’attache : <b>${esc(inf.regionMaison)}</b>${inf.regionDefaut && !/unknown|err|\?/i.test(inf.regionDefaut) ? ` · envois limités à : <b>${esc(inf.regionDefaut)}</b>` : ''}</p>` : ''}
+      ${lu.trace ? `<h4>Dernière trace <small>${ilYa(lu.trace.heure)}</small></h4><div class="trace-mc">${lu.trace.sauts.map((x, i) => `${i === 0 ? `<span>${esc(x.de.nom || '?')}</span>` : ''}<span class="saut-mc" style="color:${couleurSnr(x.snr)}">─ ${fmt(x.snr, 1)} dB →</span><span>${esc(x.vers.nom || x.vers.prefixe || '?')}</span>`).join('')}</div>` : ''}
+      ${lu.telemetrie ? `<h4>Télémétrie <small>${ilYa(lu.telemetrie.heure)}</small></h4><div class="grille">${lu.telemetrie.mesures.map((m) => `<div class="mesure"><span>${esc(MC_LPP[m.type] || m.type)}${m.canal > 1 ? ' · ' + m.canal : ''}</span><b>${typeof m.valeur === 'number' ? fmt(m.valeur, m.unite === 'V' ? 2 : 1) : esc(JSON.stringify(m.valeur))} ${esc(m.unite)}</b></div>`).join('') || '<div class="vide">Aucune mesure.</div>'}</div>` : ''}
       ${st ? `<div class="grille">
         <div class="mesure"><span>Batterie</span><b>${fmt(st.batterieMv / 1000, 2, ' V')}</b></div>
         <div class="mesure"><span>Bruit de fond</span><b>${st.bruitDbm} dBm</b></div>
@@ -635,7 +642,7 @@ async function mcRendreAdminFiche(n, z) {
       const t = await postJson('/api/mc/admin/taches', { type, cles: [n.cle], params: { ...params, motDePasse: f.mdp.value || undefined, memoriser: f.memoriser.checked } });
       f.mdp.value = '';
       $('#mc-adm-retour').textContent = '';
-      mcSuivreTache(t.id, $('#mc-adm-tache'), (fin) => { if (['lire', 'statut', 'voisins', 'modifier'].includes(fin.type) && mc.selection === n.cle) mcRendreAdminFiche(n, z).then(() => { const zt = $('#mc-adm-tache'); if (zt) zt.innerHTML = mcHtmlTache(fin); }); });
+      mcSuivreTache(t.id, $('#mc-adm-tache'), (fin) => { if (['lire', 'statut', 'voisins', 'modifier', 'tracer', 'telemetrie'].includes(fin.type) && mc.selection === n.cle) mcRendreAdminFiche(n, z).then(() => { const zt = $('#mc-adm-tache'); if (zt) zt.innerHTML = mcHtmlTache(fin); }); });
     } catch (e) { $('#mc-adm-retour').textContent = e.message; }
   };
   f.querySelectorAll('[data-a]').forEach((b) => (b.onclick = async () => {
@@ -655,6 +662,109 @@ async function mcRendreAdminFiche(n, z) {
   }));
   f.cli.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); f.querySelector('[data-a="cli"]').click(); } };
   z.querySelectorAll('tr[data-mc]').forEach((tr) => (tr.onclick = () => mcOuvrirFiche(tr.dataset.mc)));
+}
+
+// ---- Outils du companion : qui m'entend, bruit radio, télémétrie, région, commandes ---------------------------
+// Les résultats sont gardés dans mc.outils : la vue est redessinée souvent (état du companion).
+function mcHtmlOutils() {
+  const o = mc.outils || (mc.outils = {});
+  const d = o.decouverte, st = o.stats;
+  const val = (x, n = 1, u = '') => (x == null ? '–' : fmt(x, n, u));
+  return `<h4>Outils du companion</h4>
+    <div class="actions-prop">
+      <button data-mc-outil="decouvrir" title="Appel à 0 saut : chaque répéteur qui l’entend répond. Liaison mesurée dans les deux sens, sans mot de passe (15 s)">${o.enCours === 'decouvrir' ? '⏳ Écoute des réponses…' : '📡 Qui m’entend en direct ?'}</button>
+      <button data-mc-outil="stats" title="Bruit radio, temps d’antenne, erreurs de réception">📊 Bruit et statistiques</button>
+      <button data-mc-outil="telemetrie" title="Batterie et capteurs du companion">🌡️ Télémétrie</button>
+    </div>
+    ${o.erreur ? `<p class="erreur">${esc(o.erreur)}</p>` : ''}
+    ${d && d.liste ? `<div class="note">Découverte ${ilYa(d.heure)} : ${d.liste.length} nœud(s) entendu(s) en direct${d.liste.length ? '' : ' (aucun répéteur à portée directe, ou répéteurs masqués / firmware ancien)'}</div>
+      ${d.liste.length ? `<table class="voisins petit"><thead><tr><th>Nœud</th><th class="num" title="SNR auquel le nœud entend le companion">Il m’entend</th><th class="num" title="SNR auquel le companion entend le nœud">Je l’entends</th><th class="num">km</th></tr></thead><tbody>
+        ${d.liste.map((x) => `<tr ${x.nom ? `data-mc="${x.cle}"` : ''}><td>${esc(x.nom || x.cle.slice(0, 8) + '…')}<small> ${esc({ repeteur: 'répéteur', salon: 'room server', capteur: 'capteur' }[x.role] || '')}</small></td><td class="num" style="color:${couleurSnr(x.snrAller)}">${fmt(x.snrAller, 1, ' dB')}</td><td class="num" style="color:${couleurSnr(x.snrRetour)}">${fmt(x.snrRetour, 1, ' dB')}</td><td class="num">${x.distanceKm != null ? fmt(x.distanceKm, 1) : '–'}</td></tr>`).join('')}</tbody></table>` : ''}` : ''}
+    ${st ? `<div class="grille">
+        <div class="mesure"><span>Bruit de fond</span><b style="color:${st.bruitDbm > -100 ? 'var(--attention)' : 'inherit'}">${val(st.bruitDbm, 0, ' dBm')}</b></div>
+        <div class="mesure"><span>Dernier SNR · RSSI</span><b>${val(st.dernierSnr, 1)} · ${val(st.dernierRssi, 0)}</b></div>
+        <div class="mesure"><span>Émission · réception</span><b>${val(st.occupationEmissionPct, 1, ' %')} · ${val(st.occupationReceptionPct, 1, ' %')}</b></div>
+        <div class="mesure"><span>Reçus · émis</span><b>${st.recus ?? '–'} · ${st.emis ?? '–'}</b></div>
+        <div class="mesure"><span>Erreurs de réception</span><b>${st.erreursReception ?? '–'}</b></div>
+        <div class="mesure"><span>Allumé depuis</span><b>${st.allumeS ? duree(st.allumeS) : '–'}</b></div>
+      </div>
+      ${st.historique && st.historique.length > 2 ? mcCourbeBruit(st.historique) : '<p class="note">La courbe du bruit se remplit toute seule (un relevé toutes les 15 min).</p>'}
+      <p class="note">Bruit de fond : vers −115 à −120 dBm sur un site calme ; au-dessus de −100 dBm, une source proche (antenne relais, alimentation, électronique) gêne la réception.</p>` : ''}
+    ${o.telemetrie ? `<div class="grille">${o.telemetrie.map((m) => `<div class="mesure"><span>${esc(MC_LPP[m.type] || m.type)}${m.canal > 1 ? ' · ' + m.canal : ''}</span><b>${typeof m.valeur === 'number' ? fmt(m.valeur, m.unite === 'V' ? 2 : 1) : esc(JSON.stringify(m.valeur))} ${esc(m.unite)}</b></div>`).join('') || '<div class="vide">Aucune mesure.</div>'}</div>` : ''}
+    <details class="outils-mc"${o.ouvert ? ' open' : ''}><summary>Région et réglages du companion</summary>
+      <form id="mc-f-zone" class="envoi-ligne" title="Les messages envoyés en inondation par le companion ne seront relayés que par les répéteurs qui acceptent cette région (firmware 1.10+)">
+        <input name="zone" placeholder="${o.zone === undefined ? 'région (ex. haute-loire), vide = aucune' : o.zone ? esc(o.zone) : 'aucune région'}" autocomplete="off"><button>Définir la région</button><button type="button" data-mc-outil="zone-lire">Lire</button>
+      </form>
+      <p class="note">Région actuelle : <b>${o.zone === undefined ? 'non lue' : o.zone ? esc(o.zone) : 'aucune (envois sans limite de région)'}</b>. Le nom doit être celui que les répéteurs connaissent (<span class="mono">region home</span> / <span class="mono">region put</span>).</p>
+      <div class="envoi-ligne"><input id="mc-cli-local" placeholder="commande sur le companion : ver, board, get name, get wifi.status, get wifi.ip…" autocomplete="off"><button data-mc-outil="cli">Envoyer</button></div>
+      <div class="actions-prop">${['ver', 'board', 'get name', 'get wifi.status', 'get wifi.ip', 'get wifi.ssid', 'get tz.offset'].map((c) => `<button class="mini" data-mc-cli="${c}">${c}</button>`).join('')}</div>
+      <form id="mc-f-wifi-comp" class="grille-edit">
+        <label>Wi-Fi du companion : réseau (SSID) <input name="ssid" autocomplete="off"></label>
+        <label>Mot de passe <input name="mdp" type="password" autocomplete="new-password"></label>
+        <label class="case"><input type="checkbox" name="actif" checked> Wi-Fi activé</label>
+        <div class="actions-prop"><button>Enregistrer le Wi-Fi</button></div>
+      </form>
+      ${o.cli ? `<pre class="cli-mc">${o.cli.map((x) => `&gt; ${esc(x.c)}\n${esc(x.r)}`).join('\n')}</pre>` : ''}
+      <p class="note">Commandes sur le companion : firmware 1.14 ou plus. Le Wi-Fi et le Bluetooth ensemble : Heltec V3/V4, RAK3112, Xiao S3 en firmware 1.18.</p>
+    </details>`;
+}
+function mcCourbeBruit(h) {
+  const pts = h.filter((x) => x.bruit != null);
+  if (pts.length < 3) return '';
+  const W = 300, H = 70, t0 = pts[0].heure, t1 = pts[pts.length - 1].heure || t0 + 1;
+  const mn = Math.min(...pts.map((p) => p.bruit), -125), mx = Math.max(...pts.map((p) => p.bruit), -95);
+  const x = (t) => ((t - t0) / Math.max(1, t1 - t0)) * W, y = (v) => H - ((v - mn) / Math.max(1, mx - mn)) * H;
+  return `<svg class="courbe-bruit" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Bruit de fond sur 7 jours">
+    <line x1="0" x2="${W}" y1="${y(-100)}" y2="${y(-100)}" stroke="var(--attention)" stroke-dasharray="3 3" stroke-width="1"/>
+    <polyline fill="none" stroke="var(--ok)" stroke-width="1.5" points="${pts.map((p) => `${x(p.heure).toFixed(1)},${y(p.bruit).toFixed(1)}`).join(' ')}"/></svg>
+    <div class="note">Bruit de fond, 7 jours : ${fmt(Math.min(...pts.map((p) => p.bruit)), 0)} à ${fmt(Math.max(...pts.map((p) => p.bruit)), 0)} dBm (pointillé : −100 dBm)</div>`;
+}
+function mcBrancherOutils(z) {
+  const o = mc.outils || (mc.outils = {});
+  const redessiner = () => { if (mc.vue === 'companion') { mcRendreCompanion.force = true; mcRendreCompanion(); } };
+  const det = z.querySelector('details.outils-mc');
+  if (det) det.ontoggle = () => { o.ouvert = det.open; };
+  const cliLocal = async (c) => {
+    o.ouvert = true;
+    try { const r = await postJson('/api/mc/companion/cli', { commande: c }); o.cli = [...(o.cli || []), { c: /^set wifi\.pwd/i.test(c) ? 'set wifi.pwd ••••' : c, r: r.reponse }].slice(-12); o.erreur = null; } catch (e) { o.erreur = e.message; }
+    redessiner();
+  };
+  z.querySelectorAll('[data-mc-outil]').forEach((b) => (b.onclick = async (ev) => {
+    ev.preventDefault();
+    const a = b.dataset.mcOutil;
+    o.erreur = null;
+    try {
+      if (a === 'decouvrir') { o.enCours = 'decouvrir'; redessiner(); o.decouverte = await postJson('/api/mc/companion/decouvrir'); }
+      else if (a === 'stats') o.stats = await api('/api/mc/companion/stats');
+      else if (a === 'telemetrie') o.telemetrie = (await api('/api/mc/companion/telemetrie')).mesures;
+      else if (a === 'zone-lire') { o.ouvert = true; o.zone = (await api('/api/mc/companion/zone')).zone; }
+      else if (a === 'cli') { const i = $('#mc-cli-local'); if (i && i.value.trim()) return cliLocal(i.value.trim()); return; }
+    } catch (e) { o.erreur = e.message; }
+    o.enCours = null;
+    redessiner();
+  }));
+  z.querySelectorAll('[data-mc-cli]').forEach((b) => (b.onclick = () => cliLocal(b.dataset.mcCli)));
+  const ci = $('#mc-cli-local'); if (ci) ci.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); if (ci.value.trim()) cliLocal(ci.value.trim()); } };
+  const fz = $('#mc-f-zone');
+  if (fz) fz.onsubmit = async (ev) => {
+    ev.preventDefault();
+    o.ouvert = true;
+    const v = fz.zone.value.trim();
+    if (!confirm(v ? `Limiter les envois en inondation du companion à la région « ${v} » ?\nSeuls les répéteurs qui acceptent cette région relaieront ses messages.` : 'Retirer la région : les envois du companion ne seront plus limités ?')) return;
+    try { o.zone = (await postJson('/api/mc/companion/zone', { zone: v })).zone; o.erreur = null; } catch (e) { o.erreur = e.message; }
+    redessiner();
+  };
+  const fw = $('#mc-f-wifi-comp');
+  if (fw) fw.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const ssid = fw.ssid.value.trim(), mdp = fw.mdp.value;
+    if (!ssid && fw.actif.checked) { o.erreur = 'Indiquez le réseau Wi-Fi (SSID).'; return redessiner(); }
+    if (!confirm('Enregistrer ce Wi-Fi dans le companion ? Il peut redémarrer ou changer d’adresse.')) return;
+    if (ssid) await cliLocal('set wifi.ssid ' + ssid);
+    if (mdp) await cliLocal('set wifi.pwd ' + mdp);
+    await cliLocal('set wifi.enabled ' + (fw.actif.checked ? 'on' : 'off'));
+  };
+  z.querySelectorAll('.voisins tr[data-mc]').forEach((tr) => (tr.onclick = () => mcOuvrirFiche(tr.dataset.mc)));
 }
 
 // ---- Companion : liaison de la carte avec un companion MeshCore -----------------------------------
@@ -721,8 +831,11 @@ function mcRendreCompanion() {
   if (!e) { z.innerHTML = '<div class="vide">Chargement…</div>'; mcChargerEtat(); return; }
   const c = e.companion, r = c.radio;
   const source = c.navigateur ? `relié par cette page ou une autre (${esc(c.nomNavigateur || '')})` : c.cible ? (c.cible.type === 'agent' ? `agent « ${esc(c.cible.hote.replace(/^agent-/, ''))} »` : `Wi-Fi ${esc(c.cible.hote)}:${c.cible.port}`) : 'aucun';
-  const formOuvert = z.querySelector('#mc-f-reglages') && document.activeElement && z.contains(document.activeElement);
-  if (formOuvert) return;
+  // Saisie en cours (réglages, région, commande, Wi-Fi) : on ne redessine pas sous les doigts
+  const ae = document.activeElement;
+  const formOuvert = ae && z.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
+  if (formOuvert && !mcRendreCompanion.force) return;
+  mcRendreCompanion.force = false;
   z.innerHTML = `
     <h3>Companion de la carte</h3>
     <div class="bloc-usb ${c.connecte ? 'relie' : ''}">
@@ -743,8 +856,10 @@ function mcRendreCompanion() {
       ${c.connecte ? '<button data-mc-act="annonce0" title="Annonce entendue seulement par les voisins directs">Annonce voisins</button><button data-mc-act="annonce1" title="Annonce relayée par les répéteurs">Annonce réseau</button><button data-mc-act="contacts" title="Relire les contacts du companion">Contacts</button>' : ''}
       ${c.cible || c.navigateur ? '<button data-mc-act="stop">Débrancher</button>' : ''}
     </div>
+    ${c.connecte && c.pret ? mcHtmlOutils() : ''}
     ${c.canaux && c.canaux.length ? `<h4>Canaux du companion</h4><div class="actions-prop">${c.canaux.map((x) => `<button data-mc-qr-canal="${esc(x.nom)}" title="QR code du canal (avec sa clé)">🔳 ${esc(x.nom)}</button>`).join('')}</div>` : ''}
     <h4>Relier un companion</h4>
+    <div class="actions-prop"><button class="principal" data-mc-act="connecter" title="Bluetooth, USB ou adresse IP, Meshtastic ou MeshCore reconnu tout seul">🔌 Connecter un module…</button></div>
     <p class="note">La carte se sert du companion comme <b>observateur</b> : il lui transmet chaque paquet MeshCore qu’il entend, avec le SNR. Il ne peut servir qu’un client à la fois (l’appli du téléphone sera déconnectée).</p>
     <div class="bloc-usb">
       <div class="titre-usb"><b>Branché sur ce PC</b><small>${mc.nav.etat === 'relie' ? 'relayé par cette page · gardez l’onglet ouvert' : mc.nav.erreur ? esc(mc.nav.erreur) : 'USB (firmware « companion USB ») ou Bluetooth'}</small></div>
@@ -776,6 +891,7 @@ function mcRendreCompanion() {
   z.querySelectorAll('[data-mc-act]').forEach((b) => (b.onclick = async () => {
     const a = b.dataset.mcAct;
     try {
+      if (a === 'connecter') return ouvrirConnexion();
       if (a === 'usb') return mcBrancherUsb();
       if (a === 'ble') return mcBrancherBle();
       if (a === 'nav-stop') return mcDebrancherNav();
@@ -786,6 +902,7 @@ function mcRendreCompanion() {
     } catch (err) { retour(err.message); }
   }));
   z.querySelectorAll('[data-mc-qr-canal]').forEach((b) => (b.onclick = () => mcOuvrirQr({ canal: b.dataset.mcQrCanal })));
+  mcBrancherOutils(z);
   z.querySelectorAll('[data-mc-agent]').forEach((b) => (b.onclick = async () => {
     try { await postJson('/api/mc/companion', { type: 'agent', hote: b.dataset.mcAgent }); setTimeout(mcChargerEtat, 4500); b.textContent = 'Connexion…'; } catch (err) { retour(err.message); }
   }));
@@ -1178,7 +1295,7 @@ function demarrerMeshcore() {
     }
   });
   let minuterieVue = null;
-  carte.on('moveend', () => { clearTimeout(minuterieVue); minuterieVue = setTimeout(() => { mc.vue = null; mcDessinerNoeuds(); mcDessinerLiens(); if (!etat.zone) mcMajAlertes(); }, 250); });
+  carte.on('moveend', () => { clearTimeout(minuterieVue); minuterieVue = setTimeout(() => { mc.emprise = null; mcDessinerNoeuds(); mcDessinerLiens(); if (!etat.zone) mcMajAlertes(); }, 250); });
   $('#fermer-fiche').addEventListener('click', () => { mc.selection = null; });
   Promise.all([mcChargerNoeuds(), mcChargerLiens(), mcChargerEtat()]).then(() => { appliquerVueReseau(); }).catch(() => appliquerVueReseau());
   setInterval(() => mcChargerLiens().catch(() => {}), 120000);

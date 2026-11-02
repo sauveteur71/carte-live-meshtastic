@@ -927,3 +927,10 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 .cx-retour.ko { color: var(--attention); }
 .cx-aide { margin-top: 10px; font-size: .9em; }
 .cx-aide li { margin: 4px 0; }
+
+.trace-mc { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: .9em; }
+.trace-mc .saut-mc { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.courbe-bruit { width: 100%; height: 70px; background: var(--surface-2); border-radius: 6px; margin-top: 6px; }
+.outils-mc { margin-top: 10px; }
+.outils-mc summary { cursor: pointer; font-weight: 600; }
+.cli-mc { max-height: 220px; overflow: auto; background: var(--surface-2); padding: 8px; border-radius: 6px; font-size: .85em; white-space: pre-wrap; }

@@ -14,6 +14,7 @@
 // Les commandes sont envoyées une par une : chaque commande attend sa réponse (ou une erreur) avant la suivante.
 
 const net = require('net');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { ROLES } = require('./paquet');
@@ -26,8 +27,40 @@ const CMD = {
 const RESP = {
   OK: 0, ERR: 1, CONTACTS_START: 2, CONTACT: 3, END_CONTACTS: 4, SELF_INFO: 5, SENT: 6, CONTACT_MSG: 7, CHANNEL_MSG: 8,
   NO_MORE: 10, BATT: 12, DEVICE_INFO: 13, CONTACT_MSG_V3: 16, CHANNEL_MSG_V3: 17, CHANNEL_INFO: 18,
+  STATS: 24, ZONE_DEFAUT: 28, REPONSE_CLI: 29,
 };
-const PUSH = { CHEMIN: 0x8d, ADVERT: 0x80, PATH_UPDATED: 0x81, SEND_CONFIRMED: 0x82, MSG_WAITING: 0x83, LOGIN_OK: 0x85, LOGIN_FAIL: 0x86, STATUS: 0x87, LOG_RX: 0x88, NEW_ADVERT: 0x8a };
+// Commandes récentes (firmware companion v1.10 et plus)
+const CMD2 = { TRACE: 36, TELEMETRIE: 39, CONTROLE: 55, STATS: 56, ZONE_DEFAUT_SET: 63, ZONE_DEFAUT_GET: 64, CLI: 66 };
+const int8 = (x) => (x > 127 ? x - 256 : x);
+
+// Télémétrie au format Cayenne LPP (canal, type, valeur), comme le firmware MeshCore l'envoie
+const LPP = {
+  0: ['entree', 1, (b, i) => b[i]], 1: ['sortie', 1, (b, i) => b[i]], 2: ['analogique', 2, (b, i) => b.readInt16BE(i) / 100],
+  3: ['analogique', 2, (b, i) => b.readInt16BE(i) / 100], 100: ['generique', 4, (b, i) => b.readUInt32BE(i)], 101: ['luminosite', 2, (b, i) => b.readUInt16BE(i), 'lx'],
+  102: ['presence', 1, (b, i) => b[i]], 103: ['temperature', 2, (b, i) => b.readInt16BE(i) / 10, '°C'], 104: ['humidite', 1, (b, i) => b[i] / 2, '%'],
+  113: ['acceleration', 6, (b, i) => [b.readInt16BE(i) / 1000, b.readInt16BE(i + 2) / 1000, b.readInt16BE(i + 4) / 1000], 'g'],
+  115: ['pression', 2, (b, i) => b.readUInt16BE(i) / 10, 'hPa'], 116: ['tension', 2, (b, i) => b.readInt16BE(i) / 100, 'V'], 117: ['courant', 2, (b, i) => b.readInt16BE(i) / 1000, 'A'],
+  118: ['frequence', 4, (b, i) => b.readUInt32BE(i), 'Hz'], 120: ['pourcentage', 1, (b, i) => b[i], '%'], 121: ['altitude', 2, (b, i) => b.readInt16BE(i), 'm'],
+  125: ['concentration', 2, (b, i) => b.readUInt16BE(i), 'ppm'], 128: ['puissance', 2, (b, i) => b.readUInt16BE(i), 'W'], 130: ['distance', 4, (b, i) => b.readUInt32BE(i) / 1000, 'm'],
+  131: ['energie', 4, (b, i) => b.readUInt32BE(i) / 1000, 'kWh'], 132: ['direction', 2, (b, i) => b.readUInt16BE(i), '°'], 133: ['heure', 4, (b, i) => b.readUInt32BE(i)],
+  134: ['gyroscope', 6, (b, i) => [b.readInt16BE(i) / 100, b.readInt16BE(i + 2) / 100, b.readInt16BE(i + 4) / 100], '°/s'], 135: ['couleur', 3, (b, i) => [b[i], b[i + 1], b[i + 2]]],
+  136: ['gps', 9, (b, i) => { const v = (o) => { let x = (b[o] << 16) | (b[o + 1] << 8) | b[o + 2]; if (x & 0x800000) x -= 0x1000000; return x; }; return { lat: v(i) / 1e4, lon: v(i + 3) / 1e4, alt: v(i + 6) / 100 }; }],
+  142: ['interrupteur', 1, (b, i) => b[i]],
+};
+function lireLpp(b) {
+  const l = [];
+  let i = 0;
+  while (i + 2 <= b.length) {
+    const canal = b[i], type = b[i + 1];
+    if (canal === 0 && type === 0) break;
+    const d = LPP[type];
+    if (!d || i + 2 + d[1] > b.length) break;
+    l.push({ canal, type: d[0], valeur: d[2](b, i + 2), unite: d[3] || '' });
+    i += 2 + d[1];
+  }
+  return l;
+}
+const PUSH = { TRACE: 0x89, TELEMETRIE: 0x8b, BINAIRE: 0x8c, CONTROLE: 0x8e, CHEMIN: 0x8d, ADVERT: 0x80, PATH_UPDATED: 0x81, SEND_CONFIRMED: 0x82, MSG_WAITING: 0x83, LOGIN_OK: 0x85, LOGIN_FAIL: 0x86, STATUS: 0x87, LOG_RX: 0x88, NEW_ADVERT: 0x8a };
 const ERREURS = { 1: 'commande non gérée par ce firmware', 2: 'introuvable (contact ou canal inconnu du companion)', 3: 'table pleine (contacts ou envois en attente)', 4: 'companion occupé', 5: 'erreur de stockage', 6: 'paramètre refusé' };
 const TYPES_ROLE = { companion: 1, repeteur: 2, salon: 3, capteur: 4 };
 const NOM_APPLI = 'carte-live';
@@ -54,6 +87,8 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
   let enVol = null;
   // Attentes de « pushs » (connexion à un répéteur, réponse d'état, réponse CLI…)
   const attentes = new Set();
+  // Collecteurs des données de contrôle (découverte des voisins : plusieurs réponses pour une seule demande)
+  const collecteurs = new Set();
   // Messages en attente dans le companion : on les vide dès qu'il prévient
   let vidageEnCours = false;
 
@@ -324,9 +359,10 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
       case PUSH.SEND_CONFIRMED:
         if (t.length >= 9 && surConfirmation) surConfirmation({ ack: t.readUInt32LE(1), allerRetourMs: t.readUInt32LE(5) });
         break;
-      case PUSH.LOGIN_OK: case PUSH.LOGIN_FAIL: case PUSH.STATUS: case PUSH.CHEMIN:
+      case PUSH.LOGIN_OK: case PUSH.LOGIN_FAIL: case PUSH.STATUS: case PUSH.CHEMIN: case PUSH.TRACE: case PUSH.TELEMETRIE: case PUSH.BINAIRE:
         servirAttentes(t);
         break;
+      case PUSH.CONTROLE: for (const f of collecteurs) { try { f(t); } catch { /* ignoré */ } } break;
       case RESP.SELF_INFO: traiterSelfInfo(t); break;
       default: break;
     }
@@ -484,8 +520,112 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
       const aller = lireChemin(8), retour = lireChemin(aller.fin);
       return { aller: aller.chemin, retour: retour.chemin, dureeMs: Date.now() - debut };
     },
+    // ---- Découverte des répéteurs en direct (0 saut, sans mot de passe) ----
+    // Chaque répéteur qui entend l'appel répond avec le SNR auquel il l'a reçu ; le companion mesure le SNR de la réponse.
+    async decouvrirVoisins(dureeMs = 15000) {
+      exigerPret();
+      const tag = crypto.randomBytes(4).readUInt32LE(0) >>> 0;
+      const trouves = new Map();
+      const f = (t) => {
+        if (t.length < 4 + 14) return;
+        const p = t.subarray(4);
+        if ((p[0] & 0xf0) !== 0x90 || p.readUInt32LE(2) !== tag) return;
+        const type = p[0] & 0x0f;
+        const cle = p.subarray(6).toString('hex').toUpperCase();
+        trouves.set(cle, { cle, complete: cle.length === 64, role: ROLES[type] || 'inconnu', snrAller: int8(p[1]) / 4, snrRetour: int8(t[1]) / 4, rssi: int8(t[2]), heure: Date.now() });
+      };
+      collecteurs.add(f);
+      try {
+        const b = Buffer.alloc(11);
+        b[0] = CMD2.CONTROLE; b[1] = 0x80; b[2] = (1 << 2) | (1 << 3) | (1 << 4); // répéteurs, room servers, capteurs
+        b.writeUInt32LE(tag, 3); b.writeUInt32LE(0, 7);
+        await commande(b, [RESP.OK], 5000);
+        await new Promise((r) => setTimeout(r, dureeMs));
+      } finally { collecteurs.delete(f); }
+      return [...trouves.values()].sort((a, b) => b.snrRetour - a.snrRetour);
+    },
+    // ---- Trace : aller-retour le long d'un chemin, avec le SNR mesuré à chaque saut ----
+    // `chemin` : hachages hex (même taille) des nœuds traversés dans l'ordre, cible comprise, retour compris.
+    async tracer(chemin, delai = 30000) {
+      exigerPret();
+      if (!chemin.length) throw new Error('chemin vide');
+      const taille = chemin[0].length / 2;
+      const drapeaux = { 1: 0, 2: 1, 4: 2, 8: 3 }[taille];
+      if (drapeaux == null || chemin.some((h) => h.length !== taille * 2)) throw new Error('chemin invalide');
+      const tag = crypto.randomBytes(4).readUInt32LE(0) >>> 0;
+      const attente = attendre((t) => t[0] === PUSH.TRACE && t.length >= 12 && t.readUInt32LE(4) === tag, delai);
+      attente.catch(() => {});
+      const b = Buffer.alloc(10); b[0] = CMD2.TRACE; b.writeUInt32LE(tag, 1); b.writeUInt32LE(0, 5); b[9] = drapeaux;
+      const debut = Date.now();
+      await commande(Buffer.concat([b, Buffer.from(chemin.join(''), 'hex')]), [RESP.SENT], 6000);
+      const t = await attente;
+      const lg = t[2], sz = 1 << (t[3] & 3), n = lg / sz;
+      const hachages = [], snrs = [];
+      for (let k = 0; k < n; k++) hachages.push(t.subarray(12 + k * sz, 12 + (k + 1) * sz).toString('hex').toUpperCase());
+      for (let k = 0; k < n; k++) snrs.push(int8(t[12 + lg + k]) / 4);
+      return { hachages, snrs, final: int8(t[12 + lg + n]) / 4, dureeMs: Date.now() - debut };
+    },
+    // ---- Statistiques du companion : bruit radio, temps d'antenne, compteurs ----
+    async statistiques() {
+      exigerPret();
+      const r = {};
+      try { const t = await commande([CMD2.STATS, 0], [RESP.STATS], 4000); r.batterieMv = t.readUInt16LE(2); r.allumeS = t.readUInt32LE(4); r.erreurs = t.readUInt16LE(8); r.file = t[10]; } catch (e) { if (e.code === 1) throw new Error('statistiques non gérées par ce firmware (companion v1.10 ou plus requis)'); throw e; }
+      try { const t = await commande([CMD2.STATS, 1], [RESP.STATS], 4000); r.bruitDbm = t.readInt16LE(2); r.dernierRssi = int8(t[4]); r.dernierSnr = int8(t[5]) / 4; r.emissionS = t.readUInt32LE(6); r.receptionS = t.readUInt32LE(10); } catch { /* ignoré */ }
+      try {
+        const t = await commande([CMD2.STATS, 2], [RESP.STATS], 4000);
+        Object.assign(r, { recus: t.readUInt32LE(2), emis: t.readUInt32LE(6), emisInondation: t.readUInt32LE(10), emisDirect: t.readUInt32LE(14), recusInondation: t.readUInt32LE(18), recusDirect: t.readUInt32LE(22), erreursReception: t.length >= 30 ? t.readUInt32LE(26) : null });
+      } catch { /* ignoré */ }
+      if (r.allumeS && r.emissionS != null) r.occupationEmissionPct = Math.round((r.emissionS / r.allumeS) * 1000) / 10;
+      if (r.allumeS && r.receptionS != null) r.occupationReceptionPct = Math.round((r.receptionS / r.allumeS) * 1000) / 10;
+      etat.stats = { ...r, heure: Date.now() };
+      return r;
+    },
+    // ---- Télémétrie (capteurs) : du companion lui-même (noeud absent) ou d'un nœud distant ----
+    async telemetrie(noeud, delai = 40000) {
+      exigerPret();
+      if (!noeud) {
+        const attente = attendre((t) => t[0] === PUSH.TELEMETRIE && t.length >= 8 && t.subarray(2, 8).toString('hex').toUpperCase() === String(etat.cle || '').slice(0, 12), 6000);
+        attente.catch(() => {});
+        ecrire(Buffer.from([CMD2.TELEMETRIE, 0, 0, 0]));
+        return lireLpp((await attente).subarray(8));
+      }
+      await assurerContact(noeud);
+      const prefixe = noeud.cle.slice(0, 12);
+      const attente = attendre((t) => t[0] === PUSH.TELEMETRIE && t.length >= 8 && t.subarray(2, 8).toString('hex').toUpperCase() === prefixe, delai);
+      attente.catch(() => {});
+      await commande(Buffer.concat([Buffer.from([CMD2.TELEMETRIE, 0, 0, 0]), cleOctets(noeud.cle)]), [RESP.SENT], 6000);
+      return lireLpp((await attente).subarray(8));
+    },
+    // ---- Région (zone d'inondation) par défaut du companion : ses envois en inondation ne sortent pas de la région ----
+    async lireZone() {
+      exigerPret();
+      const t = await commande([CMD2.ZONE_DEFAUT_GET], [RESP.ZONE_DEFAUT], 4000);
+      return t.length >= 48 ? texte(t.subarray(1, 32)) || null : null;
+    },
+    async definirZone(nom) {
+      exigerPret();
+      nom = String(nom || '').trim();
+      if (!nom) { await commande([CMD2.ZONE_DEFAUT_SET], [RESP.OK], 4000); return null; }
+      if (!nom.startsWith('#')) nom = '#' + nom;
+      if (Buffer.byteLength(nom) > 30 || !/^#[\p{L}\p{N}_.-]+$/u.test(nom)) throw new Error('nom de région invalide (lettres, chiffres, - _ ., 30 caractères au plus)');
+      const b = Buffer.alloc(1 + 31 + 16);
+      b[0] = CMD2.ZONE_DEFAUT_SET; b.write(nom, 1, 'utf8');
+      crypto.createHash('sha256').update(nom, 'utf8').digest().copy(b, 32, 0, 16);
+      await commande(b, [RESP.OK], 4000);
+      return nom;
+    },
+    // ---- Commande CLI sur le companion lui-même (firmware v1.14+ du companion : nom, Wi-Fi, version…) ----
+    async cliLocal(ligne) {
+      exigerPret();
+      const corps = Buffer.from(String(ligne || '').trim(), 'utf8');
+      if (corps.length < 2 || corps.length > 160) throw new Error('commande de 2 à 160 octets');
+      try {
+        const t = await commande(Buffer.concat([Buffer.from([CMD2.CLI]), corps]), [RESP.REPONSE_CLI], 6000);
+        return texte(t.subarray(1));
+      } catch (e) { if (e.code === 1) throw new Error('commandes sur le companion non gérées par ce firmware (companion v1.14 ou plus requis)'); throw e; }
+    },
     demarrer() { if (!arret) planifier(1500); },
   };
 }
 
-module.exports = { creerCompanion };
+module.exports = { creerCompanion, lireLpp };

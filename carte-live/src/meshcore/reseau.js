@@ -419,6 +419,11 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
       return { ...v, cle: n ? n.cle : null, nom: n ? n.nom : null, role: n ? n.role : null, distanceKm: n && n.lat != null && rep.lat != null ? Math.round(distanceKm(n, rep) * 10) / 10 : null };
     });
   }
+  // Liaison mesurée (trace, découverte) entre deux nœuds connus : `a` entendu par `b` avec ce SNR
+  function lierMesure(cleA, cleB, source, snr, rssi) {
+    const a = q.noeud.get(cleA), b = q.noeud.get(cleB);
+    return lier(a, b, source, snr, rssi, Date.now());
+  }
   function definirCanaux(liste) { canaux = liste; }
 
   function purger(jours, joursPaquets = jours) {
@@ -507,7 +512,7 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
   }
 
   return {
-    positionDe, noterEtat, telemetrie, calculerAlertes, analyse, surveilles, integrer, importerContact, noterObservateur, vueNoeud, liens, statistiques, detailNoeud, paquets, detailPaquet, messages, noterMessage, confirmerAck, statutMessage, lierVoisins, definirCanaux, definirMoi, canaux: () => canaux, purger, q, resoudreChemin };
+    positionDe, noterEtat, telemetrie, calculerAlertes, analyse, surveilles, integrer, importerContact, noterObservateur, vueNoeud, liens, statistiques, detailNoeud, paquets, detailPaquet, messages, noterMessage, confirmerAck, statutMessage, lierVoisins, lierMesure, definirCanaux, definirMoi, canaux: () => canaux, purger, q, resoudreChemin };
 }
 
 module.exports = { creerReseauMc };
