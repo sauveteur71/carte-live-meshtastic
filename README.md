@@ -45,6 +45,7 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 
 **Administration des nœuds (PKI, firmware 2.5 et plus)**
 - Connexion à un module en **Wi-Fi** (TCP 4403), ou en **USB / sur un autre réseau** grâce à l'**agent** (Windows, Linux, Raspberry Pi) relié par Tailscale ou le réseau local
+- **Connecter un module** (*Outils*) : un seul écran pour le Bluetooth, l'USB ou une adresse IP ; Meshtastic ou MeshCore est reconnu tout seul. Une adresse IP d'un autre réseau passe automatiquement par un agent 1.6 lancé sur un PC de ce réseau
 - **Éditeur de réglages** complet (nom, rôle, rediffusion, LoRa, position, 8 canaux) envoyé en une seule transaction et relu pour contrôle
 - Lecture de configuration **reprenable**, opérations multi-nœuds, arrêt et « réessayer », garde-fous pour le canal principal
 - **Vérification de conformité** : comparer tous vos nœuds à une référence (canaux, précision, fréquence, preset, rediffusion…)
@@ -164,6 +165,10 @@ L'agent garde en mémoire autant de connexions que vous voulez (ex. *USB* sur `C
 - `-configurer` : menu pour ajouter (`a`), modifier (`m 2`), retirer (`r 2`) une connexion ou changer le serveur et le code (`s`)
 - `-ajouter` : ajouter une connexion d'un coup ; `-liste` : voir les connexions et leur état
 - module Wi-Fi joint par un VPN ou un routeur (pas sur le réseau local du PC) : ajoutez `"toujours": true` à sa connexion dans `agent-gaulix.json`
+
+### Relais du réseau local (agent 1.6)
+
+L'agent 1.6 sert aussi de **relais pour son réseau local**, sans réglage : dans *Outils › Connecter un module*, tapez l'adresse IP d'un module Wi-Fi (Meshtastic port 4403 ou companion MeshCore port 5000) situé sur le réseau de ce PC, et la carte le joint à travers l'agent. Seules les adresses privées des réseaux du PC et ces deux ports sont acceptés.
 
 Les réglages d'un agent 1.3 ou antérieur sont repris automatiquement.
 

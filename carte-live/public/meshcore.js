@@ -814,10 +814,10 @@ function mcOuvrirWs(source, versCompanion) {
     ws.onclose = () => { if (mc.nav.ws === ws) mcDebrancherNav('liaison avec le serveur fermée'); };
   });
 }
-async function mcBrancherUsb() {
+async function mcBrancherUsb(portDonne) {
   if (!('serial' in navigator)) { alert('Ce navigateur ne gère pas l’USB : utilisez Chrome ou Edge, sur la carte en HTTPS.'); return; }
-  let port;
-  try { port = await navigator.serial.requestPort({}); } catch { return; }
+  let port = portDonne;
+  if (!port) try { port = await navigator.serial.requestPort({}); } catch { return; }
   mc.nav.type = 'usb'; mcMajNav('connexion');
   try {
     await port.open({ baudRate: 115200 });
@@ -838,10 +838,10 @@ async function mcBrancherUsb() {
     mcMajNav('aucun', e.name === 'NetworkError' || /open/i.test(e.message) ? 'port déjà utilisé (fermez l’appli MeshCore ou l’agent)' : e.message);
   }
 }
-async function mcBrancherBle() {
+async function mcBrancherBle(appareilDonne) {
   if (!navigator.bluetooth) { alert('Ce navigateur ne gère pas le Bluetooth : utilisez Chrome ou Edge, sur la carte en HTTPS.'); return; }
-  let app;
-  try { app = await navigator.bluetooth.requestDevice({ filters: [{ services: [MC_BLE_SERVICE] }, { namePrefix: 'MeshCore' }], optionalServices: [MC_BLE_SERVICE] }); } catch { return; }
+  let app = appareilDonne;
+  if (!app) try { app = await navigator.bluetooth.requestDevice({ filters: [{ services: [MC_BLE_SERVICE] }, { namePrefix: 'MeshCore' }], optionalServices: [MC_BLE_SERVICE] }); } catch { return; }
   mc.nav.type = 'ble'; mcMajNav('connexion');
   try {
     const gatt = await app.gatt.connect();

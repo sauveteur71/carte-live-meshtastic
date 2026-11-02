@@ -3,6 +3,7 @@
 
 const http = require('http');
 const path = require('path');
+const net = require('net');
 const crypto = require('crypto');
 const express = require('express');
 const mqtt = require('mqtt');
@@ -673,6 +674,63 @@ app.delete('/api/radio/modules', (req, res) => {
   sourceRadio.retirerModule(hote, port);
   res.json({ ok: true });
 });
+// ---- Connexion d'un module par sa seule adresse IP (Meshtastic ou MeshCore, reconnu tout seul) ---------------
+// 1. le serveur essaie lui-même (ports 4403 et 5000) ; 2. sinon, un agent 1.6 du même réseau sert de relais.
+const ipLocaleV4 = (ip) => /^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})$/.test(ip) && ip.split('.').every((x) => Number(x) <= 255);
+const portOuvert = (hote, port, ms = 2500) => new Promise((ok) => {
+  const s = net.connect({ host: hote, port });
+  const fin = (v) => { clearTimeout(t); s.destroy(); ok(v); };
+  const t = setTimeout(() => fin(false), ms);
+  s.once('connect', () => fin(true)); s.once('error', () => fin(false));
+});
+app.post('/api/connexion/ip', async (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const brut = String((req.body || {}).adresse || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  const [ip, portDonne] = brut.split(':');
+  if (!ipLocaleV4(ip)) return res.status(400).json({ erreur: 'Adresse IP du réseau local attendue (ex. 192.168.1.122)' });
+  const voulu = (req.body || {}).protocole; // facultatif : 'meshtastic' ou 'meshcore' si les deux répondent
+  const choisir = (ports) => {
+    const mt = ports.includes(4403) || (portDonne && Number(portDonne) === 4403), mcp = ports.includes(5000) || (portDonne && Number(portDonne) === 5000);
+    if (mt && mcp) return voulu === 'meshcore' ? 'meshcore' : 'meshtastic';
+    return mcp ? 'meshcore' : mt ? 'meshtastic' : null;
+  };
+  const brancher = (protocole, cible) => {
+    if (protocole === 'meshcore') {
+      if (!config.meshcore.actif) throw new Error('MeshCore n’est pas activé dans cette carte');
+      companion.connecterA(cible.agent ? { type: 'agent', hote: cible.agent } : { type: 'tcp', hote: ip, port: 5000 });
+    } else if (cible.agent) { sourceRadio.ajouterModule(cible.agent, 1, `Meshtastic ${ip}`); sourceRadio.connecterA(cible.agent, 1); }
+    else { sourceRadio.ajouterModule(ip, 4403, null); sourceRadio.connecterA(ip, 4403); }
+  };
+  try {
+    // 1. Directement depuis le serveur
+    const directs = (await Promise.all([4403, 5000].map((p) => portOuvert(ip, p)))).map((ok, i) => (ok ? [4403, 5000][i] : null)).filter(Boolean);
+    let protocole = choisir(directs);
+    if (protocole) {
+      brancher(protocole, {});
+      journal(`connexion par IP : ${ip} (${protocole}) joint directement`);
+      return res.json({ ok: true, protocole, via: 'direct', texte: `${protocole === 'meshcore' ? 'Companion MeshCore' : 'Module Meshtastic'} ${ip} trouvé : connexion en cours.` });
+    }
+    // 2. Par le relais du réseau local d'un agent
+    const relais = agents.relaisPour(ip);
+    for (const r of relais) {
+      let ports;
+      try { ports = await agents.sonder(r.hote, ip); } catch (e) { continue; }
+      protocole = choisir(ports);
+      if (!protocole) return res.status(404).json({ erreur: `L’agent « ${r.nom} » voit bien le réseau de ${ip}, mais aucun module n’y répond (ni Meshtastic port 4403, ni MeshCore port 5000). Le module est-il allumé, en Wi-Fi, et l’adresse est-elle la bonne ?` });
+      const hote = agents.ajouterParIp(r.hote, ip, protocole === 'meshcore' ? 5000 : 4403, protocole);
+      brancher(protocole, { agent: hote });
+      journal(`connexion par IP : ${ip} (${protocole}) par le relais « ${r.nom} »`);
+      return res.json({ ok: true, protocole, via: r.nom, texte: `${protocole === 'meshcore' ? 'Companion MeshCore' : 'Module Meshtastic'} ${ip} trouvé par le PC « ${r.nom.replace(/ · réseau local$/, '')} » : connexion en cours.` });
+    }
+    const anciens = agents.liste().filter((a) => !/^1\.([6-9]|\d\d)|^[2-9]\./.test(a.version || '') && a.version !== 'navigateur');
+    res.status(404).json({
+      erreur: `Le serveur ne voit pas ${ip} : ce module est sur un autre réseau que la carte.`,
+      conseil: relais.length ? 'Le relais de ce réseau est occupé : réessayez dans un instant.'
+        : `Utilisez le Bluetooth ou l’USB depuis ce PC, ou lancez l’agent Gaulix 1.6 sur un PC de ce réseau (il sert alors de relais automatiquement).${anciens.length ? ` Agent(s) à mettre à jour : ${anciens.map((a) => `« ${a.nom} » (${a.version || '?'})`).join(', ')}.` : ''}`,
+    });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+
 let scanEnCours = false;
 app.post('/api/radio/scanner', async (req, res) => {
   if (!exigerAdmin(req, res)) return;
@@ -1913,9 +1971,9 @@ setInterval(diffuserEtatMc, 30000);
 const sourceMM = creerSourceMeshMonitor(stockage, config, () => { rafraichirEtat(); diffuser({ genre: 'statut' }); });
 if (sourceMM) journal(`Source MeshMonitor activée : ${config.meshmonitor.url}`);
 // Agents (module USB sur un PC, ou module Wi-Fi d'un autre réseau) : ils se connectent au port 4404
-const agents = creerAgents(config, { surArrivee: (hote, nom) => {
-  if (typeof companion !== 'undefined' && companion) companion.agentDisponible(hote);
-  if (typeof sourceRadio !== 'undefined' && sourceRadio) { sourceRadio.agentDisponible(hote, nom); rafraichirEtat(); diffuser({ genre: 'statut' }); }
+const agents = creerAgents(config, { surArrivee: (hote, nom, protocole) => {
+  if (protocole !== 'meshtastic' && typeof companion !== 'undefined' && companion) companion.agentDisponible(hote);
+  if (protocole !== 'meshcore' && typeof sourceRadio !== 'undefined' && sourceRadio) { sourceRadio.agentDisponible(hote, nom); rafraichirEtat(); diffuser({ genre: 'statut' }); }
 } });
 // Companion MeshCore (observateur de la carte) et republication sur le broker
 const publicateurMc = creerPublicateurMc(config, (...a) => journal('[MeshCore]', ...a));

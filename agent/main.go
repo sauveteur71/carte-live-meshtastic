@@ -30,7 +30,7 @@ import (
 	"go.bug.st/serial"
 )
 
-const version = "1.5"
+const version = "1.6"
 
 // Une connexion gardée en mémoire : un module et le nom sous lequel il apparaît dans la carte
 type Connexion struct {
@@ -330,7 +330,7 @@ func main() {
 		return
 	}
 
-	fmt.Printf("Agent Gaulix %s — relais de modules Meshtastic vers la carte live\n", version)
+	fmt.Printf("Agent Gaulix %s — relais de modules Meshtastic et MeshCore vers la carte live\n", version)
 	f := fichierReglages(*chemin)
 	r := charger(f)
 	if *liste {
@@ -369,6 +369,15 @@ func main() {
 	}
 	journal("carte %s — %d connexion(s) : pour en ajouter ou en retirer, relancez avec -configurer", r.Serveur, len(r.Connexions))
 	var g sync.WaitGroup
+	// Relais du réseau local : la carte peut joindre n'importe quel module Wi-Fi (Meshtastic ou MeshCore)
+	// du réseau de ce PC à partir de sa seule adresse IP, sans rien configurer ici
+	g.Add(1)
+	go func() {
+		defer g.Done()
+		for {
+			time.Sleep(boucleRelais(r.Serveur, r.Code))
+		}
+	}()
 	for _, cx := range r.Connexions {
 		g.Add(1)
 		go func(cx Connexion) {
@@ -622,4 +631,141 @@ func retirerDemarrageAuto() {
 		}
 	}
 	journal("le démarrage automatique n'était pas activé")
+}
+
+// ---- Relais du réseau local (agent 1.6) -------------------------------------------------------------
+// Une session de plus, sans module attitré : la carte peut lui demander de sonder une adresse IP du réseau
+// local (ports 4403 Meshtastic et 5000 MeshCore) puis de relayer l'un de ces deux ports.
+// Seules les adresses privées des réseaux auxquels ce PC est branché sont acceptées.
+
+const portMeshtastic, portMeshCore = "4403", "5000"
+
+// Réseaux locaux du PC (hors /32 type Tailscale et hors boucle locale)
+func reseauxLocaux() []*net.IPNet {
+	var l []*net.IPNet
+	adresses, _ := net.InterfaceAddrs()
+	for _, a := range adresses {
+		if n, ok := a.(*net.IPNet); ok && n.IP.To4() != nil && !n.IP.IsLoopback() {
+			if ones, bits := n.Mask.Size(); ones < bits && ones >= 16 {
+				l = append(l, n)
+			}
+		}
+	}
+	return l
+}
+
+func adresseAutorisee(ip string) bool {
+	p := net.ParseIP(strings.TrimSpace(ip))
+	if p == nil || p.To4() == nil || !p.IsPrivate() {
+		return false
+	}
+	for _, n := range reseauxLocaux() {
+		if n.Contains(p) {
+			return true
+		}
+	}
+	return false
+}
+
+func nomPC() string {
+	h, err := os.Hostname()
+	if err != nil || h == "" {
+		h = "PC"
+	}
+	return h
+}
+
+func sonderPort(ip, port string) bool {
+	m, err := net.DialTimeout("tcp", net.JoinHostPort(ip, port), 2500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	m.Close()
+	return true
+}
+
+func boucleRelais(serveur, code string) time.Duration {
+	nom := nomPC() + " · réseau local"
+	c, err := net.DialTimeout("tcp", serveur, 10*time.Second)
+	if err != nil {
+		return 30 * time.Second
+	}
+	defer c.Close()
+	if tc, ok := c.(*net.TCPConn); ok {
+		tc.SetKeepAlive(true)
+		tc.SetKeepAlivePeriod(30 * time.Second)
+		tc.SetNoDelay(true)
+	}
+	var reseaux []string
+	for _, n := range reseauxLocaux() {
+		reseaux = append(reseaux, n.String())
+	}
+	type bonjour struct {
+		V       int      `json:"v"`
+		Code    string   `json:"code"`
+		Nom     string   `json:"nom"`
+		Source  string   `json:"source"`
+		Version string   `json:"version"`
+		Relais  bool     `json:"relais"`
+		Reseaux []string `json:"reseaux"`
+	}
+	b, _ := json.Marshal(bonjour{1, code, nom, "relais du réseau local " + strings.Join(reseaux, ", "), version, true, reseaux})
+	c.SetDeadline(time.Now().Add(15 * time.Second))
+	if _, err := c.Write(append(b, '\n')); err != nil {
+		return 30 * time.Second
+	}
+	lecteur := bufio.NewReader(c)
+	l, err := lecteur.ReadString('\n')
+	if err != nil || strings.HasPrefix(strings.TrimSpace(l), "ERREUR") {
+		return 60 * time.Second
+	}
+	c.SetDeadline(time.Time{})
+	for {
+		c.SetReadDeadline(time.Now().Add(3 * time.Minute))
+		l, err = lecteur.ReadString('\n')
+		if err != nil {
+			return 5 * time.Second
+		}
+		l = strings.TrimSpace(l)
+		switch {
+		case strings.HasPrefix(l, "SONDER "):
+			ip := strings.TrimSpace(strings.TrimPrefix(l, "SONDER "))
+			var ports []string
+			if adresseAutorisee(ip) {
+				for _, p := range []string{portMeshtastic, portMeshCore} {
+					if sonderPort(ip, p) {
+						ports = append(ports, p)
+					}
+				}
+				journal("[réseau local] %s : %s", ip, map[bool]string{true: "ports " + strings.Join(ports, ", "), false: "aucun module joignable"}[len(ports) > 0])
+			} else {
+				journal("[réseau local] %s refusée (adresse hors des réseaux locaux de ce PC)", ip)
+				c.Write([]byte("HORS\n"))
+				continue
+			}
+			c.Write([]byte("PORTS " + strings.Join(ports, ",") + "\n"))
+		case strings.HasPrefix(l, "RELAIS "):
+			hote, port, err := net.SplitHostPort(strings.TrimSpace(strings.TrimPrefix(l, "RELAIS ")))
+			if err != nil || !adresseAutorisee(hote) || (port != portMeshtastic && port != portMeshCore) {
+				journal("[réseau local] relais refusé : %s", l)
+				return 5 * time.Second
+			}
+			c.SetReadDeadline(time.Time{})
+			m, err := net.DialTimeout("tcp", net.JoinHostPort(hote, port), 10*time.Second)
+			if err != nil {
+				journal("[réseau local] %s:%s injoignable : %v", hote, port, err)
+				return 5 * time.Second
+			}
+			journal("[réseau local] relais actif vers %s:%s", hote, port)
+			debut := time.Now()
+			var once sync.Once
+			fin := make(chan struct{})
+			fermer := func() { once.Do(func() { c.Close(); m.Close(); close(fin) }) }
+			go func() { io.Copy(c, m); fermer() }()
+			go func() { io.Copy(m, lecteur); fermer() }()
+			<-fin
+			journal("[réseau local] relais vers %s:%s terminé après %s", hote, port, time.Since(debut).Round(time.Second))
+			return 3 * time.Second
+		}
+	}
 }

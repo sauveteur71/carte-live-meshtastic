@@ -4624,6 +4624,7 @@ function brancherInterface() {
       <div class="actions-prop"><a class="bascule principal" href="/rapport" target="_blank" rel="noopener">Ouvrir le rapport des 7 derniers jours</a></div>
       <h3>Archives</h3>${l.map((x) => `<div class="ligne"><span class="titre"><a href="/rapports/${encodeURIComponent(x)}" target="_blank" rel="noopener">Semaine du ${esc(x.slice(8, 18).split('-').reverse().join('/'))}</a></span></div>`).join('') || '<div class="vide">Pas encore d’archive (premier rapport lundi prochain vers 7 h).</div>'}`;
   };
+  { const bc = $('#outil-connecter'); if (bc) bc.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ouvrirConnexion(); }; }
   $('#outil-portee').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; testPortee(null); };
   $('#outil-terrain').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTerrain(); };
   $('#outil-partager').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; fichePartager(); };
@@ -5234,10 +5235,10 @@ function ouvrirWsModule(nom, source, envoyerAuModule) {
     ws.onclose = () => { if (moduleNav.ws === ws) debrancherModuleNav('liaison avec le serveur fermée'); };
   });
 }
-async function brancherUsb() {
+async function brancherUsb(portDonne) {
   if (!('serial' in navigator)) { alert('Ce navigateur ne gère pas l’USB : utilisez Chrome ou Edge, sur la carte en HTTPS.'); return; }
-  let port;
-  try { port = await navigator.serial.requestPort({}); } catch { return; } // fenêtre de choix annulée
+  let port = portDonne;
+  if (!port) try { port = await navigator.serial.requestPort({}); } catch { return; } // fenêtre de choix annulée
   moduleNav.type = 'usb'; majModuleNav('connexion');
   try {
     await port.open({ baudRate: 115200 });
@@ -5271,10 +5272,10 @@ async function brancherUsb() {
     majModuleNav('aucun', e.message.includes('open') || e.name === 'NetworkError' ? 'port déjà utilisé (fermez l’appli Meshtastic ou l’agent)' : e.message);
   }
 }
-async function brancherBle() {
+async function brancherBle(appareilDonne) {
   if (!navigator.bluetooth) { alert('Ce navigateur ne gère pas le Bluetooth : utilisez Chrome ou Edge, sur la carte en HTTPS.'); return; }
-  let appareil;
-  try { appareil = await navigator.bluetooth.requestDevice({ filters: [{ services: [BLE_SERVICE] }] }); } catch { return; }
+  let appareil = appareilDonne;
+  if (!appareil) try { appareil = await navigator.bluetooth.requestDevice({ filters: [{ services: [BLE_SERVICE] }] }); } catch { return; }
   moduleNav.type = 'ble'; majModuleNav('connexion');
   try {
     const gatt = await appareil.gatt.connect();
@@ -5342,3 +5343,152 @@ document.addEventListener('DOMContentLoaded', () => {
   if (o) o.onclick = () => { document.querySelector('.menu-outils').open = false; moduleNav.etat === 'relie' && moduleNav.type === 'usb' ? debrancherModuleNav() : brancherUsb(); };
   if (b) b.onclick = () => { document.querySelector('.menu-outils').open = false; brancherBle(); };
 });
+
+// ---- Connecter un module : un seul endroit, Bluetooth, USB ou adresse IP ; Meshtastic ou MeshCore reconnu tout seul ----
+const MC_BLE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const mcActif = () => typeof mc !== 'undefined' && !!(etat.config && etat.config.meshcore && etat.config.meshcore.actif !== false) && typeof mcBrancherBle === 'function';
+async function etatConnexions() {
+  const r = { mt: null, mc: null };
+  try { const m = await api('/api/radio/modules'); r.mt = m.etat || null; r.mtModules = m.modules || []; } catch { /* non admin */ }
+  try { r.mc = await api('/api/mc/etat'); } catch { /* MeshCore absent */ }
+  return r;
+}
+async function ouvrirConnexion(message) {
+  if (!etat.admin) { alert('Connectez-vous en administrateur pour relier un module à la carte.'); return; }
+  const https = location.protocol === 'https:';
+  const nav = !!navigator.bluetooth, ser = 'serial' in navigator;
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.innerHTML = `<h2>Connecter un module</h2>
+    <p class="note">Meshtastic ou MeshCore : le type est reconnu tout seul. Choisissez simplement comment le module est relié.</p>
+    <div class="cx-etat" id="cx-etat"><small>état des modules…</small></div>
+    <div class="cx-choix">
+      <button class="cx-gros" data-cx="ble" ${!https || !nav ? 'disabled' : ''}><span>📶</span><b>Bluetooth</b><small>module à quelques mètres de ce PC</small></button>
+      <button class="cx-gros" data-cx="usb" ${!https || !ser ? 'disabled' : ''}><span>🔌</span><b>USB</b><small>câble branché sur ce PC</small></button>
+    </div>
+    ${!https ? '<p class="alerte attention">Bluetooth et USB demandent la carte en <b>HTTPS</b> (adresse en …ts.net), dans Chrome ou Edge.</p>' : !nav || !ser ? '<p class="alerte attention">Ce navigateur ne gère pas le Bluetooth ou l’USB : utilisez <b>Chrome ou Edge</b> (pas Firefox ni Safari).</p>' : ''}
+    <form class="cx-ip" id="cx-ip"><label><span>🌐 <b>Adresse IP</b> du module en Wi-Fi</span>
+      <span class="ligne-ip"><input name="adresse" placeholder="192.168.1.122" inputmode="decimal" autocomplete="off" required><button class="principal">Connecter</button></span></label>
+      <small>Si le module est sur un autre réseau que la carte, un PC de ce réseau avec l’agent Gaulix 1.6 sert de relais tout seul.</small></form>
+    <div id="cx-retour" class="cx-retour">${message ? esc(message) : ''}</div>
+    <details class="cx-aide"><summary>Ça ne marche pas ?</summary><ul>
+      <li><b>Bluetooth</b> : fermez l’appli Meshtastic / MeshCore du téléphone (un seul appareil à la fois). Code PIN : celui affiché par le module, sinon 123456. En cas d’échec, appairez d’abord le module dans les réglages Bluetooth de Windows.</li>
+      <li><b>Meshtastic en Wi-Fi</b> (ESP32 : Heltec, T-Beam…) : le Bluetooth est coupé tant que le Wi-Fi est actif ; utilisez l’adresse IP.</li>
+      <li><b>USB</b> : fermez l’appli, l’agent ou toute autre page qui utilise déjà le port.</li>
+      <li><b>Adresse IP</b> : le module doit être allumé, en Wi-Fi, et sur un réseau joignable par la carte ou par un PC avec l’agent 1.6 (<a href="/agent/agent-gaulix-windows.exe">télécharger pour Windows</a>).</li>
+    </ul></details>`;
+  const retour = (t, cls = '') => { const r = $('#cx-retour'); if (r) { r.className = 'cx-retour ' + cls; r.innerHTML = t; } };
+  const majEtat = async () => {
+    const e = await etatConnexions();
+    const el = $('#cx-etat'); if (!el) return;
+    const mt = e.mt, m = e.mc && e.mc.companion;
+    el.innerHTML = `<div><span class="point ${mt && mt.connecte ? 'actif' : 'inactif'}"></span><b>Meshtastic</b> · ${mt && mt.connecte ? esc(mt.nomLocal || mt.hote || 'module relié') : mt && mt.erreur ? '<span class="attention">' + esc(mt.erreur) + '</span>' : 'aucun module relié'}${typeof moduleNav !== 'undefined' && moduleNav.etat === 'relie' ? ` <button class="mini" data-cx-stop="mt">Débrancher (${moduleNav.type === 'ble' ? 'Bluetooth' : 'USB'})</button>` : ''}</div>
+      ${e.mc ? `<div><span class="point ${m && m.connecte ? 'actif' : 'inactif'}"></span><b>MeshCore</b> · ${m && m.connecte ? esc(m.nom || 'companion relié') : m && m.erreur ? '<span class="attention">' + esc(m.erreur) + '</span>' : 'aucun companion relié'}${mcActif() && mc.nav && mc.nav.etat === 'relie' ? ` <button class="mini" data-cx-stop="mc">Débrancher (${mc.nav.type === 'ble' ? 'Bluetooth' : 'USB'})</button>` : m && m.cible ? ' <button class="mini" data-cx-stop="mc-cible">Oublier</button>' : ''}</div>` : ''}`;
+    el.querySelectorAll('[data-cx-stop]').forEach((b) => (b.onclick = async () => {
+      const k = b.dataset.cxStop;
+      if (k === 'mt') await debrancherModuleNav();
+      else if (k === 'mc') await mcDebrancherNav();
+      else { try { await fetch('/api/mc/companion', { method: 'DELETE' }); } catch { /* ignore */ } }
+      setTimeout(majEtat, 1500);
+    }));
+  };
+  majEtat();
+  const fini = (type) => { setTimeout(majEtat, 2500); setTimeout(majEtat, 8000); return type; };
+
+  z.querySelector('[data-cx="ble"]').onclick = async () => {
+    let app;
+    try {
+      app = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [BLE_SERVICE] }, { services: [MC_BLE] }, { namePrefix: 'Meshtastic' }, { namePrefix: 'MeshCore' }],
+        optionalServices: [BLE_SERVICE, MC_BLE],
+      });
+    } catch { return; } // fenêtre fermée
+    retour(`Connexion à « ${esc(app.name || 'module')} »… (Windows peut demander le code PIN)`);
+    let type = null;
+    try {
+      const gatt = await app.gatt.connect();
+      try { await gatt.getPrimaryService(MC_BLE); type = 'meshcore'; } catch {
+        try { await gatt.getPrimaryService(BLE_SERVICE); type = 'meshtastic'; } catch { /* aucun */ }
+      }
+    } catch (e) { retour(`✗ Bluetooth : ${esc(e.message)}. Fermez l’appli du téléphone, puis réessayez ; sinon appairez le module dans Windows (code affiché par le module, ou 123456).`, 'ko'); return; }
+    if (!type) { try { app.gatt.disconnect(); } catch { /* déjà */ } retour('✗ Cet appareil Bluetooth n’est ni un module Meshtastic ni un companion MeshCore.', 'ko'); return; }
+    if (type === 'meshcore') {
+      if (!mcActif()) { retour('✗ Companion MeshCore reconnu, mais MeshCore n’est pas activé dans cette carte.', 'ko'); return; }
+      await mcBrancherBle(app);
+      const ok = mc.nav.etat === 'relie';
+      retour(ok ? `✓ Companion MeshCore « ${esc(app.name || '')} » relié en Bluetooth. Gardez cet onglet ouvert.` : `✗ ${esc(mc.nav.erreur || 'échec de la liaison')}`, ok ? 'ok' : 'ko');
+    } else {
+      await brancherBle(app);
+      const ok = moduleNav.etat === 'relie';
+      retour(ok ? `✓ Module Meshtastic « ${esc(app.name || '')} » relié en Bluetooth : il devient le module de la carte. Gardez cet onglet ouvert.` : `✗ ${esc(moduleNav.erreur || 'échec de la liaison')}`, ok ? 'ok' : 'ko');
+    }
+    fini(type);
+  };
+
+  z.querySelector('[data-cx="usb"]').onclick = async () => {
+    let port;
+    try { port = await navigator.serial.requestPort({}); } catch { return; }
+    retour('Port ouvert, reconnaissance du module…');
+    let type = 'meshtastic';
+    try {
+      await port.open({ baudRate: 115200 });
+      try { await port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch { /* pas géré */ }
+      // Question MeshCore (DEVICE_QUERY) : un companion répond par une trame « > » ; un module Meshtastic l'ignore
+      const w = port.writable.getWriter();
+      await w.write(new Uint8Array([0x3c, 0x02, 0x00, 22, 3])); w.releaseLock();
+      const lecteur = port.readable.getReader();
+      let tampon = new Uint8Array(0);
+      const limite = Date.now() + 2500;
+      const minut = setTimeout(() => lecteur.cancel().catch(() => {}), 2600);
+      try {
+        while (Date.now() < limite) {
+          const { value, done } = await lecteur.read();
+          if (done) break;
+          const n = new Uint8Array(tampon.length + value.length); n.set(tampon); n.set(value, tampon.length); tampon = n;
+          const i = tampon.indexOf(0x3e);
+          if (i >= 0 && i + 3 < tampon.length && tampon[i + 3] === 13) { type = 'meshcore'; break; }
+          if (tampon.length > 4096) break;
+        }
+      } catch { /* fin de lecture */ }
+      clearTimeout(minut);
+      try { await lecteur.cancel(); } catch { /* déjà */ }
+      try { lecteur.releaseLock(); } catch { /* déjà */ }
+      await port.close();
+    } catch (e) {
+      try { await port.close(); } catch { /* déjà */ }
+      retour(`✗ USB : ${esc(e.name === 'NetworkError' || /open/i.test(e.message) ? 'port déjà utilisé (fermez l’appli Meshtastic / MeshCore, l’agent ou une autre page)' : e.message)}`, 'ko');
+      return;
+    }
+    if (type === 'meshcore') {
+      if (!mcActif()) { retour('✗ Companion MeshCore reconnu, mais MeshCore n’est pas activé dans cette carte.', 'ko'); return; }
+      retour('Companion MeshCore reconnu, liaison…');
+      await mcBrancherUsb(port);
+      const ok = mc.nav.etat === 'relie';
+      retour(ok ? '✓ Companion MeshCore relié en USB. Gardez cet onglet ouvert.' : `✗ ${esc(mc.nav.erreur || 'échec de la liaison')}`, ok ? 'ok' : 'ko');
+    } else {
+      retour('Module Meshtastic, liaison…');
+      await brancherUsb(port);
+      const ok = moduleNav.etat === 'relie';
+      retour(ok ? '✓ Module Meshtastic relié en USB : il devient le module de la carte. Gardez cet onglet ouvert.' : `✗ ${esc(moduleNav.erreur || 'échec de la liaison')}`, ok ? 'ok' : 'ko');
+    }
+    fini(type);
+  };
+
+  $('#cx-ip').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const adresse = ev.target.adresse.value.trim();
+    const b = ev.target.querySelector('button'); b.disabled = true;
+    retour(`Recherche d’un module à ${esc(adresse)} (Meshtastic port 4403, MeshCore port 5000)…`);
+    try {
+      const r = await postJson('/api/connexion/ip', { adresse });
+      retour('✓ ' + esc(r.texte), 'ok');
+      fini(r.protocole);
+    } catch (e) {
+      const conseil = e.donnees && e.donnees.conseil;
+      retour(`✗ ${esc(e.message)}${conseil ? '<br>' + esc(conseil) : ''}`, 'ko');
+    }
+    b.disabled = false;
+  };
+}
+

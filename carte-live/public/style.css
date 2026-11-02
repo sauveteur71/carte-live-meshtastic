@@ -907,3 +907,23 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 .suivi-msg .acc.ok { color: var(--ok); }
 .suivi-msg .acc.ko { color: var(--attention); }
 .suivi-msg .acc small { opacity: .8; }
+
+.outil-principal { font-weight: 600; border: 1px solid var(--ok) !important; }
+.cx-etat { display: grid; gap: 6px; padding: 8px 10px; background: var(--surface-2); border-radius: 8px; margin: 8px 0 12px; font-size: .92em; }
+.cx-etat .point { display: inline-block; margin-right: 6px; vertical-align: middle; }
+.cx-choix { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cx-gros { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 14px 8px; border-radius: 10px; border: 1px solid var(--bord, #345); background: var(--surface-2); color: var(--texte); cursor: pointer; }
+.cx-gros span { font-size: 1.8em; }
+.cx-gros small { opacity: .8; text-align: center; }
+.cx-gros:hover:not(:disabled) { border-color: var(--ok); }
+.cx-gros:disabled { opacity: .45; cursor: not-allowed; }
+.cx-ip { margin-top: 14px; display: grid; gap: 4px; }
+.cx-ip label { display: grid; gap: 6px; }
+.cx-ip .ligne-ip { display: flex; gap: 6px; }
+.cx-ip .ligne-ip input { flex: 1; min-width: 0; font-size: 1.05em; padding: 6px 8px; }
+.cx-ip small { opacity: .8; }
+.cx-retour { margin: 12px 0; line-height: 1.45; }
+.cx-retour.ok { color: var(--ok); }
+.cx-retour.ko { color: var(--attention); }
+.cx-aide { margin-top: 10px; font-size: .9em; }
+.cx-aide li { margin: 4px 0; }
