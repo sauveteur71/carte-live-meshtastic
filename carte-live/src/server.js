@@ -1907,13 +1907,13 @@ setInterval(() => {
   decouvrirMc().catch((e) => journal('[MeshCore] découverte automatique :', e.message));
 }, 5 * 60000);
 
-app.post('/api/mc/companion/annonce', (req, res) => {
+app.post('/api/mc/companion/annonce', async (req, res) => {
   if (!exigerAdmin(req, res)) return;
-  try { companion.annoncer(!!(req.body || {}).inondation); res.json({ ok: true }); } catch (e) { res.status(409).json({ erreur: e.message }); }
+  try { await companion.annoncer(!!(req.body || {}).inondation); res.json({ ok: true }); } catch (e) { res.status(409).json({ erreur: e.message }); }
 });
-app.post('/api/mc/companion/contacts', (req, res) => {
+app.post('/api/mc/companion/contacts', async (req, res) => {
   if (!exigerAdmin(req, res)) return;
-  try { companion.rechargerContacts(); res.json({ ok: true }); } catch (e) { res.status(409).json({ erreur: e.message }); }
+  try { await companion.rechargerContacts(); res.json({ ok: true }); } catch (e) { res.status(409).json({ erreur: e.message }); }
 });
 // Envoi d'un message (canal du companion ou message direct) — admin
 app.post('/api/mc/messages', async (req, res) => {

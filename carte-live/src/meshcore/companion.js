@@ -200,7 +200,12 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
       notifier();
       vider();
     } catch (e) {
-      if (gen === generation) { journal('initialisation du companion impossible :', e.message); etat.erreur = e.message; notifier(); }
+      if (gen === generation) {
+        // Aucun octet reçu : le port ne transmet rien (firmware non « companion USB », port pris par un autre programme…)
+        const muet = !etat.octetsRecus;
+        const msg = muet ? 'aucun octet reçu du companion : firmware « companion USB » ? port pris par un autre programme (sous Linux : ModemManager) ?' : e.message;
+        journal('initialisation du companion impossible :', msg); etat.erreur = msg; notifier();
+      }
     }
   }
 
@@ -280,7 +285,7 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
     const gen = generation;
     flux = f;
     tampon = Buffer.alloc(0);
-    etat.pret = false;
+    etat.pret = false; etat.octetsRecus = 0;
     if (f.setNoDelay) f.setNoDelay(true);
     if (f.setKeepAlive) f.setKeepAlive(true, 30000);
     if (f.setTimeout) f.setTimeout(10 * 60000);
@@ -335,6 +340,7 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
   }
 
   function recevoir(morceau) {
+    etat.octetsRecus = (etat.octetsRecus || 0) + morceau.length;
     tampon = Buffer.concat([tampon, morceau]);
     for (;;) {
       const i = tampon.indexOf(0x3e);
