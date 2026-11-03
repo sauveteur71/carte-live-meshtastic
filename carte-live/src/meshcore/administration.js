@@ -105,10 +105,35 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
       }
     }
     if (type === 'verifier' && liste.length < 2) throw new Error('choisissez au moins 2 nœuds (le premier sert de référence)');
-    if (!['lire', 'statut', 'voisins', 'cli', 'modifier', 'verifier', 'annonce', 'horloge', 'redemarrer', 'chemin', 'tracer', 'telemetrie'].includes(type)) throw new Error('opération inconnue');
+    if (!['lire', 'statut', 'voisins', 'cli', 'modifier', 'verifier', 'annonce', 'horloge', 'redemarrer', 'chemin', 'tracer', 'telemetrie', 'motdepasse', 'regions'].includes(type)) throw new Error('opération inconnue');
+    // Lecture ciblée : seulement les réglages demandés
+    if (type === 'lire' && params.cles !== undefined) {
+      if (!Array.isArray(params.cles) || !params.cles.length || params.cles.some((k) => !PARAMS.some((p) => p.cle === k))) throw new Error('réglages à lire invalides');
+    }
+    // Nouveaux mots de passe : gardés hors des paramètres visibles et enregistrés de la tâche
+    const secrets = {};
+    if (type === 'motdepasse') {
+      const ok = (x) => typeof x === 'string' && x.length >= 1 && Buffer.byteLength(x) <= 15 && !/[\s]/.test(x);
+      if (params.admin != null && params.admin !== '') { if (!ok(params.admin)) throw new Error('mot de passe admin : 1 à 15 caractères, sans espace'); secrets.admin = params.admin; }
+      if (params.invite != null && params.invite !== '') { if (!ok(params.invite)) throw new Error('mot de passe invité : 1 à 15 caractères, sans espace'); secrets.invite = params.invite; }
+      if (params.inviteVide) secrets.inviteVide = true;
+      if (!secrets.admin && !secrets.invite && !secrets.inviteVide) throw new Error('indiquez au moins un nouveau mot de passe');
+      params = { admin: !!secrets.admin, invite: !!secrets.invite || !!secrets.inviteVide, insister: params.insister, motDePasse: params.motDePasse, memoriser: params.memoriser };
+    }
+    if (type === 'regions') {
+      const ops = Array.isArray(params.actions) ? params.actions : [];
+      for (const a of ops) {
+        if (!['put', 'remove', 'allowf', 'denyf', 'home', 'default'].includes(a.op)) throw new Error('action de région inconnue');
+        const nomOk = (x) => /^[#\p{L}\p{N}_.-]{1,30}$/u.test(String(x || ''));
+        if (!(nomOk(a.nom) || (['allowf', 'denyf'].includes(a.op) && a.nom === '*') || (a.op === 'default' && a.nom === '<null>'))) throw new Error('nom de région invalide : ' + a.nom);
+        if (a.parent && !(nomOk(a.parent) || a.parent === '*')) throw new Error('région parente invalide');
+      }
+      if (ops.length > 30) throw new Error('30 actions au plus');
+    }
     const t = {
       id: crypto.randomBytes(5).toString('hex'), type, cles: liste.map((n) => n.cle), noms: Object.fromEntries(liste.map((n) => [n.cle, n.nom])), params: { ...params, motDePasse: undefined },
       motDePasse: params.motDePasse || null, memoriser: !!params.memoriser, statut: 'en_attente', creee: Date.now(), auteur, etapes: [], resultats: {}, arret: false,
+      insister: !!params.insister && !['verifier'].includes(type), secrets,
     };
     taches.set(t.id, t);
     if (taches.size > 60) taches.delete(taches.keys().next().value);
@@ -125,7 +150,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
   let minuterieTaches = null;
   function sauverTaches() {
     clearTimeout(minuterieTaches);
-    minuterieTaches = setTimeout(() => ecrire(fTaches, [...taches.values()].filter((t) => t.auteur !== 'supervision').map(({ motDePasse, ...t }) => t)), 1000);
+    minuterieTaches = setTimeout(() => ecrire(fTaches, [...taches.values()].filter((t) => t.auteur !== 'supervision').map(({ motDePasse, secrets, ...t }) => t)), 1000);
   }
   function restaurerTaches() {
     let l = [];
@@ -133,7 +158,10 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     const aReprendre = [];
     for (const t of l) {
       t.motDePasse = null;
-      if (t.statut === 'en_attente' || t.statut === 'en_cours') {
+      if (t.type === 'motdepasse' && ['en_attente', 'en_cours', 'reprise'].includes(t.statut)) {
+        t.statut = 'annule'; t.fin = Date.now();
+        t.etapes.push({ heure: Date.now(), cle: null, texte: 'interrompue par un redémarrage de la carte : les nouveaux mots de passe ne sont jamais enregistrés, relancez-la', ok: false });
+      } else if (t.statut === 'en_attente' || t.statut === 'en_cours' || t.statut === 'reprise') {
         const restants = t.cles.filter((c) => !(t.resultats[c] && t.resultats[c].ok));
         const sansMdp = !SANS_ADMIN.includes(t.type) && restants.some((c) => motsDePasse[c] == null);
         if (Date.now() - (t.creee || 0) > 6 * 3600000 || sansMdp) {
@@ -264,7 +292,51 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
         // L'état et la découverte de chemin ne demandent pas de connexion admin
         if (t.type !== 'tracer' && (!SANS_ADMIN.includes(t.type) || t.motDePasse || motsDePasse[n.cle])) await seConnecter(t, n).catch((e) => { if (!SANS_ADMIN.includes(t.type)) throw e; etape(t, n.cle, 'connexion : ' + e.message + ' (on continue sans)', false); });
         switch (t.type) {
-          case 'lire': await lireConfig(t, n); await statut(t, n).catch((e) => etape(t, n.cle, 'état : ' + e.message, false)); await voisins(t, n).catch((e) => etape(t, n.cle, 'voisins : ' + e.message, false)); break;
+          case 'lire':
+            if (Array.isArray(t.params.cles)) { await lireConfig(t, n, t.params.cles); break; }
+            await lireConfig(t, n); await statut(t, n).catch((e) => etape(t, n.cle, 'état : ' + e.message, false)); await voisins(t, n).catch((e) => etape(t, n.cle, 'voisins : ' + e.message, false)); break;
+          case 'motdepasse': {
+            const sec = t.secrets || {};
+            if (sec.admin) {
+              const r = nettoyer(await cli(t, n, 'password ' + sec.admin));
+              if (!/password now/i.test(r)) throw new Error('mot de passe admin non changé : ' + r.replace(sec.admin, '••••'));
+              // Le mot de passe mémorisé suit, sinon la prochaine connexion échouerait
+              if (motsDePasse[n.cle] != null || t.memoriser) { motsDePasse[n.cle] = sec.admin; ecrire(fMdp, motsDePasse); }
+              etape(t, n.cle, 'mot de passe admin changé' + (motsDePasse[n.cle] === sec.admin ? ' (et mémorisé)' : ' : notez-le, il n’est pas mémorisé sur la carte'));
+            }
+            if (sec.invite || sec.inviteVide) {
+              const r = nettoyer(await cli(t, n, 'set guest.password ' + (sec.invite || '')));
+              if (!/^ok/i.test(r)) throw new Error('mot de passe invité non changé : ' + r);
+              etape(t, n.cle, sec.invite ? 'mot de passe invité changé' : 'mot de passe invité retiré (accès invité libre)');
+            }
+            break;
+          }
+          case 'regions': {
+            const ops = Array.isArray(t.params.actions) ? t.params.actions : [];
+            let modifie = false;
+            for (const a of ops) {
+              if (t.arret) break;
+              const ligne = `region ${a.op} ${a.nom}${a.op === 'put' && a.parent ? ' ' + a.parent : ''}`;
+              const r = nettoyer(await cli(t, n, ligne));
+              const ok = !/^err/i.test(r);
+              etape(t, n.cle, `${ligne} : ${r}`, ok);
+              if (!ok) throw new Error(`« ${ligne} » refusée : ${r}`);
+              if (!['home', 'default'].includes(a.op)) modifie = true;
+            }
+            if (modifie && t.params.enregistrer !== false) {
+              const r = nettoyer(await cli(t, n, 'region save'));
+              etape(t, n.cle, 'enregistrement des régions : ' + r, /^ok/i.test(r));
+              if (!/^ok/i.test(r)) throw new Error('régions non enregistrées : ' + r);
+            }
+            const arbre = nettoyer(await cli(t, n, 'region'));
+            const home = nettoyer(await cli(t, n, 'region home')).replace(/^home is\s*/i, '');
+            const defaut = nettoyer(await cli(t, n, 'region default')).replace(/^default scope is\s*/i, '');
+            lectures[n.cle] = { ...(lectures[n.cle] || {}), regions: { arbre, home, defaut, heure: Date.now() } };
+            ecrire(fLectures, lectures);
+            t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), regions: { arbre, home, defaut } };
+            etape(t, n.cle, `régions :\n${arbre || '(aucune)'}\nattache : ${home} · envois : ${defaut}`);
+            break;
+          }
           case 'statut': await statut(t, n); break;
           case 'chemin': {
             etape(t, n.cle, 'découverte du chemin (requête en inondation)…');
@@ -330,10 +402,10 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
           }
           default: break;
         }
-        t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), ok: true };
+        t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), ok: true, heure: Date.now() };
       } catch (e) {
         etape(t, n.cle, e.message, false);
-        t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), ok: false, erreur: e.message };
+        t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), ok: false, erreur: e.message, heure: Date.now(), definitif: /refusé|inconnu|invalide|mot de passe|non géré/i.test(e.message), echecs: ((t.resultats[n.cle] || {}).echecs || 0) + 1 };
         // Vérification : sans la référence, inutile de continuer
         if (t.type === 'verifier' && cle === t.cles[0]) { t.arret = true; etape(t, null, 'référence illisible : vérification arrêtée', false); }
       }
@@ -365,9 +437,22 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     try { await executer(t); } catch (e) { etape(t, null, e.message, false); }
     t.fin = Date.now();
     t.courant = null;
-    t.motDePasse = null;
     const res = Object.values(t.resultats);
     t.statut = t.arret ? 'annule' : res.length && res.every((r) => r.ok) && res.length === t.cles.length ? 'ok' : 'echec';
+    // « Insister » : les nœuds en échec passager sont repris toutes les 10 min, pendant 2 h au plus
+    const aReprendre = t.insister && !t.arret ? t.cles.filter((c) => { const r = t.resultats[c]; return !r || (!r.ok && !r.definitif); }) : [];
+    if (aReprendre.length && Date.now() - t.creee < 2 * 3600000) {
+      t.statut = 'reprise';
+      t.prochainEssai = Date.now() + 10 * 60000;
+      etape(t, null, `${aReprendre.length} nœud(s) en échec : nouvel essai à ${new Date(t.prochainEssai).toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' })}`);
+      const minut = setTimeout(() => {
+        t.prochainEssai = null;
+        if (t.arret) { t.statut = 'annule'; t.motDePasse = null; t.secrets = {}; sauverTaches(); return; }
+        t.statut = 'en_attente'; t.reprises = (t.reprises || 0) + 1;
+        file.push(t); suivante();
+      }, 10 * 60000);
+      if (minut.unref) minut.unref();
+    } else { t.motDePasse = null; t.secrets = {}; }
     enCours = null;
     sauverTaches();
     try { surFin(vue(t)); } catch { /* ignoré */ }
@@ -375,7 +460,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
   }
 
   function vue(t, complet = true) {
-    const v = { reprises: t.reprises || 0, id: t.id, type: t.type, cles: t.cles, noms: t.noms, params: t.params, statut: t.statut, creee: t.creee, debut: t.debut, fin: t.fin, auteur: t.auteur, courant: t.courant };
+    const v = { reprises: t.reprises || 0, insister: !!t.insister, prochainEssai: t.prochainEssai || null, id: t.id, type: t.type, cles: t.cles, noms: t.noms, params: t.params, statut: t.statut, creee: t.creee, debut: t.debut, fin: t.fin, auteur: t.auteur, courant: t.courant };
     if (complet) Object.assign(v, { etapes: t.etapes, resultats: t.resultats, rapport: t.rapport || null });
     return v;
   }
@@ -404,13 +489,39 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     if (cibles.length) { journal(`traces de nuit vers ${cibles.length} répéteur(s)`); lancer('tracer', cibles, {}, 'supervision'); }
   }, 5 * 60000);
 
+  // ---- Modèles de réglages MeshCore (créés depuis un répéteur ou à la main), appliqués à plusieurs nœuds ----
+  const fModeles = path.join(dossier, 'meshcore-modeles.json');
+  let modeles = [];
+  try { modeles = JSON.parse(fs.readFileSync(fModeles, 'utf8')); } catch { /* aucun */ }
+  function enregistrerModele(m, auteur) {
+    const nom = String(m.nom || '').trim().slice(0, 40);
+    if (!nom) throw new Error('nom du modèle manquant');
+    const valeurs = {};
+    for (const [k, x] of Object.entries(m.valeurs || {})) {
+      if (x === '' || x == null) continue;
+      if (['name', 'lat', 'lon', 'owner.info'].includes(k)) continue; // propres à chaque nœud
+      const p = PARAMS.find((y) => y.cle === k);
+      if (!p) throw new Error('réglage inconnu : ' + k);
+      valeurs[k] = valeurValide(p, x);
+    }
+    if (!Object.keys(valeurs).length) throw new Error('aucun réglage dans ce modèle');
+    const id = m.id && modeles.some((x) => x.id === m.id) ? m.id : crypto.randomBytes(4).toString('hex');
+    const nouveau = { id, nom, description: String(m.description || '').slice(0, 200), valeurs, auteur, heure: Date.now() };
+    modeles = [...modeles.filter((x) => x.id !== id), nouveau];
+    ecrire(fModeles, modeles);
+    return nouveau;
+  }
+
   return {
     PARAMS, ELEMENTS, ELEMENTS_DEFAUT,
+    modeles: () => modeles,
+    enregistrerModele,
+    supprimerModele(id) { modeles = modeles.filter((x) => x.id !== id); ecrire(fModeles, modeles); },
     supervision: () => ({ derniere: derniereSupervision || null, intervalleHeures: config.meshcore.supervisionHeures }),
     lancer,
     tache: (id) => { const t = taches.get(id); return t ? vue(t) : null; },
     taches: () => [...taches.values()].reverse().slice(0, 30).map((t) => vue(t, false)),
-    arreter(id) { const t = taches.get(id); if (!t) throw new Error('tâche inconnue'); t.arret = true; if (t.statut === 'en_attente') t.statut = 'annule'; },
+    arreter(id) { const t = taches.get(id); if (!t) throw new Error('tâche inconnue'); t.arret = true; if (t.statut === 'en_attente' || t.statut === 'reprise') { t.statut = 'annule'; t.prochainEssai = null; t.motDePasse = null; t.secrets = {}; sauverTaches(); } },
     lecture: (cle) => lectures[String(cle).toUpperCase()] || null,
     memorises: () => Object.keys(motsDePasse),
     lectures: () => Object.fromEntries(Object.entries(lectures).map(([k, v]) => [k, { heure: v.heure, nom: (v.valeurs || {}).name }])),

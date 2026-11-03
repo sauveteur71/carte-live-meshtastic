@@ -19,6 +19,11 @@ Onglet **MeshCore › Programmer** et fiche d'un répéteur :
 - **Tracer** : aller-retour le long du chemin avec le **SNR de chaque saut**, sans mot de passe ; fait aussi chaque nuit vers 3 h pour les répéteurs surveillés ;
 - **Télémétrie** des répéteurs et capteurs ;
 - **région d'attache** et région d'envoi lues avec la configuration ;
+- **lecture ciblée** : seulement les réglages cochés (*Lecture ciblée*), au lieu de tout relire ;
+- **🔑 Mots de passe** : changer le mot de passe admin (le mot de passe mémorisé suit) et le mot de passe invité, ou le retirer. Les nouveaux mots de passe ne sont jamais enregistrés dans l'historique des opérations ;
+- **🗺️ Régions** : lire l'arbre des régions, la région d'attache et la région d'envoi ; créer (`put`), autoriser ou bloquer les inondations d'une région (`allowf` / `denyf`, `*` pour les paquets sans région), définir l'attache (`home`) et la région d'envoi (`default`), supprimer (`remove`) ; enregistrement (`region save`) et relecture automatiques ;
+- **📋 Modèles** : réglages types (prérempli depuis un répéteur lu), appliqués à plusieurs répéteurs en une fois. Nom, position et infos propriétaire n'en font jamais partie ;
+- **Insister 2 h** : les répéteurs en échec passager sont repris toutes les 10 min pendant 2 h ; chaque nœud affiche l'heure de sa réussite ou de son échec ;
 - **vérification de conformité** et « Aligner sur la référence » ;
 - **supervision** automatique et alertes (muet, batterie, émission, brouillage).
 

@@ -952,3 +952,9 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 .alerte-direct { position: fixed; right: 16px; bottom: 16px; z-index: 3000; max-width: 340px; padding: 12px 14px; border-radius: 10px; background: var(--surface); color: var(--texte); border: 2px solid #f87171; box-shadow: 0 6px 24px #000a; }
 .alerte-direct[hidden] { display: none; }
 .alerte-direct div { margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
+
+.noeuds-tache-mc { display: grid; gap: 2px; margin: 6px 0; font-size: .9em; }
+.noeuds-tache-mc > div { display: flex; justify-content: space-between; gap: 8px; padding: 2px 6px; border-radius: 4px; background: var(--surface-2); }
+.noeuds-tache-mc .ok span:last-child { color: var(--ok); }
+.noeuds-tache-mc .ko span:last-child { color: var(--attention); }
+.outil-mc { margin: 10px 0; padding: 10px; background: var(--surface-2); border-radius: 8px; }

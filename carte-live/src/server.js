@@ -1878,6 +1878,13 @@ app.post('/api/mc/admin/taches/:id/arreter', (req, res) => {
   if (!tacheMcDuSecteur(req, adminMc.tache(req.params.id))) return refuserSecteur(res);
   try { adminMc.arreter(req.params.id); res.json({ ok: true }); } catch (e) { res.status(404).json({ erreur: e.message }); }
 });
+app.get('/api/mc/admin/modeles', (req, res) => { if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); res.json(adminMc.modeles()); });
+app.post('/api/mc/admin/modeles', (req, res) => {
+  const u = utilisateur(req);
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { res.json(adminMc.enregistrerModele(req.body || {}, u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.delete('/api/mc/admin/modeles/:id', (req, res) => { if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); adminMc.supprimerModele(req.params.id); res.json({ ok: true }); });
 app.post('/api/mc/admin/mot-de-passe', (req, res) => {
   if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const b = req.body || {};

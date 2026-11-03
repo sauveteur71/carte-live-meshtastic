@@ -459,8 +459,8 @@ async function mcRendreAnalyse() {
 // ---- Gestion : administration des répéteurs et room servers (admin) ---------------------------
 const mcGestion = { selection: new Set(), suivi: null, tache: null, info: null };
 const MC_LPP = { tension: 'Tension', temperature: 'Température', humidite: 'Humidité', pression: 'Pression', courant: 'Courant', pourcentage: 'Charge', luminosite: 'Luminosité', altitude: 'Altitude', puissance: 'Puissance', energie: 'Énergie', concentration: 'Concentration', gps: 'Position', analogique: 'Entrée analogique', entree: 'Entrée', sortie: 'Sortie', generique: 'Capteur', presence: 'Présence', interrupteur: 'Interrupteur' };
-const MC_TACHES = { lire: 'Lire la configuration', statut: 'État', voisins: 'Voisins', verifier: 'Vérification de conformité', modifier: 'Modification', cli: 'Commande', annonce: 'Annonce', horloge: 'Horloge', redemarrer: 'Redémarrage', chemin: 'Chemin', tracer: 'Trace (SNR par saut)', telemetrie: 'Télémétrie' };
-const MC_STATUTS = { en_attente: 'en attente', en_cours: 'en cours…', ok: 'réussi', echec: 'échec', annule: 'arrêté' };
+const MC_TACHES = { lire: 'Lire la configuration', statut: 'État', voisins: 'Voisins', verifier: 'Vérification de conformité', modifier: 'Modification', cli: 'Commande', annonce: 'Annonce', horloge: 'Horloge', redemarrer: 'Redémarrage', chemin: 'Chemin', tracer: 'Trace (SNR par saut)', telemetrie: 'Télémétrie', motdepasse: 'Mots de passe', regions: 'Régions' };
+const MC_STATUTS = { en_attente: 'en attente', en_cours: 'en cours…', ok: 'réussi', echec: 'échec', annule: 'arrêté', reprise: 'insiste : nouvel essai prévu' };
 // ---- Maintenance MeshCore : firmwares, accès administrateur, conformité automatique ---------------------
 async function mcFicheMaintenance() {
   $('#fiche').hidden = false;
@@ -514,6 +514,11 @@ async function mcRendreGestion() {
         <label>Mot de passe admin <input name="mdp" type="password" autocomplete="off" placeholder="vide = mots de passe mémorisés"></label>
         <label class="case"><input type="checkbox" name="memoriser"> Mémoriser sur le serveur</label>
       </div>
+      <label class="case"><input type="checkbox" name="insister"> Insister en cas d’échec : nouvel essai toutes les 10 min pendant 2 h</label>
+      <details class="elements-mc"><summary>Lecture ciblée : seulement ces réglages</summary>
+        ${i.params.map((p) => `<label class="case"><input type="checkbox" name="lc" value="${p.cle}"> ${esc(p.nom)}</label>`).join('')}
+        <p class="note">Rien de coché : « Lire la configuration » relit tout (réglages, informations, état et voisins).</p>
+      </details>
       <details class="elements-mc"><summary>Éléments comparés par la vérification</summary>
         ${i.elements.map((e) => `<label class="case"><input type="checkbox" name="el" value="${e}" ${i.elementsDefaut.includes(e) ? 'checked' : ''}> ${esc((i.params.find((p) => p.cle === e) || {}).nom || e)}</label>`).join('')}
       </details>
@@ -526,9 +531,13 @@ async function mcRendreGestion() {
         <button type="button" data-mc-op="annonce">Annonce</button>
         <button type="button" data-mc-op="tracer" title="Aller-retour le long du chemin, avec le SNR de chaque saut (sans mot de passe)">Tracer</button>
         <button type="button" data-mc-op="telemetrie" title="Batterie, température, capteurs (selon les droits du nœud)">Télémétrie</button>
+        <button type="button" data-mc-outil-adm="motdepasse" title="Changer le mot de passe admin ou invité">🔑 Mots de passe…</button>
+        <button type="button" data-mc-outil-adm="regions" title="Régions (zones d’inondation) : lire, créer, autoriser, bloquer, attache">🗺️ Régions…</button>
+        <button type="button" data-mc-outil-adm="modeles" title="Réglages types appliqués à plusieurs répéteurs">📋 Modèles…</button>
       </div>
       <p class="erreur" id="mc-g-retour"></p>
     </form>
+    <div id="mc-g-outil"></div>
     <div id="mc-g-tache"></div>
     <h4>Dernières opérations</h4>
     <div class="liste">${i.taches.map((t) => `<div class="ligne" data-mc-tache="${t.id}"><span class="point ${t.statut === 'ok' ? 'actif' : t.statut === 'en_cours' || t.statut === 'en_attente' ? 'recent' : 'alerte'}"></span><span class="titre">${esc(MC_TACHES[t.type] || t.type)}<small>${t.cles.map((k) => esc(t.noms[k] || k.slice(0, 6))).join(', ')}${t.reprises ? ' · reprise après redémarrage' : ''}</small></span><span class="meta">${MC_STATUTS[t.statut]} · ${ilYa(t.creee)}</span></div>`).join('') || '<div class="vide">Aucune.</div>'}</div>`;
@@ -543,7 +552,9 @@ async function mcRendreGestion() {
     const type = b.dataset.mcOp;
     if (!sel.size) { $('#mc-g-retour').textContent = 'Cochez au moins un nœud.'; return; }
     const ordre = [...sel];
-    const params = { motDePasse: f.mdp.value || undefined, memoriser: f.memoriser.checked, elements: [...f.querySelectorAll('[name=el]:checked')].map((x) => x.value) };
+    const params = { motDePasse: f.mdp.value || undefined, memoriser: f.memoriser.checked, insister: f.insister.checked, elements: [...f.querySelectorAll('[name=el]:checked')].map((x) => x.value) };
+    const lc = [...f.querySelectorAll('[name=lc]:checked')].map((x) => x.value);
+    if (type === 'lire' && lc.length) params.cles = lc;
     if (type === 'annonce') params.inondation = confirm('Annonce relayée par tout le réseau ?\nOK = tout le réseau · Annuler = voisins directs seulement');
     try {
       const t = await postJson('/api/mc/admin/taches', { type, cles: ordre, params });
@@ -551,7 +562,95 @@ async function mcRendreGestion() {
       mcSuivreTache(t.id, $('#mc-g-tache'));
     } catch (err) { $('#mc-g-retour').textContent = err.message; }
   }));
+  z.querySelectorAll('[data-mc-outil-adm]').forEach((b) => (b.onclick = () => {
+    if (!sel.size && b.dataset.mcOutilAdm !== 'modeles') { $('#mc-g-retour').textContent = 'Cochez au moins un nœud.'; return; }
+    const f = $('#mc-f-gestion');
+    mcOutilAdmin(b.dataset.mcOutilAdm, [...sel], $('#mc-g-outil'), { mdp: () => f.mdp.value, memoriser: () => f.memoriser.checked, insister: () => f.insister.checked, viderMdp: () => { f.mdp.value = ''; }, zoneTache: $('#mc-g-tache') });
+  }));
   if (mcGestion.tache) mcSuivreTache(mcGestion.tache, $('#mc-g-tache'));
+}
+
+// ---- Mots de passe, régions, modèles : formulaires communs à « Programmer » et à la fiche d'un répéteur ----------
+async function mcOutilAdmin(type, cles, zone, ctx) {
+  const noms = cles.map((c) => { const n = mc.noeuds.get(c); return n ? n.nom || c.slice(0, 8) : c.slice(0, 8); });
+  const lancer = async (t, params) => {
+    try {
+      const r = await postJson('/api/mc/admin/taches', { type: t, cles, params: { ...params, motDePasse: ctx.mdp() || undefined, memoriser: ctx.memoriser(), insister: ctx.insister() } });
+      ctx.viderMdp(); zone.innerHTML = '';
+      mcSuivreTache(r.id, ctx.zoneTache, ctx.apres);
+    } catch (e) { const x = zone.querySelector('.erreur'); if (x) x.textContent = e.message; }
+  };
+  const pied = '<p class="erreur"></p>';
+  if (type === 'motdepasse') {
+    zone.innerHTML = `<form class="form-edit outil-mc"><h4>🔑 Mots de passe · ${esc(noms.join(', '))}</h4>
+      <p class="note">Le mot de passe admin actuel est celui du formulaire ci-dessus (ou celui mémorisé). Les nouveaux ne sont jamais enregistrés dans l’historique des opérations ; s’il était mémorisé, la carte mémorise le nouveau.</p>
+      <div class="grille-edit">
+        <label>Nouveau mot de passe admin <input name="admin" type="password" autocomplete="new-password" maxlength="15"></label>
+        <label>Confirmation <input name="admin2" type="password" autocomplete="new-password" maxlength="15"></label>
+        <label>Nouveau mot de passe invité <input name="invite" type="password" autocomplete="new-password" maxlength="15"></label>
+        <label class="case"><input type="checkbox" name="inviteVide"> Retirer le mot de passe invité (accès invité libre)</label>
+      </div>
+      <div class="actions-prop"><button class="principal">Changer</button><button type="button" data-fermer>Annuler</button></div>${pied}</form>`;
+    const f = zone.querySelector('form');
+    f.onsubmit = (e) => {
+      e.preventDefault();
+      if (f.admin.value !== f.admin2.value) { f.querySelector('.erreur').textContent = 'Les deux mots de passe admin sont différents.'; return; }
+      if (f.admin.value && !confirm(`Changer le mot de passe admin de ${noms.length} nœud(s) ?
+Notez-le : sans lui, il faudra repasser par l’USB.`)) return;
+      lancer('motdepasse', { admin: f.admin.value || undefined, invite: f.invite.value || undefined, inviteVide: f.inviteVide.checked && !f.invite.value });
+    };
+  } else if (type === 'regions') {
+    let lu = null;
+    if (cles.length === 1) { try { lu = (await api('/api/mc/admin/lecture/' + cles[0])).lecture; } catch { /* aucune */ } }
+    const rg = lu && lu.regions;
+    zone.innerHTML = `<form class="form-edit outil-mc"><h4>🗺️ Régions · ${esc(noms.join(', '))}</h4>
+      ${rg ? `<p class="note">Lu ${ilYa(rg.heure)} · attache : <b>${esc(rg.home || '?')}</b> · envois limités à : <b>${esc(rg.defaut || '?')}</b></p><pre class="cli-mc">${esc(rg.arbre || '(aucune région)')}</pre>` : '<p class="note">Régions jamais lues sur ce nœud : « Lire » d’abord.</p>'}
+      <p class="note">Une action par ligne (firmware répéteur 1.10 et plus) :<br>
+        <span class="mono">put haute-loire</span> créer (parent facultatif : <span class="mono">put lpy haute-loire</span>) ·
+        <span class="mono">allowf haute-loire</span> / <span class="mono">denyf haute-loire</span> relayer ou bloquer ses inondations (<span class="mono">*</span> = paquets sans région) ·
+        <span class="mono">home haute-loire</span> région d’attache · <span class="mono">default haute-loire</span> limiter ses propres envois (<span class="mono">default &lt;null&gt;</span> pour retirer) ·
+        <span class="mono">remove nom</span> supprimer. Les changements sont enregistrés (<span class="mono">region save</span>) puis relus.</p>
+      <textarea name="actions" rows="4" placeholder="put haute-loire&#10;allowf haute-loire&#10;home haute-loire"></textarea>
+      <div class="actions-prop"><button class="principal">Appliquer et relire</button><button type="button" data-lire>Lire seulement</button><button type="button" data-fermer>Annuler</button></div>${pied}</form>`;
+    const f = zone.querySelector('form');
+    const actions = () => f.actions.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [op, nom, parent] = l.split(/\s+/); return { op: (op || '').toLowerCase(), nom, parent }; });
+    f.querySelector('[data-lire]').onclick = () => lancer('regions', { actions: [] });
+    f.onsubmit = (e) => {
+      e.preventDefault();
+      const a = actions();
+      if (!a.length) return lancer('regions', { actions: [] });
+      if (!confirm(`Appliquer à ${noms.length} nœud(s) :\n${a.map((x) => `• region ${x.op} ${x.nom}${x.parent ? ' ' + x.parent : ''}`).join('\n')}\n\nUne région bloquée (denyf) ne sera plus relayée par ces répéteurs.`)) return;
+      lancer('regions', { actions: a });
+    };
+  } else if (type === 'modeles') {
+    let l = [], info = mcGestion.info;
+    try { l = await api('/api/mc/admin/modeles'); if (!info) info = mcGestion.info = await api('/api/mc/admin'); } catch (e) { zone.innerHTML = `<p class="erreur">${esc(e.message)}</p>`; return; }
+    const lib = (k) => (info.params.find((p) => p.cle === k) || {}).nom || k;
+    let source = null;
+    if (cles.length === 1) { try { source = (await api('/api/mc/admin/lecture/' + cles[0])).lecture; } catch { /* aucune */ } }
+    zone.innerHTML = `<div class="outil-mc"><h4>📋 Modèles de réglages</h4>
+      ${l.length ? l.map((m) => `<div class="proposition"><b>${esc(m.nom)}</b>${m.description ? `<div class="note">${esc(m.description)}</div>` : ''}<div class="meta-longue">${Object.entries(m.valeurs).map(([k, v]) => `${esc(lib(k))} = <b>${esc(v)}</b>`).join(' · ')}</div>
+        <div class="actions-prop">${cles.length ? `<button class="mini principal" data-appliquer="${m.id}">Appliquer à ${cles.length} nœud(s)</button>` : ''}<button class="mini" data-supprimer="${m.id}">Supprimer</button></div></div>`).join('') : '<div class="vide">Aucun modèle.</div>'}
+      <form class="form-edit"><h4>Nouveau modèle${source && source.valeurs ? ` <small>(prérempli avec ${esc(noms[0])})</small>` : ''}</h4>
+        <div class="grille-edit"><label>Nom <input name="nom" required maxlength="40" placeholder="ex. Répéteur point haut"></label><label>Description <input name="description" maxlength="200"></label></div>
+        <div class="grille-edit reglages-modele">${info.params.filter((p) => !['name', 'lat', 'lon', 'owner.info'].includes(p.cle)).map((p) => `<label>${esc(p.nom)}${p.redemarrage ? ' <small>(redémarrage)</small>' : ''} <input name="${p.cle}" value="${esc(source && source.valeurs && source.valeurs[p.cle] != null ? source.valeurs[p.cle] : '')}" placeholder="non inclus"></label>`).join('')}</div>
+        <p class="note">Laissez vide ce qui ne doit pas être changé. Nom, position et infos propriétaire ne font jamais partie d’un modèle.</p>
+        <div class="actions-prop"><button class="principal">Enregistrer le modèle</button><button type="button" data-fermer>Fermer</button></div>${pied}</form></div>`;
+    zone.querySelectorAll('[data-appliquer]').forEach((b) => (b.onclick = () => {
+      const m = l.find((x) => x.id === b.dataset.appliquer);
+      if (!confirm(`Appliquer « ${m.nom} » à ${noms.join(', ')} ?\n${Object.entries(m.valeurs).map(([k, v]) => `• ${lib(k)} = ${v}`).join('\n')}${m.valeurs.radio ? '\n\n⚠ Changer la radio d’un nœud distant peut le rendre injoignable. Un redémarrage sera nécessaire.' : ''}`)) return;
+      lancer('modifier', { valeurs: m.valeurs });
+    }));
+    zone.querySelectorAll('[data-supprimer]').forEach((b) => (b.onclick = async () => { if (!confirm('Supprimer ce modèle ?')) return; await api('/api/mc/admin/modeles/' + b.dataset.supprimer, { method: 'DELETE' }); mcOutilAdmin('modeles', cles, zone, ctx); }));
+    const f = zone.querySelector('form');
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const valeurs = {};
+      f.querySelectorAll('.reglages-modele input').forEach((x) => { if (x.value.trim()) valeurs[x.name] = x.value.trim(); });
+      try { await postJson('/api/mc/admin/modeles', { nom: f.nom.value, description: f.description.value, valeurs }); mcOutilAdmin('modeles', cles, zone, ctx); } catch (x) { f.querySelector('.erreur').textContent = x.message; }
+    };
+  }
+  zone.querySelectorAll('[data-fermer]').forEach((b) => (b.onclick = () => { zone.innerHTML = ''; }));
 }
 
 // Suivi en direct d'une tâche (étapes, résultats, rapport de conformité)
@@ -567,16 +666,19 @@ function mcSuivreTache(id, zone, apres) {
     if (st) st.onclick = () => postJson(`/api/mc/admin/taches/${id}/arreter`).catch(() => {});
     zone.querySelectorAll('[data-mc-aligner]').forEach((b) => (b.onclick = () => mcAligner(t, b.dataset.mcAligner, zone)));
     const j = zone.querySelector('.journal-mc'); if (j) j.scrollTop = j.scrollHeight;
-    if (!['en_cours', 'en_attente'].includes(t.statut)) { clearInterval(mcGestion.suivi); if (apres) apres(t); }
+    if (!['en_cours', 'en_attente', 'reprise'].includes(t.statut)) { clearInterval(mcGestion.suivi); if (apres) apres(t); }
   };
   tour();
   mcGestion.suivi = setInterval(tour, 1500);
 }
 function mcHtmlTache(t) {
-  const enCours = ['en_cours', 'en_attente'].includes(t.statut);
+  const enCours = ['en_cours', 'en_attente', 'reprise'].includes(t.statut);
   const r = t.rapport;
+  const hm = (x) => new Date(x).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const res = t.resultats || {};
   return `<div class="tache-mc ${t.statut}">
-    <div class="titre-tache"><b>${esc(MC_TACHES[t.type] || t.type)}</b> · ${MC_STATUTS[t.statut]}${t.courant ? ` · ${esc(t.noms[t.courant] || '')}` : ''}${enCours ? ' <span class="sablier"></span> <button class="mini" data-mc-arreter>Arrêter</button>' : ''}</div>
+    <div class="titre-tache"><b>${esc(MC_TACHES[t.type] || t.type)}</b> · ${MC_STATUTS[t.statut] || t.statut}${t.prochainEssai ? ` à ${hm(t.prochainEssai)}` : ''}${t.insister && t.statut !== 'reprise' ? ' · insiste 2 h' : ''}${t.courant ? ` · ${esc(t.noms[t.courant] || '')}` : ''}${enCours ? ' <span class="sablier"></span> <button class="mini" data-mc-arreter>Arrêter</button>' : ''}</div>
+    ${t.cles.length > 1 || Object.keys(res).length ? `<div class="noeuds-tache-mc">${t.cles.map((c) => { const x = res[c]; return `<div class="${x ? (x.ok ? 'ok' : 'ko') : ''}"><span>${esc(t.noms[c] || c.slice(0, 8))}</span><span>${!x ? (t.courant === c ? 'en cours…' : 'en attente') : x.ok ? '✔ réussi' : '✗ ' + esc(x.erreur || 'échec')}${x && x.heure ? ` <small>à ${hm(x.heure)}</small>` : ''}${x && x.echecs > 1 ? ` <small>(${x.echecs} échecs)</small>` : ''}</span></div>`; }).join('')}</div>` : ''}
     ${r ? `<table class="voisins petit"><thead><tr><th>Nœud</th><th>Résultat</th></tr></thead><tbody>
       <tr><td><b>${esc(t.noms[r.reference] || '')}</b></td><td>référence</td></tr>
       ${r.noeuds.map((x) => `<tr><td>${esc(x.nom || x.cle.slice(0, 8))}</td><td>${!x.lu ? `<span class="ko">non lu : ${esc(x.erreur)}</span>` : x.conforme ? '<span class="ok">✔ conforme</span>' : `${x.ecarts.map((e) => `<div><b>${esc(e.element)}</b> : ${esc(e.valeur)} <small>(réf. ${esc(e.reference)})</small></div>`).join('')}<button class="mini" data-mc-aligner="${x.cle}">Aligner sur la référence</button>`}</td></tr>`).join('')}
@@ -612,15 +714,18 @@ async function mcRendreAdminFiche(n, z) {
       <div class="grille-edit">
         <label>Mot de passe admin <input name="mdp" type="password" autocomplete="off" placeholder="${l.memorise ? '🔑 mémorisé (laisser vide)' : 'mot de passe du nœud'}"></label>
         <label class="case"><input type="checkbox" name="memoriser" ${l.memorise ? 'checked' : ''}> Mémoriser sur le serveur</label>
+        <label class="case"><input type="checkbox" name="insister"> Insister 2 h en cas d’échec</label>
       </div>
       <div class="actions-prop">
         <button type="button" data-a="lire" class="principal">Lire la configuration</button><button type="button" data-a="statut">État</button><button type="button" data-a="voisins">Voisins</button>
         <button type="button" data-a="horloge">Mettre à l’heure</button><button type="button" data-a="annonce">Annonce</button><button type="button" data-a="redemarrer">Redémarrer</button>
         <button type="button" data-a="tracer" title="Aller-retour le long du chemin, SNR de chaque saut (sans mot de passe)">Tracer</button><button type="button" data-a="telemetrie" title="Batterie, température, capteurs">Télémétrie</button>
+        <button type="button" data-a="motdepasse">🔑 Mots de passe…</button><button type="button" data-a="regions">🗺️ Régions…</button><button type="button" data-a="modeles">📋 Modèles…</button>
         ${l.memorise ? '<button type="button" data-a="oublier">Oublier le mot de passe</button>' : ''}
       </div>
       ${lu.heure ? `<p class="note">Configuration lue ${ilYa(lu.heure)}${inf.version ? ` · ${esc(inf.version)}` : ''}${inf.carte ? ` · ${esc(inf.carte)}` : ''}</p>` : '<p class="note">Configuration jamais lue : commencez par « Lire la configuration ».</p>'}
       ${inf.regionMaison && !/unknown|err|\?/i.test(inf.regionMaison) ? `<p class="note">Région d’attache : <b>${esc(inf.regionMaison)}</b>${inf.regionDefaut && !/unknown|err|\?/i.test(inf.regionDefaut) ? ` · envois limités à : <b>${esc(inf.regionDefaut)}</b>` : ''}</p>` : ''}
+      ${lu.regions ? `<h4>Régions <small>${ilYa(lu.regions.heure)}</small></h4><p class="note">attache : <b>${esc(lu.regions.home || '?')}</b> · envois limités à : <b>${esc(lu.regions.defaut || '?')}</b></p><pre class="cli-mc">${esc(lu.regions.arbre || '(aucune)')}</pre>` : ''}
       ${lu.trace ? `<h4>Dernière trace <small>${ilYa(lu.trace.heure)}</small></h4><div class="trace-mc">${lu.trace.sauts.map((x, i) => `${i === 0 ? `<span>${esc(x.de.nom || '?')}</span>` : ''}<span class="saut-mc" style="color:${couleurSnr(x.snr)}">─ ${fmt(x.snr, 1)} dB →</span><span>${esc(x.vers.nom || x.vers.prefixe || '?')}</span>`).join('')}</div>` : ''}
       ${lu.telemetrie ? `<h4>Télémétrie <small>${ilYa(lu.telemetrie.heure)}</small></h4><div class="grille">${lu.telemetrie.mesures.map((m) => `<div class="mesure"><span>${esc(MC_LPP[m.type] || m.type)}${m.canal > 1 ? ' · ' + m.canal : ''}</span><b>${typeof m.valeur === 'number' ? fmt(m.valeur, m.unite === 'V' ? 2 : 1) : esc(JSON.stringify(m.valeur))} ${esc(m.unite)}</b></div>`).join('') || '<div class="vide">Aucune mesure.</div>'}</div>` : ''}
       ${st ? `<div class="grille">
@@ -640,11 +745,12 @@ async function mcRendreAdminFiche(n, z) {
       <div class="envoi-ligne"><input name="cli" placeholder="commande CLI, ex. get radio, neighbors, clock" autocomplete="off"><button type="button" data-a="cli">Envoyer</button></div>
       <p class="erreur" id="mc-adm-retour"></p>
     </form>
+    <div id="mc-adm-outil"></div>
     <div id="mc-adm-tache"></div>`;
   const f = $('#mc-f-adm');
   const lancer = async (type, params = {}) => {
     try {
-      const t = await postJson('/api/mc/admin/taches', { type, cles: [n.cle], params: { ...params, motDePasse: f.mdp.value || undefined, memoriser: f.memoriser.checked } });
+      const t = await postJson('/api/mc/admin/taches', { type, cles: [n.cle], params: { ...params, motDePasse: f.mdp.value || undefined, memoriser: f.memoriser.checked, insister: f.insister.checked } });
       f.mdp.value = '';
       $('#mc-adm-retour').textContent = '';
       mcSuivreTache(t.id, $('#mc-adm-tache'), (fin) => { if (['lire', 'statut', 'voisins', 'modifier', 'tracer', 'telemetrie'].includes(fin.type) && mc.selection === n.cle) mcRendreAdminFiche(n, z).then(() => { const zt = $('#mc-adm-tache'); if (zt) zt.innerHTML = mcHtmlTache(fin); }); });
@@ -653,6 +759,10 @@ async function mcRendreAdminFiche(n, z) {
   f.querySelectorAll('[data-a]').forEach((b) => (b.onclick = async () => {
     const a = b.dataset.a;
     if (a === 'oublier') { await postJson('/api/mc/admin/mot-de-passe', { cle: n.cle, motDePasse: null }); mcRendreAdminFiche(n, z); return; }
+    if (['motdepasse', 'regions', 'modeles'].includes(a)) {
+      return mcOutilAdmin(a, [n.cle], $('#mc-adm-outil'), { mdp: () => f.mdp.value, memoriser: () => f.memoriser.checked, insister: () => f.insister.checked, viderMdp: () => { f.mdp.value = ''; }, zoneTache: $('#mc-adm-tache'),
+        apres: (fin) => { if (mc.selection === n.cle) mcRendreAdminFiche(n, z).then(() => { const zt = $('#mc-adm-tache'); if (zt) zt.innerHTML = mcHtmlTache(fin); }); } });
+    }
     if (a === 'redemarrer' && !confirm(`Redémarrer « ${n.nom} » à distance ?`)) return;
     if (a === 'annonce') return lancer('annonce', { inondation: confirm('Annonce relayée par tout le réseau ?\nOK = tout le réseau · Annuler = voisins directs seulement') });
     if (a === 'cli') { const c = f.cli.value.trim(); if (c) lancer('cli', { commande: c }); return; }
