@@ -4948,10 +4948,11 @@ async function installation() {
   const info = await api('/api/installation');
   if (!info.requise) return false;
   const dlg = $('#dlg-installation'), f = $('#form-installation');
-  $('#champ-code').hidden = !info.codeRequis;
-  if (!info.codeRequis && !info.reseauLocal) {
-    f.innerHTML = '<p class="erreur">Cette carte n’est pas encore installée. Ouvrez-la depuis le réseau local de la machine qui l’héberge pour créer le compte administrateur.</p>';
-  } else {
+  // (champ propre à l'installation : l'identifiant « champ-code » est celui du formulaire de connexion)
+  $('#champ-code-installation').hidden = !info.codeRequis;
+  f.code.required = !!info.codeRequis;
+  if (info.codeAuto) $('#aide-code-installation').innerHTML = 'Code affiché dans le journal du serveur : <span class="mono">docker compose logs carte-live | grep -i installation</span> (ou valeur de ADMIN_MOT_DE_PASSE si vous en mettez une dans le .env)';
+  {
     const a = info.actuel;
     await optionsDepartements(f.departement, a.departement);
     f.titre.value = a.titre || '';

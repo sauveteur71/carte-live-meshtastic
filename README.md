@@ -90,7 +90,7 @@ cp .env.exemple .env      # puis adaptez au moins MQTT_URL
 docker compose up -d
 ```
 
-Ouvrez ensuite `http://IP_DU_SERVEUR:8095` : l'**assistant d'installation** crée le compte administrateur et règle le département, le broker MQTT et les canaux. Sans `ADMIN_MOT_DE_PASSE` dans `.env`, l'installation n'est possible que depuis le réseau local.
+Ouvrez ensuite `http://IP_DU_SERVEUR:8095` : l'**assistant d'installation** crée le compte administrateur et règle le département, le broker MQTT et les canaux. Depuis le réseau local, aucun code n'est demandé. Depuis ailleurs (serveur distant, proxy inversé, Tailscale), saisissez le **code d'installation** : la valeur de `ADMIN_MOT_DE_PASSE` si vous l'avez remplie dans `.env`, sinon le code tiré au hasard affiché dans le journal (`docker compose logs carte-live | grep -i installation`).
 
 **Synology** : Container Manager › Projet › Créer, dossier `/volume1/docker/carte-live-meshtastic`, en collant le contenu de `docker-compose.yml`.
 

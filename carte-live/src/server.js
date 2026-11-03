@@ -94,7 +94,10 @@ function ouvrirSession(req, res, compte) {
   res.setHeader('Set-Cookie', `gaulix_session=${encodeURIComponent(comptes.jeton(compte))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${comptes.DUREE_SESSION / 1000}${securise}`);
 }
 // Adresse réelle du client (sans tenir compte des en-têtes de proxy, falsifiables)
+// Une requête passée par un proxy inversé (en-têtes X-Forwarded-For…) n'est jamais considérée comme locale :
+// derrière Nginx / Traefik / Cloudflare, l'adresse vue est celle du proxy, pas celle du visiteur.
 function ipPrivee(req) {
+  if (req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers.forwarded || req.headers['cf-connecting-ip']) return false;
   const ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
   return ip === '127.0.0.1' || ip === '::1' || /^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip) || /^f[cd]/i.test(ip);
 }
@@ -1478,9 +1481,28 @@ function enregistrerReglagesEtRedemarrer(r, qui) {
   setTimeout(() => process.exit(0), 1200); // Docker relance le conteneur (restart: unless-stopped)
 }
 
+// Code d'installation automatique : sans ADMIN_MOT_DE_PASSE, la première installation depuis un autre réseau
+// (serveur distant, proxy, Tailscale…) se fait avec un code tiré au hasard et affiché dans le journal du serveur.
+let codeInstallationAuto = null;
+function preparerCodeInstallation() {
+  if (config.admin.motDePasse || !comptes.installationRequise()) return;
+  const f = path.join(path.dirname(config.fichierBase), 'code-installation.txt');
+  try { codeInstallationAuto = fs.readFileSync(f, 'utf8').trim() || null; } catch { /* premier lancement */ }
+  if (!codeInstallationAuto) {
+    const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    codeInstallationAuto = [...crypto.randomBytes(8)].map((b) => A[b % A.length]).join('').replace(/(.{4})(?=.)/, '$1-');
+    try { fs.writeFileSync(f, codeInstallationAuto, { mode: 0o600 }); } catch { /* lecture seule */ }
+  }
+  journal('==================================================================');
+  journal(`Installation : code d'installation ${codeInstallationAuto}`);
+  journal('À saisir dans la carte pour créer le compte administrateur (inutile depuis le réseau local).');
+  journal('==================================================================');
+}
+setTimeout(preparerCodeInstallation, 1500);
 app.get('/api/installation', (req, res) => res.json({
   requise: comptes.installationRequise(),
-  codeRequis: !!config.admin.motDePasse,
+  codeRequis: !!config.admin.motDePasse || !ipPrivee(req),
+  codeAuto: !config.admin.motDePasse,
   reseauLocal: ipPrivee(req),
   // Configuration actuelle (fichier .env) proposée par défaut, sans secrets
   actuel: {
@@ -1498,7 +1520,9 @@ app.post('/api/installation', (req, res) => {
     const a = crypto.createHash('sha256').update(String(b.code || '')).digest(), c = crypto.createHash('sha256').update(config.admin.motDePasse).digest();
     if (!crypto.timingSafeEqual(a, c)) return res.status(403).json({ erreur: 'Code d’installation incorrect' });
   } else if (!ipPrivee(req)) {
-    return res.status(403).json({ erreur: 'Première installation possible uniquement depuis le réseau local' });
+    if (!codeInstallationAuto) preparerCodeInstallation();
+    const a = crypto.createHash('sha256').update(String(b.code || '').replace(/[\s-]/g, '').toUpperCase()).digest(), c = crypto.createHash('sha256').update(String(codeInstallationAuto || crypto.randomBytes(16).toString('hex')).replace(/-/g, '')).digest();
+    if (!crypto.timingSafeEqual(a, c)) return res.status(403).json({ erreur: 'Code d’installation incorrect : il est affiché dans le journal du serveur (docker compose logs carte-live | grep -i installation)' });
   }
   let r;
   try { r = b.reglages ? preparerReglages(b.reglages, config.reglages) : null; } catch (e) { return res.status(400).json({ erreur: e.message }); }
@@ -1506,6 +1530,8 @@ app.post('/api/installation', (req, res) => {
   try { c = comptes.creer(b.compte || {}, 'admin', 'actif'); } catch (e) { return res.status(400).json({ erreur: e.message }); }
   ouvrirSession(req, res, c);
   journal(`Installation : compte administrateur « ${c.identifiant} » créé`);
+  try { fs.unlinkSync(path.join(path.dirname(config.fichierBase), 'code-installation.txt')); } catch { /* aucun */ }
+  codeInstallationAuto = null;
   const redemarrage = !!(r && Object.keys(b.reglages).length);
   res.json({ ok: true, redemarrage });
   if (redemarrage) enregistrerReglagesEtRedemarrer(r, c.identifiant);
