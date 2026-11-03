@@ -2,7 +2,7 @@
 
 [![Dernière version](https://img.shields.io/github/v/release/sauveteur71/carte-live-meshtastic?label=derni%C3%A8re%20version)](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest)
 
-**Version actuelle : 2.0.0** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
+**Version actuelle : 2.1.0** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
 
 Carte en temps réel, supervision et **administration à distance** d'un réseau [Meshtastic](https://meshtastic.org) — et désormais [MeshCore](https://meshcore.co.uk) — local ou départemental : elle écoute votre broker MQTT et/ou un module radio, décode les paquets, garde l'historique et permet de programmer vos nœuds par LoRa.
 
@@ -51,6 +51,8 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - **Contrôle du trafic** (*Outils* ou *Programmer*) : nœuds trop bavards (positions, télémétrie, fiche), paquets réinjectés depuis MQTT et passerelle qui les réinjecte, correction à distance et « Ignorer MQTT » sur les relais
 - **Lecture ciblée** d'un nœud : seulement les éléments cochés (rôle, LoRa, canaux, position…) au lieu de toute la configuration
 - **Connecter un module** (*Outils*) : un seul écran pour le Bluetooth, l'USB ou une adresse IP ; Meshtastic ou MeshCore est reconnu tout seul. Une adresse IP d'un autre réseau passe automatiquement par un agent 1.6 lancé sur un PC de ce réseau
+- **Plusieurs modules en même temps** : un module principal par réseau (Meshtastic, MeshCore) pour les envois et l'administration, et autant de modules **en écoute** que voulu (Wi-Fi, agent, Bluetooth ou USB d'une page). Chacun s'ajoute comme une passerelle, avec ses propres mesures. Un clic échange le principal et un module en écoute.
+- **Bluetooth** : reconnexion automatique après une coupure, pendant 15 min
 - **Éditeur de réglages** complet (nom, rôle, rediffusion, LoRa, position, 8 canaux) envoyé en une seule transaction et relu pour contrôle
 - Lecture de configuration **reprenable**, opérations multi-nœuds, arrêt et « réessayer », garde-fous pour le canal principal
 - **Vérification de conformité** : comparer tous vos nœuds à une référence (canaux, précision, fréquence, preset, rediffusion…)

@@ -925,6 +925,13 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 .cx-retour { margin: 12px 0; line-height: 1.45; }
 .cx-retour.ok { color: var(--ok); }
 .cx-retour.ko { color: var(--attention); }
+.cx-role { border: 1px solid var(--bordure, #3a4a55); border-radius: 8px; padding: 8px 12px; margin: 10px 0; display: grid; gap: 6px; }
+.cx-role legend { padding: 0 6px; font-size: .9em; opacity: .85; }
+.cx-role label { display: block; cursor: pointer; line-height: 1.35; }
+.cx-role small { opacity: .75; }
+.cx-ecoutes { font-size: .85em; opacity: .9; margin: 2px 0 0 18px; }
+.titre-ecoute { margin: 12px 0 4px; }
+.ligne.module.ecoute .titre .badge { background: rgba(80, 160, 220, .2); }
 .cx-aide { margin-top: 10px; font-size: .9em; }
 .cx-aide li { margin: 4px 0; }
 

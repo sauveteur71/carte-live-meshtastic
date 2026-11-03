@@ -3092,6 +3092,17 @@ async function rendreModules(force) {
   signatureModules = sig;
   const prefixe = (r.actif && !r.actif.hote.startsWith('agent-') ? r.actif.hote : '192.168.0.1').split('.').slice(0, 3).join('.');
   const agentsEnLigne = new Map(((r.agents && r.agents.liste) || []).map((a) => [a.hote, a]));
+  const ecs = (r.ecoutes || []).filter((x) => !(x.navigateur && moduleNav.hote && x.hote === moduleNav.hote));
+  const enEcoute = (m) => ecs.some((x) => x.hote === m.hote && x.port === m.port);
+  const btnEcoute = (m) => `<button data-ec-on="${esc(m.hote)}" data-port="${m.port}" title="Le relier en plus du module principal, pour l'écoute seulement">👂 En écoute</button>`;
+  const ligneEcoute = (x) => {
+    const estAg = x.hote.startsWith('agent-');
+    const sous = x.navigateur ? `${esc(x.source || 'navigateur')} d'une page de la carte` : estAg ? 'agent' : `${esc(x.hote)}${x.port !== 4403 ? ':' + x.port : ''}`;
+    const statut = x.connecte ? `en écoute · ${x.paquets} paquets${x.noeud != null ? '' : ' · configuration…'}` : `connexion…${x.erreur ? ' (' + esc(x.erreur) + ')' : ''}`;
+    const boutons = `${!x.navigateur ? `<button data-ec-princ="${esc(x.hote)}" data-port="${x.port}" title="En faire le module principal (envois, administration) ; l'actuel passe en écoute">⭐ Principal</button>` : ''}<button data-ec-off="${esc(x.hote)}" data-port="${x.port}">Arrêter l'écoute</button>`;
+    return `<div class="ligne module ecoute"><span class="point ${x.connecte ? 'actif' : 'alerte'}"></span><span class="titre">${esc(x.nom || 'Module')} <span class="badge">👂 écoute</span><small>${sous}</small></span><span class="meta"></span>
+      <span class="sous-ligne meta-longue">${statut}</span><span class="sous-ligne boutons-module">${boutons}</span></div>`;
+  };
   const ligne = (m) => {
     let statut, cls, boutons;
     const estAgent = m.hote.startsWith('agent-'), ag = agentsEnLigne.get(m.hote);
@@ -3100,12 +3111,14 @@ async function rendreModules(force) {
     else if (m.actif && e.arret && e.repriseAuto) { statut = `libéré · reprise à ${heureCourte(e.repriseAuto)}`; cls = 'recent'; boutons = `<button data-mod-on="${esc(m.hote)}" data-port="${m.port}">Reprendre maintenant</button>`; }
     else if (m.actif && e.evince) { statut = `pris par un autre client · nouvel essai à ${heureCourte(e.reprise)}`; cls = 'recent'; boutons = `<button data-mod-on="${esc(m.hote)}" data-port="${m.port}">Forcer la connexion</button><button data-mod-off="0">Déconnecter</button>`; }
     else if (m.actif && !e.arret) { statut = `connexion…${e.erreur ? ' (' + esc(e.erreur) + ')' : ''}`; cls = 'alerte'; boutons = `<button data-mod-off="0">Annuler</button>`; }
-    else if (estAgent && !ag) { statut = 'agent hors ligne : lancez l’agent sur le PC du module'; cls = 'inactif'; boutons = `<button data-mod-on="${esc(m.hote)}" data-port="${m.port}" title="La connexion se fera dès que l’agent sera lancé">Choisir</button><button data-mod-del="${esc(m.hote)}" data-port="${m.port}" title="Retirer de la liste">✕</button>`; }
-    else { statut = 'non connecté'; cls = 'inactif'; boutons = `<button data-mod-on="${esc(m.hote)}" data-port="${m.port}">Connecter</button><button data-mod-del="${esc(m.hote)}" data-port="${m.port}" title="Retirer de la liste">✕</button>`; }
+    else if (estAgent && !ag) { statut = 'agent hors ligne : lancez l’agent sur le PC du module'; cls = 'inactif'; boutons = `<button data-mod-on="${esc(m.hote)}" data-port="${m.port}" title="La connexion se fera dès que l’agent sera lancé">Choisir</button>${btnEcoute(m)}<button data-mod-del="${esc(m.hote)}" data-port="${m.port}" title="Retirer de la liste">✕</button>`; }
+    else { statut = 'non connecté'; cls = 'inactif'; boutons = `<button data-mod-on="${esc(m.hote)}" data-port="${m.port}" title="En faire le module principal">Connecter</button>${btnEcoute(m)}<button data-mod-del="${esc(m.hote)}" data-port="${m.port}" title="Retirer de la liste">✕</button>`; }
     return `<div class="ligne module"><span class="point ${cls}"></span><span class="titre">${esc(m.nom || 'Module inconnu')}${estAgent ? ' <span class="badge">agent</span>' : ''}<small>${sousTitre}</small></span><span class="meta"></span>
       <span class="sous-ligne meta-longue">${statut}</span><span class="sous-ligne boutons-module">${boutons}</span></div>`;
   };
-  zone.innerHTML = blocUsbNavigateur() + (r.modules.filter((m) => !(moduleNav.hote && m.hote === moduleNav.hote)).length ? r.modules.filter((m) => !(moduleNav.hote && m.hote === moduleNav.hote)).map(ligne).join('') : '<div class="vide">Aucun module enregistré.</div>') + `
+  const connus = r.modules.filter((m) => !(moduleNav.hote && m.hote === moduleNav.hote) && !enEcoute(m));
+  zone.innerHTML = blocUsbNavigateur() + (connus.length ? connus.map(ligne).join('') : '<div class="vide">Aucun module enregistré.</div>')
+    + (ecs.length ? `<h4 class="titre-ecoute">Modules en écoute (${ecs.length})</h4>${ecs.map(ligneEcoute).join('')}<p class="note">Un module en écoute sert de passerelle supplémentaire : ce qu’il entend (SNR, voisins, parcours des messages) s’ajoute à la carte. Les envois et l’administration passent par le module principal.</p>` : '') + `
     <form id="form-module" class="parametres compact">
       <label>Adresse IP <input name="hote" placeholder="192.168.1.50" required></label>
       <label>Nom (facultatif) <input name="nom" placeholder="Maison"></label>
@@ -3143,6 +3156,9 @@ async function rendreModules(force) {
   zone.querySelectorAll('[data-mod-edit]').forEach((b) => (b.onclick = () => editeurReglages(Number(b.dataset.modEdit))));
   zone.querySelectorAll('[data-mod-off]').forEach((b) => (b.onclick = () => { b.disabled = true; action('/api/radio/deconnecter', { minutes: Number(b.dataset.modOff) }); }));
   zone.querySelectorAll('[data-mod-del]').forEach((b) => (b.onclick = () => action('/api/radio/modules', { hote: b.dataset.modDel, port: Number(b.dataset.port) }, 'DELETE')));
+  zone.querySelectorAll('[data-ec-on]').forEach((b) => (b.onclick = () => { b.disabled = true; action('/api/ecoutes', { protocole: 'meshtastic', hote: b.dataset.ecOn, port: Number(b.dataset.port) }); }));
+  zone.querySelectorAll('[data-ec-off]').forEach((b) => (b.onclick = () => { b.disabled = true; action('/api/ecoutes', { protocole: 'meshtastic', hote: b.dataset.ecOff, port: Number(b.dataset.port) }, 'DELETE'); }));
+  zone.querySelectorAll('[data-ec-princ]').forEach((b) => (b.onclick = () => { b.disabled = true; action('/api/ecoutes/principal', { protocole: 'meshtastic', hote: b.dataset.ecPrinc, port: Number(b.dataset.port), echanger: true }); }));
   $('#form-module').onsubmit = (ev) => {
     ev.preventDefault();
     const f = ev.target;
@@ -4596,7 +4612,7 @@ function majEtat(e) {
   $('#sources').innerHTML =
     `<div class="ligne${etat.admin ? ' cliquable' : ''}" id="ligne-broker" title="${etat.admin ? 'État, réglages et test du broker' : ''}"><span class="point ${ok ? 'actif' : 'alerte'}"></span><span class="titre">Broker MQTT</span><span class="meta">${ok ? 'connecté' : 'déconnecté'}${etat.admin ? ' ›' : ''}</span></div>` +
     (e.radio
-      ? `<div class="ligne"><span class="point ${e.radio.connecte ? 'actif' : e.radio.evince ? 'recent' : 'alerte'}"></span><span class="titre">Module radio${e.radio.nomLocal ? `<small>${esc(e.radio.nomLocal)}</small>` : ''}</span><span class="meta"></span><span class="sous-ligne meta-longue">${e.radio.connecte ? `connecté · ${e.radio.paquets} paquets${e.radio.prochainCycle ? ` · traceroutes ${e.radio.cycleEnCours ? 'en cours' : 'à ' + new Date(e.radio.prochainCycle).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} (${e.radio.ciblesAuto} relais)` : ''}` : e.radio.arret ? esc(e.radio.repriseAuto ? 'libéré pour un autre client · reprise ' + new Date(e.radio.repriseAuto).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : e.radio.hote ? 'déconnecté à la demande' : 'aucun module choisi') : e.radio.evince ? esc('laissé à un autre client · reprise ' + new Date(e.radio.reprise).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })) : esc('déconnecté' + (e.radio.erreur ? ' (' + e.radio.erreur + ')' : ''))}</span></div>`
+      ? `<div class="ligne"><span class="point ${e.radio.connecte ? 'actif' : e.radio.evince ? 'recent' : 'alerte'}"></span><span class="titre">Module radio${e.radio.nomLocal ? `<small>${esc(e.radio.nomLocal)}</small>` : ''}</span><span class="meta"></span><span class="sous-ligne meta-longue">${e.radio.connecte ? `connecté · ${e.radio.paquets} paquets${e.radio.prochainCycle ? ` · traceroutes ${e.radio.cycleEnCours ? 'en cours' : 'à ' + new Date(e.radio.prochainCycle).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} (${e.radio.ciblesAuto} relais)` : ''}` : e.radio.arret ? esc(e.radio.repriseAuto ? 'libéré pour un autre client · reprise ' + new Date(e.radio.repriseAuto).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : e.radio.hote ? 'déconnecté à la demande' : 'aucun module choisi') : e.radio.evince ? esc('laissé à un autre client · reprise ' + new Date(e.radio.reprise).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })) : esc('déconnecté' + (e.radio.erreur ? ' (' + e.radio.erreur + ')' : ''))}</span></div>` + (e.ecoutes || []).map((x) => `<div class="ligne"><span class="point ${x.connecte ? 'actif' : 'alerte'}"></span><span class="titre">Module en écoute<small>${esc(x.nom || '')}</small></span><span class="meta">${x.connecte ? x.paquets + ' paquets' : 'connexion…'}</span></div>`).join('')
       : '') +
     (mm
       ? `<div class="ligne"><span class="point ${mm.ok ? 'actif' : 'alerte'}"></span><span class="titre">MeshMonitor${mm.sources && mm.sources[0] ? `<small>${esc(mm.sources.map((x) => x.nom).join(', '))}</small>` : ''}</span><span class="meta">${mm.ok ? `${mm.noeuds} nœuds · ${ilYa(mm.derniere)}` : esc(mm.erreur || 'en attente')}</span></div>`
@@ -5392,22 +5408,45 @@ async function lireAvantQr(n, bouton) {
 // ---- Module branché sur ce PC (USB ou Bluetooth), relayé par la page ---------------------------
 // La page ouvre le port USB (Web Serial) ou la liaison Bluetooth (Web Bluetooth) et transmet le flux
 // Meshtastic au serveur par une WebSocket : le module devient celui de la carte, sans agent à installer.
-const moduleNav = { etat: 'aucun', ws: null, port: null, lecteur: null, ble: null, hote: null, nom: null, type: null, erreur: null };
+const moduleNav = { etat: 'aucun', ws: null, port: null, lecteur: null, ble: null, hote: null, nom: null, type: null, erreur: null, role: 'principal' };
+// Reconnexion Bluetooth automatique après une coupure (portée, veille du PC, appli du téléphone qui reprend le module,
+// redémarrage du serveur) : nouvel essai toutes les 5 s pendant 30 s, puis toutes les 30 s pendant 15 min.
+function planifierReconnexionBle(nav, appareil, brancher, maj, raison) {
+  clearTimeout(nav.reco);
+  if (!nav.coupureDepuis) nav.coupureDepuis = Date.now();
+  nav.essais = (nav.essais || 0) + 1;
+  if (Date.now() - nav.coupureDepuis > 15 * 60000) {
+    nav.coupureDepuis = null; nav.essais = 0; nav.appareilBle = null;
+    maj('aucun', 'Bluetooth perdu depuis 15 min : rapprochez le module puis reconnectez-le');
+    return;
+  }
+  const attente = nav.essais <= 6 ? 5000 : 30000;
+  nav.appareilBle = appareil;
+  maj('reconnexion', `${raison || 'Bluetooth coupé'} · reconnexion automatique dans ${attente / 1000} s (essai ${nav.essais})`);
+  nav.reco = setTimeout(async () => {
+    if (nav.etat !== 'reconnexion' || nav.appareilBle !== appareil) return; // débranché à la main entre-temps
+    await brancher(appareil, true);
+    if (nav.etat === 'relie') { nav.essais = 0; nav.coupureDepuis = null; }
+    else if (nav.appareilBle === appareil) planifierReconnexionBle(nav, appareil, brancher, maj, nav.erreur || raison);
+  }, attente);
+}
+function arreterReconnexionBle(nav) { clearTimeout(nav.reco); nav.reco = null; nav.essais = 0; nav.coupureDepuis = null; nav.appareilBle = null; }
 const ENTETE_MT = [0x94, 0xc3];
 const BLE_SERVICE = '6ba1b218-15a8-461f-9fa8-5dcae273eafd', BLE_TORADIO = 'f75c76d2-129e-4dad-a1dd-7866124401e7', BLE_FROMRADIO = '2c55e69e-4993-11ed-b878-0242ac120002', BLE_FROMNUM = 'ed9da18c-a800-4f66-a670-aa7547e34453';
 function blocUsbNavigateur() {
   const https = location.protocol === 'https:';
   const m = moduleNav;
-  const sousTitre = m.etat === 'relie' ? `relié par cette page (${m.type === 'ble' ? 'Bluetooth' : 'USB'}) · gardez cet onglet ouvert` : m.etat === 'connexion' ? 'connexion…' : m.erreur ? esc(m.erreur) : 'module branché sur ce PC';
+  const sousTitre = m.etat === 'relie' ? `relié par cette page (${m.type === 'ble' ? 'Bluetooth' : 'USB'})${m.role === 'ecoute' ? ' · 👂 en écoute' : ''} · gardez cet onglet ouvert` : m.etat === 'connexion' ? 'connexion…' : m.erreur ? esc(m.erreur) : 'module branché sur ce PC';
   return `<div class="bloc-usb ${m.etat}">
-    <div class="titre-usb"><span class="point ${m.etat === 'relie' ? 'actif' : m.etat === 'connexion' ? 'recent' : 'inactif'}"></span><b>${m.etat === 'relie' ? esc(m.nom || 'Module de ce PC') : 'Module de ce PC'}</b><small>${sousTitre}</small></div>
+    <div class="titre-usb"><span class="point ${m.etat === 'relie' ? 'actif' : m.etat === 'connexion' || m.etat === 'reconnexion' ? 'recent' : 'inactif'}"></span><b>${m.etat === 'relie' ? esc(m.nom || 'Module de ce PC') : 'Module de ce PC'}</b><small>${sousTitre}</small></div>
     ${!https ? '<p class="note">USB et Bluetooth demandent la carte en <b>HTTPS</b> (adresse en …ts.net) et Chrome ou Edge.</p>'
-      : m.etat === 'relie' || m.etat === 'connexion' ? '<div class="actions-prop"><button data-usb="stop">Débrancher</button></div>'
+      : m.etat === 'relie' || m.etat === 'connexion' || m.etat === 'reconnexion' ? '<div class="actions-prop"><button data-usb="stop">Débrancher</button></div>'
       : `<div class="actions-prop"><button data-usb="usb" class="principal-usb">🔌 Brancher en USB</button><button data-usb="ble">📶 Bluetooth</button></div>`}
   </div>`;
 }
 function brancherBoutonsUsb(zone) {
   zone.querySelectorAll('[data-usb]').forEach((b) => (b.onclick = () => {
+    if (b.dataset.usb !== 'stop') moduleNav.role = 'principal';
     if (b.dataset.usb === 'usb') brancherUsb(); else if (b.dataset.usb === 'ble') brancherBle(); else debrancherModuleNav();
   }));
 }
@@ -5419,12 +5458,17 @@ function majModuleNav(etatNouveau, erreur) {
 }
 function ouvrirWsModule(nom, source, envoyerAuModule) {
   return new Promise((ok, ko) => {
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/module?nom=${encodeURIComponent(nom)}&source=${encodeURIComponent(source)}`);
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/module?nom=${encodeURIComponent(nom)}&source=${encodeURIComponent(source)}&role=${moduleNav.role === 'ecoute' ? 'ecoute' : 'principal'}`);
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => ok(ws);
     ws.onerror = () => ko(new Error('connexion au serveur refusée (êtes-vous connecté en admin ?)'));
     ws.onmessage = (e) => { if (e.data instanceof ArrayBuffer) envoyerAuModule(new Uint8Array(e.data)); };
-    ws.onclose = () => { if (moduleNav.ws === ws) debrancherModuleNav('liaison avec le serveur fermée'); };
+    ws.onclose = () => {
+      if (moduleNav.ws !== ws) return;
+      const app = moduleNav.type === 'ble' && moduleNav.ble ? moduleNav.ble.appareil : null;
+      debrancherModuleNav('liaison avec le serveur fermée', !!app);
+      if (app) planifierReconnexionBle(moduleNav, app, brancherBle, majModuleNav, 'liaison avec le serveur fermée');
+    };
   });
 }
 async function brancherUsb(portDonne) {
@@ -5464,15 +5508,17 @@ async function brancherUsb(portDonne) {
     majModuleNav('aucun', e.message.includes('open') || e.name === 'NetworkError' ? 'port déjà utilisé (fermez l’appli Meshtastic ou l’agent)' : e.message);
   }
 }
-async function brancherBle(appareilDonne) {
+async function brancherBle(appareilDonne, reprise = false) {
   if (!navigator.bluetooth) { alert('Ce navigateur ne gère pas le Bluetooth : utilisez Chrome ou Edge, sur la carte en HTTPS.'); return; }
   let appareil = appareilDonne;
   if (!appareil) try { appareil = await navigator.bluetooth.requestDevice({ filters: [{ services: [BLE_SERVICE] }] }); } catch { return; }
-  moduleNav.type = 'ble'; majModuleNav('connexion');
+  if (!reprise) arreterReconnexionBle(moduleNav);
+  moduleNav.type = 'ble'; majModuleNav(reprise ? 'reconnexion' : 'connexion', reprise ? 'reconnexion Bluetooth…' : null);
   try {
     const gatt = await appareil.gatt.connect();
     const svc = await gatt.getPrimaryService(BLE_SERVICE);
     const toRadio = await svc.getCharacteristic(BLE_TORADIO), fromRadio = await svc.getCharacteristic(BLE_FROMRADIO), fromNum = await svc.getCharacteristic(BLE_FROMNUM);
+    if (reprise && moduleNav.appareilBle !== appareil) { try { appareil.gatt.disconnect(); } catch { /* déjà */ } return; } // débranché à la main entre-temps
     moduleNav.ble = { appareil, gatt };
     // Bluetooth : une trame par lecture/écriture ; on ajoute ou retire l'en-tête du flux série (0x94 0xC3 + longueur)
     let lecture = false;
@@ -5504,20 +5550,31 @@ async function brancherBle(appareilDonne) {
     };
     await fromNum.startNotifications();
     fromNum.addEventListener('characteristicvaluechanged', vider);
-    appareil.addEventListener('gattserverdisconnected', () => { if (moduleNav.ble && moduleNav.ble.appareil === appareil) debrancherModuleNav('Bluetooth déconnecté'); });
+    if (!appareil.gardeReco) {
+      appareil.gardeReco = true;
+      appareil.addEventListener('gattserverdisconnected', () => {
+        if (!moduleNav.ble || moduleNav.ble.appareil !== appareil) return;
+        debrancherModuleNav('Bluetooth déconnecté', true);
+        planifierReconnexionBle(moduleNav, appareil, brancherBle, majModuleNav, 'Bluetooth coupé');
+      });
+    }
     const nom = `Bluetooth ${appareil.name || ''}`.trim();
     moduleNav.ws = await ouvrirWsModule(nom, 'Bluetooth', versModule);
     moduleNav.nom = appareil.name || 'Module Bluetooth';
     moduleNav.hote = 'agent-' + nom.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    arreterReconnexionBle(moduleNav);
     majModuleNav('relie');
     vider();
   } catch (e) {
     try { appareil.gatt.disconnect(); } catch { /* déjà */ }
-    majModuleNav('aucun', 'Bluetooth : ' + e.message);
+    moduleNav.ble = null;
+    majModuleNav(reprise ? 'reconnexion' : 'aucun', 'Bluetooth : ' + e.message);
   }
 }
-async function debrancherModuleNav(raison) {
+// auto : coupure subie (la reconnexion automatique suit) ; sinon débranchement voulu
+async function debrancherModuleNav(raison, auto = false) {
   const m = moduleNav;
+  if (auto !== true) arreterReconnexionBle(m);
   const ws = m.ws; m.ws = null;
   try { if (ws) ws.close(); } catch { /* déjà */ }
   try { if (m.lecteur) await m.lecteur.cancel(); } catch { /* déjà */ }
@@ -5526,10 +5583,10 @@ async function debrancherModuleNav(raison) {
   try { if (port) await port.close(); } catch { /* déjà */ }
   try { if (m.ble) m.ble.gatt.disconnect(); } catch { /* déjà */ }
   m.ble = null; m.hote = null;
-  majModuleNav('aucun', typeof raison === 'string' ? raison : null);
+  majModuleNav(auto === true ? 'reconnexion' : 'aucun', typeof raison === 'string' ? raison : null);
   setTimeout(() => { if (typeof chargerEtat === 'function') chargerEtat().catch(() => {}); }, 1500);
 }
-window.addEventListener('beforeunload', (e) => { if (moduleNav.etat === 'relie') { e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', (e) => { if (moduleNav.etat === 'relie' || moduleNav.etat === 'reconnexion') { e.preventDefault(); e.returnValue = ''; } });
 document.addEventListener('DOMContentLoaded', () => {
   const o = $('#outil-usb'), b = $('#outil-ble');
   if (o) o.onclick = () => { document.querySelector('.menu-outils').open = false; moduleNav.etat === 'relie' && moduleNav.type === 'usb' ? debrancherModuleNav() : brancherUsb(); };
@@ -5541,7 +5598,7 @@ const MC_BLE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
 const mcActif = () => typeof mc !== 'undefined' && !!(etat.config && etat.config.meshcore && etat.config.meshcore.actif !== false) && typeof mcBrancherBle === 'function';
 async function etatConnexions() {
   const r = { mt: null, mc: null };
-  try { const m = await api('/api/radio/modules'); r.mt = m.etat || null; r.mtModules = m.modules || []; } catch { /* non admin */ }
+  try { const m = await api('/api/radio/modules'); r.mt = m.etat || null; r.mtModules = m.modules || []; r.mtEcoutes = m.ecoutes || []; } catch { /* non admin */ }
   try { r.mc = await api('/api/mc/etat'); } catch { /* MeshCore absent */ }
   return r;
 }
@@ -5555,6 +5612,10 @@ async function ouvrirConnexion(message) {
   z.innerHTML = `<h2>Connecter un module</h2>
     <p class="note">Meshtastic ou MeshCore : le type est reconnu tout seul. Choisissez simplement comment le module est relié.</p>
     <div class="cx-etat" id="cx-etat"><small>état des modules…</small></div>
+    <fieldset class="cx-role" id="cx-role"><legend>Ce nouveau module sera…</legend>
+      <label><input type="radio" name="cx-role" value="principal" checked> <b>le module principal</b> <small>(remplace l’actuel : écoute, envois de messages, administration)</small></label>
+      <label><input type="radio" name="cx-role" value="ecoute"> <b>👂 en écoute, en plus</b> <small>(l’actuel reste principal ; celui-ci ajoute ce qu’il entend à la carte)</small></label>
+    </fieldset>
     <div class="cx-choix">
       <button class="cx-gros" data-cx="ble" ${!https || !nav ? 'disabled' : ''}><span>📶</span><b>Bluetooth</b><small>module à quelques mètres de ce PC</small></button>
       <button class="cx-gros" data-cx="usb" ${!https || !ser ? 'disabled' : ''}><span>🔌</span><b>USB</b><small>câble branché sur ce PC</small></button>
@@ -5568,15 +5629,24 @@ async function ouvrirConnexion(message) {
       <li><b>Bluetooth</b> : fermez l’appli Meshtastic / MeshCore du téléphone (un seul appareil à la fois). Code PIN : celui affiché par le module, sinon 123456. En cas d’échec, appairez d’abord le module dans les réglages Bluetooth de Windows.</li>
       <li><b>Meshtastic en Wi-Fi</b> (ESP32 : Heltec, T-Beam…) : le Bluetooth est coupé tant que le Wi-Fi est actif ; utilisez l’adresse IP.</li>
       <li><b>USB</b> : fermez l’appli, l’agent ou toute autre page qui utilise déjà le port.</li>
+      <li><b>Bluetooth qui se coupe</b> : la page se reconnecte toute seule pendant 15 min. Fermez l’appli du téléphone, rapprochez le module et, sous Windows, décochez « Autoriser l’ordinateur à éteindre ce périphérique » (Gestionnaire de périphériques › Bluetooth › Gestion de l’alimentation).</li>
+      <li><b>Plusieurs modules</b> : un seul est principal pour chaque réseau (Meshtastic, MeshCore) ; les autres peuvent être « en écoute ». Depuis cette page, un seul module Bluetooth ou USB par réseau ; les autres par adresse IP ou par agent.</li>
       <li><b>Adresse IP</b> : le module doit être allumé, en Wi-Fi, et sur un réseau joignable par la carte ou par un PC avec l’agent 1.6 (<a href="/agent/agent-gaulix-windows.exe">télécharger pour Windows</a>).</li>
     </ul></details>`;
   const retour = (t, cls = '') => { const r = $('#cx-retour'); if (r) { r.className = 'cx-retour ' + cls; r.innerHTML = t; } };
+  const role = () => { const c = z.querySelector('input[name="cx-role"]:checked'); return c ? c.value : 'principal'; };
+  const libRole = (r) => (r === 'ecoute' ? ' en écoute, en plus du module principal' : '');
+  let premierEtat = true;
   const majEtat = async () => {
     const e = await etatConnexions();
     const el = $('#cx-etat'); if (!el) return;
     const mt = e.mt, m = e.mc && e.mc.companion;
-    el.innerHTML = `<div><span class="point ${mt && mt.connecte ? 'actif' : 'inactif'}"></span><b>Meshtastic</b> · ${mt && mt.connecte ? esc(mt.nomLocal || mt.hote || 'module relié') : mt && mt.erreur ? '<span class="attention">' + esc(mt.erreur) + '</span>' : 'aucun module relié'}${typeof moduleNav !== 'undefined' && moduleNav.etat === 'relie' ? ` <button class="mini" data-cx-stop="mt">Débrancher (${moduleNav.type === 'ble' ? 'Bluetooth' : 'USB'})</button>` : ''}</div>
-      ${e.mc ? `<div><span class="point ${m && m.connecte ? 'actif' : 'inactif'}"></span><b>MeshCore</b> · ${m && m.connecte ? esc(m.nom || 'companion relié') : m && m.erreur ? '<span class="attention">' + esc(m.erreur) + '</span>' : 'aucun companion relié'}${mcActif() && mc.nav && mc.nav.etat === 'relie' ? ` <button class="mini" data-cx-stop="mc">Débrancher (${mc.nav.type === 'ble' ? 'Bluetooth' : 'USB'})</button>` : m && m.cible ? ' <button class="mini" data-cx-stop="mc-cible">Oublier</button>' : ''}</div>` : ''}`;
+    // Modules principaux déjà reliés : on propose d'emblée l'écoute en plus
+    if (premierEtat) { premierEtat = false; if (mt && mt.connecte && (!e.mc || (m && m.connecte))) { const r = z.querySelector('input[name="cx-role"][value="ecoute"]'); if (r) r.checked = true; } }
+    const ecMt = e.mtEcoutes || [], ecMc = (e.mc && e.mc.ecoutes) || [];
+    const ligneEc = (l) => (l.length ? `<div class="cx-ecoutes">👂 en écoute : ${l.map((x) => `<span class="${x.connecte ? '' : 'attention'}">${esc(x.nom || x.hote || 'module')}${x.connecte ? ` (${x.paquets})` : ' (connexion…)'}</span>`).join(', ')}</div>` : '');
+    el.innerHTML = `<div><span class="point ${mt && mt.connecte ? 'actif' : 'inactif'}"></span><b>Meshtastic</b> · ${mt && mt.connecte ? esc(mt.nomLocal || mt.hote || 'module relié') : mt && mt.erreur ? '<span class="attention">' + esc(mt.erreur) + '</span>' : 'aucun module relié'}${typeof moduleNav !== 'undefined' && moduleNav.etat === 'relie' ? ` <button class="mini" data-cx-stop="mt">Débrancher (${moduleNav.type === 'ble' ? 'Bluetooth' : 'USB'})</button>` : ''}${ligneEc(ecMt)}</div>
+      ${e.mc ? `<div><span class="point ${m && m.connecte ? 'actif' : 'inactif'}"></span><b>MeshCore</b> · ${m && m.connecte ? esc(m.nom || 'companion relié') : m && m.erreur ? '<span class="attention">' + esc(m.erreur) + '</span>' : 'aucun companion relié'}${mcActif() && mc.nav && mc.nav.etat === 'relie' ? ` <button class="mini" data-cx-stop="mc">Débrancher (${mc.nav.type === 'ble' ? 'Bluetooth' : 'USB'})</button>` : m && m.cible ? ' <button class="mini" data-cx-stop="mc-cible">Oublier</button>' : ''}${ligneEc(ecMc)}</div>` : ''}`;
     el.querySelectorAll('[data-cx-stop]').forEach((b) => (b.onclick = async () => {
       const k = b.dataset.cxStop;
       if (k === 'mt') await debrancherModuleNav();
@@ -5607,13 +5677,15 @@ async function ouvrirConnexion(message) {
     if (!type) { try { app.gatt.disconnect(); } catch { /* déjà */ } retour('✗ Cet appareil Bluetooth n’est ni un module Meshtastic ni un companion MeshCore.', 'ko'); return; }
     if (type === 'meshcore') {
       if (!mcActif()) { retour('✗ Companion MeshCore reconnu, mais MeshCore n’est pas activé dans cette carte.', 'ko'); return; }
+      mc.nav.role = role();
       await mcBrancherBle(app);
       const ok = mc.nav.etat === 'relie';
-      retour(ok ? `✓ Companion MeshCore « ${esc(app.name || '')} » relié en Bluetooth. Gardez cet onglet ouvert.` : `✗ ${esc(mc.nav.erreur || 'échec de la liaison')}`, ok ? 'ok' : 'ko');
+      retour(ok ? `✓ Companion MeshCore « ${esc(app.name || '')} » relié en Bluetooth${libRole(mc.nav.role)}. Gardez cet onglet ouvert.` : `✗ ${esc(mc.nav.erreur || 'échec de la liaison')}`, ok ? 'ok' : 'ko');
     } else {
+      moduleNav.role = role();
       await brancherBle(app);
       const ok = moduleNav.etat === 'relie';
-      retour(ok ? `✓ Module Meshtastic « ${esc(app.name || '')} » relié en Bluetooth : il devient le module de la carte. Gardez cet onglet ouvert.` : `✗ ${esc(moduleNav.erreur || 'échec de la liaison')}`, ok ? 'ok' : 'ko');
+      retour(ok ? `✓ Module Meshtastic « ${esc(app.name || '')} » relié en Bluetooth${moduleNav.role === 'ecoute' ? libRole('ecoute') : ' : il devient le module principal de la carte'}. Gardez cet onglet ouvert.` : `✗ ${esc(moduleNav.erreur || 'échec de la liaison')}`, ok ? 'ok' : 'ko');
     }
     fini(type);
   };
@@ -5655,14 +5727,16 @@ async function ouvrirConnexion(message) {
     if (type === 'meshcore') {
       if (!mcActif()) { retour('✗ Companion MeshCore reconnu, mais MeshCore n’est pas activé dans cette carte.', 'ko'); return; }
       retour('Companion MeshCore reconnu, liaison…');
+      mc.nav.role = role();
       await mcBrancherUsb(port);
       const ok = mc.nav.etat === 'relie';
-      retour(ok ? '✓ Companion MeshCore relié en USB. Gardez cet onglet ouvert.' : `✗ ${esc(mc.nav.erreur || 'échec de la liaison')}`, ok ? 'ok' : 'ko');
+      retour(ok ? `✓ Companion MeshCore relié en USB${libRole(mc.nav.role)}. Gardez cet onglet ouvert.` : `✗ ${esc(mc.nav.erreur || 'échec de la liaison')}`, ok ? 'ok' : 'ko');
     } else {
       retour('Module Meshtastic, liaison…');
+      moduleNav.role = role();
       await brancherUsb(port);
       const ok = moduleNav.etat === 'relie';
-      retour(ok ? '✓ Module Meshtastic relié en USB : il devient le module de la carte. Gardez cet onglet ouvert.' : `✗ ${esc(moduleNav.erreur || 'échec de la liaison')}`, ok ? 'ok' : 'ko');
+      retour(ok ? `✓ Module Meshtastic relié en USB${moduleNav.role === 'ecoute' ? libRole('ecoute') : ' : il devient le module principal de la carte'}. Gardez cet onglet ouvert.` : `✗ ${esc(moduleNav.erreur || 'échec de la liaison')}`, ok ? 'ok' : 'ko');
     }
     fini(type);
   };
@@ -5673,7 +5747,7 @@ async function ouvrirConnexion(message) {
     const b = ev.target.querySelector('button'); b.disabled = true;
     retour(`Recherche d’un module à ${esc(adresse)} (Meshtastic port 4403, MeshCore port 5000)…`);
     try {
-      const r = await postJson('/api/connexion/ip', { adresse });
+      const r = await postJson('/api/connexion/ip', { adresse, role: role() });
       retour('✓ ' + esc(r.texte), 'ok');
       fini(r.protocole);
     } catch (e) {

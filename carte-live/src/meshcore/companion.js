@@ -65,11 +65,14 @@ const ERREURS = { 1: 'commande non gérée par ce firmware', 2: 'introuvable (co
 const TYPES_ROLE = { companion: 1, repeteur: 2, salon: 3, capteur: 4 };
 const NOM_APPLI = 'carte-live';
 
-function creerCompanion(config, { agents, surObservation, surContacts, surEtat, surMessage, surConfirmation, surCanaux, journal }) {
-  const fMemo = path.join(path.dirname(config.fichierBase), 'meshcore-companion.json');
-  let memo = { cible: null, connus: [] };
-  try { memo = { ...memo, ...JSON.parse(fs.readFileSync(fMemo, 'utf8')) }; } catch { /* premier lancement */ }
-  const sauver = () => { try { fs.writeFileSync(fMemo, JSON.stringify(memo, null, 1)); } catch (e) { journal('sauvegarde impossible :', e.message); } };
+// options.ecoute : companion « en écoute » en plus du companion principal ({ cible }) — il ne sert que d'observateur
+// (paquets entendus, SNR, contacts) ; les envois et l'administration passent par le companion principal.
+function creerCompanion(config, { agents, surObservation, surContacts, surEtat, surMessage, surConfirmation, surCanaux, journal }, options = {}) {
+  const ecoute = options.ecoute || null;
+  const fMemo = ecoute ? null : path.join(path.dirname(config.fichierBase), 'meshcore-companion.json');
+  let memo = { cible: ecoute ? ecoute.cible || null : null, connus: [] };
+  if (fMemo) try { memo = { ...memo, ...JSON.parse(fs.readFileSync(fMemo, 'utf8')) }; } catch { /* premier lancement */ }
+  const sauver = () => { if (!fMemo) return; try { fs.writeFileSync(fMemo, JSON.stringify(memo, null, 1)); } catch (e) { journal('sauvegarde impossible :', e.message); } };
 
   let flux = null; // socket TCP, socket d'agent ou flux WebSocket du navigateur
   let tampon = Buffer.alloc(0);
@@ -625,6 +628,8 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
       } catch (e) { if (e.code === 1) throw new Error('commandes sur le companion non gérées par ce firmware (companion v1.14 ou plus requis)'); throw e; }
     },
     demarrer() { if (!arret) planifier(1500); },
+    estEcoute: !!ecoute,
+    detruire() { arret = true; clearTimeout(minuterie); fermer(); etat = { ...etat, connecte: false }; notifier(); },
   };
 }
 

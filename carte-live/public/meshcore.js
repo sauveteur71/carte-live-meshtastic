@@ -40,7 +40,7 @@ const mc = {
   roles: (() => { try { return { ...Object.fromEntries(Object.keys(MC_ROLES).map((k) => [k, true])), ...JSON.parse(localStorage.getItem('gaulix_mc_roles') || '{}') }; } catch { return Object.fromEntries(Object.keys(MC_ROLES).map((k) => [k, true])); } })(),
   couches: { rf: true, chemin: true, trace: true, voisinage: true },
   selection: null,
-  nav: { etat: 'aucun', ws: null, port: null, lecteur: null, ecrivain: null, ble: null, type: null, erreur: null },
+  nav: { etat: 'aucun', ws: null, port: null, lecteur: null, ecrivain: null, ble: null, type: null, erreur: null, role: 'principal' },
 };
 
 const mcNom = (cle) => { const n = cle && mc.noeuds.get(cle); return n ? n.nom || n.id : cle ? cle.slice(0, 8) : '?'; };
@@ -1014,21 +1014,23 @@ function mcRendreCompanion() {
       ${c.cible || c.navigateur ? '<button data-mc-act="stop">Débrancher</button>' : ''}
     </div>
     ${c.connecte && c.pret ? mcHtmlOutils() : ''}
+    ${mcHtmlEcoutes(e)}
     ${c.canaux && c.canaux.length ? `<h4>Canaux du companion</h4><div class="actions-prop">${c.canaux.map((x) => `<button data-mc-qr-canal="${esc(x.nom)}" title="QR code du canal (avec sa clé)">🔳 ${esc(x.nom)}</button>`).join('')}</div>` : ''}
     <h4>Relier un companion</h4>
     <div class="actions-prop"><button class="principal" data-mc-act="connecter" title="Bluetooth, USB ou adresse IP, Meshtastic ou MeshCore reconnu tout seul">🔌 Connecter un module…</button></div>
     <p class="note">La carte se sert du companion comme <b>observateur</b> : il lui transmet chaque paquet MeshCore qu’il entend, avec le SNR. Il ne peut servir qu’un client à la fois (l’appli du téléphone sera déconnectée).</p>
     <div class="bloc-usb">
-      <div class="titre-usb"><b>Branché sur ce PC</b><small>${mc.nav.etat === 'relie' ? 'relayé par cette page · gardez l’onglet ouvert' : mc.nav.erreur ? esc(mc.nav.erreur) : 'USB (firmware « companion USB ») ou Bluetooth'}</small></div>
-      <div class="actions-prop">${mc.nav.etat === 'relie' || mc.nav.etat === 'connexion' ? '<button data-mc-act="nav-stop">Débrancher</button>' : '<button data-mc-act="usb" class="principal-usb">🔌 USB</button><button data-mc-act="ble">📶 Bluetooth</button>'}</div>
+      <div class="titre-usb"><b>Branché sur ce PC</b><small>${mc.nav.etat === 'relie' ? `relayé par cette page${mc.nav.role === 'ecoute' ? ' · 👂 en écoute' : ''} · gardez l’onglet ouvert` : mc.nav.erreur ? esc(mc.nav.erreur) : 'USB (firmware « companion USB ») ou Bluetooth'}</small></div>
+      <div class="actions-prop">${mc.nav.etat === 'relie' || mc.nav.etat === 'connexion' || mc.nav.etat === 'reconnexion' ? '<button data-mc-act="nav-stop">Débrancher</button>' : '<button data-mc-act="usb" class="principal-usb">🔌 USB</button><button data-mc-act="ble">📶 Bluetooth</button>'}</div>
     </div>
     <form id="mc-f-wifi" class="parametres compact">
       <label>Companion Wi-Fi <input name="hote" placeholder="192.168.1.50" value="${esc(c.cible && c.cible.type === 'tcp' ? c.cible.hote : '')}" required></label>
       <label>Port <input name="port" type="number" value="${c.cible && c.cible.type === 'tcp' ? c.cible.port : 5000}" min="1" max="65535" style="width:80px"></label>
       <button type="submit" class="principal">Relier</button>
+      <button type="button" id="mc-wifi-ecoute" title="En plus du companion principal, pour l'écoute seulement">👂 En écoute</button>
     </form>
     <h4>Par un agent (companion USB sur un autre PC)</h4>
-    ${(e.agents || []).length ? `<div class="liste">${e.agents.map((a) => `<div class="ligne"><span class="point ${a.occupe ? 'actif' : 'recent'}"></span><span class="titre">${esc(a.nom)}<small>${esc(a.source)}</small></span><span class="meta"><button class="mini" data-mc-agent="${esc(a.hote)}">${c.cible && c.cible.hote === a.hote ? 'Choisi' : 'Utiliser'}</button></span></div>`).join('')}</div>` : '<div class="vide">Aucun agent en ligne. L’agent se télécharge dans Réseau › Modules radio › Module par agent (choisissez le port COM du companion).</div>'}
+    ${(e.agents || []).length ? `<div class="liste">${e.agents.map((a) => `<div class="ligne"><span class="point ${a.occupe ? 'actif' : 'recent'}"></span><span class="titre">${esc(a.nom)}<small>${esc(a.source)}</small></span><span class="meta"><button class="mini" data-mc-agent="${esc(a.hote)}">${c.cible && c.cible.hote === a.hote ? 'Choisi' : 'Utiliser'}</button>${!a.occupe && !(c.cible && c.cible.hote === a.hote) ? ` <button class="mini" data-mc-agent-ecoute="${esc(a.hote)}" title="En plus du companion principal, pour l'écoute">👂</button>` : ''}</span></div>`).join('')}</div>` : '<div class="vide">Aucun agent en ligne. L’agent se télécharge dans Réseau › Modules radio › Module par agent (choisissez le port COM du companion).</div>'}
     <h4>Republication MQTT</h4>
     <div class="note">${e.republication.actif ? `${e.republication.connecte ? '● connecté' : '○ en attente'} · ${e.republication.publies} paquet(s) publié(s) sur <span class="mono">${esc(e.republication.sujet)}</span>${e.republication.refus ? ` · <b style="color:var(--attention)">${esc(e.republication.refus)}</b>` : ''}` : 'désactivée'}</div>
     <form id="mc-f-reglages" class="form-edit">
@@ -1049,8 +1051,8 @@ function mcRendreCompanion() {
     const a = b.dataset.mcAct;
     try {
       if (a === 'connecter') return ouvrirConnexion();
-      if (a === 'usb') return mcBrancherUsb();
-      if (a === 'ble') return mcBrancherBle();
+      if (a === 'usb') { mc.nav.role = 'principal'; return mcBrancherUsb(); }
+      if (a === 'ble') { mc.nav.role = 'principal'; return mcBrancherBle(); }
       if (a === 'nav-stop') return mcDebrancherNav();
       if (a === 'stop') await api('/api/mc/companion', { method: 'DELETE' });
       if (a === 'annonce0' || a === 'annonce1') { await postJson('/api/mc/companion/annonce', { inondation: a === 'annonce1' }); b.textContent = 'Envoyée ✓'; return; }
@@ -1060,6 +1062,16 @@ function mcRendreCompanion() {
   }));
   z.querySelectorAll('[data-mc-qr-canal]').forEach((b) => (b.onclick = () => mcOuvrirQr({ canal: b.dataset.mcQrCanal })));
   mcBrancherOutils(z);
+  mcBrancherEcoutes(z, retour);
+  z.querySelectorAll('[data-mc-agent-ecoute]').forEach((b) => (b.onclick = async () => {
+    try { await postJson('/api/ecoutes', { protocole: 'meshcore', type: 'agent', hote: b.dataset.mcAgentEcoute }); setTimeout(mcChargerEtat, 4500); b.textContent = '…'; } catch (err) { retour(err.message); }
+  }));
+  const be = $('#mc-wifi-ecoute');
+  if (be) be.onclick = async () => {
+    const f = $('#mc-f-wifi');
+    if (!f.hote.value.trim()) return retour('Adresse IP du companion Wi-Fi ?');
+    try { await postJson('/api/ecoutes', { protocole: 'meshcore', type: 'tcp', hote: f.hote.value.trim(), port: Number(f.port.value) || 5000 }); setTimeout(mcChargerEtat, 3000); } catch (err) { retour(err.message); }
+  };
   z.querySelectorAll('[data-mc-agent]').forEach((b) => (b.onclick = async () => {
     try { await postJson('/api/mc/companion', { type: 'agent', hote: b.dataset.mcAgent }); setTimeout(mcChargerEtat, 4500); b.textContent = 'Connexion…'; } catch (err) { retour(err.message); }
   }));
@@ -1080,12 +1092,17 @@ const MC_BLE_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e', MC_BLE_RX = '6e40
 function mcMajNav(e, erreur) { mc.nav.etat = e; mc.nav.erreur = erreur || null; if (mc.vue === 'companion') mcRendreCompanion(); setTimeout(mcChargerEtat, 2500); }
 function mcOuvrirWs(source, versCompanion) {
   return new Promise((ok, ko) => {
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/meshcore?source=${source}&nom=${encodeURIComponent(source + ' ' + ((etat.config.compte && etat.config.compte.identifiant) || ''))}`);
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/meshcore?role=${mc.nav.role === 'ecoute' ? 'ecoute' : 'principal'}&source=${source}&nom=${encodeURIComponent(source + ' ' + ((etat.config.compte && etat.config.compte.identifiant) || ''))}`);
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => ok(ws);
     ws.onerror = () => ko(new Error('connexion au serveur refusée (êtes-vous connecté en admin ?)'));
     ws.onmessage = (ev) => { if (ev.data instanceof ArrayBuffer) versCompanion(new Uint8Array(ev.data)); };
-    ws.onclose = () => { if (mc.nav.ws === ws) mcDebrancherNav('liaison avec le serveur fermée'); };
+    ws.onclose = () => {
+      if (mc.nav.ws !== ws) return;
+      const app = mc.nav.type === 'ble' && mc.nav.ble ? mc.nav.ble.app : null;
+      mcDebrancherNav('liaison avec le serveur fermée', !!app);
+      if (app) planifierReconnexionBle(mc.nav, app, mcBrancherBle, mcMajNav, 'liaison avec le serveur fermée');
+    };
   });
 }
 async function mcBrancherUsb(portDonne) {
@@ -1112,15 +1129,17 @@ async function mcBrancherUsb(portDonne) {
     mcMajNav('aucun', e.name === 'NetworkError' || /open/i.test(e.message) ? 'port déjà utilisé (fermez l’appli MeshCore ou l’agent)' : e.message);
   }
 }
-async function mcBrancherBle(appareilDonne) {
+async function mcBrancherBle(appareilDonne, reprise = false) {
   if (!navigator.bluetooth) { alert('Ce navigateur ne gère pas le Bluetooth : utilisez Chrome ou Edge, sur la carte en HTTPS.'); return; }
   let app = appareilDonne;
   if (!app) try { app = await navigator.bluetooth.requestDevice({ filters: [{ services: [MC_BLE_SERVICE] }, { namePrefix: 'MeshCore' }], optionalServices: [MC_BLE_SERVICE] }); } catch { return; }
-  mc.nav.type = 'ble'; mcMajNav('connexion');
+  if (!reprise) arreterReconnexionBle(mc.nav);
+  mc.nav.type = 'ble'; mcMajNav(reprise ? 'reconnexion' : 'connexion', reprise ? 'reconnexion Bluetooth…' : null);
   try {
     const gatt = await app.gatt.connect();
     const svc = await gatt.getPrimaryService(MC_BLE_SERVICE);
     const rx = await svc.getCharacteristic(MC_BLE_RX), tx = await svc.getCharacteristic(MC_BLE_TX);
+    if (reprise && mc.nav.appareilBle !== app) { try { app.gatt.disconnect(); } catch { /* déjà */ } return; } // débranché à la main entre-temps
     mc.nav.ble = { app, gatt };
     // Bluetooth : une notification = une trame ; on ajoute l'en-tête série « > + longueur »
     let tampon = new Uint8Array(0);
@@ -1143,15 +1162,26 @@ async function mcBrancherBle(appareilDonne) {
       if (mc.nav.ws && mc.nav.ws.readyState === 1) mc.nav.ws.send(t);
     });
     await tx.startNotifications();
-    app.addEventListener('gattserverdisconnected', () => { if (mc.nav.ble && mc.nav.ble.app === app) mcDebrancherNav('Bluetooth déconnecté'); });
+    if (!app.gardeReco) {
+      app.gardeReco = true;
+      app.addEventListener('gattserverdisconnected', () => {
+        if (!mc.nav.ble || mc.nav.ble.app !== app) return;
+        mcDebrancherNav('Bluetooth déconnecté', true);
+        planifierReconnexionBle(mc.nav, app, mcBrancherBle, mcMajNav, 'Bluetooth coupé');
+      });
+    }
+    arreterReconnexionBle(mc.nav);
     mcMajNav('relie');
   } catch (e) {
     try { app.gatt.disconnect(); } catch { /* déjà */ }
-    mcMajNav('aucun', 'Bluetooth : ' + e.message + ' (code PIN demandé ? appairez d’abord le companion dans Windows)');
+    mc.nav.ble = null;
+    mcMajNav(reprise ? 'reconnexion' : 'aucun', 'Bluetooth : ' + e.message + (reprise ? '' : ' (code PIN demandé ? appairez d’abord le companion dans Windows)'));
   }
 }
-async function mcDebrancherNav(raison) {
+// auto : coupure subie (la reconnexion automatique suit) ; sinon débranchement voulu
+async function mcDebrancherNav(raison, auto = false) {
   const n = mc.nav;
+  if (auto !== true) arreterReconnexionBle(n);
   const ws = n.ws; n.ws = null;
   try { if (ws) ws.close(); } catch { /* déjà */ }
   try { if (n.lecteur) await n.lecteur.cancel(); } catch { /* déjà */ }
@@ -1160,9 +1190,32 @@ async function mcDebrancherNav(raison) {
   try { if (port) await port.close(); } catch { /* déjà */ }
   try { if (n.ble) n.ble.gatt.disconnect(); } catch { /* déjà */ }
   n.ble = null;
-  mcMajNav('aucun', typeof raison === 'string' ? raison : null);
+  mcMajNav(auto === true ? 'reconnexion' : 'aucun', typeof raison === 'string' ? raison : null);
 }
-window.addEventListener('beforeunload', (e) => { if (mc.nav.etat === 'relie') { e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', (e) => { if (mc.nav.etat === 'relie' || mc.nav.etat === 'reconnexion') { e.preventDefault(); e.returnValue = ''; } });
+
+// Companions en écoute (en plus du principal) : observateurs supplémentaires
+function mcHtmlEcoutes(e) {
+  const l = e.ecoutes || [];
+  if (!l.length) return '';
+  return `<h4>Companions en écoute (${l.length})</h4><div class="liste">${l.map((x) => {
+    const sous = x.navigateur ? `${esc(x.source || 'navigateur')} d’une page de la carte` : x.cible.type === 'agent' ? `agent « ${esc(x.cible.hote.replace(/^agent-/, ''))} »` : `Wi-Fi ${esc(x.cible.hote)}:${x.cible.port}`;
+    return `<div class="ligne"><span class="point ${x.connecte ? 'actif' : 'alerte'}"></span><span class="titre">${esc(x.nom || 'companion')} <span class="badge">👂 écoute</span><small>${sous} · ${x.connecte ? `${x.paquets} paquets` : x.erreur ? esc(x.erreur) : 'connexion…'}</small></span>
+      <span class="meta">${!x.navigateur ? `<button class="mini" data-mc-ec-princ="${esc(x.cle)}" title="En faire le companion principal (envois, administration) ; l’actuel passe en écoute">⭐</button> ` : ''}<button class="mini" data-mc-ec-off="${esc(x.cle)}" title="Arrêter l'écoute">✕</button></span></div>`;
+  }).join('')}</div><p class="note">Chaque companion en écoute transmet ce qu’il entend, avec son SNR : plus de liaisons mesurées et de parcours. Envois et administration passent par le companion principal.</p>`;
+}
+function mcBrancherEcoutes(z, retour) {
+  z.querySelectorAll('[data-mc-ec-off]').forEach((b) => (b.onclick = async () => {
+    b.disabled = true;
+    try { await api('/api/ecoutes', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ protocole: 'meshcore', cle: b.dataset.mcEcOff }) }); } catch (err) { retour(err.message); }
+    setTimeout(mcChargerEtat, 800);
+  }));
+  z.querySelectorAll('[data-mc-ec-princ]').forEach((b) => (b.onclick = async () => {
+    b.disabled = true;
+    try { await postJson('/api/ecoutes/principal', { protocole: 'meshcore', cle: b.dataset.mcEcPrinc, echanger: true }); } catch (err) { retour(err.message); }
+    setTimeout(mcChargerEtat, 3500);
+  }));
+}
 
 // Résultat d'une découverte de chemin, avec tracé sur la carte
 function mcHtmlChemin(c, n) {

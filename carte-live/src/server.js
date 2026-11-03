@@ -636,7 +636,7 @@ const portValide = (p) => { const n = Number(p ?? 4403); return Number.isInteger
 const exigerAdmin = (req, res) => { if (estAdmin(req)) return true; res.status(401).json({ erreur: 'Connexion admin requise' }); return false; };
 app.get('/api/radio/modules', (req, res) => {
   if (!exigerAdmin(req, res)) return;
-  res.json({ ...sourceRadio.modules(), etat: sourceRadio.etat(), agents: { port: agents.port, liste: agents.liste() } });
+  res.json({ ...sourceRadio.modules(), etat: sourceRadio.etat(), agents: { port: agents.port, liste: agents.liste() }, ecoutes: ecoutes.liste().meshtastic });
 });
 // Code secret des agents (admin) et renouvellement
 app.get('/api/radio/agents', (req, res) => {
@@ -653,6 +653,7 @@ app.post('/api/radio/connecter', (req, res) => {
   const port = portValide((req.body || {}).port);
   if (!hote) { try { sourceRadio.reconnecter(); return res.json({ ok: true }); } catch (e) { return res.status(400).json({ erreur: e.message }); } }
   if (!hoteValide(hote) || !port) return res.status(400).json({ erreur: 'Adresse ou port invalide' });
+  if (ecoutes.estRadio(hote, port)) ecoutes.retirerRadio(hote, port); // un module n'accepte qu'un client à la fois
   sourceRadio.connecterA(hote, port);
   res.json({ ok: true });
 });
@@ -677,6 +678,70 @@ app.delete('/api/radio/modules', (req, res) => {
   sourceRadio.retirerModule(hote, port);
   res.json({ ok: true });
 });
+// ---- Modules en écoute (en plus des modules principaux) ---------------------------------------------
+app.get('/api/ecoutes', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  res.set('Cache-Control', 'no-store').json(ecoutes.liste());
+});
+// Met en écoute un module déjà connu (liste des modules Meshtastic, agent, companion Wi-Fi)
+app.post('/api/ecoutes', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const b = req.body || {};
+  try {
+    if (b.protocole === 'meshcore') {
+      if (!config.meshcore.actif) throw new Error('MeshCore n’est pas activé dans cette carte');
+      let c;
+      if (b.type === 'agent') { if (!agents.estAgent(String(b.hote || ''))) throw new Error('Agent inconnu'); c = { type: 'agent', hote: String(b.hote) }; }
+      else { const port = portValide(b.port ?? 5000); if (!hoteValide(b.hote) || !port) throw new Error('Adresse ou port invalide'); c = { type: 'tcp', hote: b.hote, port }; }
+      const p = companion.etat().cible;
+      if (p && ecoutes.cleCompanion(p) === ecoutes.cleCompanion(c)) throw new Error('ce companion est le companion principal');
+      ecoutes.ajouterCompanion(c, b.nom ? String(b.nom).slice(0, 40) : null);
+    } else {
+      const port = b.hote && agents.estAgent(String(b.hote)) ? 1 : portValide(b.port);
+      if (!hoteValide(b.hote) || !port) throw new Error('Adresse ou port invalide');
+      const a = sourceRadio.modules().actif;
+      if (a && a.hote === b.hote && a.port === port) throw new Error('ce module est le module principal');
+      const m = sourceRadio.modules().modules.find((x) => x.hote === b.hote && x.port === port);
+      ecoutes.ajouterRadio(b.hote, port, (m && m.nom) || (b.nom ? String(b.nom).slice(0, 40) : null));
+    }
+    res.json(ecoutes.liste());
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.delete('/api/ecoutes', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const b = req.body || {};
+  if (b.protocole === 'meshcore') ecoutes.retirerCompanion(String(b.cle || ''));
+  else ecoutes.retirerRadio(String(b.hote || ''), Number(b.port) || 0);
+  res.json(ecoutes.liste());
+});
+// Un module en écoute devient le module principal (l'ancien principal passe en écoute s'il le demande)
+app.post('/api/ecoutes/principal', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const b = req.body || {};
+  try {
+    if (b.protocole === 'meshcore') {
+      const e = ecoutes.liste().meshcore.find((x) => x.cle === b.cle);
+      if (!e || !e.cible) throw new Error('companion en écoute introuvable (un companion relié par une page ne peut pas devenir principal)');
+      const ancien = companion.etat().navigateur ? null : companion.etat().cible;
+      ecoutes.retirerCompanion(e.cle);
+      setTimeout(() => {
+        companion.connecterA(e.cible);
+        if (b.echanger && ancien) setTimeout(() => ecoutes.ajouterCompanion(ancien, null), 1500);
+      }, 800);
+    } else {
+      const e = ecoutes.liste().meshtastic.find((x) => x.hote === b.hote && x.port === Number(b.port));
+      if (!e || e.navigateur) throw new Error('module en écoute introuvable (un module relié par une page ne peut pas devenir principal)');
+      const ancien = sourceRadio.modules().actif;
+      ecoutes.retirerRadio(e.hote, e.port);
+      setTimeout(() => {
+        sourceRadio.ajouterModule(e.hote, e.port, e.nom);
+        sourceRadio.connecterA(e.hote, e.port);
+        if (b.echanger && ancien && !(ancien.hote === e.hote && ancien.port === e.port) && !/^agent-(bluetooth|usb)/.test(ancien.hote)) setTimeout(() => ecoutes.ajouterRadio(ancien.hote, ancien.port, null), 1500);
+      }, 800);
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 // ---- Connexion d'un module par sa seule adresse IP (Meshtastic ou MeshCore, reconnu tout seul) ---------------
 // 1. le serveur essaie lui-même (ports 4403 et 5000) ; 2. sinon, un agent 1.6 du même réseau sert de relais.
 const ipLocaleV4 = (ip) => /^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})$/.test(ip) && ip.split('.').every((x) => Number(x) <= 255);
@@ -692,6 +757,7 @@ app.post('/api/connexion/ip', async (req, res) => {
   const [ip, portDonne] = brut.split(':');
   if (!ipLocaleV4(ip)) return res.status(400).json({ erreur: 'Adresse IP du réseau local attendue (ex. 192.168.1.122)' });
   const voulu = (req.body || {}).protocole; // facultatif : 'meshtastic' ou 'meshcore' si les deux répondent
+  const enEcoute = (req.body || {}).role === 'ecoute'; // en plus du module principal, pour l'écoute seulement
   const choisir = (ports) => {
     const mt = ports.includes(4403) || (portDonne && Number(portDonne) === 4403), mcp = ports.includes(5000) || (portDonne && Number(portDonne) === 5000);
     if (mt && mcp) return voulu === 'meshcore' ? 'meshcore' : 'meshtastic';
@@ -700,9 +766,20 @@ app.post('/api/connexion/ip', async (req, res) => {
   const brancher = (protocole, cible) => {
     if (protocole === 'meshcore') {
       if (!config.meshcore.actif) throw new Error('MeshCore n’est pas activé dans cette carte');
-      companion.connecterA(cible.agent ? { type: 'agent', hote: cible.agent } : { type: 'tcp', hote: ip, port: 5000 });
-    } else if (cible.agent) { sourceRadio.ajouterModule(cible.agent, 1, `Meshtastic ${ip}`); sourceRadio.connecterA(cible.agent, 1); }
-    else { sourceRadio.ajouterModule(ip, 4403, null); sourceRadio.connecterA(ip, 4403); }
+      const c = cible.agent ? { type: 'agent', hote: cible.agent } : { type: 'tcp', hote: ip, port: 5000 };
+      if (enEcoute) {
+        const p = companion.etat().cible;
+        if (p && ecoutes.cleCompanion(p) === ecoutes.cleCompanion(c) && !companion.etat().navigateur) throw new Error('ce companion est déjà le companion principal de la carte');
+        ecoutes.ajouterCompanion(c, `MeshCore ${ip}`);
+      } else { if (ecoutes.estCompanion(c)) ecoutes.retirerCompanion(ecoutes.cleCompanion(c)); companion.connecterA(c); }
+      return;
+    }
+    const [h, port, nom] = cible.agent ? [cible.agent, 1, `Meshtastic ${ip}`] : [ip, 4403, null];
+    if (enEcoute) {
+      const a = sourceRadio.modules().actif;
+      if (a && a.hote === h && a.port === port) throw new Error('ce module est déjà le module principal de la carte');
+      ecoutes.ajouterRadio(h, port, nom || `Meshtastic ${ip}`);
+    } else { if (ecoutes.estRadio(h, port)) ecoutes.retirerRadio(h, port); sourceRadio.ajouterModule(h, port, nom); sourceRadio.connecterA(h, port); }
   };
   try {
     // 1. Directement depuis le serveur
@@ -711,7 +788,7 @@ app.post('/api/connexion/ip', async (req, res) => {
     if (protocole) {
       brancher(protocole, {});
       journal(`connexion par IP : ${ip} (${protocole}) joint directement`);
-      return res.json({ ok: true, protocole, via: 'direct', texte: `${protocole === 'meshcore' ? 'Companion MeshCore' : 'Module Meshtastic'} ${ip} trouvé : connexion en cours.` });
+      return res.json({ ok: true, protocole, via: 'direct', ecoute: enEcoute, texte: `${protocole === 'meshcore' ? 'Companion MeshCore' : 'Module Meshtastic'} ${ip} trouvé : connexion en cours${enEcoute ? ', en écoute (en plus du module principal)' : ''}.` });
     }
     // 2. Par le relais du réseau local d'un agent
     const relais = agents.relaisPour(ip);
@@ -723,7 +800,7 @@ app.post('/api/connexion/ip', async (req, res) => {
       const hote = agents.ajouterParIp(r.hote, ip, protocole === 'meshcore' ? 5000 : 4403, protocole);
       brancher(protocole, { agent: hote });
       journal(`connexion par IP : ${ip} (${protocole}) par le relais « ${r.nom} »`);
-      return res.json({ ok: true, protocole, via: r.nom, texte: `${protocole === 'meshcore' ? 'Companion MeshCore' : 'Module Meshtastic'} ${ip} trouvé par le PC « ${r.nom.replace(/ · réseau local$/, '')} » : connexion en cours.` });
+      return res.json({ ok: true, protocole, via: r.nom, ecoute: enEcoute, texte: `${protocole === 'meshcore' ? 'Companion MeshCore' : 'Module Meshtastic'} ${ip} trouvé par le PC « ${r.nom.replace(/ · réseau local$/, '')} » : connexion en cours${enEcoute ? ', en écoute (en plus du module principal)' : ''}.` });
     }
     const anciens = agents.liste().filter((a) => !/^1\.([6-9]|\d\d)|^[2-9]\./.test(a.version || '') && a.version !== 'navigateur');
     res.status(404).json({
@@ -1324,7 +1401,7 @@ app.get('/api/paquets', (req, res) => {
 });
 
 app.get('/api/etat', (req, res) => {
-  res.json({ stats: reseau.statistiques(), alertes: dernieresAlertes, meshmonitor: sourceMM ? sourceMM.etat() : null, radio: sourceRadio ? sourceRadio.etat() : null });
+  res.json({ stats: reseau.statistiques(), alertes: dernieresAlertes, meshmonitor: sourceMM ? sourceMM.etat() : null, radio: sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
 });
 
 app.get('/api/messages', (req, res) => {
@@ -1715,6 +1792,7 @@ function etatMc(admin) {
     e.republication = publicateurMc.etat();
     e.reglages = { iata: config.meshcore.iata, racine: config.meshcore.racine, republier: config.meshcore.republier, canaux: config.meshcore.canaux.join('\n'), perimetre: config.meshcore.perimetre, iataVoisins: config.meshcore.iataVoisins.join(', '), horsPerimetre: compteurMc.horsPerimetre || 0 };
     e.agents = agents.liste();
+    e.ecoutes = ecoutes.liste().meshcore;
   }
   return e;
 }
@@ -1724,11 +1802,15 @@ app.post('/api/mc/companion', (req, res) => {
   const b = req.body || {};
   if (b.type === 'agent') {
     if (!agents.estAgent(String(b.hote || ''))) return res.status(400).json({ erreur: 'Agent inconnu' });
-    companion.connecterA({ type: 'agent', hote: String(b.hote) });
+    const c = { type: 'agent', hote: String(b.hote) };
+    if (ecoutes.estCompanion(c)) ecoutes.retirerCompanion(ecoutes.cleCompanion(c));
+    companion.connecterA(c);
   } else {
     const port = portValide(b.port ?? 5000);
     if (!hoteValide(b.hote) || !port) return res.status(400).json({ erreur: 'Adresse ou port invalide' });
-    companion.connecterA({ type: 'tcp', hote: b.hote, port });
+    const c = { type: 'tcp', hote: b.hote, port };
+    if (ecoutes.estCompanion(c)) ecoutes.retirerCompanion(ecoutes.cleCompanion(c));
+    companion.connecterA(c);
   }
   res.json({ ok: true });
 });
@@ -1967,6 +2049,13 @@ wssModule.on('connection', (ws, req) => {
   const nom = (q.get('nom') || `Navigateur ${u ? u.identifiant : ''}`).slice(0, 40);
   const source = (q.get('source') || 'USB').slice(0, 40);
   const flux = fluxWebSocket(ws);
+  if (q.get('role') === 'ecoute') {
+    // En plus du module principal : passerelle d'écoute tant que la page reste ouverte
+    const h = agents.ajouterVirtuel(nom, source + ' (navigateur)', flux, (req.socket.remoteAddress || '').replace(/^::ffff:/, ''));
+    ecoutes.ajouterRadio(h, 1, nom, { navigateur: true, source });
+    flux.on('close', () => { ecoutes.retirerRadio(h, 1); rafraichirEtat(); diffuser({ genre: 'statut' }); });
+    return;
+  }
   const precedent = sourceRadio.modules().actif;
   const hote = agents.ajouterVirtuel(nom, source + ' (navigateur)', flux, (req.socket.remoteAddress || '').replace(/^::ffff:/, ''));
   sourceRadio.ajouterModule(hote, 1, nom);
@@ -1988,6 +2077,7 @@ function brancherCompanionNavigateur(ws, req) {
   const q = new URL(req.url, 'http://x').searchParams;
   const source = q.get('source') === 'Bluetooth' ? 'Bluetooth' : 'USB';
   const nom = (q.get('nom') || `${source} ${u ? u.identifiant : ''}`).slice(0, 40);
+  if (q.get('role') === 'ecoute') { ecoutes.ajouterCompanion(null, nom, { navigateur: fluxWebSocket(ws), source }); diffuserEtatMc(); return; }
   companion.brancherNavigateur(fluxWebSocket(ws), nom, source);
   diffuserEtatMc();
 }
@@ -2095,7 +2185,7 @@ clientMqtt.on('message', (topic, message) => {
 let dernieresAlertes = [];
 function rafraichirEtat() {
   dernieresAlertes = reseau.calculerAlertes();
-  diffuser({ genre: 'etat', stats: reseau.statistiques(), alertes: dernieresAlertes, meshmonitor: typeof sourceMM !== 'undefined' && sourceMM ? sourceMM.etat() : null, radio: typeof sourceRadio !== 'undefined' && sourceRadio ? sourceRadio.etat() : null });
+  diffuser({ genre: 'etat', stats: reseau.statistiques(), alertes: dernieresAlertes, meshmonitor: typeof sourceMM !== 'undefined' && sourceMM ? sourceMM.etat() : null, radio: typeof sourceRadio !== 'undefined' && sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
 }
 setInterval(rafraichirEtat, 30000);
 let minuterieEtatMc = null;
@@ -2125,6 +2215,7 @@ app.post('/api/postgres/tester', async (req, res) => {
 const agents = creerAgents(config, { surArrivee: (hote, nom, protocole) => {
   if (protocole !== 'meshtastic' && typeof companion !== 'undefined' && companion) companion.agentDisponible(hote);
   if (protocole !== 'meshcore' && typeof sourceRadio !== 'undefined' && sourceRadio) { sourceRadio.agentDisponible(hote, nom); rafraichirEtat(); diffuser({ genre: 'statut' }); }
+  if (typeof ecoutes !== 'undefined' && ecoutes) ecoutes.agentDisponible(hote, nom, protocole);
 } });
 // Companion MeshCore (observateur de la carte) et republication sur le broker
 const publicateurMc = creerPublicateurMc(config, (...a) => journal('[MeshCore]', ...a));
@@ -2141,11 +2232,7 @@ const companion = creerCompanion(config, {
   },
   surContacts: (liste) => { for (const ct of liste) reseauMc.importerContact(ct); planifierEtatMc(); diffuser({ genre: 'mc-noeuds' }); },
   // Canaux du companion : leurs messages sont déchiffrés aussi (en plus de ceux des réglages)
-  surCanaux: (liste) => {
-    const tous = [...canauxMc];
-    for (const c of preparerCanauxMc(liste.map((x) => ({ nom: x.nom, secret: x.secret })))) if (!tous.some((y) => y.secret === c.secret)) tous.push(c);
-    reseauMc.definirCanaux(tous);
-  },
+  surCanaux: () => majCanauxMc(),
   surMessage: (m) => {
     if (m.genre === 'canal') {
       // Déjà décodé depuis le paquet brut si le canal est connu ; sinon on le garde tel quel
@@ -2168,6 +2255,45 @@ const companion = creerCompanion(config, {
   },
 });
 if (config.meshcore.actif) companion.demarrer();
+// Canaux MeshCore déchiffrés : ceux des réglages, plus ceux lus dans le companion principal et les companions en écoute
+function majCanauxMc() {
+  const tous = [...canauxMc];
+  const sources = [companion, ...(typeof ecoutes !== 'undefined' && ecoutes ? ecoutes.companions() : [])];
+  for (const src of sources) {
+    for (const c of preparerCanauxMc(src.secretsCanaux().map((x) => ({ nom: x.nom, secret: x.secret })))) if (!tous.some((y) => y.secret === c.secret)) tous.push(c);
+  }
+  reseauMc.definirCanaux(tous);
+}
+// Companion MeshCore en écoute (en plus du principal) : observateur supplémentaire, rien n'est envoyé par lui
+function fabriquerCompanionEcoute({ cible, nom }) {
+  let inst = null;
+  inst = creerCompanion(config, {
+    agents,
+    journal: (...a) => journal(`[MeshCore · écoute ${nom || ''}]`, ...a),
+    surObservation: (obs) => {
+      try {
+        const sortie = reseauMc.integrer(obs);
+        if (sortie) diffuser(sortie);
+        if (obs.observateur && config.meshcore.republier && inst) publicateurMc.publier(obs, decoderPaquetMc(obs.brut), inst.etat());
+      } catch (e) { journal('[MeshCore] observation non traitée :', e.message); }
+    },
+    surContacts: (liste) => { for (const ct of liste) reseauMc.importerContact(ct); planifierEtatMc(); diffuser({ genre: 'mc-noeuds' }); },
+    surCanaux: () => majCanauxMc(),
+    surMessage: (m) => {
+      if (m.genre !== 'direct' || !inst) return; // messages de canal : déjà décodés depuis les paquets bruts
+      const c = inst.etat();
+      const id = reseauMc.noterMessage({ sens: 'recu', genre: 'direct', de: m.de || null, nomDe: m.nom || m.prefixe, vers: c.cle, nomVers: c.nom, texte: m.texte, sauts: m.sauts, snr: m.snr });
+      diffuser({ genre: 'mc-message', id, sens: 'recu', direct: true, de: m.de, nomDe: m.nom || m.prefixe, vers: c.cle, nomVers: c.nom, texte: m.texte, heure: Date.now() });
+    },
+    surEtat: () => {
+      if (!inst) return;
+      const c = inst.etat();
+      if (c.cle) reseauMc.noterObservateur(c.cle, { nom: c.nom, role: 'companion', lat: c.lat, lon: c.lon, etat: c.connecte ? 'online' : 'offline', details: { modele: c.modele, firmware: c.firmware, radio: c.radio, iata: config.meshcore.iata, carte: true, ecoute: true } });
+      planifierEtatMc();
+    },
+  }, { ecoute: { cible } });
+  return inst;
+}
 const adminMc = creerAdministrationMc(config, companion, reseauMc, (...a) => journal('[MeshCore]', ...a), (t) => { if (['statut', 'lire', 'chemin', 'voisins', 'tracer', 'telemetrie'].includes(t.type)) { planifierEtatMc(); diffuser({ genre: 'mc-noeuds' }); } });
 const { creerMaintenanceMc } = require('./meshcore/maintenance');
 const maintenanceMc = creerMaintenanceMc({ config, reseauMc, adminMc, companion, journal });
@@ -2194,6 +2320,24 @@ const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   apresSynchro: () => { rafraichirEtat(); diffuser({ genre: 'statut' }); },
   estSurveille: (n) => reseau.estSurveille(n),
 }, agents);
+// Résumé public des modules Meshtastic en écoute (sources de données)
+function resumeEcoutes() { try { return ecoutes.liste().meshtastic.map((x) => ({ nom: x.nom, connecte: x.connecte, paquets: x.paquets })); } catch { return []; } }
+// Modules en écoute (Meshtastic et MeshCore), en plus des modules principaux
+const { creerEcoutes } = require('./ecoutes');
+let minuterieStatutEcoute = null;
+const ecoutes = creerEcoutes({
+  config, journal,
+  fabriquerRadio: (m) => creerSourceRadio(stockage, config, canaux, {
+    integrerEvenement: (evt) => {
+      const sortie = reseau.integrer(evt);
+      if (sortie) { compteur.decodes++; diffuser({ ...sortie, viaRadio: true }); }
+    },
+    apresSynchro: () => { if (!minuterieStatutEcoute) minuterieStatutEcoute = setTimeout(() => { minuterieStatutEcoute = null; rafraichirEtat(); diffuser({ genre: 'statut' }); }, 3000); },
+  }, agents, { ecoute: m }),
+  fabriquerCompanion: (o) => fabriquerCompanionEcoute(o),
+  surChangement: () => { diffuser({ genre: 'statut' }); if (config.meshcore.actif) { majCanauxMc(); planifierEtatMc(); } },
+});
+ecoutes.demarrer();
 const administration = creerAdministration(sourceRadio, stockage);
 administration.utiliserAgents(agents);
 const analyse = creerAnalyse(stockage, config, reseau, () => (sourceRadio ? sourceRadio.etat().preset : null));

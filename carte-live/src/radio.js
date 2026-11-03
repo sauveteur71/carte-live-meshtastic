@@ -23,18 +23,24 @@ const NOM_PRESET = {
   SHORT_TURBO: 'ShortTurbo', LONG_TURBO: 'LongTurbo',
 };
 
-const journal = (...a) => console.log(new Date().toISOString(), '[Module radio]', ...a);
+const journalPrincipal = (...a) => console.log(new Date().toISOString(), '[Module radio]', ...a);
 const ENTETE = Buffer.from([0x94, 0xc3]);
 
-function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = null) {
+// options.ecoute : module « en écoute » en plus du module principal ({ hote, port, nom }) — il sert de passerelle
+// d'écoute supplémentaire (réceptions, SNR, voisins) mais n'envoie rien : ni traceroutes, ni administration.
+function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = null, options = {}) {
   const cfg = config.radio;
+  const ecoute = options.ecoute || null;
+  const journal = ecoute ? (...a) => console.log(new Date().toISOString(), `[Écoute ${ecoute.nom || ecoute.hote}]`, ...a) : journalPrincipal;
+  const intervalles = [];
   // Modules Wi-Fi connus (choisis depuis la carte) et module actif, conservés dans le volume de données
   const fModules = path.join(path.dirname(config.fichierBase), 'modules-radio.json');
   let memo;
-  try { memo = JSON.parse(fs.readFileSync(fModules, 'utf8')); } catch {
+  if (ecoute) memo = { modules: [{ hote: ecoute.hote, port: ecoute.port, nom: ecoute.nom || null }], actif: { hote: ecoute.hote, port: ecoute.port } };
+  else try { memo = JSON.parse(fs.readFileSync(fModules, 'utf8')); } catch {
     memo = { modules: cfg.hote ? [{ hote: cfg.hote, port: cfg.port, nom: null }] : [], actif: cfg.hote ? { hote: cfg.hote, port: cfg.port } : null };
   }
-  const sauver = () => { try { fs.writeFileSync(fModules, JSON.stringify(memo, null, 1)); } catch (e) { journal('sauvegarde des modules impossible :', e.message); } };
+  const sauver = () => { if (ecoute) return; try { fs.writeFileSync(fModules, JSON.stringify(memo, null, 1)); } catch (e) { journal('sauvegarde des modules impossible :', e.message); } };
   let arretVoulu = !memo.actif;
   let minuterieReconnexion = null;
   let repriseAuto = null;
@@ -281,7 +287,7 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
       enConfiguration = false;
       mettreAJourCanaux();
       // Copie de référence des canaux et du réglage LoRa du module (fichier réservé à l'administrateur du NAS)
-      try { fs.writeFileSync(path.join(path.dirname(config.fichierBase), 'config-module.json'), JSON.stringify({ heure: Date.now(), noeud: etat.noeudLocal, ...configBrute }, null, 1), { mode: 0o600 }); } catch { /* ignore */ }
+      if (!ecoute) try { fs.writeFileSync(path.join(path.dirname(config.fichierBase), 'config-module.json'), JSON.stringify({ heure: Date.now(), noeud: etat.noeudLocal, ...configBrute }, null, 1), { mode: 0o600 }); } catch { /* ignore */ }
       try { require('./reglages-noeuds').enregistrer(etat.noeudLocal, { canaux: configBrute.canaux.filter(Boolean), lora: configBrute.lora, source: 'module' }); } catch (e) { console.error('[Radio] réglages :', e.message); }
       const local = etat.noeudLocal != null ? q.noeud.get(etat.noeudLocal) : null;
       etat.nomLocal = local ? local.nom_long || local.nom_court : null;
@@ -338,6 +344,7 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
 
   function lancerTraceroute(cible, declencheur = 'manuel') {
     cible = cible >>> 0;
+    if (ecoute) throw new Error('module en écoute : les traceroutes partent du module principal');
     if (!etat.connecte || etat.noeudLocal == null || enConfiguration) throw new Error('Module radio non connecté');
     if (cible === etat.noeudLocal) throw new Error('Impossible de tracer le module lui-même');
     const id = crypto.randomBytes(4).readUInt32LE(0) >>> 0 || 1;
@@ -355,11 +362,11 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
   }
 
   // Sans réponse au bout de 5 minutes : échec
-  setInterval(() => {
+  if (!ecoute) intervalles.push(setInterval(() => {
     const limite = Date.now() - 5 * 60000;
     q.trExpirer.run(limite);
     for (const [id, a] of enAttente) if (a.heure < limite) enAttente.delete(id);
-  }, 30000);
+  }, 30000));
 
   function ciblesAutomatiques() {
     const toutes = q.noeuds.all();
@@ -394,7 +401,7 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
   }
   // Plage horaire : 'nuit' = de 1 h à 6 h (canal calme, aucune gêne pour les utilisateurs), sinon à toute heure
   const dansPlage = () => cfg.tracerouteHeures !== 'nuit' || [1, 2, 3, 4, 5].includes(new Date().getHours());
-  setInterval(() => { if (cfg.tracerouteIntervalleMinutes > 0 && Date.now() >= prochainCycle && dansPlage()) cycleTraceroutes(); }, 60000);
+  if (!ecoute) intervalles.push(setInterval(() => { if (cfg.tracerouteIntervalleMinutes > 0 && Date.now() >= prochainCycle && dansPlage()) cycleTraceroutes(); }, 60000));
 
   // ---- Pilotage depuis la carte ------------------------------------------------------
   function couper() {
@@ -498,6 +505,7 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
     connecterA, deconnecter, reconnecter, ajouterModule, retirerModule, scanner,
     // Accès bas niveau pour l'administration des nœuds
     envoyerPaquet: (paquet) => {
+      if (ecoute) throw new Error('module en écoute : envois par le module principal');
       if (!etat.connecte || etat.noeudLocal == null || enConfiguration) throw new Error('Module radio non connecté');
       envoyer({ packet: paquet });
     },
@@ -512,6 +520,13 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
       ciblesAuto: cfg.tracerouteIntervalleMinutes > 0 ? ciblesAutomatiques().length : 0,
     }),
     traceroute: lancerTraceroute,
+    // Arrêt définitif (module en écoute retiré)
+    detruire() {
+      for (const i of intervalles) clearInterval(i);
+      clearInterval(minuterieVie); clearTimeout(minuterieReprise);
+      if (etat.noeudLocal != null) { try { q.etatPasserelle.run('offline', Date.now(), etat.noeudLocal); } catch { /* ignore */ } }
+      deconnecter(0);
+    },
   };
 }
 
