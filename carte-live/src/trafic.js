@@ -19,7 +19,7 @@ function creerControleTrafic({ stockage, config, administration }) {
     // Nœuds entendus par une passerelle de la zone (le reste n'arrive que par le broker). Une passerelle qui publie
     // ses propres paquets ne compte pas : sa télémétrie « locale » (toutes les 60 s vers l'appli) ne passe pas en radio.
     passerelles: db.prepare('SELECT num, lat, lon FROM noeuds WHERE est_passerelle = 1'),
-    entendus: db.prepare(`SELECT DISTINCT p.de FROM paquets p JOIN receptions r ON r.paquet = p.rowid WHERE p.heure >= ? AND r.passerelle <> p.de AND r.passerelle IN (SELECT value FROM json_each(?))`),
+    entendus: db.prepare(`SELECT DISTINCT p.de, p.port FROM paquets p JOIN receptions r ON r.paquet = p.rowid WHERE p.heure >= ? AND r.passerelle <> p.de AND r.passerelle IN (SELECT value FROM json_each(?))`),
     noeud: db.prepare('SELECT num, nom_long, nom_court, role, lat, lon, firmware FROM noeuds WHERE num = ?'),
     // Paquets réinjectés depuis MQTT (drapeau via_mqtt) puis entendus en radio
     reinjectes: db.prepare(`SELECT p.de, p.port, r.relais_num AS injecteur, r.passerelle, r.sauts, COUNT(*) AS nb FROM paquets p JOIN receptions r ON r.paquet = p.rowid
@@ -32,7 +32,7 @@ function creerControleTrafic({ stockage, config, administration }) {
   function analyser(heures = 24) {
     const depuis = Date.now() - heures * 3600000;
     const gwZone = q.passerelles.all().filter(dansZone).map((g) => g.num);
-    const entendus = new Set(gwZone.length ? q.entendus.all(depuis, JSON.stringify(gwZone)).map((x) => x.de >>> 0) : []);
+    const entendus = new Set(gwZone.length ? q.entendus.all(depuis, JSON.stringify(gwZone)).map((x) => `${x.de >>> 0}|${x.port}`) : []);
     const admin = administration ? administration.administrables() : {};
     // Intervalle médian entre deux paquets du même type (doublons d'un même paquet déjà fusionnés en base)
     const groupes = new Map();
@@ -53,13 +53,16 @@ function creerControleTrafic({ stockage, config, administration }) {
       const fixe = FIXES.has(n.role);
       const seuil = g.port === 'position' ? (fixe ? SEUILS.positionFixe : SEUILS.position) : SEUILS[g.port];
       if (median >= seuil) continue;
+      // Ce type de paquet est-il vraiment passé en radio (entendu par une autre passerelle de la zone) ?
+      const enRadio = entendus.has(`${g.de}|${g.port}`);
       const e = parNoeud.get(g.de) || {
         num: g.de, id: id(g.de), nom: n.nom_long || n.nom_court || id(g.de), role: n.role || null, fixe,
-        zone: dansZone(n), radio: entendus.has(g.de), administrable: !!(admin[String(g.de)] && admin[String(g.de)].ok), problemes: [], paquetsJour: 0,
+        zone: dansZone(n), radio: false, administrable: !!(admin[String(g.de)] && admin[String(g.de)].ok), problemes: [], paquetsJour: 0,
       };
       const parJour = Math.round((g.heures.length * 24) / heures);
       e.paquetsJour += parJour;
-      e.problemes.push({ port: g.port, nb: g.heures.length, parJour, medianS: Math.round(median), conseilS: seuil });
+      e.problemes.push({ port: g.port, nb: g.heures.length, parJour, medianS: Math.round(median), conseilS: seuil, radio: enRadio });
+      if (enRadio) e.radio = true;
       parNoeud.set(g.de, e);
     }
     const bavards = [...parNoeud.values()].sort((a, b) => (b.radio - a.radio) || b.paquetsJour - a.paquetsJour);

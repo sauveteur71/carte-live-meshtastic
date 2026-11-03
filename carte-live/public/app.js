@@ -5696,7 +5696,7 @@ async function ficheTrafic(heures = 24) {
   const ligne = (b) => `<tr>
       <td>${b.administrable && b.radio ? `<input type="checkbox" data-trafic="${b.num}" checked>` : ''}</td>
       <td><a href="#" data-noeud="${b.num}">${esc(b.nom)}</a><small> ${esc(b.role || '')}${b.zone ? '' : ' · hors zone'}</small></td>
-      <td>${b.problemes.map((p) => `${LIB[p.port] || p.port} toutes les <b style="color:var(--attention)">${dur(p.medianS)}</b> <small>(conseil ≥ ${dur(p.conseilS)})</small>`).join('<br>')}</td>
+      <td>${b.problemes.map((p) => `${LIB[p.port] || p.port} toutes les <b style="color:var(--attention)">${dur(p.medianS)}</b> <small>(conseil ≥ ${dur(p.conseilS)})${b.radio && !p.radio ? ' · pas en radio' : ''}</small>`).join('<br>')}</td>
       <td class="num">${b.paquetsJour}</td>
       <td>${b.administrable ? (b.radio ? 'programmable' : '—') : '<small>sur place / propriétaire</small>'}</td></tr>`;
   const ri = r.reinjection;
