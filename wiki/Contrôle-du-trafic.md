@@ -23,3 +23,7 @@ Paquets venus d'internet (drapeau « via MQTT ») puis émis en radio par une pa
 
 ## « Ignorer MQTT » sur les relais
 Réglage LoRa du firmware : le nœud ne relaie plus les paquets arrivés par MQTT. Conseillé sur les ROUTER et ROUTER_LATE ; un bouton l'active sur tous les relais programmables.
+
+## Dans le panneau Réseau
+La section **Nœuds trop bavards** (onglet Réseau, réservée aux gestionnaires) donne la liste en direct sur 24 h : le nœud, son rôle, ce qu'il envoie trop souvent et le nombre de paquets par jour. Un clic sur un nœud ouvre sa fiche ; le bouton en bas ouvre le contrôle complet, avec la correction à distance. La liste est recalculée tous les quarts d'heure.
+

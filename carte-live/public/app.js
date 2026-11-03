@@ -540,6 +540,29 @@ function montrerChemin(c) {
 }
 
 // ---- Liaisons à sens unique ----------------------------------------------------------------
+// ---- Nœuds trop bavards en radio (Contrôle du trafic, 24 h) : réservé aux gestionnaires -------------------
+async function chargerBavards() {
+  const bloc = $('#pli-bavards'), z = $('#bavards');
+  if (!bloc || !z) return;
+  if (!etat.gestion && !etat.admin) { bloc.hidden = true; return; }
+  let r;
+  try { r = await api('/api/trafic/controle?heures=24'); } catch { bloc.hidden = true; return; }
+  bloc.hidden = false;
+  const dur = (sec) => (sec < 120 ? `${sec} s` : sec < 7200 ? `${Math.round(sec / 60)} min` : `${Math.floor(sec / 3600)} h ${String(Math.round((sec % 3600) / 60)).padStart(2, '0')}`);
+  const LIB = { position: 'sa position', telemetrie: 'sa télémétrie', nodeinfo: 'sa fiche' };
+  const l = r.bavards.filter((b) => b.radio && b.zone);
+  const p = $('#nb-bavards'); p.textContent = l.length; p.className = 'pastille' + (l.length ? ' attention' : '');
+  const ri = r.reinjection || {};
+  $('#resume-bavards').textContent = l.length ? `${l.length} nœud${l.length > 1 ? 's' : ''}${ri.total ? ` · ${ri.total} paquets réinjectés de MQTT` : ''}` : 'aucun';
+  z.innerHTML = l.map((b) => {
+    const pb = b.problemes.filter((x) => x.radio !== false);
+    const txt = (pb.length ? pb : b.problemes).map((x) => `${LIB[x.port] || x.port} toutes les ${dur(x.medianS)}`).join(', ');
+    return `<div class="ligne cliquable" data-bavard="${b.num}"><span class="point attention"></span><span class="titre">${esc(b.nom)} <small>${esc(b.role || '')}${b.administrable ? ' · programmable' : ''}</small>
+      <small>envoie ${esc(txt)} · ${b.paquetsJour} paquets/j</small></span></div>`;
+  }).join('') + (l.length ? '<div class="actions-prop"><button class="mini" id="bavards-detail">🚦 Contrôle du trafic et correction…</button></div>' : '<div class="vide">Aucun nœud trop bavard entendu en radio sur 24 h. 👍</div>');
+  z.querySelectorAll('[data-bavard]').forEach((el) => (el.onclick = () => { const n = etat.noeuds.get(Number(el.dataset.bavard)); if (n) ouvrirFiche(n.num); }));
+  const bd = $('#bavards-detail'); if (bd) bd.onclick = () => ficheTrafic(24);
+}
 // ---- Nouveaux nœuds du secteur ------------------------------------------------------------------------
 async function chargerNouveaux() {
   const z = $('#nouveaux');
@@ -5258,6 +5281,7 @@ async function demarrer() {
   chargerRelief();
   chargerAsymetrie(); setInterval(chargerAsymetrie, 120000);
   chargerNouveaux(); setInterval(chargerNouveaux, 300000);
+  chargerBavards(); setInterval(chargerBavards, 900000);
   chargerChemins(); setInterval(chargerChemins, 300000);
   chargerSanteCarte(); setInterval(chargerSanteCarte, 60000);
   chargerFederation(); setInterval(chargerFederation, 600000);
