@@ -2502,6 +2502,8 @@ setTimeout(() => reseauMc.purger(config.retentionJours, config.meshcore.retentio
 
 serveur.listen(config.port, () => journal(`Carte live Meshtastic à l'écoute sur le port ${config.port}`));
 
+// Filet de sécurité : une promesse rejetée sans traitement ne doit jamais arrêter la carte (elle redémarrait en boucle)
+process.on('unhandledRejection', (e) => { console.error(new Date().toISOString(), '[Erreur non traitée]', e && e.stack ? e.stack : e); });
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     journal('Arrêt…');

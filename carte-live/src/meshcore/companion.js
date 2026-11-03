@@ -107,8 +107,9 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
 
   /** Envoie une commande et attend la première trame dont le code est dans `codes` (ou une erreur). */
   function commande(octets, codes, delai = 8000) {
+    const origine = new Error('commande ' + (octets[0] ?? '?')).stack; // pour le diagnostic d'une erreur non traitée
     return new Promise((ok, ko) => {
-      file.push({ octets: Buffer.from(octets), codes: new Set(codes), delai, ok, ko, gen: generation });
+      file.push({ octets: Buffer.from(octets), codes: new Set(codes), delai, ok, ko, gen: generation, origine });
       pomper();
     });
   }
@@ -117,7 +118,14 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
     const c = file.shift();
     if (c.gen !== generation || !flux) { c.ko(new Error('companion non relié')); return pomper(); }
     enVol = c;
-    c.minuterie = setTimeout(() => { if (enVol === c) { enVol = null; c.ko(new Error('pas de réponse du companion')); pomper(); } }, c.delai);
+    c.minuterie = setTimeout(() => {
+      if (enVol !== c) return;
+      enVol = null;
+      const e = new Error('pas de réponse du companion');
+      e.stack += '\n    — ' + String(c.origine || '').split('\n').slice(1, 5).join('\n    — ');
+      c.ko(e);
+      pomper();
+    }, c.delai);
     if (!ecrire(c.octets)) { clearTimeout(c.minuterie); enVol = null; c.ko(new Error('companion non relié')); pomper(); }
   }
   function terminer(t) {
@@ -393,7 +401,10 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
     if (f && !f.destroyed) f.destroy();
   }
 
-  const exigerPret = () => { if (!flux || !etat.connecte) throw new Error('aucun companion relié à la carte'); };
+  const exigerPret = () => {
+    if (!flux || !etat.connecte) throw new Error('aucun companion relié à la carte');
+    if (!etat.pret) throw new Error('companion relié mais muet : il ne répond pas encore (firmware « companion », démarrage en cours ?)');
+  };
   const cleOctets = (cle) => { if (!/^[0-9A-F]{64}$/i.test(cle)) throw new Error('clé publique invalide'); return Buffer.from(cle, 'hex'); };
 
   // Ajoute (ou met à jour) un nœud dans les contacts du companion : nécessaire pour lui écrire ou l'administrer

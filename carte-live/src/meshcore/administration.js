@@ -209,7 +209,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     journal(`${aReprendre.length} tâche(s) MeshCore interrompue(s) : reprise dès que le companion est relié`);
     const debut = Date.now();
     const attente = setInterval(() => {
-      if (companion.etat().connecte) { clearInterval(attente); for (const t of aReprendre) file.push(t); setImmediate(suivante); }
+      if (companion.etat().pret) { clearInterval(attente); for (const t of aReprendre) file.push(t); setImmediate(suivante); }
       else if (Date.now() - debut > 30 * 60000) { clearInterval(attente); for (const t of aReprendre) { t.statut = 'annule'; t.fin = Date.now(); t.etapes.push({ heure: Date.now(), cle: null, texte: 'companion non relié dans les 30 min après le redémarrage', ok: false }); } sauverTaches(); }
     }, 5000);
     if (attente.unref) attente.unref();
@@ -523,7 +523,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
   let derniereSupervision = 0;
   setInterval(() => {
     const h = config.meshcore.supervisionHeures;
-    if (!h || enCours || file.length || !companion.etat().connecte || Date.now() - derniereSupervision < h * 3600000) return;
+    if (!h || enCours || file.length || !companion.etat().pret || Date.now() - derniereSupervision < h * 3600000) return;
     derniereSupervision = Date.now();
     const contacts = new Set(companion.contacts().map((c) => c.cle));
     const cibles = reseauMc.surveilles(Object.keys(motsDePasse))
