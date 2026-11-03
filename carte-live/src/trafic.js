@@ -16,9 +16,10 @@ function creerControleTrafic({ stockage, config, administration }) {
   const db = stockage.db;
   const q = {
     paquets: db.prepare(`SELECT p.de, p.port, p.heure FROM paquets p WHERE p.heure >= ? AND p.port IN ('position', 'telemetrie', 'nodeinfo') ORDER BY p.de, p.port, p.heure`),
-    // Nœuds entendus par une passerelle de la zone (le reste n'arrive que par le broker)
+    // Nœuds entendus par une passerelle de la zone (le reste n'arrive que par le broker). Une passerelle qui publie
+    // ses propres paquets ne compte pas : sa télémétrie « locale » (toutes les 60 s vers l'appli) ne passe pas en radio.
     passerelles: db.prepare('SELECT num, lat, lon FROM noeuds WHERE est_passerelle = 1'),
-    entendus: db.prepare(`SELECT DISTINCT p.de FROM paquets p JOIN receptions r ON r.paquet = p.rowid WHERE p.heure >= ? AND r.passerelle IN (SELECT value FROM json_each(?))`),
+    entendus: db.prepare(`SELECT DISTINCT p.de FROM paquets p JOIN receptions r ON r.paquet = p.rowid WHERE p.heure >= ? AND r.passerelle <> p.de AND r.passerelle IN (SELECT value FROM json_each(?))`),
     noeud: db.prepare('SELECT num, nom_long, nom_court, role, lat, lon, firmware FROM noeuds WHERE num = ?'),
     // Paquets réinjectés depuis MQTT (drapeau via_mqtt) puis entendus en radio
     reinjectes: db.prepare(`SELECT p.de, p.port, r.relais_num AS injecteur, r.passerelle, r.sauts, COUNT(*) AS nb FROM paquets p JOIN receptions r ON r.paquet = p.rowid
