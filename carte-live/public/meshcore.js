@@ -459,7 +459,7 @@ async function mcRendreAnalyse() {
 // ---- Gestion : administration des répéteurs et room servers (admin) ---------------------------
 const mcGestion = { selection: new Set(), suivi: null, tache: null, info: null };
 const MC_LPP = { tension: 'Tension', temperature: 'Température', humidite: 'Humidité', pression: 'Pression', courant: 'Courant', pourcentage: 'Charge', luminosite: 'Luminosité', altitude: 'Altitude', puissance: 'Puissance', energie: 'Énergie', concentration: 'Concentration', gps: 'Position', analogique: 'Entrée analogique', entree: 'Entrée', sortie: 'Sortie', generique: 'Capteur', presence: 'Présence', interrupteur: 'Interrupteur' };
-const MC_TACHES = { lire: 'Lire la configuration', statut: 'État', voisins: 'Voisins', verifier: 'Vérification de conformité', modifier: 'Modification', cli: 'Commande', annonce: 'Annonce', horloge: 'Horloge', redemarrer: 'Redémarrage', chemin: 'Chemin', tracer: 'Trace (SNR par saut)', telemetrie: 'Télémétrie', motdepasse: 'Mots de passe', regions: 'Régions' };
+const MC_TACHES = { lire: 'Lire la configuration', statut: 'État', voisins: 'Voisins', verifier: 'Vérification de conformité', modifier: 'Modification', cli: 'Commande', annonce: 'Annonce', horloge: 'Horloge', redemarrer: 'Redémarrage', chemin: 'Chemin', tracer: 'Trace (SNR par saut)', telemetrie: 'Télémétrie', motdepasse: 'Mots de passe', regions: 'Régions', modele: 'Application d’un modèle', miseEnService: 'Mise en service' };
 const MC_STATUTS = { en_attente: 'en attente', en_cours: 'en cours…', ok: 'réussi', echec: 'échec', annule: 'arrêté', reprise: 'insiste : nouvel essai prévu' };
 // ---- Maintenance MeshCore : firmwares, accès administrateur, conformité automatique ---------------------
 async function mcFicheMaintenance() {
@@ -570,6 +570,15 @@ async function mcRendreGestion() {
   if (mcGestion.tache) mcSuivreTache(mcGestion.tache, $('#mc-g-tache'));
 }
 
+// « put nom [parent] », « def a b c », « default <null> »… : une action de région par ligne
+function mcLireActionsRegions(texte) {
+  return String(texte || '').split('\n').map((l) => l.trim().replace(/^region\s+/i, '')).filter((l) => l && !l.startsWith('#')).map((l) => {
+    const [op, ...reste] = l.split(/\s+/);
+    const o = (op || '').toLowerCase();
+    if (o === 'def') return { op: o, nom: reste.join(' ') };
+    return { op: o, nom: reste[0], parent: reste[1] };
+  }).filter((a) => a.op && a.op !== 'save');
+}
 // ---- Mots de passe, régions, modèles : formulaires communs à « Programmer » et à la fiche d'un répéteur ----------
 async function mcOutilAdmin(type, cles, zone, ctx) {
   const noms = cles.map((c) => { const n = mc.noeuds.get(c); return n ? n.nom || c.slice(0, 8) : c.slice(0, 8); });
@@ -609,11 +618,11 @@ Notez-le : sans lui, il faudra repasser par l’USB.`)) return;
         <span class="mono">put haute-loire</span> créer (parent facultatif : <span class="mono">put lpy haute-loire</span>) ·
         <span class="mono">allowf haute-loire</span> / <span class="mono">denyf haute-loire</span> relayer ou bloquer ses inondations (<span class="mono">*</span> = paquets sans région) ·
         <span class="mono">home haute-loire</span> région d’attache · <span class="mono">default haute-loire</span> limiter ses propres envois (<span class="mono">default &lt;null&gt;</span> pour retirer) ·
-        <span class="mono">remove nom</span> supprimer. Les changements sont enregistrés (<span class="mono">region save</span>) puis relus.</p>
+        <span class="mono">remove nom</span> supprimer · <span class="mono">def eu fr fr-ara fr-43</span> créer un arbre en une ligne. Les changements sont enregistrés (<span class="mono">region save</span>) puis relus.</p>
       <textarea name="actions" rows="4" placeholder="put haute-loire&#10;allowf haute-loire&#10;home haute-loire"></textarea>
       <div class="actions-prop"><button class="principal">Appliquer et relire</button><button type="button" data-lire>Lire seulement</button><button type="button" data-fermer>Annuler</button></div>${pied}</form>`;
     const f = zone.querySelector('form');
-    const actions = () => f.actions.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [op, nom, parent] = l.split(/\s+/); return { op: (op || '').toLowerCase(), nom, parent }; });
+    const actions = () => mcLireActionsRegions(f.actions.value);
     f.querySelector('[data-lire]').onclick = () => lancer('regions', { actions: [] });
     f.onsubmit = (e) => {
       e.preventDefault();
@@ -621,6 +630,34 @@ Notez-le : sans lui, il faudra repasser par l’USB.`)) return;
       if (!a.length) return lancer('regions', { actions: [] });
       if (!confirm(`Appliquer à ${noms.length} nœud(s) :\n${a.map((x) => `• region ${x.op} ${x.nom}${x.parent ? ' ' + x.parent : ''}`).join('\n')}\n\nUne région bloquée (denyf) ne sera plus relayée par ces répéteurs.`)) return;
       lancer('regions', { actions: a });
+    };
+  } else if (type === 'service') {
+    let l = [];
+    try { l = await api('/api/mc/admin/modeles'); } catch { /* aucun */ }
+    const n = mc.noeuds.get(cles[0]) || {};
+    let lu = null;
+    try { lu = (await api('/api/mc/admin/lecture/' + cles[0])).lecture; } catch { /* aucune */ }
+    const v = (lu && lu.valeurs) || {};
+    zone.innerHTML = `<form class="form-edit outil-mc"><h4>🚀 Mise en service · ${esc(noms[0])}</h4>
+      <p class="note">Applique un modèle, l’identification du répéteur et un nouveau mot de passe admin en une seule opération, puis met à l’heure (et redémarre si le modèle le prévoit).</p>
+      <div class="grille-edit">
+        <label>Modèle <select name="modele"><option value="">(aucun : identification seulement)</option>${l.map((m) => `<option value="${m.id}">${esc(m.nom)}</option>`).join('')}</select></label>
+        <label>Nom <input name="name" maxlength="31" value="${esc(v.name || n.nom || '')}" placeholder="ex. FR43PYVE_Rep"></label>
+        <label>Latitude <input name="lat" inputmode="decimal" value="${esc(v.lat || (n.lat != null ? n.lat.toFixed(6) : ''))}"></label>
+        <label>Longitude <input name="lon" inputmode="decimal" value="${esc(v.lon || (n.lon != null ? n.lon.toFixed(6) : ''))}"></label>
+        <label style="grid-column:1/-1">Contact (infos propriétaire) <input name="owner" maxlength="120" value="${esc(v['owner.info'] || '')}" placeholder="E-Mail|Telegram|INDICATIF"></label>
+        <label>Nouveau mot de passe admin <input name="admin" type="password" autocomplete="new-password" maxlength="15" placeholder="vide = inchangé"></label>
+        <label>Confirmation <input name="admin2" type="password" autocomplete="new-password" maxlength="15"></label>
+      </div>
+      <div class="actions-prop"><button class="principal">Mettre en service</button><button type="button" data-fermer>Annuler</button></div>${pied}</form>`;
+    const f = zone.querySelector('form');
+    f.onsubmit = (e) => {
+      e.preventDefault();
+      if (f.admin.value !== f.admin2.value) { f.querySelector('.erreur').textContent = 'Les deux mots de passe sont différents.'; return; }
+      const m = l.find((x) => x.id === f.modele.value);
+      const identite = { name: f.name.value.trim(), lat: f.lat.value.trim(), lon: f.lon.value.trim(), 'owner.info': f.owner.value.trim() };
+      if (!confirm(`Mettre en service « ${noms[0]} » ?${m ? `\n• modèle « ${m.nom} »${m.redemarrer ? ' (redémarrage à la fin)' : ''}` : ''}\n• nom ${identite.name || 'inchangé'}, position ${identite.lat && identite.lon ? identite.lat + ', ' + identite.lon : 'inchangée'}${f.admin.value ? '\n• nouveau mot de passe admin : notez-le' : ''}`)) return;
+      lancer('miseEnService', { modele: f.modele.value || undefined, identite, admin: f.admin.value || undefined });
     };
   } else if (type === 'modeles') {
     let l = [], info = mcGestion.info;
@@ -630,16 +667,21 @@ Notez-le : sans lui, il faudra repasser par l’USB.`)) return;
     if (cles.length === 1) { try { source = (await api('/api/mc/admin/lecture/' + cles[0])).lecture; } catch { /* aucune */ } }
     zone.innerHTML = `<div class="outil-mc"><h4>📋 Modèles de réglages</h4>
       ${l.length ? l.map((m) => `<div class="proposition"><b>${esc(m.nom)}</b>${m.description ? `<div class="note">${esc(m.description)}</div>` : ''}<div class="meta-longue">${Object.entries(m.valeurs).map(([k, v]) => `${esc(lib(k))} = <b>${esc(v)}</b>`).join(' · ')}</div>
+        ${(m.regions || []).length ? `<div class="meta-longue">Régions : ${m.regions.map((a) => `<span class="mono">region ${esc(a.op)} ${esc(a.nom)}${a.parent ? ' ' + esc(a.parent) : ''}</span>`).join(' · ')}</div>` : ''}
+        <div class="meta-longue">${m.horloge !== false ? 'mise à l’heure' : ''}${m.redemarrer ? ' · redémarrage à la fin' : ''}</div>
         <div class="actions-prop">${cles.length ? `<button class="mini principal" data-appliquer="${m.id}">Appliquer à ${cles.length} nœud(s)</button>` : ''}<button class="mini" data-supprimer="${m.id}">Supprimer</button></div></div>`).join('') : '<div class="vide">Aucun modèle.</div>'}
       <form class="form-edit"><h4>Nouveau modèle${source && source.valeurs ? ` <small>(prérempli avec ${esc(noms[0])})</small>` : ''}</h4>
         <div class="grille-edit"><label>Nom <input name="nom" required maxlength="40" placeholder="ex. Répéteur point haut"></label><label>Description <input name="description" maxlength="200"></label></div>
         <div class="grille-edit reglages-modele">${info.params.filter((p) => !['name', 'lat', 'lon', 'owner.info'].includes(p.cle)).map((p) => `<label>${esc(p.nom)}${p.redemarrage ? ' <small>(redémarrage)</small>' : ''} <input name="${p.cle}" value="${esc(source && source.valeurs && source.valeurs[p.cle] != null ? source.valeurs[p.cle] : '')}" placeholder="non inclus"></label>`).join('')}</div>
-        <p class="note">Laissez vide ce qui ne doit pas être changé. Nom, position et infos propriétaire ne font jamais partie d’un modèle.</p>
+        <label>Régions (une action par ligne, facultatif)<textarea name="regions" rows="3" placeholder="def eu fr fr-ara fr-43&#10;default fr&#10;home fr"></textarea></label>
+        <label class="case"><input type="checkbox" name="horloge" checked> Mettre à l’heure</label>
+        <label class="case"><input type="checkbox" name="redemarrer"> Redémarrer à la fin (nécessaire pour certains réglages)</label>
+        <p class="note">Laissez vide ce qui ne doit pas être changé. Nom, position, infos propriétaire et mot de passe ne font jamais partie d’un modèle : ils se règlent avec « Mise en service ».</p>
         <div class="actions-prop"><button class="principal">Enregistrer le modèle</button><button type="button" data-fermer>Fermer</button></div>${pied}</form></div>`;
     zone.querySelectorAll('[data-appliquer]').forEach((b) => (b.onclick = () => {
       const m = l.find((x) => x.id === b.dataset.appliquer);
-      if (!confirm(`Appliquer « ${m.nom} » à ${noms.join(', ')} ?\n${Object.entries(m.valeurs).map(([k, v]) => `• ${lib(k)} = ${v}`).join('\n')}${m.valeurs.radio ? '\n\n⚠ Changer la radio d’un nœud distant peut le rendre injoignable. Un redémarrage sera nécessaire.' : ''}`)) return;
-      lancer('modifier', { valeurs: m.valeurs });
+      if (!confirm(`Appliquer « ${m.nom} » à ${noms.join(', ')} ?\n${Object.entries(m.valeurs).map(([k, v]) => `• ${lib(k)} = ${v}`).join('\n')}${(m.regions || []).map((a) => `\n• region ${a.op} ${a.nom}`).join('')}${m.redemarrer ? '\n• redémarrage à la fin' : ''}${m.valeurs.radio ? '\n\n⚠ Changer la radio d’un nœud distant peut le rendre injoignable.' : ''}`)) return;
+      lancer('modele', { modele: m.id });
     }));
     zone.querySelectorAll('[data-supprimer]').forEach((b) => (b.onclick = async () => { if (!confirm('Supprimer ce modèle ?')) return; await api('/api/mc/admin/modeles/' + b.dataset.supprimer, { method: 'DELETE' }); mcOutilAdmin('modeles', cles, zone, ctx); }));
     const f = zone.querySelector('form');
@@ -647,7 +689,7 @@ Notez-le : sans lui, il faudra repasser par l’USB.`)) return;
       e.preventDefault();
       const valeurs = {};
       f.querySelectorAll('.reglages-modele input').forEach((x) => { if (x.value.trim()) valeurs[x.name] = x.value.trim(); });
-      try { await postJson('/api/mc/admin/modeles', { nom: f.nom.value, description: f.description.value, valeurs }); mcOutilAdmin('modeles', cles, zone, ctx); } catch (x) { f.querySelector('.erreur').textContent = x.message; }
+      try { await postJson('/api/mc/admin/modeles', { nom: f.nom.value, description: f.description.value, valeurs, regions: mcLireActionsRegions(f.regions.value), horloge: f.horloge.checked, redemarrer: f.redemarrer.checked }); mcOutilAdmin('modeles', cles, zone, ctx); } catch (x) { f.querySelector('.erreur').textContent = x.message; }
     };
   }
   zone.querySelectorAll('[data-fermer]').forEach((b) => (b.onclick = () => { zone.innerHTML = ''; }));
@@ -720,7 +762,7 @@ async function mcRendreAdminFiche(n, z) {
         <button type="button" data-a="lire" class="principal">Lire la configuration</button><button type="button" data-a="statut">État</button><button type="button" data-a="voisins">Voisins</button>
         <button type="button" data-a="horloge">Mettre à l’heure</button><button type="button" data-a="annonce">Annonce</button><button type="button" data-a="redemarrer">Redémarrer</button>
         <button type="button" data-a="tracer" title="Aller-retour le long du chemin, SNR de chaque saut (sans mot de passe)">Tracer</button><button type="button" data-a="telemetrie" title="Batterie, température, capteurs">Télémétrie</button>
-        <button type="button" data-a="motdepasse">🔑 Mots de passe…</button><button type="button" data-a="regions">🗺️ Régions…</button><button type="button" data-a="modeles">📋 Modèles…</button>
+        <button type="button" data-a="service" title="Modèle, nom, position, contact et mot de passe en une seule opération">🚀 Mise en service…</button><button type="button" data-a="motdepasse">🔑 Mots de passe…</button><button type="button" data-a="regions">🗺️ Régions…</button><button type="button" data-a="modeles">📋 Modèles…</button>
         ${l.memorise ? '<button type="button" data-a="oublier">Oublier le mot de passe</button>' : ''}
       </div>
       ${lu.heure ? `<p class="note">Configuration lue ${ilYa(lu.heure)}${inf.version ? ` · ${esc(inf.version)}` : ''}${inf.carte ? ` · ${esc(inf.carte)}` : ''}</p>` : '<p class="note">Configuration jamais lue : commencez par « Lire la configuration ».</p>'}
@@ -759,7 +801,7 @@ async function mcRendreAdminFiche(n, z) {
   f.querySelectorAll('[data-a]').forEach((b) => (b.onclick = async () => {
     const a = b.dataset.a;
     if (a === 'oublier') { await postJson('/api/mc/admin/mot-de-passe', { cle: n.cle, motDePasse: null }); mcRendreAdminFiche(n, z); return; }
-    if (['motdepasse', 'regions', 'modeles'].includes(a)) {
+    if (['motdepasse', 'regions', 'modeles', 'service'].includes(a)) {
       return mcOutilAdmin(a, [n.cle], $('#mc-adm-outil'), { mdp: () => f.mdp.value, memoriser: () => f.memoriser.checked, insister: () => f.insister.checked, viderMdp: () => { f.mdp.value = ''; }, zoneTache: $('#mc-adm-tache'),
         apres: (fin) => { if (mc.selection === n.cle) mcRendreAdminFiche(n, z).then(() => { const zt = $('#mc-adm-tache'); if (zt) zt.innerHTML = mcHtmlTache(fin); }); } });
     }

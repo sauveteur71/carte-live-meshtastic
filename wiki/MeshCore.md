@@ -22,7 +22,23 @@ Onglet **MeshCore › Programmer** et fiche d'un répéteur :
 - **lecture ciblée** : seulement les réglages cochés (*Lecture ciblée*), au lieu de tout relire ;
 - **🔑 Mots de passe** : changer le mot de passe admin (le mot de passe mémorisé suit) et le mot de passe invité, ou le retirer. Les nouveaux mots de passe ne sont jamais enregistrés dans l'historique des opérations ;
 - **🗺️ Régions** : lire l'arbre des régions, la région d'attache et la région d'envoi ; créer (`put`), autoriser ou bloquer les inondations d'une région (`allowf` / `denyf`, `*` pour les paquets sans région), définir l'attache (`home`) et la région d'envoi (`default`), supprimer (`remove`) ; enregistrement (`region save`) et relecture automatiques ;
-- **📋 Modèles** : réglages types (prérempli depuis un répéteur lu), appliqués à plusieurs répéteurs en une fois. Nom, position et infos propriétaire n'en font jamais partie ;
+- **📋 Modèles** : réglages types (préremplis depuis un répéteur lu), actions de régions, mise à l'heure et redémarrage, appliqués à plusieurs répéteurs en une fois. Nom, position, contact et mot de passe n'en font jamais partie. Un modèle **« Répéteur de base (FR-43) »** est fourni :
+
+  | Réglage | Valeur |
+  |---|---|
+  | advert.interval | 240 |
+  | flood.advert.interval | 24 |
+  | agc.reset.interval | 4 |
+  | multi.acks | 1 |
+  | dutycycle | 10 |
+  | path.hash.mode | 1 (2 octets) |
+  | loop.detect | minimal |
+  | flood.max.unscoped | 3 |
+  | flood.max.advert | 5 |
+  | régions | `def eu fr fr-ara fr-43`, `default fr`, `home fr`, enregistrement |
+  | puis | mise à l'heure et redémarrage |
+
+- **🚀 Mise en service** (fiche du répéteur) : un modèle, le nom, la position (préremplie depuis la carte), le contact (`owner.info`) et un nouveau mot de passe admin, en une seule opération ;
 - **Insister 2 h** : les répéteurs en échec passager sont repris toutes les 10 min pendant 2 h ; chaque nœud affiche l'heure de sa réussite ou de son échec ;
 - **vérification de conformité** et « Aligner sur la référence » ;
 - **supervision** automatique et alertes (muet, batterie, émission, brouillage).

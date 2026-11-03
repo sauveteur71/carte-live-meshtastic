@@ -23,7 +23,9 @@ const PARAMS = [
   { cle: 'txdelay', nom: 'Délai de relais (inondation)', type: 'nombre', min: 0, max: 2, pas: 0.1 },
   { cle: 'direct.txdelay', nom: 'Délai de relais (direct)', type: 'nombre', min: 0, max: 2, pas: 0.1 },
   { cle: 'dutycycle', nom: 'Cycle d’émission max. (%)', type: 'nombre', min: 1, max: 100 },
-  { cle: 'multi.acks', nom: 'Accusés multiples', type: 'nombre', min: 0, max: 3 },
+  { cle: 'multi.acks', nom: 'Accusés multiples', type: 'nombre', min: 0, max: 1 },
+  { cle: 'agc.reset.interval', nom: 'Réinitialisation AGC (s)', type: 'nombre', min: 0, max: 1020, multiple: 4 },
+  { cle: 'flood.max.unscoped', nom: 'Sauts max. sans région', type: 'nombre', min: 0, max: 64 },
   { cle: 'loop.detect', nom: 'Détection des boucles', type: 'liste', valeurs: [['off', 'non'], ['minimal', 'minimale'], ['moderate', 'modérée'], ['strict', 'stricte']] },
   { cle: 'lat', nom: 'Latitude', type: 'nombre', min: -90, max: 90, pas: 0.000001 },
   { cle: 'lon', nom: 'Longitude', type: 'nombre', min: -180, max: 180, pas: 0.000001 },
@@ -32,7 +34,7 @@ const PARAMS = [
 const INFOS = [{ cmd: 'ver', cle: 'version', nom: 'Firmware' }, { cmd: 'board', cle: 'carte', nom: 'Matériel' }, { cmd: 'get role', cle: 'role', nom: 'Rôle' }, { cmd: 'clock', cle: 'horloge', nom: 'Horloge du nœud' },
   { cmd: 'region home', cle: 'regionMaison', nom: 'Région d’attache (v1.10+)' }, { cmd: 'region default', cle: 'regionDefaut', nom: 'Région par défaut des envois (v1.10+)' }];
 // Éléments comparables entre nœuds (vérification de conformité)
-const ELEMENTS = ['radio', 'tx', 'repeat', 'flood.max', 'flood.max.advert', 'advert.interval', 'flood.advert.interval', 'path.hash.mode', 'txdelay', 'direct.txdelay', 'dutycycle', 'multi.acks', 'loop.detect'];
+const ELEMENTS = ['radio', 'tx', 'repeat', 'flood.max', 'flood.max.advert', 'flood.max.unscoped', 'agc.reset.interval', 'advert.interval', 'flood.advert.interval', 'path.hash.mode', 'txdelay', 'direct.txdelay', 'dutycycle', 'multi.acks', 'loop.detect'];
 const ELEMENTS_DEFAUT = ['radio', 'repeat', 'flood.max', 'advert.interval', 'flood.advert.interval', 'path.hash.mode'];
 // Commandes refusées depuis la console (destructrices ou exposant des secrets)
 const INTERDITES = /^(erase|set prv\.key|get prv\.key|start ota)\b/i;
@@ -55,14 +57,33 @@ function valeurValide(p, v) {
     if (!m || +m[3] < 5 || +m[3] > 12 || +m[4] < 5 || +m[4] > 8) throw new Error('Radio : fréquence,bande,SF,CR (ex. 869.618,62.5,8,8)');
     return `${m[1]},${m[2]},${m[3]},${m[4]}`;
   }
-  const n = Number(v.replace(',', '.'));
+  let n = Number(v.replace(',', '.'));
   if (!Number.isFinite(n) || n < p.min || n > p.max) throw new Error(`${p.nom} : entre ${p.min} et ${p.max}`);
+  if (p.multiple) n = Math.round(n / p.multiple) * p.multiple; // le firmware arrondit lui aussi
   return String(n);
 }
 // Liste « neighbors » : une ligne par voisin « préfixe:horodatage:snr×4 »
 function lireVoisins(t) {
   return String(t || '').split(/\r?\n/).map((l) => l.trim().replace(/^>\s?/, '')).map((l) => /^([0-9A-Fa-f]{2,64}):(\d+):(-?\d+)/.exec(l)).filter(Boolean)
     .map((m) => ({ prefixe: m[1].toUpperCase(), vu: Number(m[2]) * 1000 || null, snr: Number(m[3]) / 4 }));
+}
+
+// Actions sur les régions (firmware répéteur 1.10+) : put, remove, allowf, denyf, home, default, def (arbre en une ligne)
+const NOM_REGION = /^[#\p{L}\p{N}_.-]{1,30}$/u;
+function validerRegions(actions) {
+  const ops = Array.isArray(actions) ? actions : [];
+  if (ops.length > 30) throw new Error('30 actions de région au plus');
+  for (const a of ops) {
+    if (!['put', 'remove', 'allowf', 'denyf', 'home', 'default', 'def'].includes(a.op)) throw new Error('action de région inconnue : ' + a.op);
+    if (a.op === 'def') {
+      const toks = String(a.nom || '').trim().split(/\s+/);
+      if (!toks[0] || String(a.nom).length > 140 || toks.some((x) => !/^[#\p{L}\p{N}_.-]{1,30}([|,]([#\p{L}\p{N}_.-]{1,30}|\*))?$/u.test(x))) throw new Error('region def : noms séparés par des espaces (nom|saut pour revenir à une région)');
+      continue;
+    }
+    if (!(NOM_REGION.test(String(a.nom || '')) || (['allowf', 'denyf'].includes(a.op) && a.nom === '*') || (a.op === 'default' && a.nom === '<null>'))) throw new Error('nom de région invalide : ' + a.nom);
+    if (a.parent && !(NOM_REGION.test(a.parent) || a.parent === '*')) throw new Error('région parente invalide');
+  }
+  return ops;
 }
 
 // Opérations possibles sans mot de passe admin (une connexion est tentée si un mot de passe est connu)
@@ -105,7 +126,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
       }
     }
     if (type === 'verifier' && liste.length < 2) throw new Error('choisissez au moins 2 nœuds (le premier sert de référence)');
-    if (!['lire', 'statut', 'voisins', 'cli', 'modifier', 'verifier', 'annonce', 'horloge', 'redemarrer', 'chemin', 'tracer', 'telemetrie', 'motdepasse', 'regions'].includes(type)) throw new Error('opération inconnue');
+    if (!['lire', 'statut', 'voisins', 'cli', 'modifier', 'verifier', 'annonce', 'horloge', 'redemarrer', 'chemin', 'tracer', 'telemetrie', 'motdepasse', 'regions', 'modele', 'miseEnService'].includes(type)) throw new Error('opération inconnue');
     // Lecture ciblée : seulement les réglages demandés
     if (type === 'lire' && params.cles !== undefined) {
       if (!Array.isArray(params.cles) || !params.cles.length || params.cles.some((k) => !PARAMS.some((p) => p.cle === k))) throw new Error('réglages à lire invalides');
@@ -120,15 +141,24 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
       if (!secrets.admin && !secrets.invite && !secrets.inviteVide) throw new Error('indiquez au moins un nouveau mot de passe');
       params = { admin: !!secrets.admin, invite: !!secrets.invite || !!secrets.inviteVide, insister: params.insister, motDePasse: params.motDePasse, memoriser: params.memoriser };
     }
-    if (type === 'regions') {
-      const ops = Array.isArray(params.actions) ? params.actions : [];
-      for (const a of ops) {
-        if (!['put', 'remove', 'allowf', 'denyf', 'home', 'default'].includes(a.op)) throw new Error('action de région inconnue');
-        const nomOk = (x) => /^[#\p{L}\p{N}_.-]{1,30}$/u.test(String(x || ''));
-        if (!(nomOk(a.nom) || (['allowf', 'denyf'].includes(a.op) && a.nom === '*') || (a.op === 'default' && a.nom === '<null>'))) throw new Error('nom de région invalide : ' + a.nom);
-        if (a.parent && !(nomOk(a.parent) || a.parent === '*')) throw new Error('région parente invalide');
+    if (type === 'regions') validerRegions(params.actions);
+    if (type === 'modele' || type === 'miseEnService') {
+      const m = params.modele ? modeles.find((x) => x.id === params.modele) : null;
+      if (params.modele && !m) throw new Error('modèle inconnu');
+      if (type === 'modele' && !m) throw new Error('choisissez un modèle');
+      if (type === 'miseEnService') {
+        if (liste.length !== 1) throw new Error('la mise en service se fait répéteur par répéteur');
+        const id = params.identite || {};
+        const ident = {};
+        for (const k of ['name', 'lat', 'lon', 'owner.info']) if (id[k] !== undefined && id[k] !== '') ident[k] = valeurValide(PARAMS.find((p) => p.cle === k), id[k]);
+        params = { ...params, identite: ident };
+        if (params.admin) {
+          if (typeof params.admin !== 'string' || Buffer.byteLength(params.admin) > 15 || /\s/.test(params.admin)) throw new Error('mot de passe admin : 1 à 15 caractères, sans espace');
+          secrets.admin = params.admin;
+        }
+        params = { ...params, admin: !!secrets.admin };
+        if (!m && !Object.keys(ident).length && !secrets.admin) throw new Error('rien à appliquer');
       }
-      if (ops.length > 30) throw new Error('30 actions au plus');
     }
     const t = {
       id: crypto.randomBytes(5).toString('hex'), type, cles: liste.map((n) => n.cle), noms: Object.fromEntries(liste.map((n) => [n.cle, n.nom])), params: { ...params, motDePasse: undefined },
@@ -281,6 +311,52 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     etape(t, n.cle, v.length ? `${v.length} voisin(s) : ${v.map((x) => `${x.nom || x.prefixe} (${x.snr} dB)`).join(', ')}` : 'aucun voisin entendu récemment');
   }
 
+  // Réglages « set » envoyés un par un puis relus
+  async function appliquerValeurs(t, n, v, { sansErreurRedemarrage = false } = {}) {
+    const echecs = [];
+    let redemarrage = false;
+    for (const [k, x] of Object.entries(v)) {
+      if (t.arret) break;
+      const p = PARAMS.find((y) => y.cle === k);
+      const r = nettoyer(await cli(t, n, `set ${k} ${x}`).catch((e) => 'ERR ' + e.message));
+      const ok = /^ok/i.test(r) || (k === 'repeat' && /repeat is now/i.test(r));
+      if (/reboot/i.test(r) || p.redemarrage) redemarrage = true;
+      etape(t, n.cle, `${p.nom} → ${x} : ${r}`, ok);
+      if (!ok) echecs.push(p.nom);
+    }
+    await lireConfig(t, n, Object.keys(v)).catch(() => {});
+    const lu = (lectures[n.cle] || {}).valeurs || {};
+    const ecarts = Object.entries(v).filter(([k, x]) => lu[k] !== undefined && normaliser(k, lu[k]) !== normaliser(k, x)).map(([k]) => k);
+    t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), echecs, ecarts, redemarrage };
+    if (redemarrage && !sansErreurRedemarrage) etape(t, n.cle, 'un redémarrage du nœud est nécessaire pour appliquer la radio (bouton « Redémarrer »)', false);
+    if (echecs.length || ecarts.length) throw new Error('réglages non appliqués : ' + [...new Set([...echecs, ...ecarts])].join(', '));
+  }
+  // Régions : actions, enregistrement, relecture
+  async function appliquerRegions(t, n, ops, enregistrer = true) {
+    let modifie = false;
+    for (const a of ops) {
+      if (t.arret) break;
+      const ligne = `region ${a.op} ${a.nom}${a.op === 'put' && a.parent ? ' ' + a.parent : ''}`;
+      const r = nettoyer(await cli(t, n, ligne));
+      const ok = !/^err/i.test(r);
+      etape(t, n.cle, `${ligne} : ${r}`, ok);
+      if (!ok) throw new Error(`« ${ligne} » refusée : ${r}`);
+      if (!['home', 'default'].includes(a.op)) modifie = true;
+    }
+    if (modifie && enregistrer) {
+      const r = nettoyer(await cli(t, n, 'region save'));
+      etape(t, n.cle, 'enregistrement des régions : ' + r, /^ok/i.test(r));
+      if (!/^ok/i.test(r)) throw new Error('régions non enregistrées : ' + r);
+    }
+    const arbre = nettoyer(await cli(t, n, 'region'));
+    const home = nettoyer(await cli(t, n, 'region home')).replace(/^home is\s*/i, '');
+    const defaut = nettoyer(await cli(t, n, 'region default')).replace(/^default scope is\s*/i, '');
+    lectures[n.cle] = { ...(lectures[n.cle] || {}), regions: { arbre, home, defaut, heure: Date.now() } };
+    ecrire(fLectures, lectures);
+    t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), regions: { arbre, home, defaut } };
+    etape(t, n.cle, `régions :\n${arbre || '(aucune)'}\nattache : ${home} · envois : ${defaut}`);
+  }
+
   async function executer(t) {
     const elements = Array.isArray(t.params.elements) && t.params.elements.length ? t.params.elements.filter((e) => ELEMENTS.includes(e)) : ELEMENTS_DEFAUT;
     for (const cle of t.cles) {
@@ -311,32 +387,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
             }
             break;
           }
-          case 'regions': {
-            const ops = Array.isArray(t.params.actions) ? t.params.actions : [];
-            let modifie = false;
-            for (const a of ops) {
-              if (t.arret) break;
-              const ligne = `region ${a.op} ${a.nom}${a.op === 'put' && a.parent ? ' ' + a.parent : ''}`;
-              const r = nettoyer(await cli(t, n, ligne));
-              const ok = !/^err/i.test(r);
-              etape(t, n.cle, `${ligne} : ${r}`, ok);
-              if (!ok) throw new Error(`« ${ligne} » refusée : ${r}`);
-              if (!['home', 'default'].includes(a.op)) modifie = true;
-            }
-            if (modifie && t.params.enregistrer !== false) {
-              const r = nettoyer(await cli(t, n, 'region save'));
-              etape(t, n.cle, 'enregistrement des régions : ' + r, /^ok/i.test(r));
-              if (!/^ok/i.test(r)) throw new Error('régions non enregistrées : ' + r);
-            }
-            const arbre = nettoyer(await cli(t, n, 'region'));
-            const home = nettoyer(await cli(t, n, 'region home')).replace(/^home is\s*/i, '');
-            const defaut = nettoyer(await cli(t, n, 'region default')).replace(/^default scope is\s*/i, '');
-            lectures[n.cle] = { ...(lectures[n.cle] || {}), regions: { arbre, home, defaut, heure: Date.now() } };
-            ecrire(fLectures, lectures);
-            t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), regions: { arbre, home, defaut } };
-            etape(t, n.cle, `régions :\n${arbre || '(aucune)'}\nattache : ${home} · envois : ${defaut}`);
-            break;
-          }
+          case 'regions': await appliquerRegions(t, n, Array.isArray(t.params.actions) ? t.params.actions : [], t.params.enregistrer !== false); break;
           case 'statut': await statut(t, n); break;
           case 'chemin': {
             etape(t, n.cle, 'découverte du chemin (requête en inondation)…');
@@ -379,25 +430,26 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
             if (/^neighbors$/i.test(t.params.commande.trim())) reseauMc.lierVoisins(n.cle, lireVoisins(r));
             break;
           }
-          case 'modifier': {
-            const v = t.params.valeurs;
-            const echecs = [];
-            let redemarrage = false;
-            for (const [k, x] of Object.entries(v)) {
-              if (t.arret) break;
-              const p = PARAMS.find((y) => y.cle === k);
-              const r = nettoyer(await cli(t, n, `set ${k} ${x}`).catch((e) => 'ERR ' + e.message));
-              const ok = /^ok/i.test(r) || (k === 'repeat' && /repeat is now/i.test(r));
-              if (/reboot/i.test(r) || p.redemarrage) redemarrage = true;
-              etape(t, n.cle, `${p.nom} → ${x} : ${r}`, ok);
-              if (!ok) echecs.push(p.nom);
+          case 'modifier': await appliquerValeurs(t, n, t.params.valeurs); break;
+          case 'modele': case 'miseEnService': {
+            const m = t.params.modele ? modeles.find((x) => x.id === t.params.modele) : null;
+            if (t.params.modele && !m) throw new Error('modèle supprimé entre-temps');
+            const valeurs = { ...(m ? m.valeurs : {}), ...(t.params.identite || {}) };
+            if (m) etape(t, n.cle, `modèle « ${m.nom} »`);
+            if (Object.keys(valeurs).length) await appliquerValeurs(t, n, valeurs, { sansErreurRedemarrage: true });
+            if (m && m.regions && m.regions.length) await appliquerRegions(t, n, m.regions);
+            const sec = t.secrets || {};
+            if (sec.admin) {
+              const r = nettoyer(await cli(t, n, 'password ' + sec.admin));
+              if (!/password now/i.test(r)) throw new Error('mot de passe admin non changé');
+              if (motsDePasse[n.cle] != null || t.memoriser) { motsDePasse[n.cle] = sec.admin; ecrire(fMdp, motsDePasse); }
+              etape(t, n.cle, 'mot de passe admin changé' + (motsDePasse[n.cle] === sec.admin ? ' (et mémorisé)' : ' : notez-le, il n’est pas mémorisé sur la carte'));
             }
-            await lireConfig(t, n, Object.keys(v)).catch(() => {});
-            const lu = (lectures[n.cle] || {}).valeurs || {};
-            const ecarts = Object.entries(v).filter(([k, x]) => lu[k] !== undefined && normaliser(k, lu[k]) !== normaliser(k, x)).map(([k]) => k);
-            t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), echecs, ecarts, redemarrage };
-            if (redemarrage) etape(t, n.cle, 'un redémarrage du nœud est nécessaire pour appliquer la radio (bouton « Redémarrer »)', false);
-            if (echecs.length || ecarts.length) throw new Error('réglages non appliqués : ' + [...new Set([...echecs, ...ecarts])].join(', '));
+            if (!m || m.horloge !== false) etape(t, n.cle, 'horloge : ' + nettoyer(await cli(t, n, 'clock sync')));
+            if (m && m.redemarrer) {
+              await companion.cli(n, 'reboot', 8000).catch(() => {});
+              etape(t, n.cle, 'redémarrage demandé (le répéteur revient dans une minute environ)');
+            }
             break;
           }
           default: break;
@@ -492,7 +544,15 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
   // ---- Modèles de réglages MeshCore (créés depuis un répéteur ou à la main), appliqués à plusieurs nœuds ----
   const fModeles = path.join(dossier, 'meshcore-modeles.json');
   let modeles = [];
-  try { modeles = JSON.parse(fs.readFileSync(fModeles, 'utf8')); } catch { /* aucun */ }
+  try { modeles = JSON.parse(fs.readFileSync(fModeles, 'utf8')); } catch {
+    // Premier lancement : configuration de base d'un répéteur du réseau français (régions eu › fr › fr-ara › fr-43)
+    modeles = [{
+      id: 'base-repeteur-fr43', nom: 'Répéteur de base (FR-43)', description: 'Configuration de base d’un répéteur : annonces, AGC, accusés, cycle d’émission, hachages 2 octets, détection des boucles, sauts limités hors région, régions eu › fr › fr-ara › fr-43.',
+      valeurs: { 'advert.interval': '240', 'flood.advert.interval': '24', 'agc.reset.interval': '4', 'multi.acks': '1', dutycycle: '10', 'path.hash.mode': '1', 'loop.detect': 'minimal', 'flood.max.unscoped': '3', 'flood.max.advert': '5' },
+      regions: [{ op: 'def', nom: 'eu fr fr-ara fr-43' }, { op: 'default', nom: 'fr' }, { op: 'home', nom: 'fr' }],
+      horloge: true, redemarrer: true, auteur: 'carte', heure: Date.now(),
+    }];
+  }
   function enregistrerModele(m, auteur) {
     const nom = String(m.nom || '').trim().slice(0, 40);
     if (!nom) throw new Error('nom du modèle manquant');
@@ -504,9 +564,10 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
       if (!p) throw new Error('réglage inconnu : ' + k);
       valeurs[k] = valeurValide(p, x);
     }
-    if (!Object.keys(valeurs).length) throw new Error('aucun réglage dans ce modèle');
+    const regions = validerRegions((m.regions || []).map((a) => ({ op: String(a.op || '').toLowerCase(), nom: a.nom, parent: a.parent })));
+    if (!Object.keys(valeurs).length && !regions.length) throw new Error('aucun réglage dans ce modèle');
     const id = m.id && modeles.some((x) => x.id === m.id) ? m.id : crypto.randomBytes(4).toString('hex');
-    const nouveau = { id, nom, description: String(m.description || '').slice(0, 200), valeurs, auteur, heure: Date.now() };
+    const nouveau = { id, nom, description: String(m.description || '').slice(0, 200), valeurs, regions, horloge: m.horloge !== false, redemarrer: !!m.redemarrer, auteur, heure: Date.now() };
     modeles = [...modeles.filter((x) => x.id !== id), nouveau];
     ecrire(fModeles, modeles);
     return nouveau;
