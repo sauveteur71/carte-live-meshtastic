@@ -194,6 +194,7 @@ app.get('/api/config', (req, res) => {
     radio: true,
     meshcore: config.meshcore.actif && config.carte.reseaux !== 'meshtastic',
     reseaux: config.meshcore.actif ? config.carte.reseaux : 'meshtastic',
+    mcRadioAttendue: config.meshcore.radioAttendue,
     fond: config.carte.fond,
     couchesMasquees: config.carte.couchesMasquees,
     lienDistanceMaxKm: config.lienDistanceMaxKm,

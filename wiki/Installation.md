@@ -34,6 +34,7 @@ Affichage par défaut (facultatif) :
 |---|---|---|
 | `CARTE_FOND` | fond de carte au premier affichage | `sombre` (défaut), `plan`, `plan-sombre`, `photos`, `topo` |
 | `CARTE_RESEAUX` | réseaux proposés | `les-deux` (défaut), `meshtastic`, `meshcore` : le choix Meshtastic / MeshCore / Les deux disparaît |
+| `MESHCORE_RADIO_ATTENDUE` | réglage radio attendu du companion MeshCore (avertissement s'il diffère) | `869.618,62.5,8,8` (défaut), ou `non` pour ne jamais avertir |
 | `CARTE_COUCHES_MASQUEES` | couches masquées au départ | ex. `sommets` (points hauts et sites proposés), `routiers`, `animations`… |
 
 Chaque visiteur peut ensuite changer de fond et de couches dans *Couches ▾*. Son choix est gardé dans son navigateur.

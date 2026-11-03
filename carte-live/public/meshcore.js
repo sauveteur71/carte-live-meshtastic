@@ -986,6 +986,16 @@ function mcMajSource() {
   const c = mc.etat.companion;
   l.innerHTML = `<span class="point ${c.connecte ? 'actif' : 'inactif'}"></span><span class="titre">Companion MeshCore${c.nom ? `<small>${esc(c.nom)}</small>` : ''}</span><span class="meta">${c.connecte ? `${c.paquets} paquets` : 'non relié'} ›</span>`;
 }
+// Avertissement « réglage radio différent » : réglage attendu de cette carte (MESHCORE_RADIO_ATTENDUE, « non » pour aucun),
+// et masquable dans ce navigateur pour un réglage donné (✕) ; il revient si le réglage du companion change.
+function mcAvertRadio(r) {
+  const a = etat.config.mcRadioAttendue;
+  if (!r || !a) return '';
+  if (Math.abs(r.freq - a.freq) < 0.01 && r.bw === a.bw && r.sf === a.sf && r.cr === a.cr) return '';
+  const sig = `${r.freq}|${r.bw}|${r.sf}|${r.cr}`;
+  if (lireLs('gaulix_mc_radio_ok', null) === sig) return '';
+  return ` · <b style="color:var(--attention)">réglage radio différent du réseau (${fmt(a.freq, 3)} MHz, BW ${fmt(a.bw, 1)}, SF${a.sf}, CR${a.cr})</b> <button class="mini" data-mc-radio-ok="${esc(sig)}" title="Ne plus afficher pour ce réglage, dans ce navigateur">✕</button>`;
+}
 function mcRendreCompanion() {
   const z = $('#mc-contenu');
   const e = mc.etat;
@@ -1010,7 +1020,7 @@ function mcRendreCompanion() {
         <div class="mesure"><span>Contacts</span><b>${c.contacts ?? '–'}</b></div>
         <div class="mesure"><span>Relié depuis</span><b>${c.depuis ? ilYa(c.depuis).replace('il y a ', '') : '–'}</b></div>
       </div>
-      <div class="note">${esc([c.modele, c.firmware].filter(Boolean).join(' · '))}${r && !(Math.abs(r.freq - 869.618) < 0.01 && r.bw === 62.5 && r.sf === 8 && r.cr === 8) ? ' · <b style="color:var(--attention)">réglage radio différent du réseau français (869,618 MHz, BW 62,5, SF8, CR8)</b>' : ''}</div>` : ''}
+      <div class="note">${esc([c.modele, c.firmware].filter(Boolean).join(' · '))}${mcAvertRadio(r)}</div>` : ''}
     </div>
     ${etat.admin ? `
     <div class="actions-prop">
@@ -1066,6 +1076,7 @@ function mcRendreCompanion() {
       setTimeout(mcChargerEtat, 800);
     } catch (err) { retour(err.message); }
   }));
+  z.querySelectorAll('[data-mc-radio-ok]').forEach((b) => (b.onclick = () => { ecrireLs('gaulix_mc_radio_ok', b.dataset.mcRadioOk); mcRendreCompanion.force = true; mcRendreCompanion(); }));
   z.querySelectorAll('[data-mc-qr-canal]').forEach((b) => (b.onclick = () => mcOuvrirQr({ canal: b.dataset.mcQrCanal })));
   mcBrancherOutils(z);
   mcBrancherEcoutes(z, retour);

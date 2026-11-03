@@ -136,6 +136,13 @@ const config = {
     // Un paquet est gardé si l'observateur qui l'a capté est dans le périmètre (le flux national est très lourd).
     perimetre: ['departement', 'voisins', 'national'].includes(texte('MESHCORE_PERIMETRE', 'voisins')) ? texte('MESHCORE_PERIMETRE', 'voisins') : 'voisins',
     // Codes de zone acceptés pour les observateurs dont la position est inconnue (en plus de MESHCORE_IATA)
+    // Réglage radio attendu du companion (fréquence,bande,SF,CR) ; « non » : aucun avertissement
+    radioAttendue: (() => {
+      const v = texte('MESHCORE_RADIO_ATTENDUE', '869.618,62.5,8,8').trim();
+      if (/^(non|aucun|aucune|0)$/i.test(v)) return null;
+      const m = v.split(/[,;\s]+/).map(Number);
+      return m.length === 4 && m.every((x) => Number.isFinite(x)) ? { freq: m[0], bw: m[1], sf: m[2], cr: m[3] } : { freq: 869.618, bw: 62.5, sf: 8, cr: 8 };
+    })(),
     iataVoisins: texte('MESHCORE_IATA_VOISINS').split(/[,;\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean),
     // Interrogation automatique de l'état des répéteurs surveillés (0 = jamais) et nombre max. par tour
     supervisionHeures: nombre('MESHCORE_SUPERVISION_HEURES', 3),
