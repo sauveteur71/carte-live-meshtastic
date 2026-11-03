@@ -4890,6 +4890,7 @@ function ongletsDialogue(dlg) {
     if (b.dataset.dlg === 'comptes') rendreComptes();
     if (b.dataset.dlg === 'journal') rendreJournal();
     if (b.dataset.dlg === 'sauvegardes') rendreSauvegardes();
+    if (b.dataset.dlg === 'archive') rendreArchive();
     if (b.dataset.dlg === 'reglages') rendreReglages();
   }));
 }
@@ -5733,6 +5734,54 @@ async function ficheTrafic(heures = 24) {
     if (!relais.length) return retour('Aucun relais programmable à distance par la carte.');
     if (!confirm(`Activer « Ignorer MQTT » sur ${relais.length} relais ?\n${relais.map((n) => '• ' + (n.nomLong || n.id)).join('\n')}`)) return;
     try { const x = await postJson('/api/trafic/corriger', { nums: relais.map((n) => n.num), ignorerMqtt: true }); retour(`${x.taches.length} programmation(s) lancée(s)${x.refus.length ? ` · refusés : ${x.refus.length}` : ''}.`); } catch (e) { retour(e.message); }
+  };
+}
+
+// ---- Archive PostgreSQL (console d'administration) -----------------------------------------------------
+async function rendreArchive() {
+  const z = $('#pan-archive');
+  let e;
+  try { e = await api('/api/postgres'); } catch (x) { z.innerHTML = `<div class="vide">${esc(x.message)}</div>`; return; }
+  const r = e.reglages;
+  const go = (o) => (o == null ? '–' : o >= 1024 ** 3 ? fmt(o / 1024 ** 3, 2, ' Go') : fmt(o / 1024 ** 2, 0, ' Mo'));
+  const DUREES = [[0, 'Toujours'], [3650, '10 ans'], [1825, '5 ans'], [730, '2 ans'], [365, '1 an'], [180, '6 mois'], [90, '3 mois'], [30, '1 mois'], [7, '1 semaine']];
+  const TAILLES = [[0, 'Sans limite'], [100, '100 Go'], [50, '50 Go'], [20, '20 Go'], [10, '10 Go'], [5, '5 Go'], [2, '2 Go'], [1, '1 Go']];
+  z.innerHTML = `
+    <p class="note">La carte garde quelques jours d’historique. L’archive PostgreSQL recopie tout le trafic (nœuds, paquets, réceptions, positions, télémétrie, traceroutes, liaisons, Meshtastic et MeshCore) toutes les 20 s, pour des statistiques longues, Grafana ou des requêtes SQL.</p>
+    <div class="grille">
+      <div class="mesure"><span>État</span><b style="color:${!r.actif ? 'inherit' : e.connecte ? 'var(--ok)' : 'var(--attention)'}">${!r.actif ? 'désactivée' : e.connecte ? '● active' : '○ non connectée'}</b></div>
+      <div class="mesure"><span>Taille de la base</span><b>${go(e.tailleOctets)}${r.maxGo ? ` / ${r.maxGo} Go` : ''}</b></div>
+      <div class="mesure"><span>Lignes copiées (depuis le démarrage)</span><b>${(e.total || 0).toLocaleString('fr-FR')}</b></div>
+      <div class="mesure"><span>Dernière copie</span><b>${e.dernierTour ? ilYa(e.dernierTour) : '–'}</b></div>
+    </div>
+    ${e.erreur ? `<p class="erreur">${esc(e.erreur)}</p>` : ''}${e.moduleAbsent ? '<p class="erreur">Module PostgreSQL absent de cette image : mettez la carte à jour.</p>' : ''}
+    <form id="form-archive" class="form-edit">
+      <label class="case"><input type="checkbox" name="actif" ${r.actif ? 'checked' : ''}> Activer l’archive</label>
+      <div class="grille-edit">
+        <label>Serveur <input name="hote" value="${esc(r.hote || '')}" placeholder="postgres (conteneur fourni) ou 192.168.0.10"></label>
+        <label>Port <input name="port" type="number" min="1" max="65535" value="${r.port || 5432}"></label>
+        <label>Base <input name="base" value="${esc(r.base || 'carte')}"></label>
+        <label>Utilisateur <input name="utilisateur" value="${esc(r.utilisateur || '')}" autocomplete="off"></label>
+        <label>Mot de passe <input name="motDePasse" type="password" autocomplete="new-password" placeholder="${r.motDePasseDefini ? '•••••• (inchangé)' : ''}"></label>
+        <label class="case"><input type="checkbox" name="ssl" ${r.ssl ? 'checked' : ''}> Connexion chiffrée (SSL)</label>
+        <label>Conserver <select name="retentionJours">${DUREES.map(([v, t]) => `<option value="${v}" ${Number(r.retentionJours) === v ? 'selected' : ''}>${t}</option>`).join('')}</select><small>les données plus anciennes sont supprimées chaque heure</small></label>
+        <label>Taille maximale <select name="maxGo">${TAILLES.map(([v, t]) => `<option value="${v}" ${Number(r.maxGo) === v ? 'selected' : ''}>${t}</option>`).join('')}</select><small>au-delà, les plus anciennes données partent d’abord</small></label>
+      </div>
+      <div class="actions-prop"><button type="button" id="archive-tester">Tester la connexion</button><button type="submit" class="principal">Enregistrer</button></div>
+      <p class="erreur" id="retour-archive"></p>
+    </form>
+    <details><summary>Avec le conteneur PostgreSQL fourni</summary><p class="note">Dans le <span class="mono">.env</span> : <span class="mono">POSTGRES_MOT_DE_PASSE=…</span>, puis <span class="mono">docker compose --profile postgres up -d</span>. Ici : serveur <b>postgres</b>, port 5432, base <b>carte</b>, utilisateur <b>carte</b> et ce mot de passe. Le conteneur ne peut pas être démarré depuis la carte.</p></details>`;
+  const f = $('#form-archive'), ret = (t, ok) => { const x = $('#retour-archive'); x.textContent = t; x.style.color = ok ? 'var(--ok)' : ''; };
+  const valeurs = () => ({ actif: f.actif.checked, hote: f.hote.value.trim(), port: Number(f.port.value) || 5432, base: f.base.value.trim(), utilisateur: f.utilisateur.value.trim(), motDePasse: f.motDePasse.value || undefined, ssl: f.ssl.checked, retentionJours: Number(f.retentionJours.value), maxGo: Number(f.maxGo.value) });
+  $('#archive-tester').onclick = async () => {
+    ret('Connexion…');
+    try { const t = await postJson('/api/postgres/tester', valeurs()); ret(`✓ ${t.version} · base actuelle ${go(t.tailleOctets)}`, true); } catch (x) { ret(x.message); }
+  };
+  f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const v = valeurs();
+    if (v.actif && (v.retentionJours || v.maxGo) && !confirm(`Les données plus anciennes que ${v.retentionJours ? DUREES.find((d) => d[0] === v.retentionJours)[1].toLowerCase() : '…'}${v.maxGo ? ` ou au-delà de ${v.maxGo} Go` : ''} seront supprimées de l’archive. Continuer ?`)) return;
+    try { await postJson('/api/postgres', v); ret('Enregistré ✓', true); setTimeout(rendreArchive, 4000); } catch (x) { ret(x.message); }
   };
 }
 

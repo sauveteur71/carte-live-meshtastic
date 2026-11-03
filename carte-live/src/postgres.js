@@ -29,19 +29,42 @@ const LOT = 1000, MAX_PAR_TOUR = 20000, RECOUVREMENT = 10 * 60000;
 const typePg = (t) => (/INT/i.test(t) ? 'BIGINT' : /REAL|FLOA|DOUB/i.test(t) ? 'DOUBLE PRECISION' : /BLOB/i.test(t) ? 'BYTEA' : 'TEXT');
 const q = (x) => '"' + String(x).replace(/"/g, '') + '"';
 
+// Réglages (console d'administration, fichier /data/postgres.json, privé) ; POSTGRES_URL du .env sert de valeur initiale
+function lireUrl(u) {
+  try {
+    const x = new URL(u);
+    return { hote: x.hostname, port: Number(x.port) || 5432, base: decodeURIComponent(x.pathname.replace(/^\//, '')) || 'carte', utilisateur: decodeURIComponent(x.username), motDePasse: decodeURIComponent(x.password), ssl: /sslmode=require/.test(x.search) };
+  } catch { return null; }
+}
+const versUrl = (c) => `postgres://${encodeURIComponent(c.utilisateur || '')}${c.motDePasse ? ':' + encodeURIComponent(c.motDePasse) : ''}@${c.hote}:${c.port || 5432}/${encodeURIComponent(c.base || 'carte')}${c.ssl ? '?sslmode=require' : ''}`;
+
 function creerArchivePostgres(config, stockage, journal) {
-  const url = process.env.POSTGRES_URL || '';
-  if (!url) return null;
-  let Pool;
-  try { ({ Pool } = require('pg')); } catch { journal('[PostgreSQL] module « pg » absent : archive désactivée'); return null; }
-  const pool = new Pool({ connectionString: url, max: 2, idleTimeoutMillis: 30000, ssl: /sslmode=require/.test(url) ? { rejectUnauthorized: false } : undefined });
-  pool.on('error', (e) => journal('[PostgreSQL]', e.message));
+  let Pool = null;
+  try { ({ Pool } = require('pg')); } catch { /* module absent */ }
   const db = stockage.db;
-  const fCurseurs = path.join(path.dirname(config.fichierBase), 'postgres-curseurs.json');
+  const dossier = path.dirname(config.fichierBase);
+  const fReglages = path.join(dossier, 'postgres.json');
+  const fCurseurs = path.join(dossier, 'postgres-curseurs.json');
+  let reglages = { actif: false, hote: '', port: 5432, base: 'carte', utilisateur: '', motDePasse: '', ssl: false, retentionJours: 0, maxGo: 0 };
+  const env = process.env.POSTGRES_URL ? lireUrl(process.env.POSTGRES_URL) : null;
+  if (env) reglages = { ...reglages, ...env, actif: true };
+  try { reglages = { ...reglages, ...JSON.parse(fs.readFileSync(fReglages, 'utf8')) }; } catch { /* aucun */ }
   let curseurs = {};
   try { curseurs = JSON.parse(fs.readFileSync(fCurseurs, 'utf8')); } catch { /* premier lancement */ }
-  const etat = { actif: true, connecte: false, erreur: null, dernierTour: null, copies: {}, total: 0 };
-  const schemas = new Map(); // table -> { colonnes, cle, existe }
+  let pool = null;
+  const etat = { connecte: false, erreur: null, dernierTour: null, copies: {}, total: 0, tailleOctets: null, derniereMaintenance: null, supprimees: 0 };
+  let schemas = new Map(); // table -> { colonnes, cle, existe }
+
+  function ouvrir() {
+    if (pool) { pool.end().catch(() => {}); pool = null; }
+    schemas = new Map();
+    etat.connecte = false; etat.erreur = null;
+    if (!reglages.actif || !reglages.hote || !Pool) return;
+    pool = new Pool({ connectionString: versUrl(reglages), max: 2, idleTimeoutMillis: 30000, connectionTimeoutMillis: 8000, ssl: reglages.ssl ? { rejectUnauthorized: false } : undefined });
+    pool.on('error', (e) => journal('[PostgreSQL]', e.message));
+    journal(`[PostgreSQL] archive vers ${reglages.hote}:${reglages.port}/${reglages.base} (${reglages.retentionJours ? 'conservée ' + reglages.retentionJours + ' j' : 'conservée toujours'}${reglages.maxGo ? ', ' + reglages.maxGo + ' Go au plus' : ''})`);
+    setTimeout(tour, 2000);
+  }
 
   function schemaSqlite(def) {
     let cols;
@@ -99,7 +122,7 @@ function creerArchivePostgres(config, stockage, journal) {
 
   let enCours = false;
   async function tour() {
-    if (enCours) return;
+    if (enCours || !pool) return;
     enCours = true;
     try {
       for (const def of TABLES) {
@@ -115,11 +138,77 @@ function creerArchivePostgres(config, stockage, journal) {
     }
     enCours = false;
   }
-  const minuterie = setInterval(tour, 20000);
-  if (minuterie.unref) minuterie.unref();
-  setTimeout(tour, 5000);
-  journal(`[PostgreSQL] archive vers ${url.replace(/\/\/([^:@/]+):[^@]*@/, '//$1:••••@')}`);
-  return { etat: () => ({ ...etat, curseurs }) };
+  // Maintenance (toutes les heures) : durée de conservation, puis taille maximale (les plus anciennes données partent d'abord)
+  const AJOUT = TABLES.filter((d) => !['noeuds', 'liens', 'mc_noeuds', 'mc_liens'].includes(d.t));
+  async function taille() { return Number((await pool.query('SELECT pg_database_size(current_database()) AS n')).rows[0].n); }
+  async function supprimerAvant(limite) {
+    let n = 0;
+    for (const d of AJOUT) {
+      if (!schemas.get(d.t)) continue;
+      n += (await pool.query(`DELETE FROM ${q(d.t)} WHERE ${q(d.temps)} < $1`, [limite])).rowCount;
+    }
+    return n;
+  }
+  async function maintenance() {
+    if (!pool || !etat.connecte) return;
+    try {
+      let n = 0;
+      if (reglages.retentionJours > 0) n += await supprimerAvant(Date.now() - reglages.retentionJours * 86400000);
+      if (reglages.maxGo > 0) {
+        const max = reglages.maxGo * 1024 ** 3;
+        for (let k = 0; k < 8 && (await taille()) > max; k++) {
+          // Retire le plus ancien dixième de l'historique, puis compacte les tables pour rendre la place au disque
+          const r = (await pool.query(`SELECT MIN(heure) AS a, MAX(heure) AS b FROM ${q('paquets')}`)).rows[0];
+          if (!r || r.a == null) break;
+          const a = Number(r.a), b = Number(r.b);
+          n += await supprimerAvant(a + Math.max(3600000, (b - a) / 10));
+          for (const d of AJOUT) if (schemas.get(d.t)) await pool.query(`VACUUM FULL ${q(d.t)}`);
+        }
+      }
+      if (n) journal(`[PostgreSQL] maintenance : ${n} ligne(s) ancienne(s) supprimée(s)`);
+      etat.supprimees += n;
+      etat.tailleOctets = await taille();
+      etat.derniereMaintenance = Date.now();
+    } catch (e) { journal('[PostgreSQL] maintenance :', e.message); }
+  }
+  setInterval(tour, 20000).unref();
+  setInterval(maintenance, 3600000).unref();
+  setInterval(() => { if (pool && etat.connecte) taille().then((t) => { etat.tailleOctets = t; }).catch(() => {}); }, 300000).unref();
+  ouvrir();
+  setTimeout(maintenance, 60000).unref();
+
+  const masquer = () => ({ ...reglages, motDePasse: undefined, motDePasseDefini: !!reglages.motDePasse });
+  return {
+    etat: () => ({ ...etat, reglages: masquer(), moduleAbsent: !Pool }),
+    // Essai de connexion sans rien enregistrer
+    async tester(c) {
+      if (!Pool) throw new Error('module « pg » absent de cette image');
+      const r = { ...reglages, ...c, motDePasse: c.motDePasse || reglages.motDePasse };
+      const p = new Pool({ connectionString: versUrl(r), max: 1, connectionTimeoutMillis: 8000, ssl: r.ssl ? { rejectUnauthorized: false } : undefined });
+      try {
+        const v = (await p.query('SELECT version() AS v, pg_database_size(current_database()) AS t')).rows[0];
+        return { version: String(v.v).split(' ').slice(0, 2).join(' '), tailleOctets: Number(v.t) };
+      } finally { p.end().catch(() => {}); }
+    },
+    configurer(c) {
+      const n = { ...reglages };
+      if ('actif' in c) n.actif = !!c.actif;
+      if (c.hote !== undefined) n.hote = String(c.hote).trim().slice(0, 253);
+      if (c.port !== undefined) { const p = Number(c.port); if (!Number.isInteger(p) || p < 1 || p > 65535) throw new Error('Port invalide'); n.port = p; }
+      if (c.base !== undefined) n.base = String(c.base).trim().slice(0, 63) || 'carte';
+      if (c.utilisateur !== undefined) n.utilisateur = String(c.utilisateur).trim().slice(0, 63);
+      if (c.motDePasse) n.motDePasse = String(c.motDePasse);
+      if ('ssl' in c) n.ssl = !!c.ssl;
+      if (c.retentionJours !== undefined) { const j = Number(c.retentionJours); if (!Number.isInteger(j) || j < 0 || j > 36500) throw new Error('Durée invalide'); n.retentionJours = j; }
+      if (c.maxGo !== undefined) { const g = Number(c.maxGo); if (!(g >= 0 && g <= 100000)) throw new Error('Taille invalide'); n.maxGo = g; }
+      if (n.actif && !n.hote) throw new Error('Indiquez l’adresse du serveur PostgreSQL');
+      reglages = n;
+      fs.writeFileSync(fReglages, JSON.stringify(reglages), { mode: 0o600 });
+      ouvrir();
+      setTimeout(maintenance, 30000);
+      return masquer();
+    },
+  };
 }
 
 module.exports = { creerArchivePostgres };

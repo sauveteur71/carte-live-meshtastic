@@ -2104,7 +2104,16 @@ const sourceMM = creerSourceMeshMonitor(stockage, config, () => { rafraichirEtat
 if (sourceMM) journal(`Source MeshMonitor activée : ${config.meshmonitor.url}`);
 // Archive PostgreSQL facultative (POSTGRES_URL) : copie de tout le trafic, sans limite de durée
 const archivePg = require('./postgres').creerArchivePostgres(config, stockage, journal);
-app.get('/api/postgres/etat', (req, res) => { if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); res.json(archivePg ? archivePg.etat() : { actif: false }); });
+app.get('/api/postgres', (req, res) => { if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); res.set('Cache-Control', 'no-store').json(archivePg.etat()); });
+app.post('/api/postgres', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { const r = archivePg.configurer(req.body || {}); audit.noter(nomCompte(u), req.ip, 'archive PostgreSQL', `${r.actif ? 'activée' : 'désactivée'} · ${r.retentionJours ? r.retentionJours + ' j' : 'toujours'} · ${r.maxGo ? r.maxGo + ' Go' : 'sans limite'}`, true); res.json(archivePg.etat()); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/postgres/tester', async (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { res.json(await archivePg.tester(req.body || {})); } catch (e) { res.status(400).json({ erreur: 'Connexion impossible : ' + e.message }); }
+});
 // Agents (module USB sur un PC, ou module Wi-Fi d'un autre réseau) : ils se connectent au port 4404
 const agents = creerAgents(config, { surArrivee: (hote, nom, protocole) => {
   if (protocole !== 'meshtastic' && typeof companion !== 'undefined' && companion) companion.agentDisponible(hote);

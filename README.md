@@ -173,7 +173,7 @@ L'agent garde en mémoire autant de connexions que vous voulez (ex. *USB* sur `C
 
 ### Archive PostgreSQL (facultative)
 
-La carte garde quelques jours d'historique dans sa base SQLite. Pour tout conserver (statistiques longues, Grafana, requêtes SQL), renseignez `POSTGRES_URL` dans `.env` : chaque table (nœuds, paquets, réceptions, positions, télémétrie, traceroutes, liaisons, et leurs équivalents MeshCore) est recopiée toutes les 20 s, sans jamais être purgée. Un conteneur PostgreSQL est fourni : `docker compose --profile postgres up -d` (voir `.env.exemple`).
+La carte garde quelques jours d'historique dans sa base SQLite. Pour tout conserver (statistiques longues, Grafana, requêtes SQL), activez l'archive dans *Gestion › Archive PostgreSQL* (serveur, base, utilisateur, durée de conservation de « toujours » à 1 semaine, taille maximale de 100 Go à 1 Go ; `POSTGRES_URL` dans `.env` reste possible comme valeur de départ) : chaque table (nœuds, paquets, réceptions, positions, télémétrie, traceroutes, liaisons, et leurs équivalents MeshCore) est recopiée toutes les 20 s, sans jamais être purgée. Un conteneur PostgreSQL est fourni : `docker compose --profile postgres up -d` (voir `.env.exemple`).
 
 ### Relais du réseau local (agent 1.6)
 
