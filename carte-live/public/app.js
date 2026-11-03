@@ -5489,9 +5489,12 @@ function ouvrirWsModule(nom, source, envoyerAuModule) {
     ws.onmessage = (e) => { if (e.data instanceof ArrayBuffer) envoyerAuModule(new Uint8Array(e.data)); };
     ws.onclose = () => {
       if (moduleNav.ws !== ws) return;
+      // Liaison avec le serveur coupée (redémarrage, proxy) : le module est toujours là, on se reconnecte
       const app = moduleNav.type === 'ble' && moduleNav.ble ? moduleNav.ble.appareil : null;
-      debrancherModuleNav('liaison avec le serveur fermée', !!app);
+      const port = moduleNav.type === 'usb' ? moduleNav.port : null;
+      debrancherModuleNav('liaison avec le serveur fermée', !!(app || port));
       if (app) planifierReconnexionBle(moduleNav, app, brancherBle, majModuleNav, 'liaison avec le serveur fermée');
+      else if (port) planifierReconnexionBle(moduleNav, port, brancherUsb, majModuleNav, 'liaison avec le serveur fermée');
     };
   });
 }
@@ -5717,18 +5720,27 @@ async function ouvrirConnexion(message) {
   z.querySelector('[data-cx="usb"]').onclick = async () => {
     let port;
     try { port = await navigator.serial.requestPort({}); } catch { return; }
-    retour('Port ouvert, reconnaissance du module…');
-    let type = 'meshtastic';
+    retour('Port ouvert, reconnaissance du module (jusqu’à 8 s : il redémarre souvent à l’ouverture du port)…');
+    let type = null, texteRecu = '';
     try {
       await port.open({ baudRate: 115200 });
       try { await port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch { /* pas géré */ }
-      // Question MeshCore (DEVICE_QUERY) : un companion répond par une trame « > » ; un module Meshtastic l'ignore
+      // Deux questions : MeshCore (DEVICE_QUERY, réponse « > » code 13) et Meshtastic (want_config_id, réponse 0x94 0xC3).
+      // Reposées toutes les 2,5 s : le module peut être en train de redémarrer.
       const w = port.writable.getWriter();
-      await w.write(new Uint8Array([0x3c, 0x02, 0x00, 22, 3])); w.releaseLock();
+      const questionner = async () => {
+        try {
+          await w.write(new Uint8Array([0x3c, 0x02, 0x00, 22, 3]));
+          await w.write(new Uint8Array(32).fill(0xc3));
+          await w.write(new Uint8Array([0x94, 0xc3, 0x00, 0x03, 0x18, 0xb9, 0x60])); // ToRadio { want_config_id: 12345 }
+        } catch { /* port fermé */ }
+      };
+      await questionner();
+      const relances = [setTimeout(questionner, 2500), setTimeout(questionner, 5000)];
       const lecteur = port.readable.getReader();
       let tampon = new Uint8Array(0);
-      const limite = Date.now() + 2500;
-      const minut = setTimeout(() => lecteur.cancel().catch(() => {}), 2600);
+      const limite = Date.now() + 8000;
+      const minut = setTimeout(() => lecteur.cancel().catch(() => {}), 8100);
       try {
         while (Date.now() < limite) {
           const { value, done } = await lecteur.read();
@@ -5736,16 +5748,30 @@ async function ouvrirConnexion(message) {
           const n = new Uint8Array(tampon.length + value.length); n.set(tampon); n.set(value, tampon.length); tampon = n;
           const i = tampon.indexOf(0x3e);
           if (i >= 0 && i + 3 < tampon.length && tampon[i + 3] === 13) { type = 'meshcore'; break; }
-          if (tampon.length > 4096) break;
+          for (let k = 0; k + 1 < tampon.length; k++) if (tampon[k] === 0x94 && tampon[k + 1] === 0xc3) { type = 'meshtastic'; break; }
+          if (type) break;
+          if (tampon.length > 8192) tampon = tampon.slice(-4096);
         }
       } catch { /* fin de lecture */ }
+      relances.forEach(clearTimeout);
       clearTimeout(minut);
+      texteRecu = new TextDecoder().decode(tampon).replace(/[^\x20-\x7e\n]/g, '').trim();
       try { await lecteur.cancel(); } catch { /* déjà */ }
       try { lecteur.releaseLock(); } catch { /* déjà */ }
+      try { w.releaseLock(); } catch { /* déjà */ }
       await port.close();
     } catch (e) {
       try { await port.close(); } catch { /* déjà */ }
       retour(`✗ USB : ${esc(e.name === 'NetworkError' || /open/i.test(e.message) ? 'port déjà utilisé (fermez l’appli Meshtastic / MeshCore, l’agent ou une autre page)' : e.message)}`, 'ko');
+      return;
+    }
+    if (!type) {
+      // Ni Meshtastic ni companion MeshCore : on ne devine pas
+      const repeteur = /repeater|room|MeshCore|^>|ver |advert/i.test(texteRecu);
+      retour(`✗ Le module branché en USB ne répond ni comme un module Meshtastic ni comme un companion MeshCore.<br>
+        ${repeteur ? 'Il semble avoir un firmware MeshCore <b>répéteur</b> ou <b>room server</b> : il s’administre à distance (MeshCore › Programmer), pas comme companion.<br>' : ''}
+        Pour MeshCore en USB, le module doit avoir le firmware <b>« companion USB »</b> : le firmware « companion BLE » ne répond qu’en Bluetooth.
+        Fermez aussi l’appli MeshCore / Meshtastic qui utiliserait le même module, puis réessayez.`, 'ko');
       return;
     }
     if (type === 'meshcore') {

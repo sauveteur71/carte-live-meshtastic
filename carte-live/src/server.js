@@ -2033,6 +2033,9 @@ const serveur = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
 // Module branché sur le PC de l'utilisateur (Web Serial / Web Bluetooth) : la page relaie le flux Meshtastic
 const wssModule = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+// Modules reliés par une page : un « ping » toutes les 25 s garde la liaison ouverte à travers les proxys
+// inversés (nginx, Traefik, Cloudflare coupent souvent une WebSocket silencieuse au bout de 60 à 100 s)
+setInterval(() => { for (const ws of wssModule.clients) { try { ws.ping(); } catch { /* fermée */ } } }, 25000);
 serveur.on('upgrade', (req, socket, tete) => {
   const chemin = (req.url || '').split('?')[0];
   if (chemin === '/ws') wss.handleUpgrade(req, socket, tete, (ws) => wss.emit('connection', ws, req));

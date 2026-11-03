@@ -37,3 +37,11 @@ L'ouverture du port USB redémarre souvent le companion. Depuis la 2.1.1, la car
 - vérifiez qu'il a bien le firmware **companion USB** (et non companion BLE ou répéteur) ;
 - fermez toute autre appli qui utilise le port ;
 - bouton **↻ Relancer** dans *MeshCore › Companion*, ou débranchez et rebranchez.
+
+## Module branché en USB : est-il bien relié en USB ?
+*MeshCore › Companion* indique la liaison : « relié · relié par cette page… (**USB** …) » ou « (**Bluetooth** …) ». Un companion MeshCore a soit le firmware **companion USB**, soit **companion BLE** : le second ne répond pas sur le câble. Depuis la 2.1.3, *Connecter un module* le dit, au lieu de prendre le module pour un module Meshtastic.
+
+L'agent n'est **pas** nécessaire pour l'USB ou le Bluetooth d'une page : c'est la page qui relaie le module, tant que l'onglet reste ouvert et que le PC ne se met pas en veille. L'agent sert pour un module qui doit rester relié sans navigateur ouvert.
+
+## Module relié par une page qui se déconnecte au bout de quelques minutes
+Souvent un proxy inversé (nginx, Traefik, Cloudflare) qui coupe les WebSockets silencieuses. Depuis la 2.1.3, le serveur envoie un « ping » toutes les 25 s et la page se reconnecte toute seule (USB comme Bluetooth). Avec nginx, prévoyez aussi `proxy_read_timeout 3600s;` et les en-têtes `Upgrade` / `Connection` pour `/ws`.

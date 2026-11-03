@@ -1105,9 +1105,12 @@ function mcOuvrirWs(source, versCompanion) {
     ws.onmessage = (ev) => { if (ev.data instanceof ArrayBuffer) versCompanion(new Uint8Array(ev.data)); };
     ws.onclose = () => {
       if (mc.nav.ws !== ws) return;
+      // Liaison avec le serveur coupée (redémarrage, proxy) : le companion est toujours là, on se reconnecte
       const app = mc.nav.type === 'ble' && mc.nav.ble ? mc.nav.ble.app : null;
-      mcDebrancherNav('liaison avec le serveur fermée', !!app);
+      const port = mc.nav.type === 'usb' ? mc.nav.port : null;
+      mcDebrancherNav('liaison avec le serveur fermée', !!(app || port));
       if (app) planifierReconnexionBle(mc.nav, app, mcBrancherBle, mcMajNav, 'liaison avec le serveur fermée');
+      else if (port) planifierReconnexionBle(mc.nav, port, mcBrancherUsb, mcMajNav, 'liaison avec le serveur fermée');
     };
   });
 }
