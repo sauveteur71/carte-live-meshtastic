@@ -27,4 +27,4 @@ Batterie ou panneau insuffisants : il n'émet qu'au soleil. Activez sa télémé
 Un autre appareil (souvent l'appli du téléphone en Wi-Fi) s'est connecté au module. Un module n'accepte qu'un client à la fois.
 
 ### Les liaisons de l'autre réseau restent affichées
-Mettez la carte à jour (1.10.0) : la bascule Meshtastic ↔ MeshCore efface désormais les traces de l'autre réseau.
+Mettez la carte à jour (2.0.0) : la bascule Meshtastic ↔ MeshCore efface désormais les traces de l'autre réseau.
