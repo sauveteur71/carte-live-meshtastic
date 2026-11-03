@@ -69,6 +69,12 @@ const config = {
     centreLat: nombre('CARTE_CENTRE_LAT', 45.08),
     centreLon: nombre('CARTE_CENTRE_LON', 3.88),
     zoom: nombre('CARTE_ZOOM', 10),
+    // Fond de carte par défaut : sombre, plan, plan-sombre, photos ou topo (chaque visiteur peut en changer)
+    fond: ({ sombre: 'Sombre', plan: 'Plan IGN', 'plan-sombre': 'Plan IGN sombre', photos: 'Photos aériennes IGN', topo: 'Topographique', topographique: 'Topographique' })[texte('CARTE_FOND', 'sombre').toLowerCase()] || 'Sombre',
+    // Réseaux proposés : les-deux, meshtastic ou meshcore (masque les boutons de l'autre réseau)
+    reseaux: ['les-deux', 'meshtastic', 'meshcore'].includes(texte('CARTE_RESEAUX', 'les-deux').toLowerCase()) ? texte('CARTE_RESEAUX', 'les-deux').toLowerCase() : 'les-deux',
+    // Couches masquées par défaut (Couches ▾) : sommets, routiers, rf, voisinage, traceroute, animations, federation, releves
+    couchesMasquees: texte('CARTE_COUCHES_MASQUEES').toLowerCase().split(/[,;\s]+/).filter(Boolean),
     tuiles: {
       // Fond sombre Esri (gratuit, sans clé). Les serveurs OpenStreetMap bloquent ce type d'usage (erreur 403).
       url: texte('CARTE_TUILES_URL', 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'),

@@ -185,7 +185,10 @@ app.get('/api/config', (req, res) => {
     zoneVoisins: zoneVoisins(),
     zoneNom: config.zoneNom,
     radio: true,
-    meshcore: config.meshcore.actif,
+    meshcore: config.meshcore.actif && config.carte.reseaux !== 'meshtastic',
+    reseaux: config.meshcore.actif ? config.carte.reseaux : 'meshtastic',
+    fond: config.carte.fond,
+    couchesMasquees: config.carte.couchesMasquees,
     lienDistanceMaxKm: config.lienDistanceMaxKm,
     precisionPublique: config.precisionPublique,
   });
@@ -1813,6 +1816,10 @@ app.post('/api/mc/companion', (req, res) => {
     companion.connecterA(c);
   }
   res.json({ ok: true });
+});
+app.post('/api/mc/companion/relancer', (req, res) => {
+  if (!exigerAdmin(req, res) || !exigerMc(res)) return;
+  try { companion.relancer(); res.json({ ok: true }); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 app.delete('/api/mc/companion', (req, res) => {
   if (!exigerAdmin(req, res)) return;

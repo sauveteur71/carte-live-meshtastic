@@ -163,11 +163,24 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
 
   const texte = (b) => b.toString('utf8').replace(/\0.*$/s, '').trim();
 
-  async function initialiser(gen) {
+  async function initialiser(gen, essai = 1) {
     try {
       const b = Buffer.alloc(8 + NOM_APPLI.length);
       b[0] = CMD.APP_START; b[1] = 3; b.write(NOM_APPLI, 8, 'utf8');
-      traiterSelfInfo(await commande(b, [RESP.SELF_INFO], 6000));
+      try {
+        traiterSelfInfo(await commande(b, [RESP.SELF_INFO], 6000));
+      } catch (e) {
+        // Companion encore en train de démarrer (l'ouverture du port USB le redémarre souvent) : on redemande
+        if (gen === generation && flux && essai < 6 && /pas de réponse/.test(e.message)) {
+          journal(`le companion ne répond pas encore (essai ${essai}), nouvel essai dans ${2 * essai} s`);
+          etat.erreur = 'le companion ne répond pas encore, nouvel essai…'; notifier();
+          await new Promise((r) => setTimeout(r, 2000 * essai));
+          if (gen === generation && flux) return initialiser(gen, essai + 1);
+          return;
+        }
+        throw e;
+      }
+      etat.erreur = null;
       try { traiterDeviceInfo(await commande([CMD.DEVICE_QUERY, 3], [RESP.DEVICE_INFO], 5000)); } catch { /* ancien firmware */ }
       // Horloge : le companion s'en sert pour dater ses envois (les répéteurs refusent les horodatages qui reculent)
       const h = Buffer.alloc(5); h[0] = CMD.SET_DEVICE_TIME; h.writeUInt32LE(Math.floor(Date.now() / 1000), 1);
@@ -422,13 +435,15 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
       notifier();
     },
     reconnecter() { arret = false; fermer(); planifier(500); },
+    // Relit les informations du companion sans couper la liaison (companion relié mais resté muet)
+    relancer() { if (!flux) throw new Error('aucun companion relié à la carte'); etat.pret = false; initialiser(generation); },
     // Companion relié par la page (USB ou Bluetooth) : il remplace la liaison habituelle tant que la page est ouverte
     brancherNavigateur(f, nom, source) {
       fermer();
       clearTimeout(minuterie);
       navigateur = { nom, source, flux: f };
       etat = { ...etat, paquets: 0, erreur: null };
-      attacher(f, `navigateur ${source}`, source === 'USB' ? 1500 : 200);
+      attacher(f, `navigateur ${source}`, source === 'USB' ? 2500 : 200);
     },
     agentDisponible(hote) {
       if (!navigateur && !arret && memo.cible && memo.cible.type === 'agent' && memo.cible.hote === hote && (!flux || flux.destroyed)) planifier(500);

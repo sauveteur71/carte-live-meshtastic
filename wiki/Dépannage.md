@@ -28,3 +28,12 @@ Un autre appareil (souvent l'appli du téléphone en Wi-Fi) s'est connecté au m
 
 ### Les liaisons de l'autre réseau restent affichées
 Mettez la carte à jour (2.0.0) : la bascule Meshtastic ↔ MeshCore efface désormais les traces de l'autre réseau.
+
+## Masquer les points hauts et les sites proposés
+*Couches ▾ › Points hauts* : un clic les masque, un autre les réaffiche. Le choix est gardé pour la prochaine visite. Pour les masquer par défaut sur toute la carte : `CARTE_COUCHES_MASQUEES=sommets` dans le `.env`.
+
+## Companion MeshCore en USB « relié, mais muet »
+L'ouverture du port USB redémarre souvent le companion. Depuis la 2.1.1, la carte lui redemande ses informations plusieurs fois pendant une trentaine de secondes. S'il reste muet :
+- vérifiez qu'il a bien le firmware **companion USB** (et non companion BLE ou répéteur) ;
+- fermez toute autre appli qui utilise le port ;
+- bouton **↻ Relancer** dans *MeshCore › Companion*, ou débranchez et rebranchez.

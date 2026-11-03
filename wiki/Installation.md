@@ -28,6 +28,16 @@ Le minimum :
 
 Tout le reste se règle ensuite depuis la carte (assistant, puis *Gestion › Réglages*).
 
+Affichage par défaut (facultatif) :
+
+| Variable | Rôle | Valeurs |
+|---|---|---|
+| `CARTE_FOND` | fond de carte au premier affichage | `sombre` (défaut), `plan`, `plan-sombre`, `photos`, `topo` |
+| `CARTE_RESEAUX` | réseaux proposés | `les-deux` (défaut), `meshtastic`, `meshcore` : le choix Meshtastic / MeshCore / Les deux disparaît |
+| `CARTE_COUCHES_MASQUEES` | couches masquées au départ | ex. `sommets` (points hauts et sites proposés), `routiers`, `animations`… |
+
+Chaque visiteur peut ensuite changer de fond et de couches dans *Couches ▾*. Son choix est gardé dans son navigateur.
+
 > ⚠️ Vérifiez l'orthographe de l'adresse du broker : `mqttgaulix.fr` au lieu de `mqtt.gaulix.fr` donne une erreur `getaddrinfo ENOTFOUND` en boucle dans le journal.
 
 ## 3. L'assistant d'installation

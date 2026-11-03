@@ -74,6 +74,10 @@ const MC_LIENS_MAX = 500;
 // ---- Choix du réseau affiché : Meshtastic, MeshCore ou les deux ------------------------------------
 etat.vueReseau = (() => { try { return localStorage.getItem('gaulix_reseau') || 'les-deux'; } catch { return 'les-deux'; } })();
 function appliquerVueReseau() {
+  // Carte limitée à un seul réseau (CARTE_RESEAUX) : pas de choix
+  const seul = etat.config && etat.config.reseaux && etat.config.reseaux !== 'les-deux' ? etat.config.reseaux : null;
+  if (seul) etat.vueReseau = seul;
+  document.querySelectorAll('.choix-reseau').forEach((el) => (el.hidden = !!seul));
   // Menu Outils : outils Meshtastic et/ou MeshCore selon le réseau affiché
   document.querySelectorAll('.outils-mc').forEach((el) => (el.hidden = !etat.config.meshcore || etat.vueReseau === 'meshtastic'));
   document.querySelectorAll('.outils-mt').forEach((el) => (el.hidden = etat.vueReseau === 'meshcore'));
@@ -172,7 +176,7 @@ function mcDessinerLiens() {
     const age = (maintenant - l.dernierVu) / fenetre;
     const ligne = L.polyline([[l.na.lat, l.na.lon], [l.nbN.lat, l.nbN.lon]], {
       pane: 'liens', color: l.source === 'chemin' && l.snr == null ? '#fb923c' : couleurSnr(l.snr),
-      weight: Math.min(1 + Math.log2(1 + l.nb) * 0.6, 4), opacity: Math.max(0.2, 0.85 - age * 0.7),
+      weight: epaisseurLien(Math.min(1 + Math.log2(1 + l.nb) * 0.6, 4)), opacity: opaciteLien(Math.max(0.2, 0.85 - age * 0.7)),
       dashArray: l.source === 'chemin' ? '5 6' : l.source === 'trace' ? '2 5' : l.source === 'voisinage' ? '9 4 2 4' : null, className: 'lien-mc',
     });
     const d = distanceKm(l.na, l.nbN);
@@ -996,7 +1000,7 @@ function mcRendreCompanion() {
   z.innerHTML = `
     <h3>Companion de la carte</h3>
     <div class="bloc-usb ${c.connecte ? 'relie' : ''}">
-      <div class="titre-usb"><span class="point ${c.connecte ? 'actif' : c.cible || c.navigateur ? 'recent' : 'inactif'}"></span><b>${esc(c.nom || 'Aucun companion relié')}</b><small>${c.connecte ? 'relié · ' + source : c.erreur ? esc(c.erreur) : source === 'aucun' ? 'choisissez une liaison ci-dessous' : 'en attente · ' + source}</small></div>
+      <div class="titre-usb"><span class="point ${c.connecte ? 'actif' : c.cible || c.navigateur ? 'recent' : 'inactif'}"></span><b>${esc(c.nom || (c.connecte ? 'Companion relié, mais muet' : 'Aucun companion relié'))}</b><small>${c.connecte && !c.nom ? `${c.erreur ? esc(c.erreur) + ' · ' : ''}${source} · vérifiez le firmware (« companion USB » pour l’USB) puis « Relancer »` : c.connecte ? 'relié · ' + source : c.erreur ? esc(c.erreur) : source === 'aucun' ? 'choisissez une liaison ci-dessous' : 'en attente · ' + source}</small></div>
       ${c.cle ? `<div class="ident mono" title="Clé publique">${esc(c.cle.slice(0, 16))}… <button class="mini" data-copier="${esc(c.cle)}">Copier la clé</button></div>` : ''}
       ${c.connecte ? `<div class="grille">
         <div class="mesure"><span>Radio</span><b>${r ? `${fmt(r.freq, 3)} MHz` : '–'}</b></div>
@@ -1011,6 +1015,7 @@ function mcRendreCompanion() {
     ${etat.admin ? `
     <div class="actions-prop">
       ${c.connecte ? '<button data-mc-act="annonce0" title="Annonce entendue seulement par les voisins directs">Annonce voisins</button><button data-mc-act="annonce1" title="Annonce relayée par les répéteurs">Annonce réseau</button><button data-mc-act="contacts" title="Relire les contacts du companion">Contacts</button>' : ''}
+      ${c.connecte && !c.pret ? '<button data-mc-act="relancer" title="Redemander ses informations au companion, sans couper la liaison">↻ Relancer</button>' : ''}
       ${c.cible || c.navigateur ? '<button data-mc-act="stop">Débrancher</button>' : ''}
     </div>
     ${c.connecte && c.pret ? mcHtmlOutils() : ''}
@@ -1054,6 +1059,7 @@ function mcRendreCompanion() {
       if (a === 'usb') { mc.nav.role = 'principal'; return mcBrancherUsb(); }
       if (a === 'ble') { mc.nav.role = 'principal'; return mcBrancherBle(); }
       if (a === 'nav-stop') return mcDebrancherNav();
+      if (a === 'relancer') { await postJson('/api/mc/companion/relancer'); b.textContent = 'Relancé…'; setTimeout(mcChargerEtat, 4000); return; }
       if (a === 'stop') await api('/api/mc/companion', { method: 'DELETE' });
       if (a === 'annonce0' || a === 'annonce1') { await postJson('/api/mc/companion/annonce', { inondation: a === 'annonce1' }); b.textContent = 'Envoyée ✓'; return; }
       if (a === 'contacts') { await postJson('/api/mc/companion/contacts'); b.textContent = 'Demandé ✓'; return; }

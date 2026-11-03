@@ -185,11 +185,15 @@ function initCarte() {
   let surcouchesMemo = null;
   try { surcouchesMemo = JSON.parse(localStorage.getItem('gaulix_surcouches') || 'null'); } catch { /* idem */ }
   if (!surcouchesMemo) surcouches['Points de repère'].addTo(carte);
-  let choix = 'Sombre';
+  let choix = fonds[etat.config.fond] ? etat.config.fond : 'Sombre'; // fond par défaut de cette carte (CARTE_FOND)
   try { const c = localStorage.getItem('gaulix_fond'); if (c && fonds[c]) choix = c; } catch { /* stockage indisponible */ }
   fonds[choix].addTo(carte);
   // Fond sombre : les surcouches de texte (noms IGN) passent en clair pour rester lisibles
-  const majFondSombre = () => document.body.classList.toggle('fond-sombre', /sombre/i.test(choix));
+  const majFondSombre = () => {
+    document.body.classList.toggle('fond-sombre', /sombre/i.test(choix));
+    // Fonds clairs (plan, photos, topographique) : liaisons plus épaisses, plus opaques et cernées de sombre
+    document.body.classList.toggle('fond-clair', !/sombre/i.test(choix));
+  };
   majFondSombre();
   for (const n of surcouchesMemo || []) if (surcouches[n]) surcouches[n].addTo(carte);
   carte.attributionControl.addAttribution('Meshtastic® est une marque de Meshtastic LLC');
@@ -200,6 +204,8 @@ function initCarte() {
     <div class="titre-menu">Réseau</div>`);
   menu.querySelectorAll('[data-fond]').forEach((b) => (b.onclick = () => {
     fonds[choix].remove(); choix = b.dataset.fond; fonds[choix].addTo(carte); majFondSombre();
+    try { dessinerLiens(); } catch { /* pas encore prêt */ }
+    try { if (typeof mcRedessiner === 'function') mcRedessiner(); } catch { /* MeshCore absent */ }
     menu.querySelectorAll('[data-fond]').forEach((x) => x.classList.toggle('actif', x === b));
     try { localStorage.setItem('gaulix_fond', choix); } catch { /* idem */ }
   }));
@@ -300,6 +306,10 @@ function dessinerNoeuds() {
   }
 }
 
+// Sur un fond clair, un trait fin et pâle disparaît : on l'épaissit et on le rend plus opaque
+const fondClair = () => document.body.classList.contains('fond-clair');
+const epaisseurLien = (w) => (fondClair() ? w * 1.6 + 1 : w);
+const opaciteLien = (o) => (fondClair() ? Math.max(0.6, Math.min(1, o + 0.25)) : o);
 function dessinerLiens() {
   etat.coucheLiens.clearLayers();
   if (etat.vueReseau === 'meshcore') return;
@@ -328,8 +338,8 @@ function dessinerLiens() {
     const style = {
       pane: 'liens',
       color: couleurSnr(l.snr),
-      weight: Math.min(1 + Math.log2(1 + l.nb) * 0.6, 4),
-      opacity: opacite,
+      weight: epaisseurLien(Math.min(1 + Math.log2(1 + l.nb) * 0.6, 4)),
+      opacity: opaciteLien(opacite),
       dashArray: l.source === 'voisinage' ? '6 5' : l.source === 'traceroute' ? '2 5' : null,
     };
     const ligne = L.polyline([[l.noeudA.lat, l.noeudA.lon], [l.noeudB.lat, l.noeudB.lon]], style);
@@ -4767,6 +4777,7 @@ function brancherInterface() {
     const c = b.dataset.couche;
     etat.couches[c] = !etat.couches[c];
     b.classList.toggle('actif', etat.couches[c]);
+    if (c) ecrireLs('gaulix_couches', etat.couches); // choix gardé pour la prochaine visite
     if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
   }));
   $('#filtres').onclick = (e) => {
@@ -5195,6 +5206,10 @@ async function demarrer() {
   etat.secteur = etat.admin ? null : (etat.config.compte && etat.config.compte.noeuds) || [];
   etat.membre = etat.config.membre;
   document.title = etat.config.titre;
+  // Couches : masquées par défaut sur cette carte (CARTE_COUCHES_MASQUEES), puis choix du visiteur
+  for (const c of etat.config.couchesMasquees || []) if (c in etat.couches) etat.couches[c] = false;
+  Object.assign(etat.couches, Object.fromEntries(Object.entries(lireLs('gaulix_couches', {}) || {}).filter(([k, v]) => k in etat.couches && typeof v === 'boolean')));
+  document.querySelectorAll('.bascule[data-couche]').forEach((b) => b.classList.toggle('actif', !!etat.couches[b.dataset.couche]));
   // Liens vers le client et le flasheur officiels (Web Serial / Web Bluetooth : HTTPS et Chrome ou Edge obligatoires)
   {
     const o = etat.config.outils || {}, https = location.protocol === 'https:';
