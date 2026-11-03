@@ -11,7 +11,7 @@ const { WebSocketServer } = require('ws');
 
 const config = require('./config');
 const VERSION = require('../package.json').version;
-const { calculerVoisins } = require('./voisins');
+const { calculerVoisins, calculerRegions } = require('./voisins');
 const { creerInstallations } = require('./installations');
 const { creerAsymetrie } = require('./asymetrie');
 const { creerCouvertureMesuree } = require('./couverture-mesuree');
@@ -35,8 +35,14 @@ function zoneVoisins() {
   if (cacheVoisins.cle !== cle) cacheVoisins = { cle, val: calculerVoisins(config.departement.code, config.zone) };
   return cacheVoisins.val;
 }
-// Paramètre ?zone= : 1 = département, v = département + voisins, sinon toute la carte
-const bboxZone = (q) => (q === '1' ? config.zone : q === 'v' ? (zoneVoisins() || {}).bbox || config.zone : null);
+// Paramètre ?zone= : 1 = département, v = département + voisins, r84 = une région (code INSEE), sinon toute la carte
+const bboxZone = (q) => {
+  if (q === '1') return config.zone;
+  if (q === 'v') return (zoneVoisins() || {}).bbox || config.zone;
+  const m = /^r(\d{2})$/.exec(String(q || ''));
+  if (m) { const r = calculerRegions().find((x) => x.code === m[1]); return r ? r.bbox : null; }
+  return null;
+};
 const { decoderMessage, preparerCanaux } = require('./decodeur');
 const { creerStockage } = require('./base');
 const { creerReseau } = require('./reseau');
@@ -183,6 +189,7 @@ app.get('/api/config', (req, res) => {
     departement: config.departement,
     zone: config.zone,
     zoneVoisins: zoneVoisins(),
+    regions: calculerRegions().map(({ code, nom, bbox }) => ({ code, nom, bbox })),
     zoneNom: config.zoneNom,
     radio: true,
     meshcore: config.meshcore.actif && config.carte.reseaux !== 'meshtastic',

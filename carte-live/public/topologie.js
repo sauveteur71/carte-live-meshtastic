@@ -724,6 +724,11 @@ function ouvrirVue(v) {
   if (v === 'direct') rendreDirect();
 }
 document.querySelectorAll('nav.onglets button').forEach((b) => (b.onclick = () => ouvrirVue(b.dataset.vue)));
+// Régions de France dans le choix de zone
+fetch('/api/config', { credentials: 'same-origin' }).then((r) => r.json()).then((c) => {
+  const z = $('#zone');
+  if (z && (c.regions || []).length && !z.querySelector('optgroup')) z.insertAdjacentHTML('beforeend', `<optgroup label="Régions">${c.regions.map((r) => `<option value="r${r.code}">${r.nom}</option>`).join('')}</optgroup>`);
+}).catch(() => {});
 for (const id of ['#periode', '#zone', '#double-sens']) $(id).onchange = () => charger().catch(erreur);
 document.querySelectorAll('.source').forEach((c) => (c.onchange = () => charger().catch(erreur)));
 $('#disposition').onchange = () => dessiner();

@@ -48,4 +48,39 @@ function calculerVoisins(code, zoneDep) {
   };
 }
 
-module.exports = { calculerVoisins };
+// Régions métropolitaines : départements et rectangle englobant (calculé depuis les contours)
+const REGIONS = [
+  ['84', 'Auvergne-Rhône-Alpes', '01 03 07 15 26 38 42 43 63 69 73 74'],
+  ['27', 'Bourgogne-Franche-Comté', '21 25 39 58 70 71 89 90'],
+  ['53', 'Bretagne', '22 29 35 56'],
+  ['24', 'Centre-Val de Loire', '18 28 36 37 41 45'],
+  ['94', 'Corse', '2A 2B'],
+  ['44', 'Grand Est', '08 10 51 52 54 55 57 67 68 88'],
+  ['32', 'Hauts-de-France', '02 59 60 62 80'],
+  ['11', 'Île-de-France', '75 77 78 91 92 93 94 95'],
+  ['28', 'Normandie', '14 27 50 61 76'],
+  ['75', 'Nouvelle-Aquitaine', '16 17 19 23 24 33 40 47 64 79 86 87'],
+  ['76', 'Occitanie', '09 11 12 30 31 32 34 46 48 65 66 81 82'],
+  ['52', 'Pays de la Loire', '44 49 53 72 85'],
+  ['93', 'Provence-Alpes-Côte d’Azur', '04 05 06 13 83 84'],
+];
+let cacheRegions = null;
+function calculerRegions() {
+  if (cacheRegions) return cacheRegions;
+  let d;
+  try { d = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'), 'utf8')); } catch { return []; }
+  const parCode = new Map((d.features || []).map((f) => [String(f.properties.code), f]));
+  cacheRegions = REGIONS.map(([code, nom, deps]) => {
+    const bbox = [90, 180, -90, -180];
+    const liste = deps.split(' ');
+    for (const c of liste) {
+      const f = parCode.get(c); if (!f) continue;
+      const r = rectangle(f);
+      bbox[0] = Math.min(bbox[0], r[0]); bbox[1] = Math.min(bbox[1], r[1]); bbox[2] = Math.max(bbox[2], r[2]); bbox[3] = Math.max(bbox[3], r[3]);
+    }
+    return { code, nom, departements: liste, bbox: bbox.map((v) => Math.round(v * 1000) / 1000) };
+  });
+  return cacheRegions;
+}
+
+module.exports = { calculerVoisins, calculerRegions };
