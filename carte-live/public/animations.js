@@ -42,7 +42,7 @@ function animerTrajet(pts, opts = {}) {
     if (f < 1) { requestAnimationFrame(etape); return; }
     parcourus.push([s.b.lat, s.b.lon]);
     allumerLien(s.a, s.b, couleur, opts.estime);
-    noterAxe(s.a, s.b);
+    noterAxe(s.a, s.b, opts.reseau || 'mt');
     if (opts.auFil) opts.auFil(i + 1);
     i++;
     if (i >= segments.length) { fin(); return; }
@@ -61,9 +61,9 @@ function allumerLien(a, b, couleur, estime) {
 
 // Axes actifs : nombre de passages par saut sur 10 minutes
 const cleAxe = (a, b) => { const x = `${a.lat.toFixed(4)},${a.lon.toFixed(4)}`, y = `${b.lat.toFixed(4)},${b.lon.toFixed(4)}`; return x < y ? x + '|' + y : y + '|' + x; };
-function noterAxe(a, b) {
-  const k = cleAxe(a, b);
-  const x = anim.axes.get(k) || { a: [a.lat, a.lon], b: [b.lat, b.lon], t: [] };
+function noterAxe(a, b, reseau = 'mt') {
+  const k = reseau + ':' + cleAxe(a, b);
+  const x = anim.axes.get(k) || { a: [a.lat, a.lon], b: [b.lat, b.lon], t: [], reseau };
   x.t.push(Date.now());
   anim.axes.set(k, x);
   if (!anim.minuterie) anim.minuterie = setTimeout(() => { anim.minuterie = null; dessinerAxes(); }, 2500);
@@ -77,7 +77,10 @@ function dessinerAxes() {
     if (!x.t.length) { anim.axes.delete(k); continue; }
   }
   if (!etat.couches.animations) return;
+  // Seulement le réseau affiché (Meshtastic, MeshCore ou les deux)
+  const vue = typeof etat !== 'undefined' ? etat.vueReseau : null;
   for (const x of anim.axes.values()) {
+    if ((vue === 'meshcore' && x.reseau !== 'mc') || (vue === 'meshtastic' && x.reseau === 'mc')) continue;
     const n = x.t.length;
     if (n < 2) continue;
     L.polyline([x.a, x.b], { pane: 'couverture', color: '#fde68a', weight: Math.min(4 + Math.log2(n) * 3, 18), opacity: Math.min(0.12 + n * 0.02, 0.35), lineCap: 'round', interactive: false, className: 'axe-actif' })

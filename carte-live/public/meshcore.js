@@ -99,6 +99,10 @@ function appliquerVueReseau() {
   mcMajKpis();
   mcMajAlertes();
   mcDessinerChaleur();
+  // Traces de l'autre réseau : axes de trafic, liaisons allumées, parcours d'un message affiché
+  if (typeof dessinerAxes === 'function') dessinerAxes();
+  if (typeof anim !== 'undefined' && anim.coucheAllumes) anim.coucheAllumes.clearLayers();
+  if (etat.parcoursReseau && etat.parcoursReseau !== etat.vueReseau && etat.vueReseau !== 'les-deux' && typeof effacerParcours === 'function') effacerParcours();
 }
 
 // ---- Carte ---------------------------------------------------------------------------------
@@ -197,7 +201,7 @@ function mcAnimer(p) {
   if (etat.zone && !connus.some((x) => { const z = etat.config.zone; return x.lat >= z[0] && x.lat <= z[2] && x.lon >= z[1] && x.lon <= z[3]; })) return;
   const coul = mcType(p.type).hex;
   if (connus[0]) mcFlasher(connus[0].cle);
-  animerTrajet(connus, { couleur: coul, estime, auFil: (i) => mcFlasher(connus[i].cle) });
+  animerTrajet(connus, { couleur: coul, estime, reseau: 'mc', auFil: (i) => mcFlasher(connus[i].cle) });
   const fin = connus[connus.length - 1];
   if (fin) {
     const onde = L.marker([fin.lat, fin.lon], { icon: L.divIcon({ className: '', html: `<div class="onde" style="border-color:${coul}"></div>`, iconSize: [10, 10], iconAnchor: [5, 5] }), interactive: false, pane: 'traces' }).addTo(carte);
@@ -339,6 +343,7 @@ async function mcRendreMessages() {
   let l = [];
   try { l = await api('/api/mc/messages?limite=300'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
   if (mc.vue !== 'messages') return;
+  mcMarquerLus();
   const c = (mc.etat && mc.etat.companion) || {};
   const canaux = c.canaux || [];
   const peutEnvoyer = etat.admin && c.connecte;
@@ -1230,7 +1235,7 @@ function mcRecevoir(m) {
     mcAnimer(m);
     mcAjouterAuFlux(m);
     mcNoterActivite(m.de); (m.cheminResolu || []).forEach(mcNoterActivite);
-    if (m.texte && m.premiere && etat.membre) mcMessagesARafraichir();
+    if (m.texte && m.premiere && etat.membre) { mcNoterMessageRecu({ canal: m.canal }); mcMessagesARafraichir(); }
   } else if (m.genre === 'mc-etat') {
     mc.etat = { ...(mc.etat || {}), stats: m.stats, companion: { ...((mc.etat && mc.etat.companion) || {}), ...m.companion } };
     if (m.alertes) mc.etat.alertes = m.alertes;
@@ -1239,7 +1244,38 @@ function mcRecevoir(m) {
     mcMajAlertes();
     if (etat.admin && mc.vue === 'companion') mcChargerEtat();
   } else if (m.genre === 'mc-noeuds') mcPlanifier();
-  else if (m.genre === 'mc-message' && etat.membre) mcMessagesARafraichir();
+  else if (m.genre === 'mc-message' && etat.membre) { if (m.sens === 'recu') mcNoterMessageRecu(m); mcMessagesARafraichir(); }
+}
+// Messages MeshCore non lus (même réglage de sons que Meshtastic : bip par nom de canal, alerte des messages directs)
+function mcNoterMessageRecu(m) {
+  if (typeof nonLus === 'undefined') return;
+  const k = m.direct ? 'mcdirect' : 'mc:' + String(m.canal || '?').toLowerCase();
+  const vu = !document.hidden && mc.vue === 'messages' && $('[data-vue="meshcore"]') && $('[data-vue="meshcore"]').classList.contains('actif');
+  if (!vu) { nonLus[k] = (nonLus[k] || 0) + 1; ecrireLs('gaulix_non_lus', nonLus); }
+  if (m.direct) { if (sons.direct) bip([880, 1320, 1760], 0.12); afficherAlerteDirect(`✉️ Message direct MeshCore de ${m.nomDe || 'inconnu'}`, m.texte); }
+  else if (sons.canaux[String(m.canal || '').toLowerCase()]) bip([noteCanal(String(m.canal).toLowerCase())], 0.18);
+  majBadgesMessages();
+}
+function mcMajBadgeMessages() {
+  const n = Object.entries(nonLus).filter(([k]) => k.startsWith('mc')).reduce((a, [, x]) => a + x, 0);
+  const b = document.querySelector('.sous-onglets-mc button[data-mc-vue="messages"]');
+  if (b) {
+    let s = b.querySelector('.badge-non-lus');
+    if (!s) { b.insertAdjacentHTML('beforeend', ' <span class="badge-non-lus"></span>'); s = b.querySelector('.badge-non-lus'); }
+    s.textContent = n ? String(n) : ''; s.hidden = !n; s.classList.toggle('direct', !!nonLus.mcdirect);
+  }
+  const o = document.querySelector('.onglets button[data-onglet="meshcore"]');
+  if (o) {
+    let s = o.querySelector('.badge-non-lus');
+    if (!s) { o.insertAdjacentHTML('beforeend', ' <span class="badge-non-lus"></span>'); s = o.querySelector('.badge-non-lus'); }
+    s.textContent = n ? String(n) : ''; s.hidden = !n; s.classList.toggle('direct', !!nonLus.mcdirect);
+  }
+}
+function mcMarquerLus() {
+  if (typeof nonLus === 'undefined' || document.hidden) return;
+  let ch = false;
+  for (const k of Object.keys(nonLus)) if (k.startsWith('mc')) { delete nonLus[k]; ch = true; }
+  if (ch) { ecrireLs('gaulix_non_lus', nonLus); majBadgesMessages(); }
 }
 
 function demarrerMeshcore() {

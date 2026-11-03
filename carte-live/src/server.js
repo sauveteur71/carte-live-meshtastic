@@ -865,6 +865,38 @@ app.post('/api/firmware/ota', async (req, res) => {
   } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 
+// ---- Contrôle du trafic : nœuds trop bavards et paquets réinjectés depuis MQTT -----------------------
+let controleTrafic = null;
+const obtenirControle = () => controleTrafic || (controleTrafic = require('./trafic').creerControleTrafic({ stockage, config, administration }));
+app.get('/api/trafic/controle', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.set('Cache-Control', 'no-store').json(obtenirControle().analyser(Math.min(Math.max(Number(req.query.heures) || 24, 1), 168)));
+});
+// Corrige les nœuds administrables : intervalles de position / télémétrie / fiche, ou « Ignorer MQTT » sur les relais
+app.post('/api/trafic/corriger', (req, res) => {
+  const u = utilisateur(req);
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const b = req.body || {};
+  const nums = [...new Set((b.nums || []).map((x) => Number(x) >>> 0))].filter(Boolean).slice(0, 30);
+  if (!nums.length) return res.status(400).json({ erreur: 'Aucun nœud choisi' });
+  if (!peutGererTous(req, nums)) return refuserSecteur(res);
+  const r = b.ignorerMqtt ? null : obtenirControle().analyser(24);
+  const taches = [], refus = [];
+  for (const num of nums) {
+    try {
+      let params;
+      if (b.ignorerMqtt) params = { lora: { ignoreMqtt: true } };
+      else {
+        const e = r.bavards.find((x) => x.num === num);
+        if (!e) { refus.push({ num, raison: 'plus trop bavard sur 24 h' }); continue; }
+        params = obtenirControle().correctifs(e);
+      }
+      taches.push(administration.lancer('modifier', [num], params, u.identifiant, { insister: true }).id);
+    } catch (e) { refus.push({ num, raison: e.message }); }
+  }
+  res.json({ taches, refus });
+});
+
 // Nouveaux nœuds du secteur (membres : positions des particuliers arrondies comme ailleurs)
 let nouveaux = null;
 const obtenirNouveaux = () => (nouveaux = nouveaux || creerNouveaux(stockage, config, reseau));
@@ -2070,6 +2102,9 @@ function planifierEtatMc() { if (!minuterieEtatMc) minuterieEtatMc = setTimeout(
 setInterval(diffuserEtatMc, 30000);
 const sourceMM = creerSourceMeshMonitor(stockage, config, () => { rafraichirEtat(); diffuser({ genre: 'statut' }); });
 if (sourceMM) journal(`Source MeshMonitor activée : ${config.meshmonitor.url}`);
+// Archive PostgreSQL facultative (POSTGRES_URL) : copie de tout le trafic, sans limite de durée
+const archivePg = require('./postgres').creerArchivePostgres(config, stockage, journal);
+app.get('/api/postgres/etat', (req, res) => { if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); res.json(archivePg ? archivePg.etat() : { actif: false }); });
 // Agents (module USB sur un PC, ou module Wi-Fi d'un autre réseau) : ils se connectent au port 4404
 const agents = creerAgents(config, { surArrivee: (hote, nom, protocole) => {
   if (protocole !== 'meshtastic' && typeof companion !== 'undefined' && companion) companion.agentDisponible(hote);

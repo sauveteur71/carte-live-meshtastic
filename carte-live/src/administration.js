@@ -474,7 +474,7 @@ function creerAdministration(radio, stockage) {
     lora: {
       hopLimit: (v) => entier(v, 1, 7), modemPreset: (v) => { if (!(v in PRESETS_ENUM)) throw new Error('Preset inconnu'); return PRESETS_ENUM[v]; }, txPower: (v) => entier(v, 0, 30), txEnabled: (v) => !!v,
       region: (v) => { if (!(v in REGIONS_ENUM) || v === 'UNSET') throw new Error('Région inconnue'); return REGIONS_ENUM[v]; },
-      channelNum: (v) => entier(v, 0, 200), usePreset: (v) => !!v, sx126xRxBoostedGain: (v) => !!v, configOkToMqtt: (v) => !!v,
+      channelNum: (v) => entier(v, 0, 200), usePreset: (v) => !!v, sx126xRxBoostedGain: (v) => !!v, configOkToMqtt: (v) => !!v, ignoreMqtt: (v) => !!v,
       overrideFrequency: (v) => { const f = Number(v); if (!(f === 0 || (f >= 400 && f <= 1000))) throw new Error('Fréquence forcée invalide (0 ou en MHz)'); return f; },
     },
     position: { positionBroadcastSecs: (v) => entier(v, 0, 86400 * 7), positionBroadcastSmartEnabled: (v) => !!v, fixedPosition: (v) => !!v },

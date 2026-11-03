@@ -526,6 +526,7 @@ function montrerChemin(c) {
   tracer(c.mesure.aller, '#3ee6c4', false, 'Aller');
   if (c.mesure.retour) tracer(c.mesure.retour, '#c084fc', true, 'Retour');
   if (pts.length) carte.fitBounds(L.latLngBounds(pts), { padding: [80, 80], maxZoom: 12 });
+  const bf = $('#parcours-fermer'); if (bf) bf.onclick = () => { effacerParcours(); $('#fiche').hidden = true; };
 }
 
 // ---- Liaisons à sens unique ----------------------------------------------------------------
@@ -814,6 +815,26 @@ async function chargerFlux() {
 }
 // ---- Envoi de messages par le module (admin) ---------------------------------------------
 const envoi = { dest: null, suivis: new Map() };
+// Choix du destinataire d'un message direct : recherche par nom, nom court ou !id, nœuds récents d'abord
+function choisirDestinataire(choisi) {
+  let z = $('#choix-dest');
+  if (!z) { $('#form-envoi').insertAdjacentHTML('afterend', '<div id="choix-dest" class="choix-dest"></div>'); z = $('#choix-dest'); }
+  z.hidden = false;
+  z.innerHTML = `<div class="envoi-ligne"><input id="choix-dest-q" placeholder="Rechercher un nœud : nom, nom court, !id…" autocomplete="off"><button type="button" class="mini" id="choix-dest-fermer">✕</button></div><div class="liste" id="choix-dest-liste"></div>`;
+  const local = etat.radio ? etat.radio.noeudLocal : null;
+  const rendre = () => {
+    const t = $('#choix-dest-q').value.toLowerCase().trim();
+    const l = [...etat.noeuds.values()].filter((x) => x.num !== local && (!t || [x.nomLong, x.nomCourt, x.id].some((v) => v && v.toLowerCase().includes(t))))
+      .sort((a, b) => (b.dernierVu || 0) - (a.dernierVu || 0)).slice(0, 40);
+    $('#choix-dest-liste').innerHTML = l.map((x) => `<div class="ligne cliquable" data-dest="${x.num}"><span class="point ${x.statut || 'inactif'}"></span><span class="titre">${esc(x.nomLong || x.id)}<small>${esc(x.nomCourt || '')} · ${esc(x.id || '')}${x.roleFr ? ' · ' + esc(x.roleFr) : ''}${x.sautsMin != null ? ` · ${x.sautsMin === 0 ? 'direct' : x.sautsMin + ' saut(s)'}` : ''}</small></span><span class="meta">${x.dernierVu ? ilYa(x.dernierVu) : ''}</span></div>`).join('') || '<div class="vide">Aucun nœud trouvé.</div>';
+    $('#choix-dest-liste').querySelectorAll('[data-dest]').forEach((d) => (d.onclick = () => { z.hidden = true; choisi(Number(d.dataset.dest)); }));
+  };
+  $('#choix-dest-q').oninput = rendre;
+  $('#choix-dest-q').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); const d = $('#choix-dest-liste [data-dest]'); if (d) d.click(); } if (e.key === 'Escape') z.hidden = true; };
+  $('#choix-dest-fermer').onclick = () => { z.hidden = true; };
+  rendre();
+  $('#choix-dest-q').focus();
+}
 async function preparerEnvoi(dest) {
   const f = $('#form-envoi');
   if (!etat.admin || !f) return;
@@ -823,8 +844,18 @@ async function preparerEnvoi(dest) {
   if (dest !== undefined) envoi.dest = dest;
   const n = envoi.dest != null ? etat.noeuds.get(envoi.dest) : null;
   envoi.canaux = i.canaux;
+  // Correspondants récents (messages directs) proposés directement dans la liste
+  const local = etat.radio ? etat.radio.noeudLocal : null;
+  const recents = [];
+  for (const m of derniersMessages) {
+    if (m.vers === 0xffffffff) continue;
+    const autre = m.de === local ? m.vers : m.de;
+    if (autre != null && autre !== local && autre !== (n && n.num) && !recents.includes(autre)) recents.push(autre);
+    if (recents.length >= 6) break;
+  }
   f.vers.innerHTML = i.canaux.map((c) => `<option value="c${c.index}" data-nom="${esc(c.nom)}">📢 Canal ${esc(c.nom)}</option>`).join('')
     + (n ? `<option value="d${n.num}" selected>✉️ Direct → ${esc(n.nomLong || n.id)}</option>` : '')
+    + (recents.length ? `<optgroup label="Correspondants récents">${recents.map((x) => { const r = etat.noeuds.get(x); return `<option value="d${x}">✉️ ${esc(r ? r.nomLong || r.nomCourt || r.id : '!' + (x >>> 0).toString(16))}</option>`; }).join('')}</optgroup>` : '')
     + '<option value="choisir">✉️ Message direct… (choisir un nœud)</option>';
   if (dest === undefined && filtreMessages.startsWith('c:')) { const o = [...f.vers.options].find((x) => x.dataset.nom != null && memeCanal(x.dataset.nom, filtreMessages.slice(2))); if (o) f.vers.value = o.value; }
   f.querySelector('button[type=submit]').disabled = !i.connecte;
@@ -833,13 +864,8 @@ async function preparerEnvoi(dest) {
     if (f.vers.value.startsWith('c')) { const o = f.vers.selectedOptions[0]; if (o && o.dataset.nom != null) choisirFiltreMessages('c:' + o.dataset.nom); return; }
     if (f.vers.value.startsWith('d')) { choisirFiltreMessages('direct'); return; }
     if (f.vers.value !== 'choisir') return;
-    const nom = prompt('Nom, nom court ou !identifiant du nœud :');
-    if (!nom) { f.vers.selectedIndex = 0; return; }
-    const t = nom.toLowerCase().trim();
-    const trouve = [...etat.noeuds.values()].find((x) => [x.nomLong, x.nomCourt, x.id].some((v) => v && v.toLowerCase() === t))
-      || [...etat.noeuds.values()].find((x) => [x.nomLong, x.nomCourt, x.id].some((v) => v && v.toLowerCase().includes(t)));
-    if (!trouve) { alert('Nœud introuvable'); f.vers.selectedIndex = 0; return; }
-    preparerEnvoi(trouve.num);
+    f.vers.selectedIndex = 0;
+    choisirDestinataire((num) => preparerEnvoi(num));
   };
   const maj = () => { const o = new TextEncoder().encode(f.texte.value).length; $('#compteur-envoi').textContent = `${o}/200`; $('#compteur-envoi').classList.toggle('trop', o > 200); };
   f.texte.oninput = maj; maj();
@@ -908,6 +934,34 @@ function suiviMessage(m) {
   } else if (moi) l.push('<span class="acc ko" title="Aucune passerelle MQTT ni aucun module de la carte n’a remonté ce message : soit personne ne l’a entendu, soit seuls des nœuds sans passerelle l’ont reçu.">📡 Aucun récepteur ne l’a remonté</span>');
   return l.length ? `<div class="suivi-msg">${l.join('')}</div>` : '';
 }
+// Pendant l'affichage d'un parcours : les liaisons des heures précédentes et les axes de trafic sont masqués,
+// pour ne voir que le trajet du message. « Effacer » (ou fermer la fiche) les remet.
+function masquerLiaisons(reseau) {
+  for (const c of [etat.coucheLiens, typeof mc !== 'undefined' ? mc.coucheLiens : null, typeof anim !== 'undefined' ? anim.couche : null]) if (c && carte.hasLayer(c)) carte.removeLayer(c);
+  etat.parcoursReseau = reseau;
+}
+function restaurerLiaisons() {
+  if (!etat.parcoursReseau) return;
+  etat.parcoursReseau = null;
+  for (const c of [etat.coucheLiens, typeof mc !== 'undefined' ? mc.coucheLiens : null, typeof anim !== 'undefined' ? anim.couche : null]) if (c && !carte.hasLayer(c)) c.addTo(carte);
+}
+function effacerParcours() {
+  if (etat.coucheCouvrir) etat.coucheCouvrir.remove();
+  etat.coucheCouvrir = null;
+  $('#btn-effacer').hidden = !etat.coucheCouverture;
+  restaurerLiaisons();
+}
+// Étiquette au milieu d'un saut : numéro et SNR
+function etiquetteSaut(a, b, texte, couleur, g) {
+  const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  L.marker(m, { icon: L.divIcon({ className: 'etiquette-saut', html: `<span style="border-color:${couleur}">${texte}</span>`, iconSize: null }), pane: 'traces', interactive: false, zIndexOffset: 950 }).addTo(g);
+}
+// Flèche au 2/3 d'un saut (sens du trajet)
+function flecheSaut(a, b, couleur, g) {
+  const p = [a[0] + (b[0] - a[0]) * 0.66, a[1] + (b[1] - a[1]) * 0.66];
+  const ang = (Math.atan2((b[0] - a[0]), (b[1] - a[1]) * Math.cos((a[0] * Math.PI) / 180)) * 180) / Math.PI;
+  L.marker(p, { icon: L.divIcon({ className: 'fleche-saut', html: `<span style="color:${couleur};transform:rotate(${-ang}deg)">➤</span>`, iconSize: [16, 16], iconAnchor: [8, 8] }), pane: 'traces', interactive: false }).addTo(g);
+}
 // Parcours d'un message : pour chaque réception, émetteur → relais (connu ou probable) → passerelle / module
 async function afficherParcours(rowid) {
   let t;
@@ -915,10 +969,12 @@ async function afficherParcours(rowid) {
   const local = etat.radio ? etat.radio.noeudLocal : null;
   const pt = (num) => { const n = etat.noeuds.get(num); return n && n.lat != null ? n : null; };
   if (etat.coucheCouvrir) etat.coucheCouvrir.remove();
+  masquerLiaisons('meshtastic');
   const g = L.layerGroup().addTo(carte);
   etat.coucheCouvrir = g;
   $('#btn-effacer').hidden = false;
   const pts = [];
+  const sautsDessines = new Set(); // un même saut partagé par plusieurs réceptions n'est tracé qu'une fois
   const src = pt(t.de);
   if (src) { pts.push([src.lat, src.lon]); L.marker([src.lat, src.lon], { icon: L.divIcon({ className: 'sommet plan', html: '<span>E</span>', iconSize: [22, 22], iconAnchor: [11, 11] }), pane: 'traces', zIndexOffset: 900 }).bindTooltip(`<b>Émetteur</b> · ${esc(nomNoeud(t.de))}`, { className: 'info' }).addTo(g); }
   const lignes = t.receptions.map((r, i) => {
@@ -939,7 +995,17 @@ async function afficherParcours(rowid) {
     if (chemin && chemin.every((n) => pt(n))) {
       const ll = chemin.map((n) => { const x = pt(n); return [x.lat, x.lon]; });
       ll.forEach((x) => pts.push(x));
-      L.polyline(ll, { color: couleur, weight: 4, opacity: 0.9, dashArray: estime ? '6 7' : null, pane: 'traces' }).bindTooltip(`Vers ${esc(nomNoeud(r.passerelle))}${estime ? ' (trajet probable)' : ''}`, { className: 'info', sticky: true }).addTo(g);
+      // Liseré sombre sous le trait : lisible sur tous les fonds de carte
+      L.polyline(ll, { color: '#0b1220', weight: 9, opacity: 0.55, pane: 'traces', interactive: false }).addTo(g);
+      L.polyline(ll, { color: couleur, weight: 5, opacity: 0.95, dashArray: estime ? '8 8' : null, lineCap: 'round', pane: 'traces' }).bindTooltip(`Vers ${esc(nomNoeud(r.passerelle))}${estime ? ' (trajet probable)' : ''}`, { className: 'info', sticky: true }).addTo(g);
+      for (let k = 0; k + 1 < ll.length; k++) {
+        const cle = chemin[k] + '>' + chemin[k + 1];
+        if (sautsDessines.has(cle)) continue;
+        sautsDessines.add(cle);
+        flecheSaut(ll[k], ll[k + 1], couleur, g);
+        const dernier = k + 2 === ll.length;
+        if (dernier && r.snr != null) etiquetteSaut(ll[k], ll[k + 1], `${fmt(r.snr, 1)} dB`, couleur, g);
+      }
       chemin.slice(1, -1).forEach((n) => { const x = pt(n); L.circleMarker([x.lat, x.lon], { radius: 7, color: '#fff', weight: 2, fillColor: couleur, fillOpacity: 1, pane: 'traces' }).bindTooltip(`<b>Relais</b> · ${esc(nomNoeud(n))}`, { className: 'info' }).addTo(g); });
     } else if (gw && src && !propre) {
       pts.push([gw.lat, gw.lon]);
@@ -957,6 +1023,7 @@ async function afficherParcours(rowid) {
   $('#fiche').hidden = false;
   etat.selection = null;
   $('#fiche-contenu').innerHTML = `<h2>Parcours du message</h2>
+    <div class="actions-prop"><button class="mini" id="parcours-fermer" title="Effacer le parcours et réafficher les liaisons">✕ Effacer le parcours</button></div>
     <div class="ident">${esc(nomNoeud(t.de))} · ${heure(t.heure)} · ${esc(t.canal || (t.vers !== 0xffffffff ? 'Direct' : ''))}${t.hopDepart != null ? ` · limite de sauts au départ : ${t.hopDepart}` : ''}</div>
     ${t.texte ? `<div class="texte-parcours">« ${esc(t.texte)} »</div>` : ''}
     ${t.viaMqtt ? '<div class="alerte attention">⚠ Ce message a traversé internet : une passerelle MQTT l’a réinjecté en radio.</div>' : ''}
@@ -965,6 +1032,104 @@ async function afficherParcours(rowid) {
     <p class="note">Meshtastic ne transmet que le nombre de sauts et le dernier octet du dernier relais : les relais intermédiaires sont déduits des liaisons déjà observées (tracé en pointillé, « trajet probable »). Vert = reçu par ton module, bleu = passerelle MQTT.</p>`;
   if (pts.length) carte.fitBounds(L.latLngBounds(pts), { padding: [80, 80], maxZoom: 12 });
 }
+// ---- Messages non lus par canal, sons et alerte des messages directs --------------------------------
+const lireLs = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? d; } catch { return d; } };
+const ecrireLs = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* navigation privée */ } };
+const nonLus = lireLs('gaulix_non_lus', {}); // clé : 'c:<canal>' ou 'direct' -> nombre
+const sons = { canaux: {}, direct: true, notifDirect: true, ...lireLs('gaulix_sons', {}) };
+const cleMessage = (m) => (m.vers != null && m.vers !== 0xffffffff ? 'direct' : 'c:' + String(m.canal || '?').toLowerCase());
+const ongletMessagesVisible = () => !document.hidden && !!document.querySelector('.onglets button[data-onglet="messages"].actif');
+// Ce que la liste affichée montre (et que l'utilisateur a donc sous les yeux)
+const filtreVoit = (k) => !filtreMessages || (filtreMessages === 'direct' ? k === 'direct' : k === 'c:' + filtreMessages.slice(2).toLowerCase());
+let contexteAudio = null;
+function bip(frequences, duree = 0.13) {
+  try {
+    contexteAudio = contexteAudio || new (window.AudioContext || window.webkitAudioContext)();
+    let t = contexteAudio.currentTime;
+    for (const f of frequences) {
+      const o = contexteAudio.createOscillator(), g = contexteAudio.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + duree);
+      o.connect(g).connect(contexteAudio.destination); o.start(t); o.stop(t + duree + 0.02);
+      t += duree + 0.04;
+    }
+  } catch { /* son indisponible */ }
+}
+// Une note différente par canal (déduite de son nom), deux notes montantes pour un message direct
+const NOTES = [523, 587, 659, 698, 784, 880, 988, 1047];
+const noteCanal = (nom) => NOTES[[...String(nom).toLowerCase()].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % NOTES.length];
+function sonner(k) {
+  if (k === 'direct') { if (sons.direct) bip([880, 1320, 1760], 0.12); return; }
+  const nom = k.slice(2);
+  if (sons.canaux[nom]) bip([noteCanal(nom)], 0.18);
+}
+function noterMessageRecu(m) {
+  if (!m.premiere) return;
+  const local = etat.radio ? etat.radio.noeudLocal : null;
+  if (local != null && m.de === local) return; // mes propres messages
+  const k = cleMessage(m);
+  if (k === 'direct' && local != null && m.vers !== local) return; // message direct entre deux autres nœuds
+  if (!(ongletMessagesVisible() && filtreVoit(k))) { nonLus[k] = (nonLus[k] || 0) + 1; ecrireLs('gaulix_non_lus', nonLus); }
+  sonner(k);
+  if (k === 'direct') {
+    const n = etat.noeuds.get(m.de);
+    const titre = `✉️ Message direct de ${n ? n.nomLong || n.id : '!' + (m.de >>> 0).toString(16)}`;
+    if (sons.notifDirect && 'Notification' in window && Notification.permission === 'granted' && document.hidden) { try { new Notification(titre, { body: m.texte || '', tag: 'gaulix-direct' }); } catch { /* ignoré */ } }
+    afficherAlerteDirect(titre, m.texte);
+  }
+  majBadgesMessages();
+}
+function afficherAlerteDirect(titre, texte) {
+  let a = $('#alerte-direct');
+  if (!a) { document.body.insertAdjacentHTML('beforeend', '<div id="alerte-direct" class="alerte-direct" role="alert"></div>'); a = $('#alerte-direct'); }
+  a.innerHTML = `<b>${esc(titre)}</b><div>${esc(texte || '')}</div><div class="actions-prop"><button class="mini principal" id="alerte-direct-voir">Lire</button><button class="mini" id="alerte-direct-ok">OK</button></div>`;
+  a.hidden = false;
+  $('#alerte-direct-ok').onclick = () => { a.hidden = true; };
+  $('#alerte-direct-voir').onclick = () => { a.hidden = true; const b = document.querySelector('.onglets button[data-onglet="messages"]'); if (b) b.click(); choisirFiltreMessages('direct'); };
+  clearTimeout(afficherAlerteDirect.t); afficherAlerteDirect.t = setTimeout(() => { a.hidden = true; }, 60000);
+}
+function majBadgesMessages() {
+  const total = Object.entries(nonLus).filter(([k]) => !k.startsWith('mc')).reduce((a, [, n]) => a + n, 0);
+  if (typeof mcMajBadgeMessages === 'function') mcMajBadgeMessages();
+  const b = $('#onglet-messages');
+  if (b) {
+    let s = b.querySelector('.badge-non-lus');
+    if (!s) { b.insertAdjacentHTML('beforeend', ' <span class="badge-non-lus"></span>'); s = b.querySelector('.badge-non-lus'); }
+    s.textContent = total ? String(total) : '';
+    s.hidden = !total;
+    s.classList.toggle('direct', !!nonLus.direct);
+  }
+  const tout = Object.values(nonLus).reduce((a, n) => a + n, 0);
+  document.title = (tout ? `(${tout}) ` : '') + document.title.replace(/^\(\d+\) /, '');
+}
+// La liste affichée vaut lecture pour ce qu'elle montre
+function marquerLus() {
+  if (!ongletMessagesVisible()) return;
+  let change = false;
+  for (const k of Object.keys(nonLus)) if (!k.startsWith('mc') && filtreVoit(k)) { delete nonLus[k]; change = true; }
+  if (change) { ecrireLs('gaulix_non_lus', nonLus); majBadgesMessages(); }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { marquerLus(); if (typeof rendreMessages === 'function' && ongletMessagesVisible()) rendreMessages(); } });
+// Réglage des sons : une case par canal, alerte des messages directs
+function reglerSons(canaux) {
+  let z = $('#reglage-sons');
+  if (!z) { $('#filtre-messages').insertAdjacentHTML('afterend', '<div id="reglage-sons" class="reglage-sons"></div>'); z = $('#reglage-sons'); }
+  z.hidden = !z.hidden && z.dataset.ouvert === '1';
+  z.dataset.ouvert = z.hidden ? '0' : '1';
+  if (z.hidden) return;
+  z.innerHTML = `<p class="note">Un bip différent par canal coché, et une alerte (trois notes) pour un message direct reçu par le module de la carte. Le son ne marche qu’après un premier clic dans la page.</p>
+    ${canaux.map((c) => `<label class="case"><input type="checkbox" data-son="${esc(c)}" ${sons.canaux[c.toLowerCase()] ? 'checked' : ''}> 📢 ${esc(c)} <button type="button" class="mini" data-test-son="c:${esc(c.toLowerCase())}">▶</button></label>`).join('')}
+    <label class="case"><input type="checkbox" id="son-direct" ${sons.direct ? 'checked' : ''}> ✉️ Messages directs <button type="button" class="mini" data-test-son="direct">▶</button></label>
+    <label class="case"><input type="checkbox" id="notif-direct" ${sons.notifDirect ? 'checked' : ''}> Notification de Windows / du téléphone pour un message direct (onglet en arrière-plan)</label>`;
+  z.querySelectorAll('[data-son]').forEach((c) => (c.onchange = () => { sons.canaux[c.dataset.son.toLowerCase()] = c.checked; ecrireLs('gaulix_sons', sons); }));
+  z.querySelectorAll('[data-test-son]').forEach((b) => (b.onclick = (e) => { e.preventDefault(); const k = b.dataset.testSon; if (k === 'direct') bip([880, 1320, 1760], 0.12); else bip([noteCanal(k.slice(2))], 0.18); }));
+  $('#son-direct').onchange = (e) => { sons.direct = e.target.checked; ecrireLs('gaulix_sons', sons); };
+  $('#notif-direct').onchange = async (e) => {
+    sons.notifDirect = e.target.checked; ecrireLs('gaulix_sons', sons);
+    if (e.target.checked && 'Notification' in window && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch { /* refus */ } }
+  };
+}
+
 // Filtre des messages : tous, un canal, ou les messages directs (retenu dans le navigateur)
 let filtreMessages = (() => { try { return localStorage.getItem('filtreMessages') || ''; } catch { return ''; } })();
 let derniersMessages = [];
@@ -992,11 +1157,16 @@ function rendreMessages() {
   if (zf) {
     zf.innerHTML = `<label>Afficher <select id="sel-filtre-messages">
       <option value="">Tous les canaux (${tous.length})</option>
-      ${canaux.map((c) => `<option value="c:${esc(c)}" ${filtreMessages === 'c:' + c ? 'selected' : ''}>📢 ${esc(c)} (${nb((m) => m.vers === 0xffffffff && memeCanal(m.canal, c))})</option>`).join('')}
-      <option value="direct" ${filtreMessages === 'direct' ? 'selected' : ''}>✉️ Messages directs (${nb((m) => m.vers !== 0xffffffff)})</option>
-    </select></label>`;
+      ${canaux.map((c) => { const n = nonLus['c:' + c.toLowerCase()]; return `<option value="c:${esc(c)}" ${filtreMessages === 'c:' + c ? 'selected' : ''}>📢 ${esc(c)} (${nb((m) => m.vers === 0xffffffff && memeCanal(m.canal, c))})${n ? ` · ${n} nouveau${n > 1 ? 'x' : ''}` : ''}</option>`; }).join('')}
+      <option value="direct" ${filtreMessages === 'direct' ? 'selected' : ''}>✉️ Messages directs (${nb((m) => m.vers !== 0xffffffff)})${nonLus.direct ? ` · ${nonLus.direct} nouveau${nonLus.direct > 1 ? 'x' : ''}` : ''}</option>
+    </select></label>
+    <button type="button" class="mini" id="btn-sons" title="Bip par canal et alerte des messages directs">🔔 Sons</button>
+    ${Object.keys(nonLus).some((k) => !k.startsWith('mc')) ? `<div class="non-lus-canaux">${Object.entries(nonLus).filter(([k]) => !k.startsWith('mc')).map(([k, n]) => `<button type="button" class="mini non-lu${k === 'direct' ? ' direct' : ''}" data-non-lu="${esc(k)}">${k === 'direct' ? '✉️ Direct' : '📢 ' + esc(canaux.find((c) => 'c:' + c.toLowerCase() === k) || k.slice(2))} <b>${n}</b></button>`).join('')}</div>` : ''}`;
     $('#sel-filtre-messages').onchange = (e) => choisirFiltreMessages(e.target.value);
+    $('#btn-sons').onclick = () => reglerSons(canaux);
+    zf.querySelectorAll('[data-non-lu]').forEach((b) => (b.onclick = () => { const k = b.dataset.nonLu; choisirFiltreMessages(k === 'direct' ? 'direct' : 'c:' + (canaux.find((c) => 'c:' + c.toLowerCase() === k) || k.slice(2))); }));
   }
+  marquerLus();
   const msgs = !filtreMessages ? tous
     : filtreMessages === 'direct' ? tous.filter((m) => m.vers !== 0xffffffff)
       : tous.filter((m) => m.vers === 0xffffffff && memeCanal(m.canal, filtreMessages.slice(2)));
@@ -3578,7 +3748,7 @@ async function rendreGestion() {
   z.innerHTML = `
     <div id="bandeau-fw">${nouveauFw ? `<div class="alerte info-lecture">⬆️ Firmware <b>${esc(fwv(fw.stable))}</b> disponible pour ${esc(fwm.nom || 'le module')} (actuel ${esc(fwm.firmware)}).${fwm.ip ? ' <button class="mini principal" id="fw-maj">Mettre à jour…</button>' : ' Module relié par agent : mise à jour en USB ou depuis son réseau local.'}</div>` : fwm && fw.test && fw.stable && fw.test.tag !== fw.stable.tag ? `<div class="note">Firmware du module : ${esc(fwm.firmware || '?')} (stable à jour) · version test ${esc(fwv(fw.test))} disponible.</div>` : ''}</div>
     ${!etat.admin ? `<div class="alerte">Compte gestionnaire : vous programmez les ${(etat.secteur || []).length} nœud(s) de votre secteur. Le module radio est géré par les administrateurs.</div>` : ''}
-    <div class="titre-programmer"><b>Nœuds Meshtastic</b><button class="mini" id="voir-cles" title="Quels modules peuvent programmer quel relais, et ce qu'il reste à faire sur place">🔑 Clés d’administration</button><button class="mini" id="voir-favoris" title="Favoris entre relais : sauts gratuits (firmware 2.7.11+)">⭐ Favoris relais</button><button class="mini" id="voir-modeles" title="Réglages types par usage, export et import YAML">📋 Modèles</button><button class="mini" id="voir-v28" title="Préparer le passage au firmware 2.8">🆕 Firmware 2.8</button>${etat.admin ? '<button class="mini" id="voir-fw" title="Version et mise à jour par le Wi-Fi des modules joignables en IP">⬆️ Firmware Wi-Fi</button>' : ''}${etat.config.meshcore ? '<button class="mini" id="vers-prog-mc">Répéteurs MeshCore →</button>' : ''}</div>
+    <div class="titre-programmer"><b>Nœuds Meshtastic</b><button class="mini" id="voir-cles" title="Quels modules peuvent programmer quel relais, et ce qu'il reste à faire sur place">🔑 Clés d’administration</button><button class="mini" id="voir-favoris" title="Favoris entre relais : sauts gratuits (firmware 2.7.11+)">⭐ Favoris relais</button><button class="mini" id="voir-modeles" title="Réglages types par usage, export et import YAML">📋 Modèles</button><button class="mini" id="voir-v28" title="Préparer le passage au firmware 2.8">🆕 Firmware 2.8</button><button class="mini" id="voir-trafic" title="Nœuds trop bavards et paquets réinjectés depuis MQTT">🚦 Contrôle du trafic</button>${etat.admin ? '<button class="mini" id="voir-fw" title="Version et mise à jour par le Wi-Fi des modules joignables en IP">⬆️ Firmware Wi-Fi</button>' : ''}${etat.config.meshcore ? '<button class="mini" id="vers-prog-mc">Répéteurs MeshCore →</button>' : ''}</div>
     ${!i.connecte ? '<div class="alerte attention">Le module radio n’est pas connecté : connectez-le dans l’onglet Réseau, section Modules Wi-Fi.</div>' : ''}
     <details class="aide-cle"${i.clePublique ? '' : ' open'}>
       <summary>Autoriser le module à programmer vos nœuds</summary>
@@ -3617,6 +3787,7 @@ async function rendreGestion() {
   { const b = $('#voir-favoris'); if (b) b.onclick = ficheFavoris; }
   { const b = $('#voir-modeles'); if (b) b.onclick = () => ficheModeles(); }
   { const b = $('#voir-v28'); if (b) b.onclick = ficheV28; }
+  { const b = $('#voir-trafic'); if (b) b.onclick = () => ficheTrafic(); }
   { const bw = $('#voir-fw'); if (bw) bw.onclick = ficheFirmware; }
   { const bf = $('#fw-maj'); if (bf) bf.onclick = ficheFirmware; }
   const vp = $('#vers-prog-mc');
@@ -3715,7 +3886,24 @@ async function formulaireAction(act) {
       $('#lire-tout').onclick = () => lancerTache('lire', {});
       return;
     }
-    f.innerHTML = pied; lancerTache('lire', {}); return;
+    // Lecture ciblée : seulement les éléments cochés (bien plus rapide qu'une lecture complète)
+    const SECTIONS = [['device', 'Rôle et rediffusion'], ['lora', 'Radio LoRa (preset, sauts, fréquence, puissance)'], ['canaux', 'Canaux'], ['position', 'Position et intervalle'],
+      ['proprietaire', 'Nom'], ['materiel', 'Matériel et firmware'], ['telemetrie', 'Télémétrie'], ['voisinage', 'Module Voisinage'], ['securite', 'Sécurité (clés d’admin)'], ['trafic', 'Gestion du trafic (2.8)']];
+    const deja = l && !l.aucune ? `<p class="note">Dernière lecture ${ilYa(l.heure)}${l.faites && l.faites.length ? ` : ${esc(l.faites.join(', '))}` : ''}.</p>` : '';
+    f.innerHTML = `<form id="f-lire" class="form-gestion">
+      <p class="note">Cochez seulement ce que vous voulez vérifier : chaque élément est une demande radio (10 à 60 s selon la distance). Une lecture complète en fait une quinzaine.</p>
+      ${deja}
+      <div class="sections-lire">${SECTIONS.map(([k, t]) => `<label class="case"><input type="checkbox" name="s" value="${k}"> ${esc(t)}</label>`).join('')}</div>
+      <div class="actions-prop"><button type="submit" class="principal">Lire la sélection</button><button type="button" id="lire-tout">Tout lire</button></div>
+    </form>${pied}`;
+    $('#lire-tout').onclick = () => lancerTache('lire', {});
+    $('#f-lire').onsubmit = (e) => {
+      e.preventDefault();
+      const sections = [...e.target.querySelectorAll('[name=s]:checked')].map((x) => x.value);
+      if (!sections.length) { $('#retour-action').textContent = 'Cochez au moins un élément (ou « Tout lire »).'; return; }
+      lancerTache('lire', { sections });
+    };
+    return;
   }
   if (act === 'echanger') { f.innerHTML = pied; lancerTache('echanger', {}); return; }
   if (act === 'modele') { f.innerHTML = pied; ficheModeles(); return; }
@@ -4518,7 +4706,7 @@ function connecterWs() {
       porteeRecevoir(m);
       ajouterAuFlux(m);
       noterActivite(m.de, m.heure || Date.now());
-      if (m.texte && etat.membre) chargerMessages();
+      if (m.texte && etat.membre) { noterMessageRecu(m); chargerMessages(); }
     } else if (m.genre === 'etat') {
       majEtat(m);
       dessinerNoeuds();
@@ -4540,7 +4728,7 @@ function brancherInterface() {
   document.querySelectorAll('.onglets button[data-onglet]').forEach((b) => (b.onclick = () => {
     document.querySelectorAll('.onglets button').forEach((x) => x.classList.toggle('actif', x === b));
     document.querySelectorAll('.vue').forEach((v) => v.classList.toggle('actif', v.dataset.vue === b.dataset.onglet));
-    if (b.dataset.onglet === 'messages') chargerMessages();
+    if (b.dataset.onglet === 'messages') { chargerMessages(); setTimeout(() => { marquerLus(); if (typeof rendreMessages === 'function') rendreMessages(); }, 50); }
     if (b.dataset.onglet === 'analyse') { chargerAnalyse(); chargerHistorique(); document.querySelectorAll('details.maint[open]').forEach((d) => chargerMaintenance(d.dataset.maint)); }
     if (b.dataset.onglet === 'sites') rendreSites();
     if (b.dataset.onglet === 'gestion') { rendreGestion(); suivreTaches(); }
@@ -4624,6 +4812,7 @@ function brancherInterface() {
       <div class="actions-prop"><a class="bascule principal" href="/rapport" target="_blank" rel="noopener">Ouvrir le rapport des 7 derniers jours</a></div>
       <h3>Archives</h3>${l.map((x) => `<div class="ligne"><span class="titre"><a href="/rapports/${encodeURIComponent(x)}" target="_blank" rel="noopener">Semaine du ${esc(x.slice(8, 18).split('-').reverse().join('/'))}</a></span></div>`).join('') || '<div class="vide">Pas encore d’archive (premier rapport lundi prochain vers 7 h).</div>'}`;
   };
+  { const bt = $('#outil-trafic'); if (bt) bt.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTrafic(); }; }
   { const bc = $('#outil-connecter'); if (bc) bc.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ouvrirConnexion(); }; }
   $('#outil-portee').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; testPortee(null); };
   $('#outil-terrain').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTerrain(); };
@@ -4656,6 +4845,7 @@ function brancherInterface() {
     if (etat.coucheCouverture) etat.coucheCouverture.remove();
     if (etat.coucheCouvrir) etat.coucheCouvrir.remove();
     etat.coucheCouverture = null; etat.coucheCouvrir = null; $('#btn-effacer').hidden = true;
+    restaurerLiaisons();
   };
   $('#analyse-periode').onchange = chargerAnalyse;
   $('#fermer-profil').onclick = () => $('#dlg-profil').close();
@@ -5008,7 +5198,7 @@ async function demarrer() {
     const c = etat.config.compte;
     $('#btn-admin').textContent = `${c.indicatif || c.identifiant}${etat.admin ? ' · admin' : etat.gestion ? ' · gestionnaire' : ''}`;
     $('#btn-admin').classList.add('connecte');
-    $('#onglet-messages').hidden = false;
+    $('#onglet-messages').hidden = false; majBadgesMessages();
   }
   if (etat.admin) $('#bloc-modules').hidden = false;
   if (etat.gestion) $('#onglet-gestion').hidden = false;
@@ -5490,6 +5680,59 @@ async function ouvrirConnexion(message) {
       retour(`✗ ${esc(e.message)}${conseil ? '<br>' + esc(conseil) : ''}`, 'ko');
     }
     b.disabled = false;
+  };
+}
+
+// ---- Contrôle du trafic : nœuds trop bavards et paquets réinjectés depuis MQTT -----------------------
+async function ficheTrafic(heures = 24) {
+  $('#fiche').hidden = false; etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.innerHTML = '<h2>🚦 Contrôle du trafic</h2><div class="vide">Analyse…</div>';
+  let r;
+  try { r = await api('/api/trafic/controle?heures=' + heures); } catch (e) { z.innerHTML = `<h2>🚦 Contrôle du trafic</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  const dur = (s) => (s < 120 ? `${s} s` : s < 7200 ? `${Math.round(s / 60)} min` : `${Math.round(s / 360) / 10} h`);
+  const LIB = { position: 'positions', telemetrie: 'télémétrie', nodeinfo: 'fiche du nœud' };
+  const radio = r.bavards.filter((b) => b.radio), ailleurs = r.bavards.filter((b) => !b.radio);
+  const ligne = (b) => `<tr>
+      <td>${b.administrable && b.radio ? `<input type="checkbox" data-trafic="${b.num}" checked>` : ''}</td>
+      <td><a href="#" data-noeud="${b.num}">${esc(b.nom)}</a><small> ${esc(b.role || '')}${b.zone ? '' : ' · hors zone'}</small></td>
+      <td>${b.problemes.map((p) => `${LIB[p.port] || p.port} toutes les <b style="color:var(--attention)">${dur(p.medianS)}</b> <small>(conseil ≥ ${dur(p.conseilS)})</small>`).join('<br>')}</td>
+      <td class="num">${b.paquetsJour}</td>
+      <td>${b.administrable ? (b.radio ? 'programmable' : '—') : '<small>sur place / propriétaire</small>'}</td></tr>`;
+  const ri = r.reinjection;
+  z.innerHTML = `<h2>🚦 Contrôle du trafic</h2>
+    <div class="actions-prop">${[6, 24, 72].map((h) => `<button class="mini ${h === r.heures ? 'actif' : ''}" data-h="${h}">${h} h</button>`).join('')}</div>
+    <p class="note">Intervalles médians mesurés sur ${r.heures} h. Seuils : position ≥ ${dur(r.seuils.positionFixe)} pour un relais ou un point fixe, ≥ ${dur(r.seuils.position)} sinon ; télémétrie ≥ ${dur(r.seuils.telemetrie)} ; fiche ≥ ${dur(r.seuils.nodeinfo)}.</p>
+    <h3>Entendus en radio dans la zone (${radio.length})</h3>
+    ${radio.length ? `<table class="voisins petit"><thead><tr><th></th><th>Nœud</th><th>Trop fréquent</th><th class="num">paquets/j</th><th></th></tr></thead><tbody>${radio.map(ligne).join('')}</tbody></table>
+      <div class="actions-prop"><button class="principal" id="trafic-corriger">Corriger les nœuds cochés</button></div>
+      <p class="note">Correction : position toutes les 12 h pour un relais (position fixe, sans « smart position »), 15 min pour un mobile ; télémétrie 30 min ; fiche 3 h. Programmation à distance avec « Insister 2 h ». Les autres nœuds : prévenez leur propriétaire.</p>` : '<div class="vide">Aucun nœud trop bavard entendu en radio. 👍</div>'}
+    <h3>Réinjection MQTT → radio</h3>
+    <p class="note">Paquets venus d’internet (drapeau « via MQTT ») puis émis en radio par une passerelle dont le canal a la <b>descente MQTT</b> activée : ${ri.total} paquet(s)${ri.partPct != null ? `, soit ${fmt(ri.partPct, 1)} % du trafic radio capté` : ''}.</p>
+    ${ri.injecteurs.length ? `<table class="voisins petit"><thead><tr><th>Passerelle qui réinjecte</th><th class="num">paquets</th><th class="num">émetteurs</th><th>types</th></tr></thead><tbody>${ri.injecteurs.map((x) => `<tr><td>${x.num != null ? `<a href="#" data-noeud="${x.num}">${esc(x.nom)}</a>` : esc(x.nom)}</td><td class="num">${x.nb}</td><td class="num">${x.origines}</td><td>${esc(Object.entries(x.ports).map(([k, v]) => `${k} ${v}`).join(', '))}</td></tr>`).join('')}</tbody></table>
+      <p class="note">À faire sur ces passerelles : couper la <b>descente MQTT</b> (downlink) sur le canal public, ou ne la garder que sur un canal privé. Sur les relais, « Ignorer MQTT » leur fait refuser de relayer ce qui vient d’internet.</p>` : '<div class="vide">Aucune réinjection constatée. 👍</div>'}
+    <h3>« Ignorer MQTT » sur les relais</h3>
+    <p class="note">Réglage LoRa du firmware : le nœud ne relaie plus les paquets arrivés par MQTT. Conseillé sur tous les ROUTER / ROUTER_LATE.</p>
+    <div class="actions-prop"><button id="trafic-ignorer">Activer « Ignorer MQTT » sur les relais programmables…</button></div>
+    ${ailleurs.length ? `<details><summary>Hors radio : seulement reçus par le broker (${ailleurs.length})</summary><p class="note">Ces nœuds ne sont pas entendus par les passerelles de la zone : ils chargent la carte et le broker, pas votre canal radio (sauf réinjection, ci-dessus).</p><table class="voisins petit"><tbody>${ailleurs.slice(0, 40).map(ligne).join('')}</tbody></table></details>` : ''}
+    <p class="erreur" id="trafic-retour"></p>`;
+  z.querySelectorAll('[data-h]').forEach((b) => (b.onclick = () => ficheTrafic(Number(b.dataset.h))));
+  z.querySelectorAll('[data-noeud]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); const n = etat.noeuds.get(Number(a.dataset.noeud)); if (n) ouvrirFiche(n.num); }));
+  const retour = (t) => { $('#trafic-retour').textContent = t; };
+  const bc = $('#trafic-corriger');
+  if (bc) bc.onclick = async () => {
+    const nums = [...z.querySelectorAll('[data-trafic]:checked')].map((c) => Number(c.dataset.trafic));
+    if (!nums.length) return retour('Cochez au moins un nœud.');
+    if (!confirm(`Corriger ${nums.length} nœud(s) à distance ?`)) return;
+    try { const x = await postJson('/api/trafic/corriger', { nums }); retour(`${x.taches.length} programmation(s) lancée(s) (suivi dans Programmer)${x.refus.length ? ` · refusés : ${x.refus.map((y) => y.raison).join(', ')}` : ''}.`); } catch (e) { retour(e.message); }
+  };
+  $('#trafic-ignorer').onclick = async () => {
+    const adm = await api('/api/admin-noeuds').catch(() => null);
+    if (!adm) return retour('Connexion admin requise');
+    const relais = [...etat.noeuds.values()].filter((n) => ['ROUTER', 'ROUTER_LATE'].includes(n.role) && adm.administrables[String(n.num)] && adm.administrables[String(n.num)].ok);
+    if (!relais.length) return retour('Aucun relais programmable à distance par la carte.');
+    if (!confirm(`Activer « Ignorer MQTT » sur ${relais.length} relais ?\n${relais.map((n) => '• ' + (n.nomLong || n.id)).join('\n')}`)) return;
+    try { const x = await postJson('/api/trafic/corriger', { nums: relais.map((n) => n.num), ignorerMqtt: true }); retour(`${x.taches.length} programmation(s) lancée(s)${x.refus.length ? ` · refusés : ${x.refus.length}` : ''}.`); } catch (e) { retour(e.message); }
   };
 }
 

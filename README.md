@@ -45,6 +45,9 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 
 **Administration des nœuds (PKI, firmware 2.5 et plus)**
 - Connexion à un module en **Wi-Fi** (TCP 4403), ou en **USB / sur un autre réseau** grâce à l'**agent** (Windows, Linux, Raspberry Pi) relié par Tailscale ou le réseau local
+- **Messages** : nombre de messages non lus par canal et pour les messages directs, bip différent par canal (au choix), alerte et notification pour un message direct ; choix du destinataire par recherche
+- **Contrôle du trafic** (*Outils* ou *Programmer*) : nœuds trop bavards (positions, télémétrie, fiche), paquets réinjectés depuis MQTT et passerelle qui les réinjecte, correction à distance et « Ignorer MQTT » sur les relais
+- **Lecture ciblée** d'un nœud : seulement les éléments cochés (rôle, LoRa, canaux, position…) au lieu de toute la configuration
 - **Connecter un module** (*Outils*) : un seul écran pour le Bluetooth, l'USB ou une adresse IP ; Meshtastic ou MeshCore est reconnu tout seul. Une adresse IP d'un autre réseau passe automatiquement par un agent 1.6 lancé sur un PC de ce réseau
 - **Éditeur de réglages** complet (nom, rôle, rediffusion, LoRa, position, 8 canaux) envoyé en une seule transaction et relu pour contrôle
 - Lecture de configuration **reprenable**, opérations multi-nœuds, arrêt et « réessayer », garde-fous pour le canal principal
@@ -167,6 +170,10 @@ L'agent garde en mémoire autant de connexions que vous voulez (ex. *USB* sur `C
 - `-configurer` : menu pour ajouter (`a`), modifier (`m 2`), retirer (`r 2`) une connexion ou changer le serveur et le code (`s`)
 - `-ajouter` : ajouter une connexion d'un coup ; `-liste` : voir les connexions et leur état
 - module Wi-Fi joint par un VPN ou un routeur (pas sur le réseau local du PC) : ajoutez `"toujours": true` à sa connexion dans `agent-gaulix.json`
+
+### Archive PostgreSQL (facultative)
+
+La carte garde quelques jours d'historique dans sa base SQLite. Pour tout conserver (statistiques longues, Grafana, requêtes SQL), renseignez `POSTGRES_URL` dans `.env` : chaque table (nœuds, paquets, réceptions, positions, télémétrie, traceroutes, liaisons, et leurs équivalents MeshCore) est recopiée toutes les 20 s, sans jamais être purgée. Un conteneur PostgreSQL est fourni : `docker compose --profile postgres up -d` (voir `.env.exemple`).
 
 ### Relais du réseau local (agent 1.6)
 

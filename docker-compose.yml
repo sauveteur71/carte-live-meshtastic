@@ -45,5 +45,25 @@ services:
       - "${FLASHER_PORT:-8097}:8080"
     mem_limit: 64m
 
+  # Archive PostgreSQL (facultative) : tout le trafic conservé sans limite de durée.
+  # Lancement : docker compose --profile postgres up -d, et dans .env :
+  #   POSTGRES_MOT_DE_PASSE=…   POSTGRES_URL=postgres://carte:…@postgres:5432/carte
+  postgres:
+    image: postgres:16-alpine
+    container_name: carte-live-postgres
+    profiles: ["postgres"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: carte
+      POSTGRES_DB: carte
+      POSTGRES_PASSWORD: ${POSTGRES_MOT_DE_PASSE:-changez-moi}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    # Port publié seulement si vous voulez y brancher un outil (Grafana, DBeaver…) : décommentez
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+    mem_limit: 256m
+
 volumes:
   donnees:
+  postgres:
