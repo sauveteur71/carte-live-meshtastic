@@ -1121,7 +1121,7 @@ async function mcBrancherUsb(portDonne) {
   mc.nav.type = 'usb'; mcMajNav('connexion');
   try {
     await port.open({ baudRate: 115200 });
-    try { await port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch { /* pas géré */ }
+    await reglerSignauxUsb(port);
     mc.nav.port = port;
     const ecrivain = port.writable.getWriter();
     mc.nav.ecrivain = ecrivain;

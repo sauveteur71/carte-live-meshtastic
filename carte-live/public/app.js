@@ -1928,7 +1928,10 @@ function dessinerSommets() {
   if (!etat.couches.sommets || !etat.sommets.length) return;
   const g = L.layerGroup();
   const proche = carte.getZoom() >= 10;
+  // De près, seulement ce qui est à l'écran (des milliers de marqueurs ralentissent beaucoup les téléphones)
+  const vue = proche ? carte.getBounds().pad(0.4) : null;
   for (const s of etat.sommets) {
+    if (vue && !s.rangPlan && !vue.contains([s.lat, s.lon])) continue;
     if (etat.zone && !s.dansZone && !s.rangPlan) continue;
     if (!accesOk(s) && !s.rangPlan) continue;
     // À petite échelle : seulement les sites remarquables
@@ -4820,7 +4823,8 @@ function brancherInterface() {
     rendreFiltres();
     chargerFlux();
   };
-  carte.on('zoomend', () => { dessinerNoeuds(); dessinerSommets(); });
+  carte.on('zoomend', () => { dessinerNoeuds(); });
+  { let m = null; carte.on('moveend', () => { clearTimeout(m); m = setTimeout(dessinerSommets, 150); }); }
   $('#btn-couvrir').onclick = () => { basculerMode(etat.modeCarte === 'couvrir' ? null : 'couvrir'); if (etat.modeProfil) $('#btn-profil').click(); };
   $('#btn-couv-ici').onclick = () => { basculerMode(etat.modeCarte === 'ici' ? null : 'ici'); if (etat.modeProfil) $('#btn-profil').click(); };
   $('#btn-relier').onclick = () => { etat.relierA = null; basculerMode(etat.modeCarte === 'relier' ? null : 'relier'); if (etat.modeProfil) $('#btn-profil').click(); };
@@ -5240,7 +5244,10 @@ async function demarrer() {
   document.title = etat.config.titre;
   // Couches : masquées par défaut sur cette carte (CARTE_COUCHES_MASQUEES), puis choix du visiteur
   for (const c of etat.config.couchesMasquees || []) if (c in etat.couches) etat.couches[c] = false;
-  Object.assign(etat.couches, Object.fromEntries(Object.entries(lireLs('gaulix_couches', {}) || {}).filter(([k, v]) => k in etat.couches && typeof v === 'boolean')));
+  // Téléphone ou tablette, sans choix enregistré : pas d'animation des paquets (coûteuse sur mobile)
+  const choixCouches = lireLs('gaulix_couches', null);
+  if (!choixCouches && window.matchMedia && matchMedia('(pointer: coarse)').matches) etat.couches.animations = false;
+  Object.assign(etat.couches, Object.fromEntries(Object.entries(choixCouches || {}).filter(([k, v]) => k in etat.couches && typeof v === 'boolean')));
   document.querySelectorAll('.bascule[data-couche]').forEach((b) => b.classList.toggle('actif', !!etat.couches[b.dataset.couche]));
   // Liens vers le client et le flasheur officiels (Web Serial / Web Bluetooth : HTTPS et Chrome ou Edge obligatoires)
   {
@@ -5522,6 +5529,16 @@ function ouvrirWsModule(nom, source, envoyerAuModule) {
     };
   });
 }
+// Signaux du port série selon le type de module :
+// - pont USB-série (CP210x, CH340, FTDI…, ESP32 Heltec V3, T-Beam…) : DTR et RTS baissés, sinon le module redémarre ;
+// - USB natif (nRF52 : T114, RAK4631, T-Echo… ; ESP32-S3 natif) : DTR levé, sinon le firmware croit qu'aucun
+//   programme n'écoute et n'envoie rien (companion MeshCore muet). C'est le réglage de l'appli officielle.
+const PONTS_USB_SERIE = new Set([0x10c4, 0x1a86, 0x0403, 0x067b]);
+async function reglerSignauxUsb(port) {
+  const info = port.getInfo ? port.getInfo() : {};
+  const pont = info.usbVendorId != null && PONTS_USB_SERIE.has(info.usbVendorId);
+  try { await port.setSignals(pont ? { dataTerminalReady: false, requestToSend: false } : { dataTerminalReady: true, requestToSend: true }); } catch { /* pas géré */ }
+}
 async function brancherUsb(portDonne) {
   if (!('serial' in navigator)) { alert('Ce navigateur ne gère pas l’USB : utilisez Chrome ou Edge, sur la carte en HTTPS.'); return; }
   let port = portDonne;
@@ -5529,7 +5546,7 @@ async function brancherUsb(portDonne) {
   moduleNav.type = 'usb'; majModuleNav('connexion');
   try {
     await port.open({ baudRate: 115200 });
-    try { await port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch { /* pas géré */ }
+    await reglerSignauxUsb(port);
     moduleNav.port = port;
     const info = port.getInfo ? port.getInfo() : {};
     const nom = `USB ${etat.compte ? etat.compte.identifiant : ''}`.trim();
@@ -5748,7 +5765,7 @@ async function ouvrirConnexion(message) {
     let type = null, texteRecu = '';
     try {
       await port.open({ baudRate: 115200 });
-      try { await port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch { /* pas géré */ }
+      await reglerSignauxUsb(port);
       // Deux questions : MeshCore (DEVICE_QUERY, réponse « > » code 13) et Meshtastic (want_config_id, réponse 0x94 0xC3).
       // Reposées toutes les 2,5 s : le module peut être en train de redémarrer.
       const w = port.writable.getWriter();
