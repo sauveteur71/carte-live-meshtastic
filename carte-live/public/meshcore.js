@@ -414,11 +414,18 @@ async function mcRendreMessages() {
   };
 }
 const STATUTS_MSG = { envoye: '⏳ envoyé', confirme: '✔ reçu', relaye: '✔ relayé', sans_accuse: '⚠ pas d’accusé' };
+// Étiquette de région portée par le message : seuls les répéteurs dont l'arbre de régions la contient le relaient
+function mcTagRegion(r) {
+  if (!r) return '';
+  if (r === '-') return '<span class="tag-region sans" title="Inondation sans région : relayé par les répéteurs qui acceptent les messages sans région (flood.max.unscoped)">sans région</span>';
+  if (r === '?') return '<span class="tag-region inconnue" title="Région inconnue de la carte (ajoutez-la à MESHCORE_REGIONS dans le .env)">🏷 région ?</span>';
+  return `<span class="tag-region" title="Région « ${esc(r)} » : relayé par les répéteurs qui ont ${esc(r)} dans leur arbre de régions">🏷 ${esc(r)}</span>`;
+}
 function mcLigneMessage(m) {
   const qui = m.sens === 'envoye' ? `<b>${esc(m.nomDe || 'moi')}</b>${m.genre === 'direct' ? ` → ${esc(m.nomVers || mcNom(m.vers))}` : ''}` : `<b>${esc(m.nomDe || '?')}</b>${m.genre === 'direct' ? ' → moi' : ''}`;
   const lieu = m.genre === 'direct' ? 'Direct' : m.canal || '';
   return `<div class="paquet mc message-mc ${m.sens}" ${m.genre === 'direct' && m.sens === 'recu' && m.de ? `data-mc-repondre="${m.de}"` : m.genre === 'canal' && m.indexCanal != null ? `data-mc-canal="${m.indexCanal}"` : ''}>
-    <div class="entete"><span class="heure">${new Date(m.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span class="tag"><i style="background:${m.genre === 'direct' ? MC_TYPES.message.hex : MC_TYPES.canal.hex}"></i>${esc(lieu)}</span>
+    <div class="entete"><span class="heure">${new Date(m.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span class="tag"><i style="background:${m.genre === 'direct' ? MC_TYPES.message.hex : MC_TYPES.canal.hex}"></i>${esc(lieu)}</span>${mcTagRegion(m.region)}
     ${m.sauts != null ? `<span>${m.sauts === 0 ? 'direct' : m.sauts + ' saut' + (m.sauts > 1 ? 's' : '')}</span>` : ''}${m.sens === 'envoye' ? `<span class="statut-msg ${m.statut || ''}">${STATUTS_MSG[m.statut] || ''}${m.relais > 1 ? ' ×' + m.relais : ''}</span>` : ''}</div>
     <div class="corps">${qui} : ${esc(m.texte)}</div></div>`;
 }
@@ -1381,6 +1388,7 @@ async function mcOuvrirPaquet(id) {
     ['Reçu', `${d.nbReceptions} fois · ${new Date(d.heure).toLocaleString('fr-FR')}`],
   ];
   if (p.transport) champs.push(['Codes de transport', p.transport.join(', ')]);
+  if (p.region) champs.push(['Région (étiquette)', p.region === '-' ? 'aucune (inondation sans région)' : p.region === '?' ? 'inconnue de la carte' : p.region]);
   const contenu = Object.entries(c).filter(([k, v]) => v != null && v !== '' && !['signature'].includes(k)).map(([k, v]) => [{
     cle: 'Clé publique', horodatage: 'Horodatage', drapeaux: 'Drapeaux', role: 'Type de nœud', lat: 'Latitude', lon: 'Longitude', nom: 'Nom',
     hachageCanal: 'Hachage du canal', canal: 'Canal', expediteur: 'Expéditeur', texte: 'Texte', dechiffre: 'Déchiffré', sousType: 'Sous-type',

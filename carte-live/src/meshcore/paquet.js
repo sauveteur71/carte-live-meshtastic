@@ -102,6 +102,30 @@ function decoderAnnonce(c) {
   return r;
 }
 
+// ---- Régions (zones d'inondation) ------------------------------------------------------------------------
+// Un paquet « inondation (zone) » porte une étiquette de région : code de transport = 2 premiers octets de
+// HMAC-SHA256(clé de la région, type + charge utile), clé = 16 premiers octets de SHA-256('#nom').
+// Un répéteur ne relaie ce paquet que si la région figure dans son arbre (region def / put, autorisée).
+// Le nom n'est pas transmis : on essaie les régions connues (françaises, voisines, celles des réglages et des répéteurs).
+const REGIONS = new Map(); // nom -> clé
+function ajouterRegions(noms) {
+  for (let n of noms || []) {
+    n = String(n || '').trim().replace(/^#/, '').toLowerCase();
+    if (!n || n.length > 30 || REGIONS.has(n) || !/^[\p{L}\p{N}_.-]+$/u.test(n)) continue;
+    REGIONS.set(n, crypto.createHash('sha256').update('#' + n, 'utf8').digest().subarray(0, 16));
+  }
+}
+ajouterRegions(['eu', 'europe', 'fr', 'france', 'fr-ara', 'fr-bfc', 'fr-bre', 'fr-cvl', 'fr-cor', 'fr-ges', 'fr-hdf', 'fr-idf', 'fr-nor', 'fr-naq', 'fr-occ', 'fr-pdl', 'fr-pac', 'fr-paca',
+  ...Array.from({ length: 95 }, (_, i) => 'fr-' + String(i + 1).padStart(2, '0')), 'fr-2a', 'fr-2b', 'ch', 'be', 'it', 'es', 'de', 'lu', 'uk', 'nl']);
+function regionDuCode(typeN, charge, code) {
+  for (const [nom, cle] of REGIONS) {
+    let c = crypto.createHmac('sha256', cle).update(Buffer.from([typeN])).update(charge).digest().readUInt16LE(0);
+    if (c === 0) c = 1; else if (c === 0xffff) c = 0xfffe;
+    if (c === code) return nom;
+  }
+  return null;
+}
+
 /**
  * Décode un paquet brut. canaux : liste préparée par preparerCanauxMc (pour les messages de canal).
  * Renvoie { valide, erreur?, route, type, version, cle (courte), transport, octetsHachage, chemin[], charge, hachage, contenu }.
@@ -132,6 +156,8 @@ function decoderPaquet(brut, canaux = []) {
   const p = {
     valide: true, taille: b.length, entete, route, routeFr: ROUTES_FR[route], type, typeFr: TYPES_FR[type] || type, cleType: CLES[type] || 'autre', version,
     transport, octetChemin, tailleHachage, chemin: [], charge: hex(charge), tailleCharge: charge.length,
+    // Étiquette de région : nom trouvé, « ? » si inconnue, « - » pour une inondation sans région
+    region: transport && transport[0] ? (regionDuCode(typeN, charge, transport[0]) || '?') : routeN === 1 ? '-' : null,
     hachage: hachagePaquet(typeN, octetChemin, charge), contenu: {},
   };
   if (type === 'TRACE') {
@@ -195,4 +221,4 @@ function resumer(p) {
   }
 }
 
-module.exports = { decoderPaquet, preparerCanauxMc, dechiffrerCanal, resumer, SECRET_PUBLIC, ROLES, ROLES_FR, TYPES, TYPES_FR, CLES, ROUTES_FR, SOUS_TYPES_TEXTE };
+module.exports = { decoderPaquet, ajouterRegions, regionDuCode, preparerCanauxMc, dechiffrerCanal, resumer, SECRET_PUBLIC, ROLES, ROLES_FR, TYPES, TYPES_FR, CLES, ROUTES_FR, SOUS_TYPES_TEXTE };

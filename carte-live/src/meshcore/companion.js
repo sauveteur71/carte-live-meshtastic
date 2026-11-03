@@ -195,6 +195,8 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
       await commande(h, [RESP.OK], 4000).catch(() => {});
       await lireContacts().catch((e) => journal('contacts non lus :', e.message));
       await lireCanaux().catch((e) => journal('canaux non lus :', e.message));
+      // Région d'envoi par défaut (firmware récent) : étiquette posée sur nos messages en inondation
+      try { const z = await commande([CMD2.ZONE_DEFAUT_GET], [RESP.ZONE_DEFAUT], 3000); etat.zoneDefaut = z.length >= 48 ? texte(z.subarray(1, 32)).replace(/^#/, '') || '' : null; } catch { etat.zoneDefaut = null; }
       if (gen !== generation) return;
       etat.pret = true;
       notifier();
@@ -635,18 +637,21 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
     async lireZone() {
       exigerPret();
       const t = await commande([CMD2.ZONE_DEFAUT_GET], [RESP.ZONE_DEFAUT], 4000);
-      return t.length >= 48 ? texte(t.subarray(1, 32)) || null : null;
+      const z = t.length >= 48 ? texte(t.subarray(1, 32)) || null : null;
+      etat.zoneDefaut = z ? z.replace(/^#/, '') : '';
+      return z;
     },
     async definirZone(nom) {
       exigerPret();
       nom = String(nom || '').trim();
-      if (!nom) { await commande([CMD2.ZONE_DEFAUT_SET], [RESP.OK], 4000); return null; }
+      if (!nom) { await commande([CMD2.ZONE_DEFAUT_SET], [RESP.OK], 4000); etat.zoneDefaut = ''; return null; }
       if (!nom.startsWith('#')) nom = '#' + nom;
       if (Buffer.byteLength(nom) > 30 || !/^#[\p{L}\p{N}_.-]+$/u.test(nom)) throw new Error('nom de région invalide (lettres, chiffres, - _ ., 30 caractères au plus)');
       const b = Buffer.alloc(1 + 31 + 16);
       b[0] = CMD2.ZONE_DEFAUT_SET; b.write(nom, 1, 'utf8');
       crypto.createHash('sha256').update(nom, 'utf8').digest().copy(b, 32, 0, 16);
       await commande(b, [RESP.OK], 4000);
+      etat.zoneDefaut = nom.replace(/^#/, '');
       return nom;
     },
     // ---- Commande CLI sur le companion lui-même (firmware v1.14+ du companion : nom, Wi-Fi, version…) ----

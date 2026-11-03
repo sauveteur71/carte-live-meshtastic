@@ -26,3 +26,13 @@ Sous **chaque** message : **📡 Entendu par N récepteurs**, avec pour chacun l
 - **Message direct reçu** par le module de la carte : trois notes, un encadré « Lire / OK » et une **notification** Windows ou téléphone quand l'onglet est en arrière-plan (à autoriser une fois).
 
 Le son ne fonctionne qu'après un premier clic dans la page (règle des navigateurs). Ces réglages sont propres à chaque navigateur.
+
+## Étiquette de région (MeshCore)
+Chaque message MeshCore envoyé en inondation peut porter une **région** (par exemple `fr-ara`). Un répéteur ne le relaie que si cette région figure dans son arbre de régions (`region def …`). Un message **sans région** n'est relayé que par les répéteurs qui l'acceptent (`flood.max.unscoped`).
+
+Dans le fil des messages, une étiquette l'indique :
+- **🏷 fr-ara** : la région portée par le message ;
+- **sans région** : inondation sans étiquette ;
+- **🏷 région ?** : une région que la carte ne connaît pas. Ajoutez son nom à `MESHCORE_REGIONS` dans le `.env` (séparés par des virgules).
+
+Pour vos propres messages, c'est d'abord la région d'envoi du companion (*MeshCore › Companion › Région*), puis celle réellement constatée quand un répéteur renvoie le message. La carte reconnaît d'office `eu`, `europe`, `fr`, les régions (`fr-ara`, `fr-bfc`…) et les départements (`fr-43`, `fr-38`…), ainsi que quelques pays voisins (`ch`, `it`…). Le détail d'un paquet (*Paquets*) l'affiche aussi.

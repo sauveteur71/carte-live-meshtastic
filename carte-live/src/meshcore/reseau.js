@@ -54,6 +54,8 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     CREATE INDEX IF NOT EXISTS idx_mc_telemetrie ON mc_telemetrie(cle, heure);
   `);
 
+  // Colonnes ajoutées après coup
+  if (!db.prepare('PRAGMA table_info(mc_messages)').all().some((c) => c.name === 'region')) db.exec('ALTER TABLE mc_messages ADD COLUMN region TEXT');
   const q = {
     noeud: db.prepare('SELECT * FROM mc_noeuds WHERE cle = ?'),
     noeuds: db.prepare('SELECT * FROM mc_noeuds ORDER BY dernier_vu DESC'),
@@ -94,11 +96,12 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     compteType: db.prepare('SELECT type, COUNT(*) AS nb FROM mc_paquets WHERE heure >= ? GROUP BY type'),
     compte: db.prepare('SELECT COUNT(*) AS nb FROM mc_paquets WHERE heure >= ?'),
     receptionsObs: db.prepare('SELECT COUNT(*) AS nb FROM mc_receptions WHERE observateur = ? AND heure >= ?'),
-    msgInserer: db.prepare(`INSERT INTO mc_messages (heure, sens, genre, canal, index_canal, de, nom_de, vers, nom_vers, texte, sauts, snr, statut, ack, auteur, hachage)
-        VALUES (@heure, @sens, @genre, @canal, @indexCanal, @de, @nomDe, @vers, @nomVers, @texte, @sauts, @snr, @statut, @ack, @auteur, @hachage)`),
+    msgInserer: db.prepare(`INSERT INTO mc_messages (heure, sens, genre, canal, index_canal, de, nom_de, vers, nom_vers, texte, sauts, snr, statut, ack, auteur, hachage, region)
+        VALUES (@heure, @sens, @genre, @canal, @indexCanal, @de, @nomDe, @vers, @nomVers, @texte, @sauts, @snr, @statut, @ack, @auteur, @hachage, @region)`),
     msgListe: db.prepare('SELECT * FROM mc_messages ORDER BY heure DESC LIMIT ?'),
     msgEcho: db.prepare(`SELECT id FROM mc_messages WHERE sens = 'envoye' AND genre = 'canal' AND canal = ? AND texte = ? AND heure >= ? ORDER BY heure DESC LIMIT 1`),
     msgRelais: db.prepare('UPDATE mc_messages SET relais = relais + 1, statut = ? WHERE id = ?'),
+    msgRegion: db.prepare('UPDATE mc_messages SET region = ? WHERE id = ?'),
     msgAck: db.prepare(`UPDATE mc_messages SET statut = 'confirme' WHERE ack = ? AND sens = 'envoye' AND heure >= ?`),
     msgStatut: db.prepare('UPDATE mc_messages SET statut = ? WHERE id = ?'),
     msgHachage: db.prepare('SELECT id FROM mc_messages WHERE hachage = ?'),
@@ -227,8 +230,8 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
       if (garderTexte && premiere) {
         // Notre propre message, relayé par un répéteur et réentendu : on le note comme « relayé » au lieu d'un doublon
         const echo = c.expediteur && moi && c.expediteur === moi.nom ? q.msgEcho.get(c.canal, c.texte, heure - 5 * 60000) : null;
-        if (echo) q.msgRelais.run('relaye', echo.id);
-        else if (!q.msgHachage.get(p.hachage)) q.msgInserer.run({ heure, sens: 'recu', genre: 'canal', canal: c.canal, indexCanal: null, de: null, nomDe: c.expediteur || null, vers: null, nomVers: null, texte: c.texte, sauts, snr: sauts === 0 ? obs.snr ?? null : null, statut: null, ack: null, auteur: null, hachage: p.hachage });
+        if (echo) { q.msgRelais.run('relaye', echo.id); if (p.region) q.msgRegion.run(p.region, echo.id); } // région réellement portée par notre message
+        else if (!q.msgHachage.get(p.hachage)) q.msgInserer.run({ heure, sens: 'recu', genre: 'canal', canal: c.canal, indexCanal: null, de: null, nomDe: c.expediteur || null, vers: null, nomVers: null, texte: c.texte, sauts, snr: sauts === 0 ? obs.snr ?? null : null, statut: null, ack: null, auteur: null, hachage: p.hachage, region: p.region || null });
       }
 
       // Liens radio : uniquement pour l'inondation (le chemin y liste les relais déjà traversés)
@@ -398,12 +401,12 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
   function messages(limite) {
     return q.msgListe.all(limite).map((m) => ({
       id: m.id, heure: m.heure, sens: m.sens, genre: m.genre, canal: m.canal, indexCanal: m.index_canal, de: m.de, nomDe: m.nom_de || (m.de ? (q.noeud.get(m.de) || {}).nom : null),
-      vers: m.vers, nomVers: m.nom_vers, texte: m.texte, sauts: m.sauts, snr: m.snr, statut: m.statut, relais: m.relais, auteur: m.auteur,
+      vers: m.vers, nomVers: m.nom_vers, texte: m.texte, sauts: m.sauts, snr: m.snr, statut: m.statut, relais: m.relais, auteur: m.auteur, region: m.region,
     }));
   }
   function noterMessage(m) {
     const r = q.msgInserer.run({ heure: Date.now(), sens: m.sens, genre: m.genre, canal: m.canal ?? null, indexCanal: m.indexCanal ?? null, de: m.de ?? null, nomDe: m.nomDe ?? null,
-      vers: m.vers ?? null, nomVers: m.nomVers ?? null, texte: m.texte, sauts: m.sauts ?? null, snr: m.snr ?? null, statut: m.statut ?? null, ack: m.ack ?? null, auteur: m.auteur ?? null, hachage: m.hachage ?? null });
+      vers: m.vers ?? null, nomVers: m.nomVers ?? null, texte: m.texte, sauts: m.sauts ?? null, snr: m.snr ?? null, statut: m.statut ?? null, ack: m.ack ?? null, auteur: m.auteur ?? null, hachage: m.hachage ?? null, region: m.region ?? null });
     return Number(r.lastInsertRowid);
   }
   const confirmerAck = (ack) => q.msgAck.run(ack, Date.now() - 30 * 60000).changes;

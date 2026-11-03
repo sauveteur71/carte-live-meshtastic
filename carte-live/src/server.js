@@ -1930,7 +1930,9 @@ app.post('/api/mc/messages', async (req, res) => {
       const n = reseauMc.q.noeud.get(String(b.vers).toUpperCase());
       if (!n) return res.status(404).json({ erreur: 'Destinataire inconnu' });
       const r = await companion.envoyerDirect({ cle: n.cle, nom: n.nom, role: n.role, lat: n.lat, lon: n.lon, horodatageAnnonce: n.horodatage_annonce }, texte);
-      const id = reseauMc.noterMessage({ sens: 'envoye', genre: 'direct', de: c.cle, nomDe: c.nom, vers: n.cle, nomVers: n.nom, texte, statut: 'envoye', ack: r.ack, auteur: u.identifiant });
+      // Étiquette de région : celle d'envoi du companion, seulement si le message part en inondation (sinon : chemin direct)
+      const regionEnvoi = c.zoneDefaut == null ? null : c.zoneDefaut || '-';
+      const id = reseauMc.noterMessage({ sens: 'envoye', genre: 'direct', de: c.cle, nomDe: c.nom, vers: n.cle, nomVers: n.nom, texte, statut: 'envoye', ack: r.ack, auteur: u.identifiant, region: r.inondation ? regionEnvoi : null });
       setTimeout(() => { const m = reseauMc.messages(200).find((x) => x.id === id); if (m && m.statut === 'envoye') { reseauMc.statutMessage(id, 'sans_accuse'); diffuser({ genre: 'mc-message', confirmation: true }); } }, Math.max(r.delaiMs * 2, 30000));
       res.json({ ok: true, id, inondation: r.inondation });
     } else {
@@ -1938,7 +1940,7 @@ app.post('/api/mc/messages', async (req, res) => {
       const canal = companion.canaux().find((x) => x.index === index);
       if (!canal) return res.status(400).json({ erreur: 'Canal inconnu du companion' });
       await companion.envoyerCanal(index, texte);
-      const id = reseauMc.noterMessage({ sens: 'envoye', genre: 'canal', canal: canal.nom, indexCanal: index, de: c.cle, nomDe: c.nom, texte, statut: 'envoye', auteur: u.identifiant });
+      const id = reseauMc.noterMessage({ sens: 'envoye', genre: 'canal', canal: canal.nom, indexCanal: index, de: c.cle, nomDe: c.nom, texte, statut: 'envoye', auteur: u.identifiant, region: c.zoneDefaut == null ? null : c.zoneDefaut || '-' });
       res.json({ ok: true, id });
     }
     diffuser({ genre: 'mc-message', confirmation: true });
@@ -2272,6 +2274,9 @@ const companion = creerCompanion(config, {
     planifierEtatMc();
   },
 });
+// Régions reconnues dans les étiquettes des paquets : liste par défaut + MESHCORE_REGIONS + région d'envoi du companion
+require('./meshcore/paquet').ajouterRegions(String(process.env.MESHCORE_REGIONS || '').split(/[,;\s]+/));
+setInterval(() => { try { const z = companion.etat().zoneDefaut; if (z) require('./meshcore/paquet').ajouterRegions([z]); } catch { /* ignore */ } }, 60000);
 if (config.meshcore.actif) companion.demarrer();
 // Canaux MeshCore déchiffrés : ceux des réglages, plus ceux lus dans le companion principal et les companions en écoute
 function majCanauxMc() {
