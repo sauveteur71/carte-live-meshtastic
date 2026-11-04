@@ -3280,10 +3280,11 @@ function choisirPointRelier(latlng) {
 async function relierPoints(a, b, opts = {}) {
   const hs = $('#relief-hs') ? $('#relief-hs').value : 6;
   const hA = opts.hA ?? 2, hB = opts.hB ?? 2;
+  const acces = opts.acces || etat.filtreAcces || 'tous';
   $('#fiche').hidden = false;
   etat.selection = null;
   $('#fiche-contenu').innerHTML = `<h2>Relier deux lieux</h2><div class="alerte info-lecture"><span class="sablier"></span> Recherche du chemin radio entre <b>${esc(a.nom)}</b> et <b>${esc(b.nom)}</b> (relais existants et points hauts)…</div>`;
-  const q = new URLSearchParams({ aLat: a.lat.toFixed(5), aLon: a.lon.toFixed(5), bLat: b.lat.toFixed(5), bLon: b.lon.toFixed(5), aNom: a.nom, bNom: b.nom, hs, hA, hB, acces: etat.filtreAcces || 'tous', ...(etat.vueReseau === 'meshcore' ? { reseau: 'meshcore', preset: 'MESHCORE_FR' } : {}) });
+  const q = new URLSearchParams({ aLat: a.lat.toFixed(5), aLon: a.lon.toFixed(5), bLat: b.lat.toFixed(5), bLon: b.lon.toFixed(5), aNom: a.nom, bNom: b.nom, hs, hA, hB, acces, ...(etat.vueReseau === 'meshcore' ? { reseau: 'meshcore', preset: 'MESHCORE_FR' } : {}) });
   let r;
   try { r = await api('/api/relief/relier?' + q); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Relier deux lieux</h2><div class="vide">${esc(e.message)}</div>`; return; }
   if (etat.coucheCouvrir) etat.coucheCouvrir.remove();
@@ -3339,19 +3340,22 @@ async function relierPoints(a, b, opts = {}) {
   };
   $('#fiche-contenu').innerHTML = `<h2>Relier ${esc(a.nom)} → ${esc(b.nom)}</h2>
     <div class="ident">${fmt(r.distanceKm, 1, ' km')} à vol d’oiseau · ${esc(r.parametres.preset)} · antennes : relais ${r.parametres.hs} m, extrémités ${hA} / ${hB} m${r.filtreAcces !== 'tous' ? ` · sites ${esc(ACCES[r.filtreAcces] ? ACCES[r.filtreAcces].nom : r.filtreAcces)}` : ''}</div>
-    ${!r.possible ? `<div class="alerte attention">✖ ${esc(r.raison)}</div><p class="note">Essayez des antennes plus hautes aux extrémités, ou retirez le filtre d’accès (onglet Couverture).</p>`
+    ${!r.possible ? `<div class="alerte attention">✖ ${esc(r.raison)}</div><p class="note">Essayez des antennes plus hautes aux extrémités, ou choisissez un accès moins exigeant ci-dessous.</p>`
       : r.nouveaux === 0 && r.chemin.length === 2 ? `<div class="alerte info-lecture">✔ <b>Liaison directe possible</b> sans relais (marge ${r.direct.marge >= 0 ? '+' : ''}${fmt(r.direct.marge, 1, ' dB')}).</div>`
       : `<div class="alerte ${r.nouveaux ? 'attention' : 'info-lecture'}">${r.nouveaux ? `⚠ Il faut <b>${r.nouveaux} nouveau${r.nouveaux > 1 ? 'x' : ''} relais</b>` : '✔ Possible avec les relais existants'}${r.chemin.some((c) => c.type === 'existant') ? `, en passant par ${r.chemin.filter((c) => c.type === 'existant').map((c) => esc(c.nom)).join(', ')}` : ''}.</div>
          <p class="note">Liaison directe impossible : marge ${r.direct ? fmt(r.direct.marge, 1, ' dB') : '–'}${r.direct && r.direct.obstacle ? `, relief à ${fmt(r.direct.obstacle.distanceKm, 1, ' km')} (${r.direct.obstacle.hauteur} m au-dessus de la visée)` : ''}.</p>`}
     <div class="parametres compact">
       <label>Antenne au départ (m) <input id="relier-ha" type="number" min="0.5" max="60" step="0.5" value="${hA}"></label>
       <label>Antenne à l’arrivée (m) <input id="relier-hb" type="number" min="0.5" max="60" step="0.5" value="${hB}"></label>
+      <label>Accès des nouveaux relais <select id="relier-acces">${Object.entries({ voiture: '🚗 En voiture', '4x4': '🚙 En 4×4 ou voiture', pied: '🥾 À pied ou mieux', tous: 'Tous les points hauts' }).map(([k, v]) => `<option value="${k}" ${k === acces ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <button id="relier-recalc">Recalculer</button>
     </div>
     ${r.possible ? r.chemin.map(ligneEtape).join('') : ''}
     ${r.possible && r.nouveaux ? '<div class="actions-prop"><button id="gpx-relier">Télécharger les points (GPX)</button></div>' : ''}
     <p class="note">Chaque bond doit garder au moins 0 dB de marge après ${r.parametres.margeSecurite} dB de marge de sécurité et ${r.parametres.env} dB de pertes de végétation et bâti (calibrées sur vos liaisons mesurées). Le chemin privilégie les relais existants, puis le moins de nouveaux sites possible, puis les bonds les plus confortables.${r.evalues ? ` ${r.evalues} sites évalués${r.dureeMs ? ' en ' + fmt(r.dureeMs / 1000, 1, ' s') : ''}.` : ''}</p>`;
-  $('#relier-recalc').onclick = () => relierPoints(a, b, { hA: Number($('#relier-ha').value) || 2, hB: Number($('#relier-hb').value) || 2 });
+  const relancerRelier = () => relierPoints(a, b, { hA: Number($('#relier-ha').value) || 2, hB: Number($('#relier-hb').value) || 2, acces: $('#relier-acces').value });
+  $('#relier-recalc').onclick = relancerRelier;
+  $('#relier-acces').onchange = relancerRelier;
   $('#fiche-contenu').querySelectorAll('.ligne-alt').forEach((el) => (el.onclick = () => carte.flyTo([Number(el.dataset.lat), Number(el.dataset.lon)], 14)));
   // Clic sur une étape « relais à installer » : la carte se centre sur l'emplacement
   $('#fiche-contenu').querySelectorAll('.etape-relier.nouveau .entete-prop').forEach((el) => { el.style.cursor = 'pointer'; el.title = 'Centrer la carte sur cet emplacement'; el.onclick = () => { const d = el.closest('.etape-relier').dataset; carte.flyTo([Number(d.lat), Number(d.lon)], 14); }; });
