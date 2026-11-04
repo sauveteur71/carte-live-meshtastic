@@ -350,7 +350,7 @@ async function prechargerFrance() {
   // D'abord le paquet « relief France » publié sur GitHub (un seul téléchargement), s'il manque des départements
   if (codes.some((c) => !reliefSurDisque(c))) {
     precharge.courant = 'paquet';
-    try { const n = await importerPaquetFrance(); journal(`[Relief] paquet France : ${n} fichier(s) installé(s)`); } catch (e) { journal(`[Relief] paquet France indisponible (${e.message}) : téléchargement département par département`); precharge.erreurs.push({ code: 'paquet', erreur: e.message }); }
+    try { const n = await importerPaquetFrance(); journal(`[Relief] paquet France : ${n} fichier(s) installé(s)`); } catch (e) { journal(`[Relief] paquet France indisponible (${e.message}) : téléchargement département par département`); if (!/HTTP 404/.test(e.message)) precharge.erreurs.push({ code: 'paquet', erreur: e.message }); }
   }
   // Premier passage sur tous les départements, puis un second (15 min plus tard) pour ceux où OpenStreetMap a manqué
   for (let passage = 1; passage <= 2 && !precharge.arret; passage++) {
