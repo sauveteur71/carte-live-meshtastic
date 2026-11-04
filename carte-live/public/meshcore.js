@@ -278,10 +278,12 @@ function mcRendreNoeuds() {
   if (!z.querySelector('#mc-recherche')) {
     z.innerHTML = `<div class="recherche"><input id="mc-recherche" type="search" placeholder="Nom ou début de clé…" autocomplete="off">
       ${etat.membre ? '<select id="mc-groupe" title="Groupe de nœuds"><option value="">Tous</option><option value="favoris">⭐ Favoris</option><option value="administres">🛠 Mes nœuds</option></select>' : ''}
-      <select id="mc-tri"><option value="vu">Dernier entendu</option><option value="nom">Nom</option><option value="role">Type</option><option value="sauts">Sauts</option></select></div>
+      <select id="mc-tri"><option value="vu">Dernier entendu</option><option value="nom">Nom</option><option value="role">Type</option><option value="sauts">Sauts</option></select>
+      <button type="button" class="mini" id="mc-par-type" title="Ranger la liste par type (répéteurs, companions…), chaque groupe se replie">▦ Par type</button></div>
       <div id="mc-resume" class="note"></div><div id="mc-liste" class="liste"></div>`;
     $('#mc-recherche').oninput = mcRendreNoeuds;
     $('#mc-tri').onchange = mcRendreNoeuds;
+    $('#mc-par-type').onclick = () => { ecrireLs('gaulix_mc_par_type', !lireLs('gaulix_mc_par_type', true)); mcRendreNoeuds(); };
     const g = $('#mc-groupe');
     if (g) { try { g.value = localStorage.getItem('gaulix_mc_groupe') || ''; } catch { /* ignoré */ } g.onchange = () => { try { localStorage.setItem('gaulix_mc_groupe', g.value); } catch { /* ignoré */ } mcRendreNoeuds(); }; }
   }
@@ -299,10 +301,24 @@ function mcRendreNoeuds() {
   liste.sort((a, b) => estFavori(b.cle) - estFavori(a.cle)); // favoris en tête (tri stable)
   const c = (r) => liste.filter((n) => n.role === r).length;
   $('#mc-resume').textContent = `${liste.length} nœud(s) : ${c('repeteur')} répéteur(s), ${c('salon')} room server(s), ${c('companion')} companion(s)${c('capteur') ? `, ${c('capteur')} capteur(s)` : ''}`;
-  $('#mc-liste').innerHTML = liste.length ? liste.slice(0, 400).map((n) => {
+  const parType = lireLs('gaulix_mc_par_type', true);
+  $('#mc-par-type').classList.toggle('actif', parType);
+  const ligneNoeudMc = (n) => {
     const sauts = n.sautsMin == null ? '' : n.sautsMin === 0 ? 'direct · ' : `${n.sautsMin} saut${n.sautsMin > 1 ? 's' : ''} · `;
     return `<div class="ligne" data-mc="${n.cle}"><span class="point ${n.statut}"></span><span class="titre"><i class="role-mc ${n.role}" style="--mcc:${mcRole(n.role).hex}"></i>${estFavori(n.cle) ? '⭐ ' : ''}${estAdministre(n.cle) ? '🛠 ' : ''}${esc(n.nom || n.id)}<small>${esc(mcRole(n.role).un)}${n.observateur ? ' · ' + mcLibObservateur(n) : ''}</small></span><span class="meta">${sauts}${ilYa(n.dernierVu)}</span></div>`;
-  }).join('') : '<div class="vide">Aucun nœud MeshCore pour l’instant : reliez un companion (onglet Companion) ou abonnez la carte à un flux MQTT MeshCore.</div>';
+  };
+  const vide = '<div class="vide">Aucun nœud MeshCore pour l’instant : reliez un companion (onglet Companion) ou abonnez la carte à un flux MQTT MeshCore.</div>';
+  if (!parType) { $('#mc-liste').innerHTML = liste.length ? liste.slice(0, 400).map(ligneNoeudMc).join('') : vide; return; }
+  // Rangement par type : un groupe repliable par rôle, état (ouvert / replié) gardé dans ce navigateur
+  const replies = lireLs('gaulix_mc_replies', {});
+  const html = ['repeteur', 'salon', 'capteur', 'companion', 'inconnu'].map((r) => {
+    const l = liste.filter((n) => (MC_ROLES[n.role] ? n.role : 'inconnu') === r);
+    if (!l.length) return '';
+    const actifs = l.filter((n) => n.statut === 'actif').length;
+    return `<details class="groupe-mc" data-role="${r}" ${replies[r] ? '' : 'open'}><summary><i class="role-mc ${r}" style="--mcc:${mcRole(r).hex}"></i><b>${esc(mcRole(r).nom)}</b> <span class="pastille">${l.length}</span> <small>${actifs} actif${actifs > 1 ? 's' : ''}</small></summary>${l.slice(0, 300).map(ligneNoeudMc).join('')}</details>`;
+  }).join('');
+  $('#mc-liste').innerHTML = html || vide;
+  $('#mc-liste').querySelectorAll('details.groupe-mc').forEach((d) => d.addEventListener('toggle', () => { const x = lireLs('gaulix_mc_replies', {}); x[d.dataset.role] = !d.open; ecrireLs('gaulix_mc_replies', x); }));
 }
 
 // Analyseur de paquets : filtres par type, liste en direct

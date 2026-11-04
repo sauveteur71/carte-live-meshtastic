@@ -108,8 +108,10 @@ button, input, select { font: inherit; color: inherit; }
 .repartition .piste i { display: block; height: 100%; border-radius: 4px; }
 .repartition .nb { text-align: right; color: var(--doux); font-variant-numeric: tabular-nums; }
 
-.recherche { display: flex; gap: 6px; margin: 10px 0 6px; position: sticky; top: 0; background: var(--surface); padding-bottom: 6px; }
-.recherche input { flex: 1; background: var(--surface-2); border: 1px solid var(--bord); border-radius: 7px; padding: 7px 9px; }
+.recherche { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 6px; position: sticky; top: 0; background: var(--surface); padding-bottom: 6px; z-index: 3; }
+.recherche input { flex: 1 1 100%; min-width: 0; background: var(--surface-2); border: 1px solid var(--bord); border-radius: 7px; padding: 7px 9px; }
+.recherche select { flex: 1 1 0; min-width: 0; padding: 6px 8px; }
+.recherche > button { flex: 0 0 auto; }
 .recherche select { background: var(--surface-2); border: 1px solid var(--bord); border-radius: 7px; }
 
 .filtres { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0; }
@@ -1046,3 +1048,13 @@ body[data-reseau="meshcore"] .tableau .mt-seul { display: none !important; }
 .barre-zone span { font-size: 13px; color: var(--doux); }
 .barre-zone input { width: 190px; }
 body.dessin-zone .leaflet-container { cursor: crosshair; }
+
+/* Liste MeshCore rangée par type */
+details.groupe-mc { margin: 4px 0; border: 1px solid var(--bord); border-radius: 8px; }
+details.groupe-mc > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 7px 10px; color: var(--texte); }
+details.groupe-mc > summary::-webkit-details-marker { display: none; }
+details.groupe-mc > summary::before { content: "▸"; color: var(--doux); transition: transform .15s; }
+details.groupe-mc[open] > summary::before { transform: rotate(90deg); }
+details.groupe-mc > summary small { color: var(--doux); margin-left: auto; }
+details.groupe-mc[open] > summary { border-bottom: 1px solid var(--bord); }
+#mc-par-type.actif { border-color: var(--accent); color: var(--accent); }
