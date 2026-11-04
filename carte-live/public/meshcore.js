@@ -144,7 +144,7 @@ function mcDessinerNoeuds() {
       m.setLatLng([n.lat, n.lon]);
       m.setIcon(mcIcone(n));
     }
-    m.setTooltipContent(`<b>${esc(n.nom || n.id)}</b> <small>MeshCore</small><br>${esc(mcRole(n.role).un)}${n.observateur ? ' · observateur' : ''} · ${ilYa(n.dernierVu)}` +
+    m.setTooltipContent(`<b>${esc(n.nom || n.id)}</b> <small>MeshCore</small><br>${esc(mcRole(n.role).un)}${n.observateur ? ' · ' + esc(mcLibObservateur(n)) : ''} · ${ilYa(n.dernierVu)}` +
       (n.sautsMin != null ? `<br>${n.sautsMin === 0 ? 'entendu en direct' : n.sautsMin + ' saut' + (n.sautsMin > 1 ? 's' : '') + ' au mieux'}` : '') +
       (n.snr != null ? ` · SNR ${fmt(n.snr, 1, ' dB')}` : ''));
   }
@@ -267,6 +267,12 @@ function mcRendrePanneau() {
   else if (mc.vue === 'analyse') mcRendreAnalyse();
   else mcRendreCompanion();
 }
+// D'où viennent les réceptions d'un observateur : companion relié à la carte (principal ou en écoute), ou broker MQTT
+function mcLibObservateur(n, majuscule) {
+  const d = n.detailsObservateur || {};
+  const t = d.carte ? (d.ecoute ? 'observateur de la carte (écoute)' : 'observateur de la carte') : `observateur MQTT${d.iata ? ' · ' + d.iata : ''}`;
+  return majuscule ? t[0].toUpperCase() + t.slice(1) : t;
+}
 function mcRendreNoeuds() {
   const z = $('#mc-contenu');
   if (!z.querySelector('#mc-recherche')) {
@@ -295,7 +301,7 @@ function mcRendreNoeuds() {
   $('#mc-resume').textContent = `${liste.length} nœud(s) : ${c('repeteur')} répéteur(s), ${c('salon')} room server(s), ${c('companion')} companion(s)${c('capteur') ? `, ${c('capteur')} capteur(s)` : ''}`;
   $('#mc-liste').innerHTML = liste.length ? liste.slice(0, 400).map((n) => {
     const sauts = n.sautsMin == null ? '' : n.sautsMin === 0 ? 'direct · ' : `${n.sautsMin} saut${n.sautsMin > 1 ? 's' : ''} · `;
-    return `<div class="ligne" data-mc="${n.cle}"><span class="point ${n.statut}"></span><span class="titre"><i class="role-mc ${n.role}" style="--mcc:${mcRole(n.role).hex}"></i>${estFavori(n.cle) ? '⭐ ' : ''}${estAdministre(n.cle) ? '🛠 ' : ''}${esc(n.nom || n.id)}<small>${esc(mcRole(n.role).un)}${n.observateur ? ' · observateur' : ''}</small></span><span class="meta">${sauts}${ilYa(n.dernierVu)}</span></div>`;
+    return `<div class="ligne" data-mc="${n.cle}"><span class="point ${n.statut}"></span><span class="titre"><i class="role-mc ${n.role}" style="--mcc:${mcRole(n.role).hex}"></i>${estFavori(n.cle) ? '⭐ ' : ''}${estAdministre(n.cle) ? '🛠 ' : ''}${esc(n.nom || n.id)}<small>${esc(mcRole(n.role).un)}${n.observateur ? ' · ' + mcLibObservateur(n) : ''}</small></span><span class="meta">${sauts}${ilYa(n.dernierVu)}</span></div>`;
   }).join('') : '<div class="vide">Aucun nœud MeshCore pour l’instant : reliez un companion (onglet Companion) ou abonnez la carte à un flux MQTT MeshCore.</div>';
 }
 
@@ -1379,7 +1385,7 @@ async function mcOuvrirFiche(cle, ongletInitial) {
     <div class="badges">
       <span class="badge ${n.statut}">${{ actif: 'Actif', recent: 'Récent', inactif: 'Inactif' }[n.statut]}</span>
       <span class="badge" style="color:${r.hex};border-color:${r.hex}66">${esc(r.un)}</span>
-      ${n.observateur ? `<span class="badge passerelle">Observateur${obs.carte ? ' de la carte' : obs.iata ? ' · ' + esc(obs.iata) : ''}</span>` : ''}
+      ${n.observateur ? `<span class="badge passerelle" title="${obs.carte ? 'Relié à cette carte : il lui transmet ce qu’il entend (indépendant de la republication MQTT)' : 'Publie ce qu’il entend sur le broker MQTT, où la carte le lit'}">${esc(mcLibObservateur(n, true))}</span>` : ''}
       <span class="badge reseau-mc">MeshCore</span>
     </div>
     <nav class="onglets-fiche"><button data-of="infos" class="actif">Informations</button><button data-of="voisins">Voisins (${d.voisins.length})</button><button data-of="trames">Paquets</button>${gerable(n.cle) && ['repeteur', 'salon', 'capteur'].includes(n.role) ? '<button data-of="admin">Administration</button>' : ''}</nav>
