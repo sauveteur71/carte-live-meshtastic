@@ -1039,3 +1039,10 @@ body[data-reseau="meshcore"] .tableau .mt-seul { display: none !important; }
 .menu-noeud-titre small { color: var(--doux); font-weight: 400; margin-left: 4px; }
 .menu-noeud button { display: block; width: 100%; text-align: left; background: none; border: 0; color: var(--texte); padding: 7px 10px; border-radius: 6px; font: inherit; font-size: 13px; cursor: pointer; }
 .menu-noeud button:hover, .menu-noeud button:focus { background: rgba(62, 230, 196, .14); outline: none; }
+
+/* Dessin d'une zone à étudier */
+.barre-zone { position: fixed; z-index: 4000; left: 50%; transform: translateX(-50%); bottom: 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  background: var(--surface-2); border: 2px solid #facc15; border-radius: 12px; padding: 8px 12px; box-shadow: 0 8px 30px rgba(0,0,0,.6); max-width: calc(100vw - 24px); color: var(--texte); }
+.barre-zone span { font-size: 13px; color: var(--doux); }
+.barre-zone input { width: 190px; }
+body.dessin-zone .leaflet-container { cursor: crosshair; }

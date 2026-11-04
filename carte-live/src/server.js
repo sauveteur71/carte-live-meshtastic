@@ -580,6 +580,22 @@ app.get('/api/relief/plan', (req, res) => {
   }
   res.json(rep);
 });
+// Plan pour couvrir une zone dessinée à la main : { polygone: [[lat, lon], …], objectif, max, acces, reseau, realiste }
+let planZoneEnCours = 0;
+app.post('/api/relief/plan-zone', async (req, res) => {
+  const b = req.body || {};
+  if (planZoneEnCours >= 2) return res.status(429).json({ erreur: 'Deux études de zone sont déjà en cours : réessayez dans un instant' });
+  const filtre = ['voiture', '4x4', 'pied'].includes(b.acces) ? b.acces : null;
+  const RR = R(req);
+  planZoneEnCours++;
+  try {
+    const r = await RR.planZone({ polygone: b.polygone, objectifPct: Number(b.objectif) || 95, max: Number(b.max) || 10, acces: filtre, avecReseau: b.reseau !== false, realiste: !!b.realiste });
+    const id = crypto.randomBytes(6).toString('hex');
+    cacheCouverture.set(id, { image: r.image });
+    if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
+    res.json({ ...r, image: `/api/relief/couverture/${id}.png` });
+  } catch (e) { res.status(400).json({ erreur: e.message }); } finally { planZoneEnCours--; }
+});
 app.get('/api/relief/couverture/:id.png', (req, res) => {
   const r = cacheCouverture.get(req.params.id);
   if (!r) return res.status(404).end();

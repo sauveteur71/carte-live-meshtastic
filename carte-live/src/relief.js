@@ -644,6 +644,94 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     };
   }
 
+  // ---- Plan pour couvrir une zone dessinée à la main (secteur d'intervention, vallée, massif…) ----------------
+  // polygone : [[lat, lon], …] ; mêmes critères que le plan du département. La couverture de chaque point haut
+  // candidat (dans la zone ou à moins de 10 km) est calculée sur les seules cellules de la zone.
+  async function planZone({ polygone, objectifPct = 95, max = 10, acces: filtre = null, avecReseau = true, realiste = false } = {}) {
+    if (etat.mnt !== 'pret') throw new Error('relief pas encore chargé : réessayez dans une minute');
+    const poly = (polygone || []).map((p) => [Number(p[0]), Number(p[1])]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+    if (poly.length < 3 || poly.length > 200) throw new Error('zone : de 3 à 200 points');
+    const dedans = (lat, lon) => {
+      let d = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [yi, xi] = poly[i], [yj, xj] = poly[j];
+        if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) d = !d;
+      }
+      return d;
+    };
+    const lats = poly.map((p) => p[0]), lons = poly.map((p) => p[1]);
+    const bb = { sud: Math.min(...lats), nord: Math.max(...lats), ouest: Math.min(...lons), est: Math.max(...lons) };
+    // Cellules de la zone (limitées à l'emprise du relief chargé)
+    const i0 = Math.max(0, Math.floor((bb.sud - emprise.sud) / pasLat)), i1 = Math.min(nLat - 1, Math.ceil((bb.nord - emprise.sud) / pasLat));
+    const j0 = Math.max(0, Math.floor((bb.ouest - emprise.ouest) / pasLon)), j1 = Math.min(nLon - 1, Math.ceil((bb.est - emprise.ouest) / pasLon));
+    if (i0 > i1 || j0 > j1) throw new Error('zone en dehors du relief chargé (département et ses abords)');
+    const index = new Map(); // cellule -> index compact
+    let nb = 0, horsRelief = 0;
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (dedans(latDe(i), lonDe(j))) index.set(i * nLon + j, nb++);
+    // Surface demandée hors de l'emprise du relief (non étudiée)
+    const surfaceDemandee = (() => { let a = 0; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) a += (poly[j][1] + poly[i][1]) * (poly[j][0] - poly[i][0]); return Math.abs(a / 2) * M_PAR_DEG * M_PAR_DEG * Math.cos(latMoy) / 1e6; })();
+    horsRelief = Math.max(0, Math.round(surfaceDemandee - nb * aireCelleKm2));
+    if (nb < 4) throw new Error('zone trop petite (moins de 1 km²) ou hors du relief chargé');
+    if (nb > 200000) throw new Error('zone trop grande : dessinez un secteur de moins de 12 000 km²');
+    const P = parametres({});
+    const mots = Math.ceil(nb / 32);
+    const couvrir = (site, Pp, nbRayons = 720) => {
+      const bits = new Uint32Array(mots);
+      let n = 0;
+      balayer(site, Pp, nbRayons, 250, (k, m) => {
+        if (k < 0 || m < 0) return;
+        const z = index.get(k);
+        if (z === undefined) return;
+        const w = z >>> 5, b = 1 << (z & 31);
+        if (!(bits[w] & b)) { bits[w] |= b; n++; }
+      });
+      return { bits, n };
+    };
+    // Points hauts candidats : dans la zone ou à moins de 10 km de son rectangle
+    const mLat = 10000 / M_PAR_DEG, mLon = 10000 / (M_PAR_DEG * Math.cos(latMoy));
+    const candidats = sommets.filter((sm) => sm.lat >= bb.sud - mLat && sm.lat <= bb.nord + mLat && sm.lon >= bb.ouest - mLon && sm.lon <= bb.est + mLon);
+    const couvertures = [];
+    for (const sm of candidats) { const c = couvrir(sm, P); if (c.n) couvertures.push({ s: sm, ...c }); await pause(); }
+    // Réseau existant : relais à moins de 40 km de la zone
+    const rLat = P.rayonMax / M_PAR_DEG, rLon = P.rayonMax / (M_PAR_DEG * Math.cos(latMoy));
+    const existants = avecReseau ? fournisseurs.noeudsReseau().filter((n) => n.lat >= bb.sud - rLat && n.lat <= bb.nord + rLat && n.lon >= bb.ouest - rLon && n.lon <= bb.est + rLon && celle(n.lat, n.lon) >= 0) : [];
+    const deja = new Uint32Array(mots);
+    for (const n of existants) { const c = couvrir(n, Pinstallation(P, n), 1080); for (let w = 0; w < mots; w++) deja[w] |= c.bits[w]; await pause(); }
+    const depart = compter(deja);
+    const min = niveauMin(filtre);
+    const cible = Math.ceil((Math.min(100, Math.max(10, objectifPct)) / 100) * nb);
+    const choisis = planGlouton(couvertures, deja, existants, min, { max: Math.min(30, Math.max(1, max)), cible, gainMin: 4, realiste });
+    const finale = choisis.length ? choisis[choisis.length - 1].total : depart;
+    // Image sur le rectangle de la zone : bleu déjà couvert, turquoise apporté, rouge non couvert
+    const cumul = Uint32Array.from(deja);
+    for (const c of choisis) { const cs = couvertures.find((x) => x.s.id === c.s.id); if (cs) for (let w = 0; w < mots; w++) cumul[w] |= cs.bits[w]; }
+    const larg = j1 - j0 + 1, haut = i1 - i0 + 1;
+    const rgba = Buffer.alloc(larg * haut * 4);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+      const z = index.get(i * nLon + j);
+      if (z === undefined) continue;
+      const w = z >>> 5, b = 1 << (z & 31);
+      const o = ((i1 - i) * larg + (j - j0)) * 4;
+      const c = deja[w] & b ? [96, 165, 250, 95] : cumul[w] & b ? [62, 230, 196, 140] : [255, 92, 108, 80];
+      rgba[o] = c[0]; rgba[o + 1] = c[1]; rgba[o + 2] = c[2]; rgba[o + 3] = c[3];
+    }
+    return {
+      zone: true, objectifPct, max, filtreAcces: filtre || 'tous', avecReseau, realiste, realismeEtat: realisme.etat(), accesEtat: acces.etat(),
+      candidats: couvertures.filter((c) => accessible(c.s, min)).length,
+      surfaceZoneKm2: Math.round(nb * aireCelleKm2), horsReliefKm2: horsRelief,
+      departPct: +((depart / nb) * 100).toFixed(1), finalPct: +((finale / nb) * 100).toFixed(1), atteint: finale >= cible,
+      reseau: existants.map((n) => ({ nom: n.nom, lat: n.lat, lon: n.lon })),
+      sites: choisis.map((c, k) => {
+        const sm = sommets[c.s.id] || c.s;
+        return { rang: k + 1, id: c.s.id, nom: c.s.nom, commune: sm.commune || c.s.commune, lat: c.s.lat, lon: c.s.lon, alt: c.s.alt, acces: sm.acces || null, realisme: sm.realisme || null,
+          gainKm2: Math.round(c.gain * aireCelleKm2), totalPct: +((c.total / nb) * 100).toFixed(1) };
+      }),
+      parametres: { preset: P.preset, hs: P.hs, ht: P.ht, env: P.env, rayonKm: P.rayonMax / 1000 },
+      image: png(larg, haut, rgba),
+      emprise: { sud: latDe(i0) - pasLat / 2, nord: latDe(i1) + pasLat / 2, ouest: lonDe(j0) - pasLon / 2, est: lonDe(j1) + pasLon / 2 },
+    };
+  }
+
   // ---- Plan à budget : « j'ai N relais à poser » -------------------------------------------------------------
   // Choisit les N sites qui apportent le plus de surface (sites réalistes par défaut), puis chiffre chaque étape :
   // surface et habitants gagnés (communes dont le bourg devient couvert), coût estimé (solaire ou secteur, mât si aucun support).
@@ -1187,6 +1275,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     couvertureReseau,
     simuler,
     planDepartement,
+    planZone,
     planBudget,
     optimiserRelais,
     evaluerEmplacements,
