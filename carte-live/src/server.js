@@ -679,6 +679,7 @@ app.post('/api/radio/connecter', (req, res) => {
   const { hote } = req.body || {};
   const port = portValide((req.body || {}).port);
   if (!hote) { try { sourceRadio.reconnecter(); return res.json({ ok: true }); } catch (e) { return res.status(400).json({ erreur: e.message }); } }
+  if (serie.cheminValide(hote)) { if (ecoutes.estRadio(hote, 0)) ecoutes.retirerRadio(hote, 0); sourceRadio.connecterA(hote, 0); return res.json({ ok: true }); }
   if (!hoteValide(hote) || !port) return res.status(400).json({ erreur: 'Adresse ou port invalide' });
   if (ecoutes.estRadio(hote, port)) ecoutes.retirerRadio(hote, port); // un module n'accepte qu'un client à la fois
   sourceRadio.connecterA(hote, port);
@@ -700,6 +701,7 @@ app.post('/api/radio/modules', (req, res) => {
 app.delete('/api/radio/modules', (req, res) => {
   if (!exigerAdmin(req, res)) return;
   const { hote } = req.body || {};
+  if (serie.cheminValide(hote)) { sourceRadio.retirerModule(hote, 0); return res.json({ ok: true }); }
   const port = portValide((req.body || {}).port);
   if (!hoteValide(hote) || !port) return res.status(400).json({ erreur: 'Adresse ou port invalide' });
   sourceRadio.retirerModule(hote, port);
@@ -767,6 +769,38 @@ app.post('/api/ecoutes/principal', (req, res) => {
       }, 800);
     }
     res.json({ ok: true });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+// ---- Module branché en USB sur la machine de la carte (port série du serveur) ----------------------------
+const serie = require('./serie');
+app.get('/api/connexion/ports', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const utilises = new Set([sourceRadio.modules().actif && sourceRadio.modules().actif.hote, (companion.etat().cible || {}).chemin, ...ecoutes.liste().meshtastic.map((x) => x.hote), ...ecoutes.liste().meshcore.map((x) => x.cible && x.cible.chemin)].filter(Boolean));
+  res.set('Cache-Control', 'no-store').json({ ports: serie.listerPorts().map((p) => ({ chemin: p, utilise: utilises.has(p) })) });
+});
+app.post('/api/connexion/serie', async (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const chemin = String((req.body || {}).chemin || '').trim();
+  const enEcoute = (req.body || {}).role === 'ecoute';
+  if (!serie.cheminValide(chemin)) return res.status(400).json({ erreur: 'Port série invalide (ex. /dev/ttyACM0)' });
+  // Le port est peut-être déjà utilisé par la carte : on le libère avant de le sonder
+  if (sourceRadio.modules().actif && sourceRadio.modules().actif.hote === chemin) sourceRadio.deconnecter(0);
+  if ((companion.etat().cible || {}).chemin === chemin) companion.deconnecter();
+  if (ecoutes.estRadio(chemin, 0)) ecoutes.retirerRadio(chemin, 0);
+  if (ecoutes.estCompanion({ type: 'serie', chemin })) ecoutes.retirerCompanion(chemin);
+  await new Promise((ok) => setTimeout(ok, 800));
+  let protocole;
+  try { protocole = await serie.sonder(chemin); } catch (e) { return res.status(400).json({ erreur: e.message }); }
+  if (!protocole) return res.status(404).json({ erreur: `Aucune réponse sur ${chemin} : ni module Meshtastic, ni companion MeshCore (firmware « companion USB »). Vérifiez le firmware et qu’aucun autre programme n’utilise le port.` });
+  try {
+    if (protocole === 'meshcore') {
+      if (!config.meshcore.actif) throw new Error('MeshCore n’est pas activé dans cette carte');
+      const c = { type: 'serie', chemin };
+      if (enEcoute) ecoutes.ajouterCompanion(c, `MeshCore ${chemin.split('/').pop()}`); else companion.connecterA(c);
+    } else if (enEcoute) ecoutes.ajouterRadio(chemin, 0, `USB ${chemin.split('/').pop()}`);
+    else { sourceRadio.ajouterModule(chemin, 0, `USB du serveur ${chemin.split('/').pop()}`); sourceRadio.connecterA(chemin, 0); }
+    journal(`connexion série : ${chemin} (${protocole})${enEcoute ? ' en écoute' : ''}`);
+    res.json({ ok: true, protocole, texte: `${protocole === 'meshcore' ? 'Companion MeshCore' : 'Module Meshtastic'} reconnu sur ${chemin} : connexion en cours${enEcoute ? ', en écoute' : ''}.` });
   } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 // ---- Connexion d'un module par sa seule adresse IP (Meshtastic ou MeshCore, reconnu tout seul) ---------------
@@ -2377,6 +2411,21 @@ function fabriquerCompanionEcoute({ cible, nom }) {
   return inst;
 }
 const adminMc = creerAdministrationMc(config, companion, reseauMc, (...a) => journal('[MeshCore]', ...a), (t) => { if (['statut', 'lire', 'chemin', 'voisins', 'tracer', 'telemetrie'].includes(t.type)) { planifierEtatMc(); diffuser({ genre: 'mc-noeuds' }); } });
+// Capteurs MeshCore : relevés périodiques, historique, libellés personnalisés
+const capteursMc = require('./meshcore/capteurs').creerCapteursMc({ db: stockage.db, config, adminMc, companion, journal: (...a) => journal('[MeshCore]', ...a) });
+adminMc.ecouterTelemetrie((cle, mesures) => capteursMc.noter(cle, mesures));
+app.get('/api/mc/capteurs/:cle', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  const cle = String(req.params.cle).toUpperCase();
+  if (!/^[0-9A-F]{64}$/.test(cle)) return res.status(400).json({ erreur: 'clé invalide' });
+  res.set('Cache-Control', 'no-store').json({ ...capteursMc.lire(cle, Math.min(Math.max(Number(req.query.jours) || 7, 1), 90)), peutRegler: peutGerer(req, cle) });
+});
+app.post('/api/mc/capteurs/:cle', (req, res) => {
+  const cle = String(req.params.cle).toUpperCase();
+  if (!/^[0-9A-F]{64}$/.test(cle)) return res.status(400).json({ erreur: 'clé invalide' });
+  if (!peutGerer(req, cle)) return refuserSecteur(res);
+  try { res.json(capteursMc.regler(cle, req.body || {})); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 const { creerMaintenanceMc } = require('./meshcore/maintenance');
 const maintenanceMc = creerMaintenanceMc({ config, reseauMc, adminMc, companion, journal });
 app.get('/api/mc/maintenance', (req, res) => {

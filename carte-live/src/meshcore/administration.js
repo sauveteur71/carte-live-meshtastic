@@ -90,6 +90,7 @@ function validerRegions(actions) {
 const SANS_ADMIN = ['statut', 'chemin', 'tracer', 'telemetrie'];
 
 function creerAdministrationMc(config, companion, reseauMc, journal, surFin = () => {}) {
+  const ecouteursTelemetrie = new Set(); // historique des capteurs
   const dossier = path.dirname(config.fichierBase);
   const fMdp = path.join(dossier, 'meshcore-admin.json');
   const fLectures = path.join(dossier, 'meshcore-lectures.json');
@@ -414,6 +415,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
             etape(t, n.cle, l.length ? l.map((m) => `${LIB[m.type] || m.type}${m.canal > 1 ? ' (canal ' + m.canal + ')' : ''} ${typeof m.valeur === 'object' ? JSON.stringify(m.valeur) : String(m.valeur).replace('.', ',')} ${m.unite}`.trim()).join(' · ') : 'aucune mesure renvoyée');
             const v = l.find((m) => m.type === 'tension' && m.canal === 1);
             if (v) reseauMc.noterEtat(n.cle, { batterieMv: Math.round(v.valeur * 1000) });
+            for (const f of ecouteursTelemetrie) { try { f(n.cle, l); } catch (e) { journal('télémétrie :', e.message); } }
             break;
           }
           case 'verifier': await lireConfig(t, n, elements); break;
@@ -574,6 +576,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
   }
 
   return {
+    ecouterTelemetrie: (f) => ecouteursTelemetrie.add(f),
     PARAMS, ELEMENTS, ELEMENTS_DEFAUT,
     modeles: () => modeles,
     enregistrerModele,

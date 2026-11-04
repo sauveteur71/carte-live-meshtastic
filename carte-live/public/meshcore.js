@@ -1107,7 +1107,7 @@ function mcRendreCompanion() {
   const e = mc.etat;
   if (!e) { z.innerHTML = '<div class="vide">Chargement…</div>'; mcChargerEtat(); return; }
   const c = e.companion, r = c.radio;
-  const source = c.navigateur ? `relié par cette page ou une autre (${esc(c.nomNavigateur || '')})` : c.cible ? (c.cible.type === 'agent' ? `agent « ${esc(c.cible.hote.replace(/^agent-/, ''))} »` : `Wi-Fi ${esc(c.cible.hote)}:${c.cible.port}`) : 'aucun';
+  const source = c.navigateur ? `relié par cette page ou une autre (${esc(c.nomNavigateur || '')})` : c.cible ? (c.cible.type === 'agent' ? `agent « ${esc(c.cible.hote.replace(/^agent-/, ''))} »` : c.cible.type === 'serie' ? `USB du serveur ${esc(c.cible.chemin)}` : `Wi-Fi ${esc(c.cible.hote)}:${c.cible.port}`) : 'aucun';
   // Saisie en cours (réglages, région, commande, Wi-Fi) : on ne redessine pas sous les doigts
   const ae = document.activeElement;
   const formOuvert = ae && z.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
@@ -1325,7 +1325,7 @@ function mcHtmlEcoutes(e) {
   const l = e.ecoutes || [];
   if (!l.length) return '';
   return `<h4>Companions en écoute (${l.length})</h4><div class="liste">${l.map((x) => {
-    const sous = x.navigateur ? `${esc(x.source || 'navigateur')} d’une page de la carte` : x.cible.type === 'agent' ? `agent « ${esc(x.cible.hote.replace(/^agent-/, ''))} »` : `Wi-Fi ${esc(x.cible.hote)}:${x.cible.port}`;
+    const sous = x.navigateur ? `${esc(x.source || 'navigateur')} d’une page de la carte` : x.cible.type === 'agent' ? `agent « ${esc(x.cible.hote.replace(/^agent-/, ''))} »` : x.cible.type === 'serie' ? `USB du serveur ${esc(x.cible.chemin)}` : `Wi-Fi ${esc(x.cible.hote)}:${x.cible.port}`;
     return `<div class="ligne"><span class="point ${x.connecte ? 'actif' : 'alerte'}"></span><span class="titre">${esc(x.nom || 'companion')} <span class="badge">👂 écoute</span><small>${sous} · ${x.connecte ? `${x.paquets} paquets` : x.erreur ? esc(x.erreur) : 'connexion…'}</small></span>
       <span class="meta">${!x.navigateur ? `<button class="mini" data-mc-ec-princ="${esc(x.cle)}" title="En faire le companion principal (envois, administration) ; l’actuel passe en écoute">⭐</button> ` : ''}<button class="mini" data-mc-ec-off="${esc(x.cle)}" title="Arrêter l'écoute">✕</button></span></div>`;
   }).join('')}</div><p class="note">Chaque companion en écoute transmet ce qu’il entend, avec son SNR : plus de liaisons mesurées et de parcours. Envois et administration passent par le companion principal.</p>`;
@@ -1350,6 +1350,49 @@ function mcHtmlChemin(c, n) {
   return `<div class="chemin-test"><h4>Liaison testée ${c.heure ? ilYa(c.heure) : ''} · ${fmt(c.dureeMs / 1000, 1, ' s')} aller-retour</h4>
     <div class="chemin-mc"><span class="saut obs">${esc(moi)}</span>${c.aller.map((x) => '<i>›</i>' + etape(x)).join('')}<i>›</i><span class="saut obs">${esc(n.nom || n.id)}</span> <small>aller</small></div>
     <div class="chemin-mc"><span class="saut obs">${esc(n.nom || n.id)}</span>${c.retour.map((x) => '<i>›</i>' + etape(x)).join('')}<i>›</i><span class="saut obs">${esc(moi)}</span> <small>retour</small></div></div>`;
+}
+// ---- Capteurs d'un nœud : relevé périodique, courbes, libellés personnalisés ----
+const MC_LIB_CAPTEUR = { tension: 'Tension', temperature: 'Température', humidite: 'Humidité', pression: 'Pression', courant: 'Courant', pourcentage: 'Charge', luminosite: 'Luminosité', puissance: 'Puissance', energie: 'Énergie', altitude: 'Altitude', distance: 'Distance', concentration: 'Concentration', frequence: 'Fréquence', analogique: 'Entrée analogique', generique: 'Valeur', entree: 'Entrée', sortie: 'Sortie', presence: 'Présence', interrupteur: 'Interrupteur', direction: 'Direction' };
+const libelleCapteur = (r, mesure) => {
+  if (r.libelles && r.libelles[mesure]) return r.libelles[mesure];
+  const [type, canal] = mesure.split(':');
+  return `${MC_LIB_CAPTEUR[type] || type} ${canal}`;
+};
+async function mcRendreCapteurs(n, z, jours = 7) {
+  if (!z) return;
+  let r;
+  try { r = await api(`/api/mc/capteurs/${n.cle}?jours=${jours}`); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const dec = (u) => (u === 'V' ? 2 : u === '°C' || u === '%' || u === 'hPa' ? 1 : 2);
+  const lib = (m) => ({ 15: '15 min', 30: '30 min', 60: '1 h', 180: '3 h', 360: '6 h', 720: '12 h', 1440: '24 h' }[m] || 'jamais');
+  z.innerHTML = `
+    <div class="actions-prop">${[1, 7, 30, 90].map((j) => `<button class="mini ${j === jours ? 'actif' : ''}" data-cj="${j}">${j} j</button>`).join('')}</div>
+    ${r.peutRegler ? `<div class="reglage-capteurs"><label>Relever toutes les <select id="cap-int">${r.intervalles.map((m) => `<option value="${m}" ${m === r.intervalleMin ? 'selected' : ''}>${lib(m)}</option>`).join('')}</select></label>
+      <button class="mini principal" id="cap-maintenant">Relever maintenant</button></div>
+      <p class="note">Le relevé passe par le companion de la carte (tâche « télémétrie »). Le nœud doit autoriser la télémétrie : mot de passe invité ou admin mémorisé, ou télémétrie ouverte. Chaque relevé envoie un paquet : 1 h ou plus suffit pour un abri ou une batterie.</p>` : ''}
+    ${r.dernier ? `<p class="note">Dernier relevé ${ilYa(r.dernier)}.</p>` : ''}
+    ${r.series.length ? r.series.map((sr) => {
+      const pts = sr.points.map(([h, v]) => ({ heure: h, v }));
+      const der = sr.points[sr.points.length - 1];
+      return `<div class="serie-capteur"><div class="titre-serie"><b>${esc(libelleCapteur(r, sr.mesure))}</b> <span class="valeur">${fmt(der[1], dec(sr.unite), ' ' + sr.unite)}</span>
+        ${r.peutRegler ? `<button class="mini" data-cap-lib="${esc(sr.mesure)}" title="Renommer cette mesure">✏️</button>` : ''}<small>${esc(sr.mesure.replace(':', ' · canal '))} · ${sr.points.length} relevé${sr.points.length > 1 ? 's' : ''}</small></div>
+        ${pts.length >= 2 ? courbe(pts, 'v', '', ' ' + sr.unite, dec(sr.unite)) : '<p class="note">Une seule valeur pour l’instant : la courbe apparaîtra au relevé suivant.</p>'}</div>`;
+    }).join('') : '<div class="vide">Aucune mesure enregistrée. Choisissez un intervalle de relevé, ou « Relever maintenant ».</div>'}`;
+  z.querySelectorAll('[data-cj]').forEach((b) => (b.onclick = () => mcRendreCapteurs(n, z, Number(b.dataset.cj))));
+  const si = $('#cap-int');
+  if (si) si.onchange = async () => { try { await postJson(`/api/mc/capteurs/${n.cle}`, { intervalleMin: Number(si.value) }); } catch (e) { alert(e.message); } };
+  const bm = $('#cap-maintenant');
+  if (bm) bm.onclick = async () => {
+    bm.disabled = true; bm.textContent = 'Demande envoyée…';
+    try { await postJson('/api/mc/admin/taches', { type: 'telemetrie', cles: [n.cle] }); } catch (e) { alert(e.message); bm.disabled = false; bm.textContent = 'Relever maintenant'; return; }
+    setTimeout(() => mcRendreCapteurs(n, z, jours), 25000);
+  };
+  z.querySelectorAll('[data-cap-lib]').forEach((b) => (b.onclick = async () => {
+    const m = b.dataset.capLib;
+    const v = prompt(`Nom de la mesure « ${m.replace(':', ' · canal ')} » (vide = nom par défaut) :`, (r.libelles || {})[m] || '');
+    if (v === null) return;
+    try { await postJson(`/api/mc/capteurs/${n.cle}`, { libelles: { [m]: v } }); } catch (e) { alert(e.message); return; }
+    mcRendreCapteurs(n, z, jours);
+  }));
 }
 function mcHtmlTelemetrie(t) {
   if (!t || !t.length) return '';
@@ -1404,7 +1447,7 @@ async function mcOuvrirFiche(cle, ongletInitial) {
       ${n.observateur ? `<span class="badge passerelle" title="${obs.carte ? 'Relié à cette carte : il lui transmet ce qu’il entend (indépendant de la republication MQTT)' : 'Publie ce qu’il entend sur le broker MQTT, où la carte le lit'}">${esc(mcLibObservateur(n, true))}</span>` : ''}
       <span class="badge reseau-mc">MeshCore</span>
     </div>
-    <nav class="onglets-fiche"><button data-of="infos" class="actif">Informations</button><button data-of="voisins">Voisins (${d.voisins.length})</button><button data-of="trames">Paquets</button>${gerable(n.cle) && ['repeteur', 'salon', 'capteur'].includes(n.role) ? '<button data-of="admin">Administration</button>' : ''}</nav>
+    <nav class="onglets-fiche"><button data-of="infos" class="actif">Informations</button><button data-of="voisins">Voisins (${d.voisins.length})</button><button data-of="trames">Paquets</button>${etat.membre && ['repeteur', 'salon', 'capteur'].includes(n.role) ? '<button data-of="capteurs">Capteurs</button>' : ''}${gerable(n.cle) && ['repeteur', 'salon', 'capteur'].includes(n.role) ? '<button data-of="admin">Administration</button>' : ''}</nav>
     <div data-pf="infos">
       <div class="grille">${mesures.map(([l, v]) => `<div class="mesure"><span>${l}</span><b>${esc(v)}</b></div>`).join('')}</div>
       <div class="boutons">
@@ -1424,11 +1467,13 @@ async function mcOuvrirFiche(cle, ongletInitial) {
       ${voisins ? `<table class="voisins"><thead><tr><th>Nœud</th><th class="num">SNR reçu</th><th class="num">SNR émis</th><th class="num">km</th><th class="num">Obs.</th><th>Source</th><th></th></tr></thead><tbody>${voisins}</tbody></table>
       <p class="note">« Mesuré » : dernier saut vers un observateur (SNR réel). « Chemin » : déduit de la liste des répéteurs traversés par un paquet (préfixes de clé, rapprochés par la géographie).</p>` : '<div class="vide">Aucune liaison connue.</div>'}
     </div>
+    <div data-pf="capteurs" hidden><div id="mc-capteurs-fiche"><div class="vide">Chargement…</div></div></div>
     <div data-pf="admin" hidden><div id="mc-admin-fiche"><div class="vide">Chargement…</div></div></div>
     <div data-pf="trames" hidden><div class="flux">${d.paquets.map((p) => mcLignePaquet(p, false)).join('') || '<div class="vide">Aucun paquet émis par ce nœud (seuls les annonces et les requêtes portent la clé complète de l’émetteur).</div>'}</div></div>`;
   zc.querySelectorAll('[data-of]').forEach((b) => (b.onclick = () => {
     zc.querySelectorAll('[data-of]').forEach((x) => x.classList.toggle('actif', x === b));
     zc.querySelectorAll('[data-pf]').forEach((x) => (x.hidden = x.dataset.pf !== b.dataset.of));
+    if (b.dataset.of === 'capteurs') mcRendreCapteurs(n, $('#mc-capteurs-fiche'));
     if (b.dataset.of === 'admin') mcRendreAdminFiche({ cle: n.cle, nom: n.nom || n.id, role: n.role }, $('#mc-admin-fiche'));
   }));
   if (ongletInitial) { const b = zc.querySelector(`[data-of="${ongletInitial}"]`); if (b) b.click(); }

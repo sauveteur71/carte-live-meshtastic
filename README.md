@@ -2,7 +2,7 @@
 
 [![Dernière version](https://img.shields.io/github/v/release/sauveteur71/carte-live-meshtastic?label=derni%C3%A8re%20version)](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest)
 
-**Version actuelle : 2.5.3** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
+**Version actuelle : 2.6.0** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
 
 Carte en temps réel, supervision et **administration à distance** d'un réseau [Meshtastic](https://meshtastic.org) — et désormais [MeshCore](https://meshcore.co.uk) — local ou départemental : elle écoute votre broker MQTT et/ou un module radio, décode les paquets, garde l'historique et permet de programmer vos nœuds par LoRa.
 
@@ -52,6 +52,7 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - **Lecture ciblée** d'un nœud : seulement les éléments cochés (rôle, LoRa, canaux, position…) au lieu de toute la configuration
 - **Connecter un module** (*Outils*) : un seul écran pour le Bluetooth, l'USB ou une adresse IP ; Meshtastic ou MeshCore est reconnu tout seul. Une adresse IP d'un autre réseau passe automatiquement par un agent 1.6 lancé sur un PC de ce réseau
 - **Plusieurs modules en même temps** : un module principal par réseau (Meshtastic, MeshCore) pour les envois et l'administration, et autant de modules **en écoute** que voulu (Wi-Fi, agent, Bluetooth ou USB d'une page). Chacun s'ajoute comme une passerelle, avec ses propres mesures. Un clic échange le principal et un module en écoute.
+- **USB du serveur** : module Meshtastic ou companion MeshCore branché directement sur la machine qui fait tourner la carte (NAS, Raspberry Pi), sans navigateur ni agent (`devices:` et `group_add: [dialout]` dans `docker-compose.yml`)
 - **Bluetooth** : reconnexion automatique après une coupure, pendant 15 min
 - **Éditeur de réglages** complet (nom, rôle, rediffusion, LoRa, position, 8 canaux) envoyé en une seule transaction et relu pour contrôle
 - Lecture de configuration **reprenable**, opérations multi-nœuds, arrêt et « réessayer », garde-fous pour le canal principal
@@ -69,6 +70,7 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - **Analyseur de paquets** en direct : annonces, messages de canal (déchiffrés pour le canal Public et les canaux « #nom » configurés), messages directs, requêtes, accusés, traces… avec le chemin de relais identifiés et le détail octet par octet
 - **Outils du companion MeshCore** (firmware récent) : *Qui m'entend en direct ?* (découverte à 0 saut, SNR dans les deux sens, sans mot de passe, automatique toutes les 6 h), bruit de fond et temps d'antenne avec courbe sur 7 jours, télémétrie (batterie, capteurs), région d'envoi par défaut, commandes et Wi-Fi du companion
 - **Répéteurs MeshCore** : *Tracer* (aller-retour avec le SNR de chaque saut, sans mot de passe, et chaque nuit vers les répéteurs surveillés), *Télémétrie*, région d'attache lue avec la configuration ; les liaisons mesurées alimentent la carte et la topologie
+- **Capteurs MeshCore** (fiche, onglet *Capteurs*) : relevé automatique de la télémétrie à intervalle réglable (15 min à 24 h), courbes de chaque mesure sur 1 à 90 jours et **libellés personnalisés** (« Batterie », « Abri » au lieu de « tension 1 »)
 - Le **companion** de la carte sert d'observateur (Wi-Fi, USB par l'agent, ou USB / Bluetooth depuis le navigateur) ; ses paquets sont republiés sur votre broker au format **meshcoretomqtt** (`meshcore/IATA/CLÉ/packets`), et la carte lit aussi les autres observateurs publiés sur le broker
 - **Topologie et simulation MeshCore** (*Outils › Topologie et simulation MeshCore*) : graphe des répéteurs (dernier saut mesuré, voisins déclarés, traces, chemins déduits), points de rupture, répéteurs les plus traversés, trafic en direct animé et simulation de l'inondation selon la logique du firmware répéteur (délai aléatoire selon tx_delay_factor, flood.max, collisions)
 - **Messages** : filtre par canal ou messages directs
@@ -144,6 +146,7 @@ Dans `docker-compose.yml`, remplacez la ligne `image:` par `build: .`, puis `doc
 Onglet **MeshCore › Companion** (admin) : reliez un companion MeshCore, qui devient l'**observateur** de la carte.
 - **Wi-Fi** : firmware « companion Wi-Fi », adresse IP et port (5000 par défaut) ;
 - **USB sur ce PC** (firmware « companion USB ») ou **Bluetooth** (firmware « companion BLE ») : boutons de la page, Chrome ou Edge, carte en HTTPS ;
+- **USB du serveur** : companion branché sur la machine de la carte (port transmis au conteneur) ;
 - **USB sur un autre PC** : l'agent (même programme que pour Meshtastic), choisi ensuite dans la liste des agents.
 
 Le companion ne sert qu'un client à la fois : l'appli MeshCore du téléphone est déconnectée pendant ce temps.

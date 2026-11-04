@@ -64,6 +64,19 @@ Les données (base, comptes, réglages, cache du relief) sont dans le volume `do
 
 Évitez de mettre à jour pendant une programmation à distance en cours : elle reprend après le redémarrage, mais la demande en cours repart de zéro.
 
+## Module branché en USB sur le serveur
+
+Pour relier un module directement au serveur (sans navigateur ni agent), transmettez son port au conteneur dans `docker-compose.yml` :
+
+```yaml
+    devices:
+      - "/dev/ttyACM0:/dev/ttyACM0"
+    group_add:
+      - dialout
+```
+
+Puis *Outils › Connecter un module › USB du serveur*. Voir [[Connecter un module]].
+
 ## 5. Accès depuis l'extérieur et HTTPS
 
 Le plus simple et le plus sûr est **Tailscale** sur le serveur et vos appareils. Le Bluetooth et l'USB dans le navigateur exigent **HTTPS** et **Chrome ou Edge** :

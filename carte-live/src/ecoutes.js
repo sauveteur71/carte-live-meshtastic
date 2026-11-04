@@ -20,7 +20,7 @@ function creerEcoutes({ config, fabriquerRadio, fabriquerCompanion, journal, sur
   const radios = new Map(); // "hote:port" -> { hote, port, nom, navigateur, source, instance }
   const companions = new Map(); // clé -> { cle, cible, nom, navigateur, source, instance }
   const cleRadio = (hote, port) => `${hote}:${port}`;
-  const cleCompanion = (c) => (c.type === 'tcp' ? `${c.hote}:${c.port}` : c.hote);
+  const cleCompanion = (c) => (c.type === 'tcp' ? `${c.hote}:${c.port}` : c.type === 'serie' ? c.chemin : c.hote);
   const changer = () => { if (surChangement) setImmediate(surChangement); };
 
   // ---- Meshtastic ----
@@ -50,7 +50,7 @@ function creerEcoutes({ config, fabriquerRadio, fabriquerCompanion, journal, sur
 
   // ---- MeshCore ----
   function ajouterCompanion(cible, nom = null, { navigateur = null, source = null } = {}) {
-    if (!nom && cible) nom = cible.type === 'agent' ? cible.hote.replace(/^agent-/, '') : `MeshCore ${cible.hote}`;
+    if (!nom && cible) nom = cible.type === 'agent' ? cible.hote.replace(/^agent-/, '') : cible.type === 'serie' ? `MeshCore ${cible.chemin.split('/').pop()}` : `MeshCore ${cible.hote}`;
     const cle = navigateur ? 'nav:' + nom : cleCompanion(cible);
     if (companions.has(cle)) { const c = companions.get(cle); if (!navigateur) return c; try { c.instance.detruire(); } catch { /* déjà */ } }
     const c = { cle, cible: navigateur ? null : cible, nom: nom || (cible ? cible.hote : 'companion'), navigateur: !!navigateur, source, depuis: Date.now() };
@@ -103,7 +103,7 @@ function creerEcoutes({ config, fabriquerRadio, fabriquerCompanion, journal, sur
     for (const m of config.meshcore && config.meshcore.actif ? memo.meshcore : []) {
       const cle = cleCompanion(m.cible);
       if (companions.has(cle)) continue;
-      const c = { cle, cible: m.cible, nom: m.nom || m.cible.hote, navigateur: false, depuis: Date.now() };
+      const c = { cle, cible: m.cible, nom: m.nom || m.cible.hote || m.cible.chemin, navigateur: false, depuis: Date.now() };
       c.instance = fabriquerCompanion({ cible: m.cible, nom: c.nom });
       companions.set(cle, c);
       c.instance.demarrer();

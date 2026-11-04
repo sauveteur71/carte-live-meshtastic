@@ -104,6 +104,15 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
       }
       journal(`connexion par l'agent « ${cible.hote} »…`);
       socket = s;
+    } else if (cible.hote.startsWith('/dev/')) {
+      // Module branché en USB sur la machine de la carte
+      try { socket = require('./serie').ouvrirSerie(cible.hote); } catch (e) {
+        etat = { ...etat, connecte: false, erreur: e.message, reprise: Date.now() + 30000 };
+        enConfiguration = false; journal(e.message); planifier(30000);
+        if (apresSynchro) setImmediate(apresSynchro);
+        return;
+      }
+      journal(`connexion au port série du serveur ${cible.hote}…`);
     } else {
       journal(`connexion à ${cible.hote}:${cible.port}…`);
       socket = net.connect({ host: cible.hote, port: cible.port });

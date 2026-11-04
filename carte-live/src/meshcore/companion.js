@@ -337,6 +337,14 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
       s.resume();
       return;
     }
+    if (c.type === 'serie') {
+      // Companion branché en USB sur la machine de la carte
+      let f;
+      try { f = require('../serie').ouvrirSerie(c.chemin); } catch (e) { etat = { ...etat, connecte: false, erreur: e.message }; journal(e.message); planifier(30000); notifier(); return; }
+      journal(`companion sur le port série du serveur ${c.chemin}`);
+      attacher(f, `USB du serveur ${c.chemin}`, 2500);
+      return;
+    }
     journal(`connexion au companion ${c.hote}:${c.port}…`);
     attacher(net.connect({ host: c.hote, port: c.port }), `Wi-Fi ${c.hote}:${c.port}`, 'connect');
   }

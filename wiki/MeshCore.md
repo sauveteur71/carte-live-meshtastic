@@ -45,6 +45,15 @@ Onglet **MeshCore › Programmer** et fiche d'un répéteur :
 
 Les liaisons mesurées (découverte, traces) s'affichent sur la carte et dans la topologie.
 
+## Capteurs : relevés périodiques et courbes
+Fiche d'un répéteur, salon ou capteur, onglet **Capteurs** :
+- **Relever toutes les…** : 15 min, 30 min, 1 h, 3 h, 6 h, 12 h ou 24 h (ou jamais). La carte lance elle-même la tâche « télémétrie » par le companion. Le nœud doit autoriser la télémétrie (mot de passe invité ou admin mémorisé, ou télémétrie ouverte). Chaque relevé envoie un paquet : 1 h ou plus suffit pour un abri ou une batterie ;
+- **Relever maintenant** ;
+- une **courbe par mesure** (tension, température, humidité, pression, courant…) sur 1, 7, 30 ou 90 jours, avec dernier, minimum et maximum ;
+- **✏️ libellé** : renommez chaque mesure (« Batterie », « Abri », « Panneau solaire ») au lieu de « tension 1 ».
+
+Les relevés faits à la main depuis l'administration alimentent aussi les courbes. L'historique est gardé 90 jours.
+
 ## Republication MQTT et canaux
 - **Republier les paquets du companion** : publiés sur votre broker sous `meshcore/IATA/CLÉ/packets` (format meshcoretomqtt), pour les autres cartes.
 - **Code de zone (IATA)** : 3 lettres, par exemple `LPY` pour le Puy.

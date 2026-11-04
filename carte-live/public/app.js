@@ -3549,7 +3549,7 @@ async function rendreModules(force) {
   const btnEcoute = (m) => `<button data-ec-on="${esc(m.hote)}" data-port="${m.port}" title="Le relier en plus du module principal, pour l'écoute seulement">👂 En écoute</button>`;
   const ligneEcoute = (x) => {
     const estAg = x.hote.startsWith('agent-');
-    const sous = x.navigateur ? `${esc(x.source || 'navigateur')} d'une page de la carte` : estAg ? 'agent' : `${esc(x.hote)}${x.port !== 4403 ? ':' + x.port : ''}`;
+    const sous = x.navigateur ? `${esc(x.source || 'navigateur')} d'une page de la carte` : estAg ? 'agent' : x.hote.startsWith('/dev/') ? `USB du serveur ${esc(x.hote)}` : `${esc(x.hote)}${x.port !== 4403 ? ':' + x.port : ''}`;
     const statut = x.connecte ? `en écoute · ${x.paquets} paquets${x.noeud != null ? '' : ' · configuration…'}` : `connexion…${x.erreur ? ' (' + esc(x.erreur) + ')' : ''}`;
     const boutons = `${!x.navigateur ? `<button data-ec-princ="${esc(x.hote)}" data-port="${x.port}" title="En faire le module principal (envois, administration) ; l'actuel passe en écoute">⭐ Principal</button>` : ''}<button data-ec-off="${esc(x.hote)}" data-port="${x.port}">Arrêter l'écoute</button>`;
     return `<div class="ligne module ecoute"><span class="point ${x.connecte ? 'actif' : 'alerte'}"></span><span class="titre">${esc(x.nom || 'Module')} <span class="badge">👂 écoute</span><small>${sous}</small></span><span class="meta"></span>
@@ -3558,7 +3558,7 @@ async function rendreModules(force) {
   const ligne = (m) => {
     let statut, cls, boutons;
     const estAgent = m.hote.startsWith('agent-'), ag = agentsEnLigne.get(m.hote);
-    const sousTitre = estAgent ? `agent · ${ag ? esc(ag.source) + ' · ' + esc(ag.ip) : 'hors ligne'}` : `${esc(m.hote)}${m.port !== 4403 ? ':' + m.port : ''}`;
+    const sousTitre = estAgent ? `agent · ${ag ? esc(ag.source) + ' · ' + esc(ag.ip) : 'hors ligne'}` : m.hote.startsWith('/dev/') ? `USB du serveur ${esc(m.hote)}` : `${esc(m.hote)}${m.port !== 4403 ? ':' + m.port : ''}`;
     if (m.actif && e.connecte) { statut = `connecté · ${e.paquets} paquets${e.nomLocal ? '' : ' · configuration…'}`; cls = 'actif'; boutons = `${e.noeudLocal != null ? `<button data-mod-edit="${e.noeudLocal}" class="principal">✏️ Réglages</button>` : ''}<button data-mod-off="0">Déconnecter</button><button data-mod-off="30" title="Laisser le module à l'appli du téléphone pendant 30 min">Libérer 30 min</button>`; }
     else if (m.actif && e.arret && e.repriseAuto) { statut = `libéré · reprise à ${heureCourte(e.repriseAuto)}`; cls = 'recent'; boutons = `<button data-mod-on="${esc(m.hote)}" data-port="${m.port}">Reprendre maintenant</button>`; }
     else if (m.actif && e.evince) { statut = `pris par un autre client · nouvel essai à ${heureCourte(e.reprise)}`; cls = 'recent'; boutons = `<button data-mod-on="${esc(m.hote)}" data-port="${m.port}">Forcer la connexion</button><button data-mod-off="0">Déconnecter</button>`; }
@@ -6110,6 +6110,7 @@ async function ouvrirConnexion(message) {
       <button class="cx-gros" data-cx="usb" ${!https || !ser ? 'disabled' : ''}><span>🔌</span><b>USB</b><small>câble branché sur ce PC</small></button>
     </div>
     ${!https ? '<p class="alerte attention">Bluetooth et USB demandent la carte en <b>HTTPS</b> (adresse en …ts.net), dans Chrome ou Edge.</p>' : !nav || !ser ? '<p class="alerte attention">Ce navigateur ne gère pas le Bluetooth ou l’USB : utilisez <b>Chrome ou Edge</b> (pas Firefox ni Safari).</p>' : ''}
+    <div class="cx-serie"><button type="button" class="cx-gros cx-large" data-cx="serie"><span>🖥️</span><b>USB du serveur</b><small>module branché sur la machine qui fait tourner la carte (NAS, Raspberry Pi…)</small></button><div id="cx-ports"></div></div>
     <form class="cx-ip" id="cx-ip"><label><span>🌐 <b>Adresse IP</b> du module en Wi-Fi</span>
       <span class="ligne-ip"><input name="adresse" placeholder="192.168.1.122" inputmode="decimal" autocomplete="off" required><button class="principal">Connecter</button></span></label>
       <small>Si le module est sur un autre réseau que la carte, un PC de ce réseau avec l’agent Gaulix 1.6 sert de relais tout seul.</small></form>
@@ -6209,7 +6210,7 @@ async function ouvrirConnexion(message) {
           if (done) break;
           const n = new Uint8Array(tampon.length + value.length); n.set(tampon); n.set(value, tampon.length); tampon = n;
           const i = tampon.indexOf(0x3e);
-          if (i >= 0 && i + 3 < tampon.length && tampon[i + 3] === 13) { type = 'meshcore'; break; }
+          if (i >= 0 && i + 3 < tampon.length && (tampon[i + 3] === 13 || (tampon[i + 3] === 1 && (tampon[i + 1] | (tampon[i + 2] << 8)) <= 4))) { type = 'meshcore'; break; }
           for (let k = 0; k + 1 < tampon.length; k++) if (tampon[k] === 0x94 && tampon[k + 1] === 0xc3) { type = 'meshtastic'; break; }
           if (type) break;
           if (tampon.length > 8192) tampon = tampon.slice(-4096);
@@ -6253,6 +6254,21 @@ async function ouvrirConnexion(message) {
     fini(type);
   };
 
+  z.querySelector('[data-cx="serie"]').onclick = async () => {
+    const zp = $('#cx-ports');
+    zp.innerHTML = '<small>recherche des ports…</small>';
+    let r;
+    try { r = await api('/api/connexion/ports'); } catch (e) { zp.innerHTML = `<small class="attention">${esc(e.message)}</small>`; return; }
+    if (!r.ports.length) { zp.innerHTML = '<p class="note">Aucun port USB vu par la carte. Branchez le module sur le serveur et, avec Docker, transmettez-le au conteneur : <span class="mono">devices: ["/dev/ttyACM0:/dev/ttyACM0"]</span> et <span class="mono">group_add: ["dialout"]</span> dans docker-compose.yml (voir le wiki, Installation).</p>'; return; }
+    zp.innerHTML = `<div class="liste">${r.ports.map((p) => `<div class="ligne"><span class="point ${p.utilise ? 'actif' : 'inactif'}"></span><span class="titre mono">${esc(p.chemin.replace('/dev/serial/by-id/', ''))}<small>${esc(p.chemin)}${p.utilise ? ' · déjà utilisé par la carte' : ''}</small></span><span class="meta"><button class="mini principal" data-port-serie="${esc(p.chemin)}">Connecter</button></span></div>`).join('')}</div>`;
+    zp.querySelectorAll('[data-port-serie]').forEach((b) => (b.onclick = async () => {
+      b.disabled = true;
+      retour(`Reconnaissance du module sur ${esc(b.dataset.portSerie)} (jusqu’à 8 s)…`);
+      try { const x = await postJson('/api/connexion/serie', { chemin: b.dataset.portSerie, role: role() }); retour('✓ ' + esc(x.texte), 'ok'); fini(x.protocole); }
+      catch (e) { retour('✗ ' + esc(e.message), 'ko'); }
+      b.disabled = false;
+    }));
+  };
   $('#cx-ip').onsubmit = async (ev) => {
     ev.preventDefault();
     const adresse = ev.target.adresse.value.trim();

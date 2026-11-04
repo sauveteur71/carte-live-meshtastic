@@ -28,6 +28,22 @@ Pour limiter les coupures :
 ## USB
 Bouton **🔌 USB**, puis choisissez le port. Fermez d'abord tout ce qui l'utilise déjà (appli, agent, autre onglet). Même conditions : HTTPS, Chrome ou Edge.
 
+## USB du serveur (module branché sur le NAS ou le Raspberry Pi)
+Le module (Meshtastic ou companion MeshCore USB) est branché **sur la machine qui fait tourner la carte**, comme avec Remote Terminal for MeshCore ou MeshMonitor. Ni navigateur ni agent : la liaison est permanente et reprend seule après un redémarrage.
+
+1. Sur la machine, repérez le port : `ls /dev/ttyACM* /dev/ttyUSB*` (ou `ls /dev/serial/by-id/`, nom stable conseillé).
+2. Dans `docker-compose.yml`, décommentez et adaptez :
+   ```yaml
+   devices:
+     - "/dev/ttyACM0:/dev/ttyACM0"
+   group_add:
+     - dialout
+   ```
+   puis `docker compose up -d`.
+3. *Outils › Connecter un module › 🖥️ USB du serveur* : la carte liste les ports vus, reconnaît le type de module et le relie comme **principal** ou **en écoute**.
+
+Le port est réglé à 115 200 bauds. Fermez tout autre programme qui utiliserait le même port sur la machine.
+
 ## Adresse IP (module en Wi-Fi)
 Tapez l'adresse, par exemple `192.168.1.122`, puis **Connecter**. La carte cherche :
 - un module **Meshtastic** sur le port **4403** ;

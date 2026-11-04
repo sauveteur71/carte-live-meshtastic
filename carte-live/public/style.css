@@ -1058,3 +1058,14 @@ details.groupe-mc[open] > summary::before { transform: rotate(90deg); }
 details.groupe-mc > summary small { color: var(--doux); margin-left: auto; }
 details.groupe-mc[open] > summary { border-bottom: 1px solid var(--bord); }
 #mc-par-type.actif { border-color: var(--accent); color: var(--accent); }
+
+/* Capteurs MeshCore */
+.reglage-capteurs { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 6px 0; }
+.serie-capteur { border: 1px solid var(--bord); border-radius: 8px; padding: 6px 8px; margin: 8px 0; }
+.titre-serie { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.titre-serie .valeur { color: var(--accent); font-weight: 700; }
+.titre-serie small { color: var(--doux); flex-basis: 100%; }
+
+.cx-serie { margin: 8px 0; }
+.cx-gros.cx-large { width: 100%; }
+#cx-ports .liste { margin-top: 6px; }
