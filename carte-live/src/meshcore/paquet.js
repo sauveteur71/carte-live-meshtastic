@@ -107,21 +107,24 @@ function decoderAnnonce(c) {
 // HMAC-SHA256(clé de la région, type + charge utile), clé = 16 premiers octets de SHA-256('#nom').
 // Un répéteur ne relaie ce paquet que si la région figure dans son arbre (region def / put, autorisée).
 // Le nom n'est pas transmis : on essaie les régions connues (françaises, voisines, celles des réglages et des répéteurs).
-const REGIONS = new Map(); // nom -> clé
+const REGIONS = []; // [nom, clé] ; les régions trouvées remontent en tête (moins de calculs ensuite)
+const NOMS_REGIONS = new Set();
 function ajouterRegions(noms) {
   for (let n of noms || []) {
     n = String(n || '').trim().replace(/^#/, '').toLowerCase();
-    if (!n || n.length > 30 || REGIONS.has(n) || !/^[\p{L}\p{N}_.-]+$/u.test(n)) continue;
-    REGIONS.set(n, crypto.createHash('sha256').update('#' + n, 'utf8').digest().subarray(0, 16));
+    if (!n || n.length > 30 || NOMS_REGIONS.has(n) || !/^[\p{L}\p{N}_.-]+$/u.test(n)) continue;
+    NOMS_REGIONS.add(n);
+    REGIONS.push([n, crypto.createHash('sha256').update('#' + n, 'utf8').digest().subarray(0, 16)]);
   }
 }
 ajouterRegions(['eu', 'europe', 'fr', 'france', 'fr-ara', 'fr-bfc', 'fr-bre', 'fr-cvl', 'fr-cor', 'fr-ges', 'fr-hdf', 'fr-idf', 'fr-nor', 'fr-naq', 'fr-occ', 'fr-pdl', 'fr-pac', 'fr-paca',
   ...Array.from({ length: 95 }, (_, i) => 'fr-' + String(i + 1).padStart(2, '0')), 'fr-2a', 'fr-2b', 'ch', 'be', 'it', 'es', 'de', 'lu', 'uk', 'nl']);
 function regionDuCode(typeN, charge, code) {
-  for (const [nom, cle] of REGIONS) {
+  for (let i = 0; i < REGIONS.length; i++) {
+    const [nom, cle] = REGIONS[i];
     let c = crypto.createHmac('sha256', cle).update(Buffer.from([typeN])).update(charge).digest().readUInt16LE(0);
     if (c === 0) c = 1; else if (c === 0xffff) c = 0xfffe;
-    if (c === code) return nom;
+    if (c === code) { if (i > 0) { const t = REGIONS[i - 1]; REGIONS[i - 1] = REGIONS[i]; REGIONS[i] = t; } return nom; }
   }
   return null;
 }

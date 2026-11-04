@@ -509,6 +509,71 @@ async function mcFicheMaintenance() {
   $('#mc-conf-maintenant').onclick = async () => { try { await postJson('/api/mc/maintenance/conformite', { ...valeurs(), maintenant: true }); $('#mc-conf-retour').textContent = 'Vérification lancée : suivez-la dans la liste des tâches MeshCore.'; } catch (x) { $('#mc-conf-retour').textContent = x.message; } };
 }
 
+// ---- Audit des régions : déclarées (requête anonyme aux répéteurs entendus en direct) / relayées (paquets) ----
+async function mcFicheAuditRegions(jours = 2) {
+  $('#fiche').hidden = false; etat.selection = null; mc.selection = null;
+  const z = $('#fiche-contenu');
+  z.dataset.fiche = 'audit-regions';
+  if (!z.querySelector('.audit-regions')) z.innerHTML = '<h2>🏷 Audit des régions</h2><div class="vide">Analyse des paquets…</div>';
+  let r;
+  try { r = await api(`/api/mc/audit/regions?jours=${jours}&zone=${(typeof paramZone === 'function' && paramZone()) || '1'}`); } catch (e) { z.innerHTML = `<h2>🏷 Audit des régions</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  if (z.dataset.fiche !== 'audit-regions') return;
+  const it = r.interrogation || {};
+  const tag = (x, n) => `<span class="tag-region${x === '-' ? ' sans' : x === '?' ? ' inconnue' : ''}">${x === '-' ? 'sans région' : x === '?' ? 'inconnue' : esc(x)}${n != null ? ` <b>${n}</b>` : ''}</span>`;
+  const pr = Object.entries(r.parRegion || {});
+  const ligne = (x) => `<div class="proposition audit-rep ${x.alertes.length ? 'attention' : ''}">
+      <div class="titre-rep"><a href="#" data-mc-fiche-audit="${x.cle}">${esc(x.nom)}</a> <small>${x.role === 'salon' ? 'room server' : 'répéteur'}</small></div>
+      <div class="audit-ligne"><span class="lib">Déclare</span>${x.declare ? `${x.declare.regions.map((g) => tag(g)).join(' ') || '<small>aucune région</small>'}${x.declare.joker ? ' ' + tag('-') : ''} <small>${ilYa(x.declare.heure)}</small>` : '<small>pas encore demandé (il faut l’entendre en direct)</small>'}</div>
+      <div class="audit-ligne"><span class="lib">Relaie</span>${Object.entries(x.relaie).map(([g, n]) => tag(g, n)).join(' ') || '<small>rien vu passer</small>'}</div>
+      ${x.alertes.map((a) => `<div class="diag attention">⚠️ ${esc(a)}</div>`).join('')}</div>`;
+  z.innerHTML = `<div class="audit-regions"><h2>🏷 Audit des régions</h2>
+    <div class="actions-prop">${[1, 2, 7].map((j) => `<button class="mini ${j === r.jours ? 'actif' : ''}" data-j="${j}">${j} j</button>`).join('')}
+      ${etat.admin ? `<button class="mini principal" id="audit-interroger" ${it.enCours ? 'disabled' : ''}>${it.enCours ? `⏳ Demande en cours (${it.faits}/${it.total})…` : '📡 Demander leurs régions aux répéteurs entendus en direct'}</button>` : ''}</div>
+    <p class="note">« Déclare » : les régions réglées sur le répéteur, qu’il annonce sans mot de passe à un companion qui l’entend en direct. « Relaie » : les étiquettes des paquets en inondation dont le chemin passe par lui, sur ${r.jours} jour(s). Un répéteur ne relaie un paquet étiqueté que si la région figure dans son arbre ; « sans région » ne passe que s’il accepte les messages sans région.</p>
+    <h3>Étiquettes vues (${r.total} paquets en inondation, ${r.zone} avec région)</h3>
+    <div class="audit-ligne">${pr.map(([g, n]) => tag(g, n)).join(' ') || '<small>aucun</small>'}</div>
+    ${it.resultats && it.resultats.some((x) => !x.ok) && !it.enCours ? `<p class="note">Sans réponse : ${it.resultats.filter((x) => !x.ok).map((x) => esc(x.nom || x.cle.slice(0, 8))).join(', ')} (firmware trop ancien, ou pas entendu en direct à ce moment).</p>` : ''}
+    <h3>Répéteurs (${r.repeteurs.length})</h3>
+    ${r.repeteurs.map(ligne).join('') || '<div class="vide">Aucun répéteur de la zone vu relayer en inondation.</div>'}
+    <p class="note">Calculé en ${(r.dureeMs / 1000).toFixed(1)} s ; résultat gardé 10 min.</p></div>`;
+  z.querySelectorAll('[data-j]').forEach((b) => (b.onclick = () => mcFicheAuditRegions(Number(b.dataset.j))));
+  z.querySelectorAll('[data-mc-fiche-audit]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); mcOuvrirFiche(a.dataset.mcFicheAudit); }));
+  const bi = $('#audit-interroger');
+  if (bi) bi.onclick = async () => {
+    bi.disabled = true;
+    try { await postJson('/api/mc/audit/interroger', {}); } catch (e) { alert(e.message); bi.disabled = false; return; }
+    const suivre = async () => { if (z.dataset.fiche !== 'audit-regions') return; await mcFicheAuditRegions(jours); const x = $('#audit-interroger'); if (x && x.disabled) setTimeout(suivre, 5000); };
+    setTimeout(suivre, 4000);
+  };
+  if (it.enCours) setTimeout(() => { if (z.dataset.fiche === 'audit-regions') mcFicheAuditRegions(jours); }, 5000);
+}
+// ---- Collisions d'identifiants courts entre répéteurs de la zone ----
+async function mcFicheCollisions() {
+  $('#fiche').hidden = false; etat.selection = null; mc.selection = null;
+  const z = $('#fiche-contenu');
+  z.dataset.fiche = 'collisions';
+  z.innerHTML = '<h2>🔀 Collisions d’identifiants</h2><div class="vide">Calcul…</div>';
+  let r;
+  try { r = await api(`/api/mc/audit/collisions?zone=${(typeof paramZone === 'function' && paramZone()) || '1'}`); } catch (e) { z.innerHTML = `<h2>🔀 Collisions d’identifiants</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  const c = r.chemins;
+  const groupe = (g, octets) => `<div class="proposition audit-rep ${g.distanceMinKm != null && g.distanceMinKm < 60 ? 'attention' : ''}">
+      <div class="titre-rep"><span class="mono">${esc(g.prefixe)}</span> <small>${g.noeuds.length} répéteurs${g.distanceMinKm != null ? ` · ${fmt(g.distanceMinKm, 1, ' km')} entre les plus proches` : ''}</small></div>
+      ${g.noeuds.map((n) => `<div class="audit-ligne"><a href="#" data-mc-fiche-audit="${n.cle}">${esc(n.nom)}</a> <small class="mono">${esc(n.cle.slice(0, octets * 2 + 4))}…</small> <small>${ilYa(n.dernierVu)}</small></div>`).join('')}</div>`;
+  z.innerHTML = `<h2>🔀 Collisions d’identifiants</h2>
+    <p class="note">Dans un chemin, chaque relais n’est noté que par le début de sa clé : 1 octet (réglage d’usine), 2 ou 3 octets avec <span class="mono">set path.hash.mode 1</span> ou <span class="mono">2</span>. Deux répéteurs proches qui commencent pareil rendent le chemin ambigu : la carte ne sait plus par lequel le message est passé.</p>
+    <div class="grille">
+      <div class="mesure"><span>Répéteurs actifs (14 j)</span><b>${r.repeteurs}</b></div>
+      <div class="mesure"><span>Collisions à 1 octet</span><b>${r.un.length}</b></div>
+      <div class="mesure"><span>Collisions à 2 octets</span><b>${r.deux.length}</b></div>
+      <div class="mesure"><span>Chemins à 1 octet</span><b>${c.partUnOctetPct == null ? '–' : fmt(c.partUnOctetPct, 0, ' %')}</b></div>
+    </div>
+    <p class="note">${c.total ? `Sur les paquets relayés des 2 derniers jours : ${c.parTaille[1]} chemins à 1 octet, ${c.parTaille[2]} à 2 octets, ${c.parTaille[3]} à 3 octets.` : ''} ${r.un.length ? 'Passer ces répéteurs en <span class="mono">path.hash.mode 1</span> (2 octets) lève l’ambiguïté, comme le modèle « Répéteur de base (FR-43) ».' : ''}</p>
+    <h3>Même premier octet (${r.un.length})</h3>
+    ${r.un.map((g) => groupe(g, 1)).join('') || '<div class="vide">Aucune collision à 1 octet dans la zone. 👍</div>'}
+    ${r.deux.length ? `<h3>Mêmes deux premiers octets (${r.deux.length})</h3>${r.deux.map((g) => groupe(g, 2)).join('')}` : ''}`;
+  z.querySelectorAll('[data-mc-fiche-audit]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); mcOuvrirFiche(a.dataset.mcFicheAudit); }));
+}
+
 async function mcRendreGestion() {
   const z = $('#mc-contenu');
   if (!etat.gestion) { z.innerHTML = '<div class="vide">Réservé aux administrateurs.</div>'; return; }
@@ -519,7 +584,7 @@ async function mcRendreGestion() {
   const sel = mcGestion.selection;
   z.innerHTML = `
     ${i.companion.connecte ? '' : '<div class="alerte attention">Aucun companion relié : l’administration passe par lui (onglet Companion).</div>'}
-    <div class="actions-prop"><button class="mini" id="mc-maintenance">🛠️ Maintenance : firmwares, accès, conformité</button></div>
+    <div class="actions-prop"><button class="mini" id="mc-maintenance">🛠️ Maintenance : firmwares, accès, conformité</button><button class="mini" id="mc-audit-regions" title="Régions déclarées par chaque répéteur et régions qu’il relaie vraiment">🏷 Audit des régions</button><button class="mini" id="mc-collisions" title="Répéteurs dont la clé commence par le même octet : chemins ambigus">🔀 Collisions d’identifiants</button></div>
     <p class="note">Cochez les nœuds, puis choisissez l’opération. Il faut le <b>mot de passe admin</b> de chaque nœud (mémorisable sur le serveur). Pour une vérification, le <b>premier coché</b> sert de référence.</p>
     <div class="liste liste-mc-gestion">${liste.map((n) => `<label class="ligne-coche"><input type="checkbox" data-mc-sel="${n.cle}" ${sel.has(n.cle) ? 'checked' : ''}>
       <span class="point ${n.statut}"></span><span class="titre"><i class="role-mc ${n.role}" style="--mcc:${mcRole(n.role).hex}"></i>${esc(n.nom || n.id)}
@@ -563,6 +628,8 @@ async function mcRendreGestion() {
   z.querySelector('[data-mc-rien]').onclick = () => { sel.clear(); mcRendreGestion(); };
   z.querySelectorAll('[data-mc-fiche]').forEach((b) => (b.onclick = (e) => { e.preventDefault(); mcOuvrirFiche(b.dataset.mcFiche, 'admin'); }));
   { const bm = $('#mc-maintenance'); if (bm) bm.onclick = mcFicheMaintenance; }
+  { const b1 = $('#mc-audit-regions'); if (b1) b1.onclick = () => mcFicheAuditRegions(); }
+  { const b2 = $('#mc-collisions'); if (b2) b2.onclick = () => mcFicheCollisions(); }
   z.querySelectorAll('[data-mc-tache]').forEach((l) => (l.onclick = () => mcSuivreTache(l.dataset.mcTache, $('#mc-g-tache'))));
   z.querySelectorAll('[data-mc-op]').forEach((b) => (b.onclick = async () => {
     const f = $('#mc-f-gestion');

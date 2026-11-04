@@ -62,3 +62,19 @@ Les canaux déjà présents dans le companion relié sont déchiffrés automatiq
 
 ## Topologie et simulation MeshCore
 *Outils › Topologie et simulation MeshCore* : voir [[Topologie et simulation]].
+
+## Audit des régions et collisions d'identifiants
+Dans *MeshCore › Programmer* :
+
+**🏷 Audit des régions.** Pour chaque répéteur de la zone, la carte compare deux choses :
+- **Déclare** : les régions réglées sur le répéteur. Il les annonce sans mot de passe à un companion qui l'entend en direct, avec le bouton « 📡 Demander leurs régions… ». La demande est aussi refaite toutes les 6 h, après la découverte automatique.
+- **Relaie** : les étiquettes de région des paquets en inondation dont le chemin passe par lui (1, 2 ou 7 jours).
+
+Un écart est signalé en orange :
+- une région déclarée mais jamais relayée ;
+- une région relayée mais pas déclarée ;
+- des messages sans région relayés alors qu'il ne les accepte pas.
+
+C'est l'outil pour vérifier une mise en service, par exemple avec le modèle « Répéteur de base (FR-43) ».
+
+**🔀 Collisions d'identifiants.** Dans un chemin, chaque relais n'est noté que par le début de sa clé : 1 octet par défaut. Deux répéteurs proches qui commencent pareil rendent le parcours ambigu. Le tableau liste ces répéteurs, avec la distance entre les plus proches, et la part des chemins encore à 1 octet. Le remède : `set path.hash.mode 1` (2 octets).

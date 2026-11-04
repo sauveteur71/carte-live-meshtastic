@@ -1017,3 +1017,11 @@ body[data-reseau="meshcore"] .tableau .mt-seul { display: none !important; }
 .tableau details.pli-alertes[open] .resume-alertes { display: none; }
 .tableau details.pli-alertes[open] .liste-alertes { max-height: none; }
 @media (max-width: 380px) { .tableau { grid-template-columns: 1fr; } }
+
+/* Audit des régions et collisions MeshCore */
+.audit-rep { margin: 6px 0; }
+.audit-rep.attention { border-left: 3px solid var(--attention); }
+.audit-rep .titre-rep { margin-bottom: 4px; }
+.audit-ligne { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 3px 0; }
+.audit-ligne .lib { min-width: 58px; color: var(--doux); font-size: 12px; }
+.tag-region b { margin-left: 3px; }

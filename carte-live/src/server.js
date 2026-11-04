@@ -1905,8 +1905,51 @@ let derniereDecouverteMc = 0;
 setInterval(() => {
   if (!config.meshcore.actif || !companion.etat().pret || Date.now() - derniereDecouverteMc < 6 * 3600000) return;
   derniereDecouverteMc = Date.now();
-  decouvrirMc().catch((e) => journal('[MeshCore] découverte automatique :', e.message));
+  decouvrirMc().then(() => interrogerRegionsMc().catch(() => {})).catch((e) => journal('[MeshCore] découverte automatique :', e.message));
 }, 5 * 60000);
+
+// ---- Audit MeshCore : régions déclarées / relayées par les répéteurs, collisions d'identifiants courts ----
+const auditMc = require('./meshcore/audit').creerAuditMc({ db: stockage.db, config, reseauMc, journal });
+let interrogationMc = { enCours: false, faits: 0, total: 0, resultats: [], heure: null };
+// Demande leurs régions aux répéteurs entendus en direct par le companion (requête anonyme, un à la fois)
+async function interrogerRegionsMc(cles) {
+  if (interrogationMc.enCours) throw new Error('interrogation déjà en cours');
+  if (!companion.etat().pret) throw new Error('aucun companion prêt');
+  let liste = cles && cles.length ? cles : ((decouverteMc && decouverteMc.liste) || []).filter((v) => v.cle && v.complete).map((v) => v.cle);
+  if (!liste.length) { await decouvrirMc(); liste = ((decouverteMc && decouverteMc.liste) || []).filter((v) => v.cle && v.complete).map((v) => v.cle); }
+  liste = liste.filter((k) => { const n = reseauMc.q.noeud.get(k); return n && ['repeteur', 'salon'].includes(n.role); }).slice(0, 30);
+  interrogationMc = { enCours: true, faits: 0, total: liste.length, resultats: [], heure: Date.now() };
+  for (const k of liste) {
+    const n = reseauMc.q.noeud.get(k);
+    try {
+      const r = await companion.regionsDeclarees({ cle: n.cle, nom: n.nom, role: n.role, lat: n.lat, lon: n.lon, horodatageAnnonce: n.horodatage_annonce });
+      auditMc.noterDeclarees(k, r);
+      interrogationMc.resultats.push({ cle: k, nom: n.nom, ok: true, ...r });
+    } catch (e) { interrogationMc.resultats.push({ cle: k, nom: n.nom, ok: false, erreur: e.message }); }
+    interrogationMc.faits++;
+    await new Promise((ok) => setTimeout(ok, 3000)); // laisser respirer le canal
+  }
+  interrogationMc.enCours = false;
+  journal(`[MeshCore] régions demandées à ${liste.length} répéteur(s) : ${interrogationMc.resultats.filter((x) => x.ok).length} réponse(s)`);
+  return interrogationMc;
+}
+app.get('/api/mc/audit/regions', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  const jours = Math.min(Math.max(Number(req.query.jours) || 2, 1), 14);
+  try { res.set('Cache-Control', 'no-store').json({ ...auditMc.auditRegions({ jours, bbox: bboxZone(req.query.zone || '1') }), interrogation: interrogationMc }); } catch (e) { res.status(500).json({ erreur: e.message }); }
+});
+app.post('/api/mc/audit/interroger', (req, res) => {
+  if (!exigerAdmin(req, res) || !exigerMc(res)) return;
+  if (interrogationMc.enCours) return res.status(409).json({ erreur: 'interrogation déjà en cours' });
+  if (!companion.etat().pret) return res.status(409).json({ erreur: 'aucun companion prêt : reliez un companion' });
+  const cles = Array.isArray((req.body || {}).cles) ? req.body.cles.map((x) => String(x).toUpperCase()).filter((x) => /^[0-9A-F]{64}$/.test(x)) : null;
+  interrogerRegionsMc(cles).catch((e) => { interrogationMc.enCours = false; journal('[MeshCore] interrogation des régions :', e.message); });
+  res.json({ ok: true });
+});
+app.get('/api/mc/audit/collisions', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  try { res.set('Cache-Control', 'no-store').json(auditMc.collisions({ bbox: bboxZone(req.query.zone || '1') })); } catch (e) { res.status(500).json({ erreur: e.message }); }
+});
 
 app.post('/api/mc/companion/annonce', async (req, res) => {
   if (!exigerAdmin(req, res)) return;

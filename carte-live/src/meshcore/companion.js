@@ -30,7 +30,7 @@ const RESP = {
   STATS: 24, ZONE_DEFAUT: 28, REPONSE_CLI: 29,
 };
 // Commandes récentes (firmware companion v1.10 et plus)
-const CMD2 = { TRACE: 36, TELEMETRIE: 39, CONTROLE: 55, STATS: 56, ZONE_DEFAUT_SET: 63, ZONE_DEFAUT_GET: 64, CLI: 66 };
+const CMD2 = { TRACE: 36, TELEMETRIE: 39, CONTROLE: 55, STATS: 56, ANON: 57, ZONE_DEFAUT_SET: 63, ZONE_DEFAUT_GET: 64, CLI: 66 };
 const int8 = (x) => (x > 127 ? x - 256 : x);
 
 // Télémétrie au format Cayenne LPP (canal, type, valeur), comme le firmware MeshCore l'envoie
@@ -559,6 +559,29 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
     },
     // ---- Découverte des répéteurs en direct (0 saut, sans mot de passe) ----
     // Chaque répéteur qui entend l'appel répond avec le SNR auquel il l'a reçu ; le companion mesure le SNR de la réponse.
+    // ---- Régions déclarées par un répéteur entendu en direct (requête anonyme, sans mot de passe) ----
+    // Le répéteur n'y répond qu'en direct : on fixe le chemin du contact à « voisin direct » (0 saut) avant la demande.
+    // Réponse : horloge du répéteur puis noms séparés par des virgules ; « * » = accepte aussi les messages sans région.
+    async regionsDeclarees(noeud, delai = 20000) {
+      exigerPret();
+      const cle = cleOctets(noeud.cle);
+      const b = Buffer.alloc(1 + 32 + 3 + 64 + 32 + 4 + 8);
+      b[0] = CMD.ADD_UPDATE_CONTACT; cle.copy(b, 1);
+      b[33] = TYPES_ROLE[noeud.role] || 2; b[34] = 0; b[35] = 0; // chemin : 0 saut
+      b.write(String(noeud.nom || noeud.cle.slice(0, 8)).slice(0, 31), 100, 'utf8');
+      b.writeUInt32LE(noeud.horodatageAnnonce || 0, 132);
+      b.writeInt32LE(Math.round((noeud.lat || 0) * 1e6), 136); b.writeInt32LE(Math.round((noeud.lon || 0) * 1e6), 140);
+      await commande(b, [RESP.OK], 5000);
+      contacts.set(noeud.cle, { ...(contacts.get(noeud.cle) || {}), cle: noeud.cle, nom: noeud.nom, role: noeud.role, longueurChemin: 0 });
+      const r = await commande(Buffer.concat([Buffer.from([CMD2.ANON]), cle, Buffer.from([0x01, 0x00])]), [RESP.SENT], 6000)
+        .catch((e) => { if (e.code === 1) throw new Error('requête anonyme non gérée par ce firmware de companion'); throw e; });
+      const tag = r.readUInt32LE(2);
+      const t = await attendre((x) => x[0] === PUSH.BINAIRE && x.length >= 6 && x.readUInt32LE(2) === tag, delai);
+      const d = t.subarray(6);
+      const horloge = d.length >= 4 ? d.readUInt32LE(0) : null;
+      const noms = texte(d.subarray(4)).split(',').map((x) => x.trim()).filter(Boolean);
+      return { joker: noms.includes('*'), regions: noms.filter((x) => x !== '*'), horlogeRepeteur: horloge };
+    },
     async decouvrirVoisins(dureeMs = 15000) {
       exigerPret();
       const tag = crypto.randomBytes(4).readUInt32LE(0) >>> 0;
