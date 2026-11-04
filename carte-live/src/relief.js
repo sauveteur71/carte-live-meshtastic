@@ -174,7 +174,9 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     const z = new Float32Array(total).fill(NaN);
     const TAILLE = 4900;
     journal(`[Relief] téléchargement du MNT IGN : ${nLat} × ${nLon} points (pas 250 m)…`);
-    for (let debut = 0; debut < total; debut += TAILLE) {
+    // Trois blocs demandés en même temps au service altimétrique (≈ 3 fois plus rapide, sans le surcharger)
+    let faits = 0;
+    const bloc = async (debut) => {
       if (arrete) throw new Error('chargement interrompu');
       const lats = [], lons = [];
       for (let k = debut; k < Math.min(total, debut + TAILLE); k++) {
@@ -200,8 +202,13 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
         }
       }
       if (!ok) throw new Error('Service altimétrique IGN indisponible');
-      etat.progression = Math.round(((debut + TAILLE) / total) * 100);
-    }
+      faits++;
+      etat.progression = Math.round((Math.min(total, faits * TAILLE) / total) * 100);
+    };
+    const debuts = [];
+    for (let debut = 0; debut < total; debut += TAILLE) debuts.push(debut);
+    for (let k = 0; k < debuts.length; k += 3) await Promise.all(debuts.slice(k, k + 3).map(bloc));
+
     // Comble les trous (mer, absence de données) par la moyenne des voisins
     for (let passe = 0; passe < 3; passe++) {
       for (let k = 0; k < total; k++) {
@@ -250,24 +257,34 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   }
 
   // ---- Points hauts ---------------------------------------------------------------
+  // Sommets OpenStreetMap : plusieurs serveurs Overpass, trois tours (Overpass est souvent saturé)
+  const SERVEURS_OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
   async function sommetsOsm() {
-    try {
-      const q = `[out:json][timeout:60];node["natural"="peak"](${emprise.sud},${emprise.ouest},${emprise.nord},${emprise.est});out body;`;
-      const r = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        headers: { 'User-Agent': 'carte-live-meshtastic/1.0 (+https://github.com/sauveteur71/carte-live-meshtastic)', 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'data=' + encodeURIComponent(q),
-        signal: AbortSignal.timeout(90000),
-      });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const j = await r.json();
-      const liste = j.elements.map((e) => ({ lat: e.lat, lon: e.lon, nom: e.tags && e.tags.name ? e.tags.name : null, ele: e.tags && e.tags.ele ? parseFloat(String(e.tags.ele).replace(',', '.')) : null }));
-      fs.writeFileSync(fSommets, JSON.stringify({ date: Date.now(), liste }));
-      return liste;
-    } catch (e) {
-      journal('[Relief] sommets OSM indisponibles (' + e.message + '), utilisation du cache');
-      try { return JSON.parse(fs.readFileSync(fSommets, 'utf8')).liste; } catch { return []; }
+    const q = `[out:json][timeout:60];node["natural"="peak"](${emprise.sud},${emprise.ouest},${emprise.nord},${emprise.est});out body;`;
+    let derniere = null;
+    for (let tour = 0; tour < 3 && !arrete; tour++) {
+      for (const url of SERVEURS_OVERPASS) {
+        try {
+          const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'User-Agent': 'carte-live-meshtastic/1.0 (+https://github.com/sauveteur71/carte-live-meshtastic)', 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'data=' + encodeURIComponent(q),
+            signal: AbortSignal.timeout(90000),
+          });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          const j = await r.json();
+          const liste = j.elements.map((e) => ({ lat: e.lat, lon: e.lon, nom: e.tags && e.tags.name ? e.tags.name : null, ele: e.tags && e.tags.ele ? parseFloat(String(e.tags.ele).replace(',', '.')) : null }));
+          fs.writeFileSync(fSommets, JSON.stringify({ date: Date.now(), liste }));
+          etat.sommetsOsm = 'ok';
+          return liste;
+        } catch (e) { derniere = e; }
+      }
+      // Déjà en cache : inutile d'insister
+      if (fs.existsSync(fSommets)) break;
+      await new Promise((r) => setTimeout(r, 20000));
     }
+    journal('[Relief] sommets OSM indisponibles (' + (derniere ? derniere.message : 'arrêt') + '), utilisation du cache');
+    try { const l = JSON.parse(fs.readFileSync(fSommets, 'utf8')).liste; etat.sommetsOsm = 'cache'; return l; } catch { etat.sommetsOsm = 'absent'; return []; }
   }
 
   // Commune de chaque point haut (API Géo de l'État), mise en cache sur disque

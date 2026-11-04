@@ -301,7 +301,7 @@ const fReliefPublic = path.join(path.dirname(config.fichierBase), 'relief-public
 let reliefPublic = { couverture: 'departement' };
 try { reliefPublic = { ...reliefPublic, ...JSON.parse(fs.readFileSync(fReliefPublic, 'utf8')) }; } catch { /* défaut */ }
 const franceOuverte = () => reliefPublic.couverture === 'france';
-const precharge = { enCours: false, arret: false, total: 0, faits: 0, deja: 0, erreurs: [], courant: null, instance: null, debut: null, fin: null };
+const precharge = { enCours: false, arret: false, total: 0, faits: 0, deja: 0, erreurs: [], courant: null, etape: null, aCompleter: [], instance: null, debut: null, fin: null };
 const reliefSurDisque = (code) => ['mnt-' + code + '.bin', 'sommets-osm-' + code + '.json'].every((f) => fs.existsSync(path.join(path.dirname(config.fichierBase), f)));
 // Paquet « relief France » : relief IGN, points hauts, accès, sites et communes de chaque département, en un fichier
 // tar.gz. Fabriqué depuis une carte qui a tout préparé (Gestion › Réglages), publié sur GitHub, installé par les autres.
@@ -343,16 +343,28 @@ async function importerPaquetFrance() {
 async function prechargerFrance() {
   if (precharge.enCours) return;
   const codes = listeDepartements.map((d) => d.code).filter((c) => c !== String(config.departement.code).toUpperCase());
-  Object.assign(precharge, { enCours: true, arret: false, total: codes.length, faits: 0, deja: 0, erreurs: [], courant: null, debut: Date.now(), fin: null });
+  // Gardé sur disque : après un redémarrage de la carte (mise à jour), la préparation reprend où elle en était
+  reliefPublic.preparation = true; try { fs.writeFileSync(fReliefPublic, JSON.stringify(reliefPublic)); } catch { /* lecture seule */ }
+  Object.assign(precharge, { enCours: true, arret: false, total: codes.length, faits: 0, deja: 0, erreurs: [], courant: null, etape: null, aCompleter: [], debut: Date.now(), fin: null });
   journal(`[Relief] préparation de toute la France : ${codes.length} départements`);
   // D'abord le paquet « relief France » publié sur GitHub (un seul téléchargement), s'il manque des départements
   if (codes.some((c) => !reliefSurDisque(c))) {
     precharge.courant = 'paquet';
     try { const n = await importerPaquetFrance(); journal(`[Relief] paquet France : ${n} fichier(s) installé(s)`); } catch (e) { journal(`[Relief] paquet France indisponible (${e.message}) : téléchargement département par département`); precharge.erreurs.push({ code: 'paquet', erreur: e.message }); }
   }
-  for (const code of codes) {
+  // Premier passage sur tous les départements, puis un second (15 min plus tard) pour ceux où OpenStreetMap a manqué
+  for (let passage = 1; passage <= 2 && !precharge.arret; passage++) {
+  const liste = passage === 1 ? codes : codes.filter((c) => !reliefSurDisque(c));
+  if (passage === 2) {
+    if (!liste.length) break;
+    precharge.courant = null; precharge.etape = `${liste.length} département(s) à compléter (OpenStreetMap saturé) : nouvel essai dans 15 min`;
+    journal(`[Relief] ${precharge.etape}`);
+    for (let t = 0; t < 180 && !precharge.arret; t++) await new Promise((ok) => setTimeout(ok, 5000));
+    precharge.faits -= liste.length;
+  }
+  for (const code of liste) {
     if (precharge.arret) break;
-    if (reliefSurDisque(code)) { precharge.deja++; precharge.faits++; continue; }
+    if (reliefSurDisque(code)) { if (passage === 1) precharge.deja++; precharge.faits++; continue; }
     precharge.courant = code;
     try {
       const r = reliefsEtude.get(code) || creerRelief(config, journal, { ...fournisseursRelief, envDefaut: () => null }, { code });
@@ -364,17 +376,26 @@ async function prechargerFrance() {
         if (e.mnt === 'erreur') throw new Error(e.erreur || 'relief indisponible');
         // … et voies d'accès des points hauts évaluées (OpenStreetMap), pour le choix voiture / 4×4 / à pied
         const a = r.accesEtat ? r.accesEtat() : null;
+        precharge.etape = e.mnt !== 'pret' ? `relief IGN ${e.progression || 0} %` : e.classement !== 'pret' ? 'points hauts et classement' : a && a.total ? `voies d'accès ${a.faits}/${a.total}` : 'voies d’accès';
         if (e.mnt === 'pret' && ['pret', 'erreur'].includes(e.classement) && (!a || (!a.enCours && ((a.total > 0 && a.faits >= a.total) || a.erreur || Date.now() - debut > 5 * 60000)))) break;
         await new Promise((ok) => setTimeout(ok, 5000));
       }
       if (precharge.instance) { try { r.arreter(); } catch { /* déjà */ } }
     } catch (e) { precharge.erreurs.push({ code, erreur: e.message }); journal(`[Relief] ${code} : ${e.message}`); }
     precharge.instance = null;
+    precharge.etape = null;
     if (!precharge.arret) precharge.faits++;
   }
+  }
+  precharge.aCompleter = codes.filter((c) => !reliefSurDisque(c));
   journal(`[Relief] préparation de la France ${precharge.arret ? 'arrêtée' : 'terminée'} : ${precharge.faits}/${precharge.total} (${precharge.erreurs.length} erreur(s))`);
   Object.assign(precharge, { enCours: false, courant: null, fin: Date.now() });
+  if (!redemarrageEnCours) { reliefPublic.preparation = false; try { fs.writeFileSync(fReliefPublic, JSON.stringify(reliefPublic)); } catch { /* lecture seule */ } }
 }
+let redemarrageEnCours = false;
+process.once('SIGTERM', () => { redemarrageEnCours = true; });
+// Reprise d'une préparation interrompue par un redémarrage (1 min après le démarrage, le temps que la carte s'installe)
+if (reliefPublic.preparation) setTimeout(() => { journal('[Relief] reprise de la préparation de toute la France'); prechargerFrance(); }, 60000).unref();
 function R(req, ...pts) {
   const r = Rdep(req);
   // Un point hors du département étudié mais dans celui de la carte : on garde le relief de la carte
