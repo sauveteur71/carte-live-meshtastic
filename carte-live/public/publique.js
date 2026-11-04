@@ -34,9 +34,7 @@ function onde(p, couleur) {
 
 async function demarrer() {
   config = await (await fetch('/api/config')).json();
-  const titre = params.get('titre') || config.titre || 'Réseau Meshtastic';
-  document.getElementById('titre').textContent = titre;
-  document.title = titre + ' · carte publique';
+  majTitre();
   carte = L.map('carte', { zoomControl: false, attributionControl: true }).setView(config.centre, config.zoom);
   L.control.zoom({ position: 'topright' }).addTo(carte);
   carte.createPane('couverture').style.zIndex = 405;
@@ -112,7 +110,7 @@ async function afficherPlan(g, info) {
 function infoPlan(info) {
   const r = couv.plan;
   info.innerHTML = `<b>Où poser de nouveaux relais ?</b> <select id="choix-acces" title="Accès exigé pour les sites">${Object.entries({ voiture: '🚗 En voiture', '4x4': '🚙 En 4×4', pied: '🥾 À pied', tous: 'Tous les points hauts' }).map(([k, v]) => `<option value="${k}" ${k === couv.acces ? 'selected' : ''}>${v}</option>`).join('')}</select><br>
-    ${r.sites.length ? `${r.sites.length} emplacement${r.sites.length > 1 ? 's' : ''} conseillé${r.sites.length > 1 ? 's' : ''} : ${pc(r.departPct)} % → <b>${pc(r.finalPct)} %</b> du département` : 'Aucun site utile avec cet accès (élargissez le choix).'}
+    ${r.sites.length ? `${r.sites.length} emplacement${r.sites.length > 1 ? 's' : ''} conseillé${r.sites.length > 1 ? 's' : ''} : ${pc(r.departPct)} % → <b>${pc(r.finalPct)} %</b> ${libZone()}` : 'Aucun site utile avec cet accès (élargissez le choix).'}
     <br><small>Bleu : déjà couvert · turquoise : apporté par les nouveaux sites · rouge : non couvert. Points hauts ${NOM_ACCES[couv.acces]}, hors zones protégées. Cliquez sur un numéro pour voir la couverture de ce site.</small>`;
   document.getElementById('choix-acces').onchange = (ev) => { couv.acces = ev.target.value; couv.mode = null; basculerCouverture('sites'); };
 }
@@ -131,7 +129,7 @@ async function couverturePoint(ll) {
   if (r.erreur) { info.innerHTML = ligne('Couverture indisponible : ' + esc(r.erreur)); brancher(); return; }
   const e = r.emprise;
   L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.65, pane: 'couverture', className: 'pixelise' }).addTo(g);
-  info.innerHTML = ligne(`${ll.lat.toFixed(4)}, ${ll.lng.toFixed(4)}${r.sol != null ? ' · sol à ' + r.sol + ' m' : ''}<br>Zone couverte : <b>${Math.round(r.surfaceKm2).toLocaleString('fr-FR')} km²</b>${r.pctZone != null ? `, soit <b>${pc(r.pctZone)} %</b> du département` : ''}<br><small>Turquoise : bonne liaison · jaune : liaison juste · orange pâle : à la limite. Cliquez ailleurs pour un autre point.</small>`);
+  info.innerHTML = ligne(`${ll.lat.toFixed(4)}, ${ll.lng.toFixed(4)}${r.sol != null ? ' · sol à ' + r.sol + ' m' : ''}<br>Zone couverte : <b>${Math.round(r.surfaceKm2).toLocaleString('fr-FR')} km²</b>${r.pctZone != null ? `, soit <b>${pc(r.pctZone)} %</b> ${libZone()}` : ''}<br><small>Turquoise : bonne liaison · jaune : liaison juste · orange pâle : à la limite. Cliquez ailleurs pour un autre point.</small>`);
   brancher();
 }
 async function couvertureSite(x, g, info) {
@@ -146,7 +144,7 @@ async function couvertureSite(x, g, info) {
   const e = r.emprise;
   couv.siteChoisi = L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.65, pane: 'couverture', className: 'pixelise' }).addTo(g);
   info.innerHTML = `<b>${x.rang} · ${esc(x.nom || x.commune || 'Point haut')}</b>${x.commune && x.nom ? ' · ' + esc(x.commune) : ''} · ${x.alt} m<br>
-    Couverture de ce site seul : <b>${Math.round(r.surfaceKm2).toLocaleString('fr-FR')} km²</b>${r.pctZone != null ? `, soit <b>${pc(r.pctZone)} %</b> du département` : ''} · il apporte <b>+${x.gainKm2} km²</b> au réseau actuel
+    Couverture de ce site seul : <b>${Math.round(r.surfaceKm2).toLocaleString('fr-FR')} km²</b>${r.pctZone != null ? `, soit <b>${pc(r.pctZone)} %</b> ${libZone()}` : ''} · il apporte <b>+${x.gainKm2} km²</b> au réseau actuel
     <br><small>Antenne à ${hs} m du sol, rayon de calcul ${r.rayonKm} km. Turquoise : bonne liaison · jaune : liaison juste · orange pâle : à la limite.</small>
     <div style="margin-top:6px"><button class="bascule" id="retour-plan">↩ Revenir au plan</button></div>`;
   document.getElementById('retour-plan').onclick = () => {
@@ -197,7 +195,7 @@ async function basculerCouverture(mode) {
       if (r.vide) { info.textContent = 'Aucun relais positionné entendu depuis 24 h.'; return; }
       const e = r.emprise;
       L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.6, pane: 'couverture', className: 'pixelise' }).addTo(g);
-      info.innerHTML = `<b>Couverture ${mcSeul ? 'MeshCore' : 'Meshtastic'} estimée</b>${r.pctZone != null ? ` : <b>${String(r.pctZone).replace('.', ',')} %</b> du département` : ''} · ${r.noeuds.length} relais et passerelles<br><small>Calcul d’après le relief (IGN) et les antennes connues, corrigé par les mesures réelles du réseau.</small>`;
+      info.innerHTML = `<b>Couverture ${mcSeul ? 'MeshCore' : 'Meshtastic'} estimée</b>${r.pctZone != null ? ` : <b>${String(r.pctZone).replace('.', ',')} %</b> ${libZone()}` : ''} · ${r.noeuds.length} relais et passerelles<br><small>Calcul d’après le relief (IGN) et les antennes connues, corrigé par les mesures réelles du réseau.</small>`;
     } else {
       await afficherPlan(g, info);
       if (couv.mode !== mode) return;
@@ -209,8 +207,20 @@ async function basculerCouverture(mode) {
   }
 }
 
+// Titre : le nom du réseau suit l'onglet (« Réseau Meshtastic » devient « Réseau MeshCore » sur l'onglet MeshCore)
+function majTitre() {
+  const base = params.get('titre') || config.titre || 'Réseau Meshtastic';
+  const nomReseau = vue === 'meshcore' ? 'MeshCore' : vue === 'deux' && config.meshcore ? 'Meshtastic et MeshCore' : 'Meshtastic';
+  const titre = base.replace(/Meshtastic(\s*(et|\/|&|\+)\s*MeshCore)?|MeshCore(\s*(et|\/|&|\+)\s*Meshtastic)?/i, nomReseau);
+  document.getElementById('titre').textContent = titre;
+  document.title = titre + ' · carte publique';
+}
+// « du département » quand la zone est un département, sinon le nom de la zone (région, zone libre)
+const libZone = () => (config.departement && config.zoneNom && config.departement.nom && config.zoneNom !== config.departement.nom ? `de la zone ${config.zoneNom}` : 'du département');
+
 function changerVue(v, sansCharger) {
   vue = v;
+  majTitre();
   document.body.className = 'vue-' + v;
   document.querySelectorAll('#reseaux [data-vue]').forEach((b) => b.classList.toggle('actif', b.dataset.vue === v));
   if (!sansCharger) { dessinerMt(); dessinerMc(); }
