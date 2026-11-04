@@ -1301,6 +1301,7 @@ function rendreMessages() {
     if (c && !canaux.some((x) => memeCanal(x, c))) canaux.push(c);
   }
   const nb = (f) => tous.filter(f).length;
+  marquerLus(); // le canal affiché est lu : ses compteurs repartent de zéro avant d'être dessinés
   const zf = $('#filtre-messages');
   if (zf) {
     zf.innerHTML = `<label>Afficher <select id="sel-filtre-messages">
