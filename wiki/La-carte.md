@@ -45,3 +45,9 @@ Les nœuds que vous pouvez programmer y figurent d'office :
 Un clic sur « 🛠 Mes nœuds ✓ » en retire un, et il ne revient plus d'office.
 
 Le panneau **Réseau** a une section **Mes nœuds** : administrés d'abord (les muets en premier), puis favoris, avec l'état, la batterie et le dernier contact. Les listes *Nœuds* (Meshtastic et MeshCore) ont un choix **Tous / ⭐ Favoris / 🛠 Mes nœuds**. Les choix sont propres à chaque compte et suivent d'un appareil à l'autre.
+
+**Alerte « nœud muet »** : dans la tuile *Mes nœuds*, cochez « 🔔 Me prévenir quand un de mes nœuds se tait depuis… » et choisissez le délai (1 à 24 h). La carte ouverte (PC ou téléphone) affiche alors une notification et un encadré, une seule fois par silence. Si le nœud revient puis se tait de nouveau, vous êtes prévenu de nouveau.
+
+## GPS figé
+La carte signale dans les alertes un nœud qui continue d'envoyer sa position alors que la mesure GPS qu'il annonce date de plus de 30 min : GPS sans signal, antenne débranchée ou module en panne. Un relais à position fixe, qui n'a jamais bougé, n'est pas concerné.
+

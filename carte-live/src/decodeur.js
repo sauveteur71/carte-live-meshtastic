@@ -164,7 +164,9 @@ function decoderCharge(portnum, payload) {
         if (!positionValide(lat, lon)) { lat = null; lon = null; }
         return {
           resume: lat !== null ? `${lat.toFixed(4)}, ${lon.toFixed(4)}` + (p.altitude ? ` · ${p.altitude} m` : '') : 'Position vide',
-          position: { lat, lon, alt: nombreOuNull(p.altitude), precision: nombreOuNull(p.precisionBits), sats: nombreOuNull(p.satsInView) },
+          // heureFix : heure de la mesure GPS annoncée par le nœud (timestamp, sinon time), si elle est plausible
+          position: { lat, lon, alt: nombreOuNull(p.altitude), precision: nombreOuNull(p.precisionBits), sats: nombreOuNull(p.satsInView),
+            heureFix: (() => { const t = (p.timestamp || p.time || 0) * 1000; return t > 1577836800000 ? t : null; })() },
         };
       }
       case 4: {

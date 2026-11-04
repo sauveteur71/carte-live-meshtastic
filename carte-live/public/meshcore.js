@@ -373,6 +373,7 @@ async function mcRendreMessages() {
         <option value="choisir">✉️ Message direct à…</option>
       </select><span class="compteur" id="mc-compteur">0/140</span></div>
       <div class="envoi-ligne"><textarea id="mc-texte" rows="2" maxlength="140" placeholder="Votre message (envoyé par ${esc(c.nom || 'le companion')})…" required></textarea><button type="submit" class="principal">Envoyer</button></div>
+      <div class="envoi-ligne"><button type="button" class="mini" id="mc-btn-position" title="Ajoute au message la position du centre de la carte ; clic droit sur la carte : n’importe quel point">📍 Joindre le centre de la carte</button></div>
       <div class="note" id="mc-retour-envoi"></div>
     </form>` : `<p class="note">${etat.admin ? 'Reliez un companion (onglet Companion) pour envoyer des messages.' : 'L’envoi est réservé aux administrateurs.'}</p>`}
     <div class="filtre-messages"><label>Afficher <select id="mc-filtre-msg">
@@ -382,7 +383,9 @@ async function mcRendreMessages() {
     </select></label></div>
     <div id="mc-messages" class="flux">${vus.length ? vus.map(mcLigneMessage).join('') : `<div class="vide">${mcFiltreMsg ? 'Aucun message dans ce choix.' : 'Aucun message pour l’instant.'}</div>`}</div>`;
   $('#mc-filtre-msg').onchange = (e) => { choisirFiltreMc(e.target.value); mcRendreMessages(); };
+  epinglerMessages(vus.map((m) => ({ texte: m.texte, heure: m.heure, qui: m.nomDe })));
   if (!peutEnvoyer) return;
+  { const bp = $('#mc-btn-position'); if (bp) bp.onclick = () => { const c = carte.getCenter(); insererPosition($('#mc-texte'), c.lat, c.lng); }; }
   const ta = $('#mc-texte');
   ta.value = ancienTexte;
   const compter = () => { const n = new TextEncoder().encode(ta.value).length; $('#mc-compteur').textContent = `${n}/140`; $('#mc-compteur').classList.toggle('trop', n > 140); };
@@ -433,7 +436,7 @@ function mcLigneMessage(m) {
   return `<div class="paquet mc message-mc ${m.sens}" ${m.genre === 'direct' && m.sens === 'recu' && m.de ? `data-mc-repondre="${m.de}"` : m.genre === 'canal' && m.indexCanal != null ? `data-mc-canal="${m.indexCanal}"` : ''}>
     <div class="entete"><span class="heure">${new Date(m.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span class="tag"><i style="background:${m.genre === 'direct' ? MC_TYPES.message.hex : MC_TYPES.canal.hex}"></i>${esc(lieu)}</span>${mcTagRegion(m.region)}
     ${m.sauts != null ? `<span>${m.sauts === 0 ? 'direct' : m.sauts + ' saut' + (m.sauts > 1 ? 's' : '')}</span>` : ''}${m.sens === 'envoye' ? `<span class="statut-msg ${m.statut || ''}">${STATUTS_MSG[m.statut] || ''}${m.relais > 1 ? ' ×' + m.relais : ''}</span>` : ''}</div>
-    <div class="corps">${qui} : ${esc(m.texte)}</div></div>`;
+    <div class="corps">${qui} : ${texteMessageHtml(m.texte, m.sens === 'envoye' ? m.nomDe || 'moi' : m.nomDe, m.heure)}</div></div>`;
 }
 
 // ---- Analyse du trafic MeshCore ----------------------------------------------------------------

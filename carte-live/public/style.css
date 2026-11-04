@@ -1025,3 +1025,10 @@ body[data-reseau="meshcore"] .tableau .mt-seul { display: none !important; }
 .audit-ligne { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 3px 0; }
 .audit-ligne .lib { min-width: 58px; color: var(--doux); font-size: 12px; }
 .tag-region b { margin-left: 3px; }
+
+/* Positions partagées par message */
+.epingle span { font-size: 24px; line-height: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,.8)); }
+.epingle-msg { margin-left: 4px; }
+.bouton-lien { display: block; padding: 6px 10px; color: var(--texte); text-decoration: none; }
+.reglage-muets { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin: 4px 0 8px; font-size: 12.5px; }
+.reglage-muets small { color: var(--doux); flex-basis: 100%; }

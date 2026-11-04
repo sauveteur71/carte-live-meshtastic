@@ -154,6 +154,7 @@ function creerReseau(stockage, config) {
         }
         if (evt.position && evt.position.lat != null) {
           const p = evt.position;
+          suivreGps(evt.de, p, heure);
           q.position.run({ num: evt.de, lat: p.lat, lon: p.lon, alt: p.alt, precision: p.precision, heure });
           const der = q.derniereHistoPosition.get(evt.de);
           if (!der || Math.abs(der.lat - p.lat) > 1e-4 || Math.abs(der.lon - p.lon) > 1e-4) q.histoPosition.run(evt.de, heure, p.lat, p.lon, p.alt);
@@ -280,6 +281,35 @@ function creerReseau(stockage, config) {
     };
   }
 
+  // ---- GPS figé : le nœud continue d'envoyer sa position, mais la mesure GPS qu'il annonce est ancienne -------
+  // (GPS qui a perdu le signal, antenne débranchée, module en panne). Un relais à position fixe, qui n'a jamais
+  // bougé, n'est pas concerné : sa position est réglée à la main.
+  const gps = new Map(); // num -> { fix, recu, sats, figes, lat, lon }
+  const FIGE_MS = 30 * 60000;
+  function suivreGps(num, p, heure) {
+    if (!p.heureFix) return;
+    const g = gps.get(num) || { figes: 0 };
+    if (g.recu && heure - g.recu < 20000) return; // même paquet par plusieurs passerelles
+    const ecart = heure - p.heureFix;
+    g.figes = ecart > FIGE_MS && (g.fix == null || p.heureFix <= g.fix + 60000) ? g.figes + 1 : 0;
+    Object.assign(g, { fix: p.heureFix, recu: heure, sats: p.sats, lat: p.lat, lon: p.lon });
+    gps.set(num, g);
+  }
+  function gpsFiges() {
+    const maintenant = Date.now(), sortie = [];
+    for (const [num, g] of gps) {
+      if (g.figes < 2 || maintenant - g.recu > 6 * 3600000) continue;
+      const n = q.noeud.get(num);
+      if (!n) continue;
+      const infra = ['ROUTER', 'ROUTER_LATE', 'REPEATER', 'CLIENT_BASE', 'ROUTER_CLIENT'].includes(n.role);
+      // A-t-il déjà bougé ? (plusieurs positions distinctes en 30 jours)
+      let bouge = false;
+      try { bouge = q.histoPositionsNoeud.all(num, maintenant - 30 * 86400000).length > 1; } catch { /* ancienne base */ }
+      if (infra && !bouge) continue; // position fixe réglée à la main
+      sortie.push({ num, nom: n.nom_long || n.nom_court || n.id, role: n.role, fix: g.fix, recu: g.recu, sats: g.sats, envois: g.figes });
+    }
+    return sortie;
+  }
   function calculerAlertes() {
     const maintenant = Date.now();
     const nouvelles = new Map();
@@ -287,6 +317,7 @@ function creerReseau(stockage, config) {
       const ancienne = alertesActives.get(cle);
       nouvelles.set(cle, { cle, depuis: ancienne ? ancienne.depuis : maintenant, ...a });
     };
+    const figes = new Set(gpsFiges().map((x) => x.num));
     for (const n of q.noeuds.all()) {
       const nom = n.nom_long || n.nom_court || n.id;
       const surveille = estSurveille(n);
@@ -297,6 +328,13 @@ function creerReseau(stockage, config) {
         ajouter('muet:' + n.num, {
           num: n.num, type: 'muet', niveau: 'critique', nom,
           message: `${nom} n'a pas été entendu depuis ${formaterDuree(ageMin)}`,
+        });
+      }
+      const gf = gps.get(n.num);
+      if (gf && figes.has(n.num)) {
+        ajouter('gps:' + n.num, {
+          num: n.num, type: 'gps', niveau: 'attention', nom,
+          message: `${nom} : GPS figé, il renvoie une position mesurée il y a ${formaterDuree((maintenant - gf.fix) / 60000)}${gf.sats != null ? ` (${gf.sats} satellite${gf.sats > 1 ? 's' : ''})` : ''}`,
         });
       }
       if (n.est_passerelle && n.etat_passerelle === 'offline') {
@@ -432,7 +470,7 @@ function creerReseau(stockage, config) {
     return { positions: pos, liens };
   }
 
-  return { nettoyer, integrer, vueNoeud, vueTrame, calculerAlertes, statistiques, liens, detailNoeud, estSurveille, ROLES_FR };
+  return { nettoyer, integrer, vueNoeud, vueTrame, calculerAlertes, statistiques, liens, detailNoeud, estSurveille, gpsFiges, ROLES_FR };
 }
 
 function formaterDuree(minutes) {

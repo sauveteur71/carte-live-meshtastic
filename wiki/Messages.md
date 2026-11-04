@@ -36,3 +36,10 @@ Dans le fil des messages, une étiquette l'indique :
 - **🏷 région ?** : une région que la carte ne connaît pas. Ajoutez son nom à `MESHCORE_REGIONS` dans le `.env` (séparés par des virgules).
 
 Pour vos propres messages, c'est d'abord la région d'envoi du companion (*MeshCore › Companion › Région*), puis celle réellement constatée quand un répéteur renvoie le message. La carte reconnaît d'office `eu`, `europe`, `fr`, les régions (`fr-ara`, `fr-bfc`…) et les départements (`fr-43`, `fr-38`…), ainsi que quelques pays voisins (`ch`, `it`…). Le détail d'un paquet (*Paquets*) l'affiche aussi.
+
+## Position partagée
+Un message qui contient `meshand: 45.04312,3.88512` (le format de l'appli MeshAnd), `geo:45.04312,3.88512` ou `📍 45.04312,3.88512` devient une **épingle 📍** sur la carte. Dans le fil des messages, le bouton « 📍 Voir sur la carte » centre la carte sur la position. L'épingle donne l'itinéraire, la couverture depuis ce point et un bouton pour la retirer. Les positions reçues depuis moins de 12 h sont épinglées d'office.
+
+Pour en envoyer une :
+- **📍 Joindre le centre de la carte**, sous la zone de saisie (Meshtastic et MeshCore) ;
+- ou **clic droit sur la carte › 📍 Partager ce point dans un message**.

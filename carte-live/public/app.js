@@ -875,9 +875,37 @@ function rendreMesNoeuds() {
   const p = $('#nb-mes-noeuds'); p.textContent = lignes.length; p.className = 'pastille' + (muets ? ' attention' : '');
   $('#resume-mes-noeuds').textContent = lignes.length ? `${adm.length} administré${adm.length > 1 ? 's' : ''}${muets ? ` · ${muets} muet${muets > 1 ? 's' : ''}` : ''}${fav.length ? ` · ${fav.length} favori${fav.length > 1 ? 's' : ''}` : ''}` : 'aucun';
   const ligne = (l) => `<div class="ligne cliquable" data-suivi-ouvrir="${l.id}" data-mc-suivi="${l.mc ? 1 : 0}"><span class="point ${l.statut}"></span><span class="titre">${estFavori(l.id) ? '⭐ ' : ''}${esc(l.nom)} <small>${l.mc ? 'MeshCore · ' : 'Meshtastic · '}${esc(l.role || '')}${l.batterie != null && l.batterie <= 100 ? ` · ${l.batterie} %` : ''}</small></span><span class="meta">${l.vu ? ilYa(l.vu) : l.connu ? '' : 'pas encore vu'}</span></div>`;
-  z.innerHTML = (adm.length ? '<h4>🛠 Administrés</h4>' + adm.map(ligne).join('') : '')
+  // Alerte « nœud muet » : notification quand un nœud administré ne s'est pas fait entendre depuis N heures
+  const al = lireLs('gaulix_alerte_muets', { actif: false, heures: 3 });
+  const reglage = `<div class="reglage-muets"><label class="case"><input type="checkbox" id="muets-actif" ${al.actif ? 'checked' : ''}> 🔔 Me prévenir quand un de mes nœuds se tait depuis</label>
+    <select id="muets-heures">${[1, 2, 3, 6, 12, 24].map((h) => `<option value="${h}" ${h === al.heures ? 'selected' : ''}>${h} h</option>`).join('')}</select>
+    <small>(notification de ce navigateur, carte ouverte, sur PC ou téléphone)</small></div>`;
+  if (al.actif) {
+    const deja = lireLs('gaulix_muets_notifies', {});
+    const seuil = Date.now() - al.heures * 3600000;
+    const nouveaux = adm.filter((l) => l.vu && l.vu < seuil && deja[l.id] !== l.vu);
+    for (const l of adm) if (l.vu && l.vu >= seuil && deja[l.id]) delete deja[l.id]; // revenu : on pourra reprévenir
+    if (nouveaux.length) {
+      for (const l of nouveaux) deja[l.id] = l.vu;
+      const titre = nouveaux.length === 1 ? `🛠 ${nouveaux[0].nom} se tait depuis ${ilYa(nouveaux[0].vu).replace('il y a ', '')}` : `🛠 ${nouveaux.length} de vos nœuds se taisent`;
+      const corps = nouveaux.map((l) => `${l.nom} (${l.mc ? 'MeshCore' : 'Meshtastic'}) : ${ilYa(l.vu)}`).join('\n');
+      if ('Notification' in window && Notification.permission === 'granted') { try { new Notification(titre, { body: corps, tag: 'gaulix-muets' }); } catch { /* ignoré */ } }
+      if (typeof afficherAlerteDirect === 'function') afficherAlerteDirect(titre, corps);
+      try { bip([660, 440], 0.2); } catch { /* son indisponible */ }
+    }
+    ecrireLs('gaulix_muets_notifies', deja);
+  }
+  z.innerHTML = reglage + (adm.length ? '<h4>🛠 Administrés</h4>' + adm.map(ligne).join('') : '')
     + (fav.length ? '<h4>⭐ Favoris</h4>' + fav.map(ligne).join('') : '')
     + (!lignes.length ? '<div class="vide">Ouvrez la fiche d’un nœud puis « ☆ Favori » ou « 🛠 J’administre ». Les nœuds que la carte peut programmer s’y ajoutent d’office.</div>' : '');
+  const ma = $('#muets-actif'), mh = $('#muets-heures');
+  const enregistrer = async () => {
+    const v = { actif: ma.checked, heures: Number(mh.value) || 3 };
+    if (v.actif && 'Notification' in window && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch { /* ignoré */ } }
+    ecrireLs('gaulix_alerte_muets', v);
+  };
+  if (ma) ma.onchange = enregistrer;
+  if (mh) mh.onchange = enregistrer;
   z.querySelectorAll('[data-suivi-ouvrir]').forEach((el) => (el.onclick = () => {
     const id = el.dataset.suiviOuvrir;
     if (el.dataset.mcSuivi === '1') { if (typeof mcOuvrirFiche === 'function') { const n = mc.noeuds.get(id); if (n && n.lat != null) carte.flyTo([n.lat, n.lon], Math.max(carte.getZoom(), 11), { duration: 0.6 }); mcOuvrirFiche(id); } }
@@ -1287,6 +1315,78 @@ function choisirFiltreMessages(v) {
   rendreMessages();
 }
 const memeCanal = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+// ---- Positions partagées par message (« meshand: 45.04,3.88 », comme l'appli MeshAnd ; aussi « geo:… » et « 📍 … ») ----
+const RE_EPINGLE = /(?:meshand:|geo:|📍)\s*(-?\d{1,2}\.\d{3,7})\s*[,;]\s*(-?\d{1,3}\.\d{3,7})/i;
+function lireEpingle(texte) {
+  const m = RE_EPINGLE.exec(String(texte || ''));
+  if (!m) return null;
+  const lat = Number(m[1]), lon = Number(m[2]);
+  return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null;
+}
+// Texte d'un message, avec un bouton « voir sur la carte » s'il contient une position
+function texteMessageHtml(texte, qui, heureMsg) {
+  const e = lireEpingle(texte);
+  if (!e) return esc(texte);
+  return `${esc(texte)} <button type="button" class="mini epingle-msg" data-epingle="${e.lat},${e.lon}" data-qui="${esc(qui || '')}" data-heure="${heureMsg || ''}" title="Afficher la position sur la carte">📍 Voir sur la carte</button>`;
+}
+etat.coucheEpingles = null;
+const epinglesVues = new Map(); // "lat,lon" -> marqueur
+function poserEpingle(lat, lon, qui, h, ouvrir) {
+  if (!etat.coucheEpingles) etat.coucheEpingles = L.layerGroup().addTo(carte);
+  const k = `${lat},${lon}`;
+  let m = epinglesVues.get(k);
+  if (!m) {
+    const div = document.createElement('div');
+    div.className = 'popup-lieu';
+    div.innerHTML = `<b>📍 Position partagée</b><div class="meta-longue">${qui ? 'par ' + esc(qui) : ''}${h ? ' · ' + ilYa(h) : ''}</div>${blocCoords(lat, lon)}
+      <div class="menu-contexte"><a class="bouton-lien" href="https://www.openstreetmap.org/directions?route=%3B${lat}%2C${lon}" target="_blank" rel="noopener">🧭 Itinéraire</a><button data-a="ici">Couverture depuis ici</button><button data-a="retirer">Retirer l’épingle</button></div>`;
+    m = L.marker([lat, lon], { icon: L.divIcon({ className: 'epingle', html: '<span>📍</span>', iconSize: [26, 26], iconAnchor: [13, 24] }), pane: 'sommets', zIndexOffset: 900 })
+      .bindPopup(div, { className: 'popup-contexte', maxWidth: 320 })
+      .bindTooltip(`📍 ${esc(qui || 'Position partagée')}`, { className: 'info', direction: 'top', offset: [0, -20] })
+      .addTo(etat.coucheEpingles);
+    div.onclick = (ev) => {
+      const a = ev.target.closest('button[data-a]'); if (!a) return;
+      carte.closePopup();
+      if (a.dataset.a === 'ici') couvertureIci(L.latLng(lat, lon), 6);
+      else { etat.coucheEpingles.removeLayer(m); epinglesVues.delete(k); }
+    };
+    epinglesVues.set(k, m);
+  }
+  if (ouvrir) { carte.flyTo([lat, lon], Math.max(carte.getZoom(), 13), { duration: 0.7 }); setTimeout(() => m.openPopup(), 750); }
+}
+// Positions des messages des 12 dernières heures : épinglées d'office
+function epinglerMessages(liste) {
+  const limite = Date.now() - 12 * 3600000;
+  for (const m of liste || []) { if ((m.heure || 0) < limite) continue; const e = lireEpingle(m.texte); if (e) poserEpingle(e.lat, e.lon, m.qui, m.heure, false); }
+}
+document.addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-epingle]');
+  if (!b) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const [lat, lon] = b.dataset.epingle.split(',').map(Number);
+  poserEpingle(lat, lon, b.dataset.qui, Number(b.dataset.heure) || null, true);
+}, true);
+// Partager un point : dans le formulaire MeshCore si la vue MeshCore est affichée, sinon dans celui de Meshtastic
+async function partagerPoint(lat, lon) {
+  const mcVue = typeof mc !== 'undefined' && document.body.dataset.reseau === 'meshcore';
+  if (mcVue) {
+    const o = document.querySelector('.onglets button[data-onglet="meshcore"]'); if (o) o.click();
+    const b = document.querySelector('.sous-onglets-mc button[data-mc-vue="messages"]'); if (b) b.click();
+    setTimeout(() => insererPosition($('#mc-texte'), lat, lon), 600);
+    return;
+  }
+  const o = document.querySelector('.onglets button[data-onglet="messages"]'); if (o) o.click();
+  if (etat.admin && ($('#form-envoi').hidden || !$('#form-envoi').vers.querySelector('option[data-nom]'))) await preparerEnvoi();
+  setTimeout(() => insererPosition($('#form-envoi').texte, lat, lon), 300);
+}
+// Insère une position (« meshand: lat,lon ») dans une zone de saisie
+function insererPosition(zone, lat, lon) {
+  if (!zone) return;
+  const t = `meshand: ${lat.toFixed(5)},${lon.toFixed(5)}`;
+  zone.value = (zone.value ? zone.value.trimEnd() + ' ' : '') + t;
+  zone.dispatchEvent(new Event('input'));
+  zone.focus();
+}
 async function chargerMessages() {
   if (!etat.membre) return;
   if (etat.admin && ($('#form-envoi').hidden || !$('#form-envoi').vers.querySelector('option[data-nom]'))) await preparerEnvoi();
@@ -1320,8 +1420,9 @@ function rendreMessages() {
     : filtreMessages === 'direct' ? tous.filter((m) => m.vers !== 0xffffffff)
       : tous.filter((m) => m.vers === 0xffffffff && memeCanal(m.canal, filtreMessages.slice(2)));
   $('#messages').innerHTML = msgs.length
-    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-rowid="${m.rowid}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b> · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${esc(m.texte || '(non conservé)')}</div>${origineMessage(m)}${suiviMessage(m)}</div>`).join('')
+    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-rowid="${m.rowid}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b> · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${m.texte ? texteMessageHtml(m.texte, nomNoeud(m.de), m.heure) : '(non conservé)'}</div>${origineMessage(m)}${suiviMessage(m)}</div>`).join('')
     : `<div class="vide">${filtreMessages ? 'Aucun message dans ce choix sur la période.' : 'Aucun message texte sur la période.'}</div>`;
+  epinglerMessages(msgs.map((m) => ({ texte: m.texte, heure: m.heure, qui: nomNoeud(m.de) })));
   if (etat.admin) $('#messages').querySelectorAll('.message[data-de]').forEach((el) => (el.onclick = () => repondreA(el)));
   $('#messages').querySelectorAll('.origines, .suivi-msg').forEach((el) => {
     el.title = 'Voir le parcours du message sur la carte';
@@ -4923,6 +5024,7 @@ function brancherInterface() {
   });
   $('#recherche').oninput = rendreNoeuds;
   $('#tri').onchange = rendreNoeuds;
+  { const bp = $('#btn-position-envoi'); if (bp) bp.onclick = () => { const c = carte.getCenter(); insererPosition($('#form-envoi').texte, c.lat, c.lng); }; }
   { const g = $('#groupe-noeuds'); if (g) { try { g.value = localStorage.getItem('gaulix_groupe') || ''; } catch { /* ignoré */ } g.hidden = !etat.membre; g.onchange = () => { try { localStorage.setItem('gaulix_groupe', g.value); } catch { /* ignoré */ } rendreNoeuds(); }; } }
   $('#fenetre').onchange = chargerLiens;
   document.querySelectorAll('.bascule').forEach((b) => (b.onclick = () => {
@@ -4959,12 +5061,13 @@ function brancherInterface() {
   carte.on('contextmenu', (e) => {
     const div = L.DomUtil.create('div', 'menu-contexte');
     const lat = e.latlng.lat, lon = e.latlng.lng;
-    div.innerHTML = `<div class="ctx-coords"><b class="mono">${lat.toFixed(5)}, ${lon.toFixed(5)}</b><button class="mini" data-copier="${lat.toFixed(5)}, ${lon.toFixed(5)}">Copier</button></div><button data-a="ici">Couverture depuis ici</button><button data-a="couvrir">Couvrir ce point (4 points hauts)</button><button data-a="relier">${etat.modeCarte === 'relier' && etat.relierA ? 'Relier jusqu’ici (arrivée)' : 'Relier depuis ici (relais nécessaires)'}</button><button data-a="profil">${etat.modeProfil && etat.modeProfil.a ? 'Profil jusqu’ici (point B)' : 'Profil depuis ici (point A)'}</button>`;
+    div.innerHTML = `<div class="ctx-coords"><b class="mono">${lat.toFixed(5)}, ${lon.toFixed(5)}</b><button class="mini" data-copier="${lat.toFixed(5)}, ${lon.toFixed(5)}">Copier</button></div>${etat.membre ? '<button data-a="partager">📍 Partager ce point dans un message</button>' : ''}<button data-a="ici">Couverture depuis ici</button><button data-a="couvrir">Couvrir ce point (4 points hauts)</button><button data-a="relier">${etat.modeCarte === 'relier' && etat.relierA ? 'Relier jusqu’ici (arrivée)' : 'Relier depuis ici (relais nécessaires)'}</button><button data-a="profil">${etat.modeProfil && etat.modeProfil.a ? 'Profil jusqu’ici (point B)' : 'Profil depuis ici (point A)'}</button>`;
     const pop = L.popup({ closeButton: false, className: 'popup-contexte' }).setLatLng(e.latlng).setContent(div).openOn(carte);
     div.onclick = (ev) => {
       const a = ev.target.closest('button');
       if (!a) return;
       carte.closePopup(pop);
+      if (a.dataset.a === 'partager') { partagerPoint(lat, lon); return; }
       if (a.dataset.a === 'profil') {
         if (!etat.modeProfil) $('#btn-profil').click();
         choisirPointProfil({ lat: e.latlng.lat, lon: e.latlng.lng, nom: `Point ${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`, h: 3 });
