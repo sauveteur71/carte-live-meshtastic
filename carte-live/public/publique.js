@@ -35,6 +35,8 @@ function onde(p, couleur) {
 async function demarrer() {
   config = await (await fetch('/api/config')).json();
   majTitre();
+  // Lien vers la carte complète : seulement pour un administrateur connecté (la carte publique sert à consulter)
+  fetch('/api/compte').then((r) => r.json()).then((u) => { if (u && u.role === 'admin') document.getElementById('lien-complet').hidden = false; }).catch(() => {});
   carte = L.map('carte', { zoomControl: false, attributionControl: true }).setView(config.centre, config.zoom);
   L.control.zoom({ position: 'topright' }).addTo(carte);
   carte.createPane('couverture').style.zIndex = 405;
