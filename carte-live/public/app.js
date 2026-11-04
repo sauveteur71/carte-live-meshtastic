@@ -927,7 +927,9 @@ function rendreNoeuds() {
   const tri = $('#tri').value;
   const groupe = $('#groupe-noeuds') ? $('#groupe-noeuds').value : '';
   let liste = [...etat.noeuds.values()].filter((n) => (groupe ? true : dansZone(n)) && (
-    !filtre || [n.nomLong, n.nomCourt, n.id].some((x) => x && x.toLowerCase().includes(filtre)))
+    !filtre || [n.nomLong, n.nomCourt].some((x) => x && x.toLowerCase().includes(filtre))
+    // L'identifiant (!a1b2c3d4) n'est cherché qu'avec « ! » ou au moins 4 caractères : « 43 » ne doit trouver que les noms
+    || ((filtre.startsWith('!') || filtre.length >= 4) && n.id && n.id.toLowerCase().includes(filtre)))
     && (groupe !== 'favoris' || estFavori(n.num)) && (groupe !== 'administres' || estAdministre(n.num)));
   const cmp = {
     vu: (a, b) => (b.dernierVu || 0) - (a.dernierVu || 0),

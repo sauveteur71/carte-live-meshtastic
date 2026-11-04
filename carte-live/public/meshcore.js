@@ -281,7 +281,7 @@ function mcRendreNoeuds() {
   }
   const f = $('#mc-recherche').value.trim().toLowerCase(), tri = $('#mc-tri').value;
   const groupe = $('#mc-groupe') ? $('#mc-groupe').value : '';
-  const liste = [...mc.noeuds.values()].filter((n) => (groupe ? true : mcDansZone(n)) && (!f || (n.nom || '').toLowerCase().includes(f) || n.cle.toLowerCase().startsWith(f))
+  const liste = [...mc.noeuds.values()].filter((n) => (groupe ? true : mcDansZone(n)) && (!f || (n.nom || '').toLowerCase().includes(f) || (f.length >= 4 && n.cle.toLowerCase().startsWith(f)))
     && (groupe !== 'favoris' || estFavori(n.cle)) && (groupe !== 'administres' || estAdministre(n.cle)));
   const ordreRole = { repeteur: 0, salon: 1, capteur: 2, companion: 3, inconnu: 4 };
   liste.sort({
