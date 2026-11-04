@@ -2913,6 +2913,9 @@ async function planZoneDessinee(polys, nom, opts = {}) {
   L.imageOverlay(r.image, [[e2.sud, e2.ouest], [e2.nord, e2.est]], { opacity: 0.75, pane: 'couverture', className: 'pixelise' }).addTo(g);
   r.sites.forEach((x) => L.marker([x.lat, x.lon], { icon: L.divIcon({ className: 'relais-a-installer', html: `<div class="epingle"><b>${x.rang}</b></div>`, iconSize: [34, 44], iconAnchor: [17, 42] }), pane: 'traces', zIndexOffset: 900 })
     .bindTooltip(`<b>${x.rang} · ${esc(nomSommet(x))}</b><br>${x.alt} m${x.commune ? ' · ' + esc(x.commune) : ''}<br>+${x.gainKm2} km² · cumul ${fmt(x.totalPct, 1, ' %')}`, { className: 'info' }).addTo(g));
+  // Autres emplacements possibles de chaque étape : petits repères 1a, 1b…
+  r.sites.forEach((x) => (x.alternatives || []).forEach((o, j) => L.marker([o.lat, o.lon], { icon: L.divIcon({ className: 'sommet plan existant-relier', html: `<span>${x.rang}${String.fromCharCode(97 + j)}</span>`, iconSize: [26, 22], iconAnchor: [13, 11] }), pane: 'traces', zIndexOffset: 700 })
+    .bindTooltip(`<b>${x.rang}${String.fromCharCode(97 + j)} · ${esc(nomSommet(o))}</b> (à la place du site ${x.rang})<br>${o.alt} m${o.commune ? ' · ' + esc(o.commune) : ''}<br>+${o.gainKm2} km² au lieu de +${x.gainKm2} km²${o.acces ? '<br>' + ACCES[o.acces.type].icone + ' ' + ACCES[o.acces.type].nom : ''}`, { className: 'info' }).addTo(g)));
   const nomAcces = { tous: 'tous les points hauts', voiture: 'accessibles en voiture', '4x4': 'accessibles en 4×4 ou voiture', pied: 'accessibles à pied, en 4×4 ou voiture' }[r.filtreAcces];
   z.innerHTML = `<h2>🖊 ${esc(nom)}</h2>
     <div class="ident">${r.zones > 1 ? r.zones + ' zones · ' : ''}${r.surfaceZoneKm2} km² · objectif ${r.objectifPct} % · au plus ${r.max} sites · ${esc(nomAcces)} · ${r.avecReseau ? `avec le réseau actuel (${r.reseau.length} relais à portée)` : 'sans le réseau actuel'}</div>
@@ -2927,11 +2930,13 @@ async function planZoneDessinee(polys, nom, opts = {}) {
       <div class="meta-longue">Accès : ${texteAcces(x.acces)}</div>
       ${x.realisme ? `<div class="meta-longue">Site : ${texteRealisme(x.realisme)}</div>` : ''}
       ${blocCoords(x.lat, x.lon, { alt: x.alt, couv: { nom: `${x.rang} · ${nomSommet(x)}`, h: (r.parametres && r.parametres.hs) || 6 } })}
+      ${x.alternatives && x.alternatives.length ? `<details class="alt-relier"><summary>Autres emplacements possibles (${x.alternatives.length})</summary>${x.alternatives.map((o, j) => `<div class="ligne-alt" data-lat="${o.lat}" data-lon="${o.lon}" title="Centrer la carte sur cet emplacement"><b class="repere-alt">${x.rang}${String.fromCharCode(97 + j)}</b> ${esc(nomSommet(o))} · ${o.alt} m${o.commune ? ' · ' + esc(o.commune) : ''} · +${o.gainKm2} km² ${o.acces ? ACCES[o.acces.type].icone : ''}${o.realisme && o.realisme.support ? ' 🗼' : ''}</div>`).join('')}</details>` : ''}
     </div>`).join('')}
     <div class="actions-prop">${r.sites.length ? '<button id="zone-gpx">Télécharger les sites (GPX)</button>' : ''}<button id="zone-refaire">🖊 Dessiner une autre zone</button></div>
-    <p class="note">Bleu : déjà couvert · turquoise : apporté par les sites proposés · rouge : non couvert. ${r.candidats} points hauts candidats (dans la zone ou à moins de 10 km). Antenne supposée à ${(r.parametres && r.parametres.hs) || 6} m au site, ${(r.parametres && r.parametres.ht) || 2} m au sol. La zone est gardée dans ce navigateur (Couverture › Plan › Zones enregistrées).</p>`;
+    <p class="note">Bleu : déjà couvert · turquoise : apporté par les sites proposés · rouge : non couvert. Sous chaque site, d’autres emplacements possibles (1a, 1b…) qui apportent une surface proche, si le site proposé n’est pas utilisable (le site retenu tient compte aussi du support et de l’électricité). ${r.candidats} points hauts candidats (dans la zone ou à moins de 10 km). Antenne supposée à ${(r.parametres && r.parametres.hs) || 6} m au site, ${(r.parametres && r.parametres.ht) || 2} m au sol. La zone est gardée dans ce navigateur (Couverture › Plan › Zones enregistrées).</p>`;
   const gx = $('#zone-gpx'); if (gx) gx.onclick = () => telechargerGpx(`zone-${nom.replace(/[^\w-]+/g, '-')}.gpx`, r.sites.map((x) => ({ lat: x.lat, lon: x.lon, alt: x.alt, nom: `${x.rang} - ${nomSommet(x)}`, desc: `+${x.gainKm2} km², cumul ${x.totalPct} %` })));
   $('#zone-refaire').onclick = () => commencerZone();
+  z.querySelectorAll('.ligne-alt').forEach((el) => (el.onclick = () => carte.flyTo([Number(el.dataset.lat), Number(el.dataset.lon)], 14)));
   $('#zone-acces').onchange = (ev) => { ecrireLs('gaulix_zone_acces', ev.target.value); planZoneDessinee(polys, nom, { acces: ev.target.value }); };
 }
 

@@ -31,7 +31,9 @@ Dans *Messages*, un clic sur l'origine d'un message (📡 / 🌐) affiche son **
 *Outils › Mode terrain* : relevés GPS avec mesure radio et photo, même sans réseau. La carte s'installe comme une application (« Ajouter à l'écran d'accueil », HTTPS requis).
 
 ## Page publique
-Une page publique (sans messages ni position exacte des particuliers) peut être partagée : *Outils › Partager*.
+Une page publique (sans messages ni position exacte des particuliers) peut être partagée : *Outils › Partager*. Elle sert à consulter le réseau, sans rien pouvoir modifier.
+- Chaque visiteur choisit le **secteur** affiché : département de la carte, avec ses voisins, une région, n'importe quel département ou la France entière. Nœuds, liaisons, chiffres et animations suivent. Les calculs de couverture portent sur un département (le premier calcul d'un autre département prend quelques minutes).
+- Le titre suit le réseau et le secteur choisis. Le lien vers la carte complète n'apparaît qu'aux administrateurs connectés.
 
 ## Favoris et « Mes nœuds »
 Dans la fiche d'un nœud, Meshtastic ou MeshCore (compte connecté) :

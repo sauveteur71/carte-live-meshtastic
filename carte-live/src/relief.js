@@ -584,12 +584,13 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   const compter = (b) => { let n = 0; for (let w = 0; w < b.length; w++) { let x = b[w]; while (x) { x &= x - 1; n++; } } return n; };
   // realiste : zones protégées écartées, préférence pour les supports existants et le secteur proche (facteur de realisme.js)
   const facteurRealisme = (s, realiste) => (!realiste || !s.realisme ? 1 : s.realisme.facteur);
-  function planGlouton(couvertures, deja, existants, min, { max = 12, cible = Infinity, gainMin = 40, realiste = false } = {}) {
+  function planGlouton(couvertures, deja, existants, min, { max = 12, cible = Infinity, gainMin = 40, realiste = false, alternatives = 0 } = {}) {
     const choisis = [];
     const cumul = Uint32Array.from(deja);
     for (let etape = 0; etape < max; etape++) {
       if (compter(cumul) >= cible) break;
       let meilleur = null, gainMax = 0, frMeilleur = 1;
+      const notes = alternatives ? [] : null;
       for (const c of couvertures) {
         if (!accessible(c.s, min)) continue;
         const fr = facteurRealisme(sommets[c.s.id] || c.s, realiste);
@@ -597,11 +598,22 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
         if (choisis.some((x) => distanceM(x.s, c.s) < 4000) || existants.some((n) => distanceM(n, c.s) < 2000)) continue;
         let g = 0;
         for (let w = 0; w < cumul.length; w++) { let x = c.bits[w] & ~cumul[w]; while (x) { x &= x - 1; g++; } }
+        if (notes && g) notes.push({ c, g, note: g * fr });
         if (g * fr > gainMax * frMeilleur) { gainMax = g; meilleur = c; frMeilleur = fr; }
       }
       if (!meilleur || gainMax < gainMin) break;
+      // Autres emplacements pour cette étape : apport proche du meilleur (60 % au moins), à plus de 1,5 km l'un de l'autre
+      const alt = [];
+      if (notes) {
+        for (const x of notes.sort((a, b) => b.note - a.note)) {
+          if (alt.length >= alternatives) break;
+          if (x.c === meilleur || x.g < 0.6 * gainMax) continue;
+          if ([meilleur, ...alt.map((a) => a.c)].some((y) => distanceM(y.s, x.c.s) < 1500)) continue;
+          alt.push(x);
+        }
+      }
       for (let w = 0; w < cumul.length; w++) cumul[w] |= meilleur.bits[w];
-      choisis.push({ s: meilleur.s, gain: gainMax, total: compter(cumul) });
+      choisis.push({ s: meilleur.s, gain: gainMax, total: compter(cumul), alternatives: alt.map((x) => ({ s: x.c.s, gain: x.g })) });
     }
     return choisis;
   }
@@ -719,7 +731,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     const depart = compter(deja);
     const min = niveauMin(filtre);
     const cible = Math.ceil((Math.min(100, Math.max(10, objectifPct)) / 100) * nb);
-    const choisis = planGlouton(couvertures, deja, existants, min, { max: Math.min(30, Math.max(1, max)), cible, gainMin: 4, realiste });
+    const choisis = planGlouton(couvertures, deja, existants, min, { max: Math.min(30, Math.max(1, max)), cible, gainMin: 4, realiste, alternatives: 3 });
     const finale = choisis.length ? choisis[choisis.length - 1].total : depart;
     // Image sur le rectangle de la zone : bleu déjà couvert, turquoise apporté, rouge non couvert
     const cumul = Uint32Array.from(deja);
@@ -743,7 +755,8 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       sites: choisis.map((c, k) => {
         const sm = sommets[c.s.id] || c.s;
         return { rang: k + 1, id: c.s.id, nom: c.s.nom, commune: sm.commune || c.s.commune, lat: c.s.lat, lon: c.s.lon, alt: c.s.alt, acces: sm.acces || null, realisme: sm.realisme || null,
-          gainKm2: Math.round(c.gain * aireCelleKm2), totalPct: +((c.total / nb) * 100).toFixed(1) };
+          gainKm2: Math.round(c.gain * aireCelleKm2), totalPct: +((c.total / nb) * 100).toFixed(1),
+          alternatives: (c.alternatives || []).map((a) => { const sa = sommets[a.s.id] || a.s; return { id: a.s.id, nom: a.s.nom, commune: sa.commune || a.s.commune, lat: a.s.lat, lon: a.s.lon, alt: a.s.alt, acces: sa.acces || null, realisme: sa.realisme || null, gainKm2: Math.round(a.gain * aireCelleKm2), partPct: Math.round((a.gain / c.gain) * 100) }; }) };
       }),
       parametres: { preset: P.preset, hs: P.hs, ht: P.ht, env: P.env, rayonKm: P.rayonMax / 1000 },
       image: png(larg, haut, rgba),

@@ -10,6 +10,8 @@
     html, body { margin: 0; height: 100%; background: var(--fond); color: var(--texte); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
     #carte { position: fixed; inset: 0; background: var(--fond); }
     .bandeau { position: fixed; top: 10px; left: 10px; z-index: 1000; background: var(--surface); border: 1px solid var(--bord); border-radius: 10px; padding: 8px 12px; max-width: calc(100% - 44px); }
+    .zone-choix select { background: var(--surface); color: var(--texte); border: 1px solid var(--bord); border-radius: 6px; padding: 3px 6px; font: inherit; max-width: 260px; }
+    .reseaux button:disabled { opacity: .45; cursor: not-allowed; }
     .bandeau b { font-size: 15px; } .bandeau small { color: var(--doux); display: block; }
     .chiffres { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; } .chiffres span { color: var(--doux); font-size: 12px; } .chiffres b { color: var(--texte); font-size: 14px; }
     .chiffres .mc { display: none; } body.vue-meshcore .chiffres .mt, body.vue-deux .chiffres .mc, body.vue-meshcore .chiffres .mc { display: inline; } body.vue-meshcore .chiffres .mt { display: none; }
@@ -67,6 +69,7 @@
       <span class="mt"><b id="n-relais">–</b> relais</span><span class="mt"><b id="n-gw">–</b> passerelles</span><span class="mt"><b id="n-actifs">–</b> nœuds actifs</span>
       <span class="mc"><b id="n-mc-rep">–</b> répéteurs MeshCore</span><span class="mc"><b id="n-mc-actifs">–</b> nœuds MeshCore actifs</span>
     </div>
+    <div class="reseaux"><label class="zone-choix">🗺️ <select id="choix-zone" title="Secteur affiché : département, région ou France entière"></select></label></div>
     <div class="reseaux" id="reseaux" hidden>
       <button data-vue="meshtastic">Meshtastic</button><button data-vue="meshcore">MeshCore</button><button data-vue="deux">Les deux</button>
       <button class="bascule actif" id="b-anim" title="Animation des paquets qui transitent sur le réseau">✨ Animations</button>

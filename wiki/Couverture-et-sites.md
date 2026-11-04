@@ -18,12 +18,14 @@ En vue MeshCore, les calculs utilisent le réglage radio français MeshCore (869
 
 ## Zone dessinée à la main
 Dans *Couverture › Plan*, **🖊 Dessiner une zone** sert à étudier un secteur plutôt que tout le département : secteur d'intervention, vallée, massif, itinéraire de course…
-1. Cliquez sur la carte pour poser les coins de la zone (3 au moins). « ↶ Point » retire le dernier.
-2. Donnez-lui un nom si vous voulez, puis **Terminer et étudier**. Un double-clic ou un clic sur le premier point fait la même chose.
+1. Cliquez sur la carte pour poser les coins de la zone (3 au moins). « ↶ Point » retire le dernier. Un point qui ferait croiser le contour est refusé.
+2. **➕ Autre zone** ferme la zone et en commence une autre (10 au plus) : toutes sont étudiées ensemble.
+3. Donnez un nom si vous voulez, puis **Terminer et étudier**. Un double-clic ou un clic sur le premier point fait la même chose.
 
 La carte donne, pour la seule zone :
 - la part couverte aujourd'hui par le réseau ;
 - les points hauts à équiper, dans l'ordre, avec le gain de surface de chacun ;
+- pour chacun, **d'autres emplacements possibles** (1a, 1b, 1c) d'apport proche, si le site proposé n'est pas utilisable ;
 - la couverture finale (bleu : déjà couvert, turquoise : apporté, rouge : non couvert).
 
-Les critères sont ceux du plan du département : objectif, nombre de sites, accès, réseau actuel, sites réalistes. Les points hauts candidats sont ceux de la zone et des 10 km autour. La zone doit rester dans le relief chargé (le département et ses abords). Les zones sont gardées dans ce navigateur (*Zones enregistrées…*), et le GPX des sites se télécharge.
+Les critères sont ceux du plan du département : objectif, nombre de sites, accès (modifiable dans le résultat : voiture, 4×4, à pied, tous), réseau actuel, sites réalistes. Les points hauts candidats sont ceux de la zone et des 10 km autour. La zone doit rester dans le relief chargé (le département et ses abords). Les zones sont gardées dans ce navigateur (*Zones enregistrées…*), et le GPX des sites se télécharge.

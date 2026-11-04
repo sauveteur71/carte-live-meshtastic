@@ -3,7 +3,7 @@
 // liaisons radio, Meshtastic et MeshCore, avec l'animation en direct des paquets qui transitent.
 // Aucune donnée réservée aux membres (messages, positions exactes des particuliers).
 // Options d'adresse : ?reseau=meshtastic|meshcore|deux, ?animations=0, ?couverture=actuelle|sites, ?acces=voiture|4x4|pied|tous, ?fond=Plan IGN, ?clients=0 (masquer les nœuds),
-// ?liens=0 (masquer les liaisons), ?titre=…
+// ?liens=0 (masquer les liaisons), ?titre=…, ?zone=dep|v|france|r84 (région)|d63 (département)
 const params = new URLSearchParams(location.search);
 const opt = { clients: params.get('clients') !== '0', liens: params.get('liens') !== '0' };
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -23,7 +23,30 @@ function distanceKm(a, b) {
   const r = Math.PI / 180, s = Math.sin(((b.lat - a.lat) * r) / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(((b.lon - a.lon) * r) / 2) ** 2;
   return 12742 * Math.asin(Math.sqrt(s));
 }
-const zoneLarge = (n) => { const z = config && config.zone; return !z || (n.lat != null && n.lat >= z[0] - 0.3 && n.lat <= z[2] + 0.3 && n.lon >= z[1] - 0.3 && n.lon <= z[3] + 0.3); };
+// Secteur affiché, au choix du visiteur : département de la carte, avec ses voisins, une région, un autre département
+// ou toute la France (?zone=dep|v|r84|d63|france, retenu dans ce navigateur)
+let zoneSel = 'dep', departements = [];
+const regionSel = () => (/^r\d{2}$/.test(zoneSel) ? (config.regions || []).find((r) => 'r' + r.code === zoneSel) : null);
+const depSel = () => (/^d(\d{2}|2A|2B)$/.test(zoneSel) ? departements.find((d) => 'd' + d.code === zoneSel) : null);
+function bboxZone() {
+  if (zoneSel === 'france') return null;
+  if (zoneSel === 'v' && config.zoneVoisins) return config.zoneVoisins.bbox;
+  const r = regionSel(); if (r) return r.bbox;
+  const d = depSel(); if (d) return d.bbox;
+  return config.zoneDep || config.zone;
+}
+function nomZone() {
+  if (zoneSel === 'france') return 'France';
+  if (zoneSel === 'v' && config.zoneVoisins) return `${config.zoneNom} et voisins`;
+  const r = regionSel(); if (r) return r.nom;
+  const d = depSel(); if (d) return d.nom;
+  return config.zoneNom;
+}
+// Les calculs de couverture portent sur un département : celui de la carte, ou le département choisi
+const paramDep = () => { const d = depSel(); return d && d.code !== String(config.departement && config.departement.code) ? `dep=${d.code}` : ''; };
+const couvPossible = () => !(zoneSel === 'france' || regionSel());
+const avecDep = (url) => { const p = paramDep(); return p ? url + (url.includes('?') ? '&' : '?') + p : url; };
+const zoneLarge = (n) => { const z = config && bboxZone(); return !z || (n.lat != null && n.lat >= z[0] - 0.3 && n.lat <= z[2] + 0.3 && n.lon >= z[1] - 0.3 && n.lon <= z[3] + 0.3); };
 const voitMt = () => vue !== 'meshcore', voitMc = () => !!config.meshcore && vue !== 'meshtastic';
 function eclair(m, sel) { const el = m && m.getElement() && m.getElement().querySelector(sel); if (!el) return; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
 function flasher(num) { eclair(etat.marqueurs.get(num), '.mk'); }
@@ -34,6 +57,11 @@ function onde(p, couleur) {
 
 async function demarrer() {
   config = await (await fetch('/api/config')).json();
+  config.zoneDep = config.zone;
+  try { departements = await (await fetch('/api/departements')).json(); } catch { departements = []; }
+  { let z = params.get('zone'); try { if (!z) z = localStorage.getItem('publique_zone'); } catch { /* indisponible */ } if (z) zoneSel = z; }
+  if (!bboxZone() && zoneSel !== 'france') zoneSel = 'dep';
+  installerZone();
   majTitre();
   // Lien vers la carte complète : seulement pour un administrateur connecté (la carte publique sert à consulter)
   fetch('/api/compte').then((r) => r.json()).then((u) => { if (u && u.role === 'admin') document.getElementById('lien-complet').hidden = false; }).catch(() => {});
@@ -43,7 +71,7 @@ async function demarrer() {
   carte.createPane('liens').style.zIndex = 410;
   carte.createPane('traces').style.zIndex = 420;
   installerFonds();
-  if (config.zone) carte.fitBounds([[config.zone[0], config.zone[1]], [config.zone[2], config.zone[3]]], { padding: [10, 10] });
+  recadrer();
   couche = L.layerGroup().addTo(carte);
   mcp.coucheLiens = L.layerGroup().addTo(carte);
   mcp.coucheNoeuds = L.layerGroup().addTo(carte);
@@ -95,7 +123,7 @@ const NOM_ACCES = { voiture: 'accessibles en voiture', '4x4': 'accessibles en 4�
 const pc = (v) => String(v).replace('.', ',');
 // Plan : emplacements conseillés selon l'accès choisi ; un clic sur une épingle montre la couverture de ce site seul
 async function afficherPlan(g, info) {
-  const r = await fetch(`/api/relief/plan?objectif=99&max=8&acces=${couv.acces}&realiste=1`).then((x) => x.json());
+  const r = await fetch(avecDep(`/api/relief/plan?objectif=99&max=8&acces=${couv.acces}&realiste=1`)).then((x) => x.json());
   if (r.erreur) throw new Error(r.erreur);
   const e = r.emprise;
   couv.plan = r;
@@ -126,7 +154,7 @@ async function couverturePoint(ll) {
   const brancher = () => { const sel = document.getElementById('h-point'); if (sel) sel.onchange = (e) => { couv.hauteur = Number(e.target.value); couverturePoint(couv.dernierPoint); }; };
   info.innerHTML = ligne('<span class="sablier"></span> Calcul…'); brancher();
   let r;
-  try { r = await fetch(`/api/relief/couverture?lat=${ll.lat.toFixed(5)}&lon=${ll.lng.toFixed(5)}&hs=${h}`).then((y) => y.json()); } catch (e) { r = { erreur: e.message }; }
+  try { r = await fetch(avecDep(`/api/relief/couverture?lat=${ll.lat.toFixed(5)}&lon=${ll.lng.toFixed(5)}&hs=${h}`)).then((y) => y.json()); } catch (e) { r = { erreur: e.message }; }
   if (couv.mode !== 'point' || couv.dernierPoint !== ll) return;
   if (r.erreur) { info.innerHTML = ligne('Couverture indisponible : ' + esc(r.erreur)); brancher(); return; }
   const e = r.emprise;
@@ -138,7 +166,7 @@ async function couvertureSite(x, g, info) {
   info.innerHTML = '<span class="sablier"></span> Calcul de la couverture de ce site…';
   const hs = (couv.plan.parametres && couv.plan.parametres.hs) || 6;
   let r;
-  try { r = await fetch(`/api/relief/couverture?lat=${x.lat}&lon=${x.lon}&hs=${hs}`).then((y) => y.json()); } catch (e) { r = { erreur: e.message }; }
+  try { r = await fetch(avecDep(`/api/relief/couverture?lat=${x.lat}&lon=${x.lon}&hs=${hs}`)).then((y) => y.json()); } catch (e) { r = { erreur: e.message }; }
   if (couv.mode !== 'sites') return;
   if (r.erreur) { info.textContent = 'Couverture indisponible : ' + r.erreur; return; }
   if (couv.siteChoisi) couv.siteChoisi.remove();
@@ -191,7 +219,7 @@ async function basculerCouverture(mode) {
   try {
     if (mode === 'actuelle') {
       const mcSeul = vue === 'meshcore';
-      const r = await fetch(`/api/relief/couverture-reseau${mcSeul ? '?reseau=meshcore' : ''}`).then((x) => x.json());
+      const r = await fetch(avecDep(`/api/relief/couverture-reseau${mcSeul ? '?reseau=meshcore' : ''}`)).then((x) => x.json());
       if (couv.mode !== mode) return;
       if (r.erreur) throw new Error(r.erreur);
       if (r.vide) { info.textContent = 'Aucun relais positionné entendu depuis 24 h.'; return; }
@@ -213,12 +241,42 @@ async function basculerCouverture(mode) {
 function majTitre() {
   const base = params.get('titre') || config.titre || 'Réseau Meshtastic';
   const nomReseau = vue === 'meshcore' ? 'MeshCore' : vue === 'deux' && config.meshcore ? 'Meshtastic et MeshCore' : 'Meshtastic';
-  const titre = base.replace(/Meshtastic(\s*(et|\/|&|\+)\s*MeshCore)?|MeshCore(\s*(et|\/|&|\+)\s*Meshtastic)?/i, nomReseau);
+  let titre = base.replace(/Meshtastic(\s*(et|\/|&|\+)\s*MeshCore)?|MeshCore(\s*(et|\/|&|\+)\s*Meshtastic)?/i, nomReseau);
+  // Le nom de la zone de la carte (ex. Haute-Loire) suit le secteur choisi
+  if (config.zoneNom && zoneSel !== 'dep' && titre.includes(config.zoneNom)) titre = titre.replace(config.zoneNom, nomZone());
   document.getElementById('titre').textContent = titre;
   document.title = titre + ' · carte publique';
 }
 // « du département » quand la zone est un département, sinon le nom de la zone (région, zone libre)
-const libZone = () => (config.departement && config.zoneNom && config.departement.nom && config.zoneNom !== config.departement.nom ? `de la zone ${config.zoneNom}` : 'du département');
+const libZone = () => (depSel() ? `du département (${depSel().nom})` : config.departement && config.zoneNom && config.departement.nom && config.zoneNom !== config.departement.nom ? `de la zone ${config.zoneNom}` : 'du département');
+function recadrer() {
+  const z = bboxZone();
+  if (z) carte.fitBounds([[z[0], z[1]], [z[2], z[3]]], { padding: [10, 10] }); else carte.setView([46.6, 2.5], 6);
+}
+function installerZone() {
+  const sel = document.getElementById('choix-zone');
+  if (!sel) return;
+  const o = (v, t) => `<option value="${v}">${esc(t)}</option>`;
+  sel.innerHTML = o('dep', config.zoneNom || 'Département de la carte') + (config.zoneVoisins ? o('v', `${config.zoneNom} + voisins`) : '') + o('france', 'France entière')
+    + ((config.regions || []).length ? `<optgroup label="Régions">${config.regions.map((r) => o('r' + r.code, r.nom)).join('')}</optgroup>` : '')
+    + (departements.length ? `<optgroup label="Départements">${departements.map((d) => o('d' + d.code, `${d.code} · ${d.nom}`)).join('')}</optgroup>` : '');
+  sel.value = zoneSel;
+  sel.onchange = () => {
+    zoneSel = sel.value;
+    try { localStorage.setItem('publique_zone', zoneSel); } catch { /* indisponible */ }
+    if (couv.mode) { const m = couv.mode; couv.mode = null; if (couvPossible()) basculerCouverture(m); else { if (couv.couche) { couv.couche.remove(); couv.couche = null; } ['b-couv', 'b-sites', 'b-point'].forEach((id) => document.getElementById(id).classList.remove('actif')); document.body.classList.remove('mode-point'); document.getElementById('info-couv').hidden = true; } }
+    majBoutonsCouv();
+    majTitre();
+    recadrer();
+    dessinerMt();
+    rafraichirMc();
+  };
+  majBoutonsCouv();
+}
+function majBoutonsCouv() {
+  const ok = couvPossible();
+  for (const id of ['b-couv', 'b-sites', 'b-point']) { const b = document.getElementById(id); b.disabled = !ok; b.title = ok ? b.dataset.titre || b.title : 'Choisissez un département pour les calculs de couverture'; if (!b.dataset.titre && ok) b.dataset.titre = b.title; }
+}
 
 function changerVue(v, sansCharger) {
   vue = v;
