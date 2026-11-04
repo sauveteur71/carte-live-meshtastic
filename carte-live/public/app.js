@@ -2860,9 +2860,9 @@ function terminerZone() {
   planZoneDessinee(poly, nom);
 }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && etat.dessinZone) arreterZone(); });
-async function planZoneDessinee(poly, nom) {
+async function planZoneDessinee(poly, nom, opts = {}) {
   const objectif = Number(($('#plan-objectif') || {}).value) || 95, max = Number(($('#plan-max') || {}).value) || 10;
-  const acces = ($('#plan-acces') || {}).value || 'tous', reseau = $('#plan-reseau') ? $('#plan-reseau').checked : true, realiste = $('#plan-realiste') ? $('#plan-realiste').checked : false;
+  const acces = opts.acces || ($('#plan-acces') || {}).value || lireLs('gaulix_zone_acces', null) || 'tous', reseau = $('#plan-reseau') ? $('#plan-reseau').checked : true, realiste = $('#plan-realiste') ? $('#plan-realiste').checked : false;
   $('#fiche').hidden = false;
   etat.selection = null;
   const z = $('#fiche-contenu');
@@ -2882,6 +2882,8 @@ async function planZoneDessinee(poly, nom) {
   const nomAcces = { tous: 'tous les points hauts', voiture: 'accessibles en voiture', '4x4': 'accessibles en 4×4 ou voiture', pied: 'accessibles à pied, en 4×4 ou voiture' }[r.filtreAcces];
   z.innerHTML = `<h2>🖊 ${esc(nom)}</h2>
     <div class="ident">${r.surfaceZoneKm2} km² · objectif ${r.objectifPct} % · au plus ${r.max} sites · ${esc(nomAcces)} · ${r.avecReseau ? `avec le réseau actuel (${r.reseau.length} relais à portée)` : 'sans le réseau actuel'}</div>
+    <div class="parametres compact"><label>Accès des nouveaux relais <select id="zone-acces">${Object.entries({ voiture: '🚗 En voiture', '4x4': '🚙 En 4×4 ou voiture', pied: '🥾 À pied ou mieux', tous: 'Tous les points hauts' }).map(([k, v]) => `<option value="${k}" ${k === r.filtreAcces ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
+    ${r.filtreAcces !== 'tous' && r.accesEtat && r.accesEtat.faits < r.accesEtat.total ? `<div class="alerte attention">Accès aux sites en cours d’évaluation (OpenStreetMap) : ${r.accesEtat.faits}/${r.accesEtat.total} points. Seuls les sites déjà évalués sont proposés.</div>` : ''}
     ${r.horsReliefKm2 > 2 ? `<div class="alerte attention">${r.horsReliefKm2} km² de la zone sortent du relief chargé (département et ses abords) : ils ne sont pas étudiés.</div>` : ''}
     <div class="barre-couv"><i style="width:${r.departPct}%" class="actuel"></i><i style="width:${Math.max(0, r.finalPct - r.departPct)}%" class="ajout"></i></div>
     <div class="alerte ${r.atteint ? 'info-lecture' : 'attention'}">Réseau actuel : <b>${fmt(r.departPct, 1, ' %')}</b> de la zone. ${r.sites.length ? `Avec ${r.sites.length} site${r.sites.length > 1 ? 's' : ''} : <b>${fmt(r.finalPct, 1, ' %')}</b>${r.atteint ? ' ✔' : ' (objectif non atteint avec ces critères)'}.` : r.atteint ? 'Objectif déjà atteint.' : 'Aucun point haut candidat n’améliore la couverture avec ces critères.'}</div>
@@ -2896,6 +2898,7 @@ async function planZoneDessinee(poly, nom) {
     <p class="note">Bleu : déjà couvert · turquoise : apporté par les sites proposés · rouge : non couvert. ${r.candidats} points hauts candidats (dans la zone ou à moins de 10 km). Antenne supposée à ${(r.parametres && r.parametres.hs) || 6} m au site, ${(r.parametres && r.parametres.ht) || 2} m au sol. La zone est gardée dans ce navigateur (Couverture › Plan › Zones enregistrées).</p>`;
   const gx = $('#zone-gpx'); if (gx) gx.onclick = () => telechargerGpx(`zone-${nom.replace(/[^\w-]+/g, '-')}.gpx`, r.sites.map((x) => ({ lat: x.lat, lon: x.lon, alt: x.alt, nom: `${x.rang} - ${nomSommet(x)}`, desc: `+${x.gainKm2} km², cumul ${x.totalPct} %` })));
   $('#zone-refaire').onclick = () => commencerZone();
+  $('#zone-acces').onchange = (ev) => { ecrireLs('gaulix_zone_acces', ev.target.value); planZoneDessinee(poly, nom, { acces: ev.target.value }); };
 }
 
 // ---- Plan pour couvrir le département ------------------------------------------------------------
