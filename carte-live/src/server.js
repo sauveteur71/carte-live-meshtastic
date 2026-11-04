@@ -2246,7 +2246,7 @@ clientMqtt.on('reconnect', () => { statsMqtt.reconnexions++; });
 clientMqtt.on('error', (e) => { statsMqtt.derniereErreur = { message: e.message, heure: Date.now() }; journal('Erreur MQTT :', e.message); });
 clientMqtt.on('message', (topic, message) => {
   compteur.recus++;
-  if (config.meshcore.actif && topic.startsWith(prefixeMc)) { try { messageMc(topic, message); } catch (e) { compteurMc.erreurs++; journal('Erreur MeshCore :', e.message, topic); } return; }
+  if (config.meshcore.actif && topic.startsWith(prefixeMc)) { compteurMc.recusMqtt = (compteurMc.recusMqtt || 0) + 1; try { messageMc(topic, message); } catch (e) { compteurMc.erreurs++; journal('Erreur MeshCore :', e.message, topic); } return; }
   noterMessageMqtt(topic);
   try {
     const evt = decoderMessage(topic, message, canaux);
@@ -2573,7 +2573,9 @@ setTimeout(rafraichirEtat, 2000);
 setInterval(() => {
   const n = stockage.purger(config.retentionJours) + reseauMc.purger(config.retentionJours, config.meshcore.retentionPaquetsJours);
   reseau.nettoyer();
-  journal(`Purge : ${n} lignes de plus de ${config.retentionJours} jours supprimées · MQTT reçus ${compteur.recus}, traités ${compteur.decodes}, erreurs ${compteur.erreurs}`);
+  // Compteurs séparés : un broker peut ne porter que du MeshCore (Meshtastic « 0 traité » est alors normal)
+  const mcR = compteurMc.recusMqtt || 0;
+  journal(`Purge : ${n} lignes de plus de ${config.retentionJours} jours supprimées · MQTT Meshtastic : ${compteur.recus - mcR} reçus, ${compteur.decodes} traités, ${compteur.erreurs} erreurs${config.meshcore.actif ? ` · MeshCore : ${mcR} reçus, ${compteurMc.observations} observations gardées, ${compteurMc.horsPerimetre || 0} hors périmètre` : ''} (depuis le démarrage)`);
 }, 3600000);
 stockage.purger(config.retentionJours);
 setTimeout(() => reseauMc.purger(config.retentionJours, config.meshcore.retentionPaquetsJours), 60000);
