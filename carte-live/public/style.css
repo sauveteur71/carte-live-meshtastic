@@ -1070,3 +1070,16 @@ details.groupe-mc[open] > summary { border-bottom: 1px solid var(--bord); }
 .cx-serie { margin: 8px 0; }
 .cx-gros.cx-large { width: 100%; }
 #cx-ports .liste { margin-top: 6px; }
+
+.serie-capteur.hors-seuil { border-color: #f59e0b; }
+.alerte-seuil { color: #fbbf24; font-weight: 600; font-size: 12px; }
+.seuils-capteur summary { cursor: pointer; font-size: 13px; color: var(--doux); margin-top: 4px; }
+.ligne-seuils { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-top: 6px; }
+.ligne-seuils input[type="number"] { width: 90px; flex: none; }
+a.bouton-lien { text-decoration: none; display: inline-flex; align-items: center; }
+.pastille-cat { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+
+/* Téléphones et tablettes : pas de flou derrière les panneaux (coûteux pendant les animations de la carte) */
+@media (pointer: coarse) {
+  .marque, .kpis, .panneau, .fiche, .rejeu, .recherche-lieu input { backdrop-filter: none; }
+}

@@ -1,5 +1,7 @@
 /* Carte live Meshtastic — interface */
 'use strict';
+// Téléphone ou tablette (écran tactile, petit écran) : carte allégée (canevas, moins d'animations simultanées)
+const MOBILE = (() => { try { return matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900; } catch { return false; } })();
 
 const PORTS = {
   position: { nom: 'Position', couleur: 'var(--p-position)', hex: '#4cc9f0' },
@@ -154,7 +156,8 @@ const numAlerte = () => new Set(etat.alertes.map((a) => a.num));
 // ---- Carte -----------------------------------------------------------------
 let carte;
 function initCarte() {
-  carte = L.map('carte', { zoomControl: false, preferCanvas: false, worldCopyJump: true }).setView(etat.config.centre, etat.config.zoom);
+  // Téléphone ou tablette : lignes dessinées en canevas (bien plus léger que des centaines d'éléments SVG)
+  carte = L.map('carte', { zoomControl: false, preferCanvas: MOBILE, worldCopyJump: true }).setView(etat.config.centre, etat.config.zoom);
   L.control.zoom({ position: 'bottomleft' }).addTo(carte);
   const t = etat.config.tuiles;
   const wmts = (couche, format = 'image/png', style = 'normal') => `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${couche}&STYLE=${style}&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=${format}`;
@@ -939,12 +942,24 @@ function rendreNoeuds() {
   }[tri];
   liste.sort((a, b) => (estFavori(b.num) - estFavori(a.num)) || cmp(a, b)); // favoris en tête
   const alertes = numAlerte();
-  $('#noeuds').innerHTML = liste.length
-    ? liste.slice(0, 400).map((n) => {
-        const sauts = n.sautsMin == null ? '' : n.sautsMin === 0 ? 'direct · ' : `${n.sautsMin} saut${n.sautsMin > 1 ? 's' : ''} · `;
-        return ligneNoeud(n, alertes.has(n.num) ? 'alerte' : n.statut, sauts + ilYa(n.dernierVu));
-      }).join('')
-    : '<div class="vide">Aucun nœud.</div>';
+  const ligne = (n) => {
+    const sauts = n.sautsMin == null ? '' : n.sautsMin === 0 ? 'direct · ' : `${n.sautsMin} saut${n.sautsMin > 1 ? 's' : ''} · `;
+    return ligneNoeud(n, alertes.has(n.num) ? 'alerte' : n.statut, sauts + ilYa(n.dernierVu));
+  };
+  const parType = lireLs('gaulix_mt_par_type', true);
+  const bp = $('#mt-par-type');
+  if (bp) { bp.classList.toggle('actif', parType); if (!bp.dataset.branche) { bp.dataset.branche = '1'; bp.onclick = () => { ecrireLs('gaulix_mt_par_type', !lireLs('gaulix_mt_par_type', true)); rendreNoeuds(); }; } }
+  if (!liste.length) { $('#noeuds').innerHTML = '<div class="vide">Aucun nœud.</div>'; return; }
+  if (!parType) { $('#noeuds').innerHTML = liste.slice(0, 400).map(ligne).join(''); return; }
+  // Rangement par type (catégories de la légende), groupes repliables, état gardé dans ce navigateur
+  const replies = lireLs('gaulix_mt_replies', {});
+  $('#noeuds').innerHTML = CATEGORIES.map((c) => {
+    const l = liste.filter((n) => categorie(n) === c);
+    if (!l.length) return '';
+    const actifs = l.filter((n) => n.statut === 'actif').length;
+    return `<details class="groupe-mc" data-cat="${c.cle}" ${replies[c.cle] ? '' : 'open'}><summary><i class="pastille-cat" style="background:${c.couleur}"></i><b>${esc(c.nom)}</b> <span class="pastille">${l.length}</span> <small>${actifs} actif${actifs > 1 ? 's' : ''}</small></summary>${l.slice(0, 300).map(ligne).join('')}</details>`;
+  }).join('');
+  $('#noeuds').querySelectorAll('details.groupe-mc').forEach((d) => d.addEventListener('toggle', () => { const x = lireLs('gaulix_mt_replies', {}); x[d.dataset.cat] = !d.open; ecrireLs('gaulix_mt_replies', x); }));
 }
 
 // ---- Panneau : trafic ------------------------------------------------------------
@@ -974,7 +989,7 @@ function ajouterAuFlux(p) {
   if (etat.zone && !dansZoneNum(p.de) && !dansZoneNum(p.passerelle)) return;
   const flux = $('#flux');
   flux.insertAdjacentHTML('afterbegin', lignePaquet(p, true));
-  while (flux.children.length > 300) flux.lastElementChild.remove();
+  while (flux.children.length > (MOBILE ? 80 : 300)) flux.lastElementChild.remove();
 }
 async function chargerActiviteInitiale() {
   try {

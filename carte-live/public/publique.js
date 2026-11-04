@@ -42,10 +42,11 @@ function nomZone() {
   const d = depSel(); if (d) return d.nom;
   return config.zoneNom;
 }
-// Les calculs de couverture portent sur un département : celui de la carte, ou le département choisi
-const paramDep = () => { const d = depSel(); return d && d.code !== String(config.departement && config.departement.code) ? `dep=${d.code}` : ''; };
-const couvPossible = () => !(zoneSel === 'france' || regionSel());
-const avecDep = (url) => { const p = paramDep(); return p ? url + (url.includes('?') ? '&' : '?') + p : url; };
+// Carte légère : ailleurs que dans le département de la carte, on affiche le réseau (nœuds, liaisons, animations)
+// sans calcul de couverture (le relief n'est chargé que pour le département de la carte)
+const depCarte = () => String((config.departement && config.departement.code) || '');
+const couvPossible = () => zoneSel === 'dep' || zoneSel === 'v' || (depSel() && depSel().code === depCarte());
+const avecDep = (url) => url;
 const zoneLarge = (n) => { const z = config && bboxZone(); return !z || (n.lat != null && n.lat >= z[0] - 0.3 && n.lat <= z[2] + 0.3 && n.lon >= z[1] - 0.3 && n.lon <= z[3] + 0.3); };
 const voitMt = () => vue !== 'meshcore', voitMc = () => !!config.meshcore && vue !== 'meshtastic';
 function eclair(m, sel) { const el = m && m.getElement() && m.getElement().querySelector(sel); if (!el) return; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
@@ -248,7 +249,7 @@ function majTitre() {
   document.title = titre + ' · carte publique';
 }
 // « du département » quand la zone est un département, sinon le nom de la zone (région, zone libre)
-const libZone = () => (depSel() ? `du département (${depSel().nom})` : config.departement && config.zoneNom && config.departement.nom && config.zoneNom !== config.departement.nom ? `de la zone ${config.zoneNom}` : 'du département');
+const libZone = () => (config.departement && config.zoneNom && config.departement.nom && config.zoneNom !== config.departement.nom ? `de la zone ${config.zoneNom}` : 'du département');
 function recadrer() {
   const z = bboxZone();
   if (z) carte.fitBounds([[z[0], z[1]], [z[2], z[3]]], { padding: [10, 10] }); else carte.setView([46.6, 2.5], 6);
@@ -275,7 +276,14 @@ function installerZone() {
 }
 function majBoutonsCouv() {
   const ok = couvPossible();
-  for (const id of ['b-couv', 'b-sites', 'b-point']) { const b = document.getElementById(id); b.disabled = !ok; b.title = ok ? b.dataset.titre || b.title : 'Choisissez un département pour les calculs de couverture'; if (!b.dataset.titre && ok) b.dataset.titre = b.title; }
+  for (const id of ['b-couv', 'b-sites', 'b-point']) {
+    const b = document.getElementById(id);
+    if (b.dataset.titre == null) b.dataset.titre = b.title;
+    b.disabled = !ok;
+    b.title = ok ? b.dataset.titre : `Calculs de couverture disponibles sur ${config.zoneNom || 'le département de la carte'}`;
+  }
+  const n = document.getElementById('note-couv');
+  if (n) { n.hidden = ok; n.textContent = `Couverture et emplacements de relais : sur ${config.zoneNom || 'le département de la carte'} seulement.`; }
 }
 
 function changerVue(v, sansCharger) {

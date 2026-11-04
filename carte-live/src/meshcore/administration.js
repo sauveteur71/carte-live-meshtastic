@@ -493,6 +493,17 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     t.courant = null;
     const res = Object.values(t.resultats);
     t.statut = t.arret ? 'annule' : res.length && res.every((r) => r.ok) && res.length === t.cles.length ? 'ok' : 'echec';
+    // Bilan dans le journal : nœud par nœud, réussite ou raison de l'échec (dernière étape en erreur)
+    if (t.auteur !== 'supervision' || t.statut !== 'ok') {
+      const nom = (c) => (t.noms && t.noms[c]) || String(c).slice(0, 8);
+      const bilan = t.cles.slice(0, 12).map((c) => {
+        const r = t.resultats[c];
+        if (r && r.ok) return `${nom(c)} réussie`;
+        const err = [...t.etapes].reverse().find((e) => !e.ok && (e.cle === c || e.cle == null));
+        return `${nom(c)} ${t.arret ? 'arrêtée' : 'échec'}${err ? ' : ' + String(err.texte).split('\n')[0].slice(0, 140) : ''}`;
+      });
+      journal(`tâche MeshCore ${t.type} terminée (${t.auteur}) : ${bilan.join(' · ')}${t.cles.length > 12 ? ` · … ${t.cles.length - 12} autre(s)` : ''}`);
+    }
     // « Insister » : les nœuds en échec passager sont repris toutes les 10 min, pendant 2 h au plus
     const aReprendre = t.insister && !t.arret ? t.cles.filter((c) => { const r = t.resultats[c]; return !r || (!r.ok && !r.definitif); }) : [];
     if (aReprendre.length && Date.now() - t.creee < 2 * 3600000) {

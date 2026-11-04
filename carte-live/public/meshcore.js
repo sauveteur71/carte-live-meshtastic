@@ -362,7 +362,7 @@ function mcAjouterAuFlux(p) {
   if (!flux || !p.premiere || !mc.filtresTypes.has(MC_CLE_TYPE[p.type] || 'autre')) return;
   const vide = flux.querySelector('.vide'); if (vide) vide.remove();
   flux.insertAdjacentHTML('afterbegin', mcLignePaquet(p, true));
-  while (flux.children.length > 300) flux.lastElementChild.remove();
+  while (flux.children.length > (typeof MOBILE !== 'undefined' && MOBILE ? 80 : 300)) flux.lastElementChild.remove();
 }
 
 // ---- Messages : lecture (membres), envoi sur un canal ou en direct (admin, par le companion) ----------
@@ -1055,6 +1055,17 @@ function mcMajAlertes() {
   p.textContent = a.length;
   p.className = 'pastille' + (a.some((x) => x.niveau === 'critique') ? ' critique' : a.length ? ' attention' : '');
   $('#resume-alertes-mc').textContent = resumeAlertes(a);
+  // Capteurs hors seuil : notification du navigateur, une fois par alerte
+  try {
+    const vues = JSON.parse(localStorage.getItem('gaulix_capteurs_notifies') || '{}');
+    let change = false;
+    for (const x of a.filter((y) => y.type === 'capteur')) {
+      if (vues[x.cle] === x.depuis) continue;
+      vues[x.cle] = x.depuis; change = true;
+      if ('Notification' in window && Notification.permission === 'granted') { try { new Notification('Capteur hors seuil', { body: x.message, tag: x.cle }); } catch { /* ignoré */ } }
+    }
+    if (change) localStorage.setItem('gaulix_capteurs_notifies', JSON.stringify(vues));
+  } catch { /* stockage indisponible */ }
   z.innerHTML = a.length ? a.map((x) => `<div class="alerte ${x.niveau}" data-mc-alerte="${x.noeud || ''}">${esc(x.message)}<small>${x.niveau === 'critique' ? 'Critique' : 'Attention'} · depuis ${ilYa(x.depuis).replace('il y a ', '')}</small></div>`).join('') : '<div class="vide">Aucune alerte MeshCore.</div>';
   // Répéteurs et room servers de la zone
   const vueCarte = !etat.zone && typeof carte !== 'undefined' && carte ? carte.getBounds() : null;
@@ -1365,7 +1376,7 @@ async function mcRendreCapteurs(n, z, jours = 7) {
   const dec = (u) => (u === 'V' ? 2 : u === '°C' || u === '%' || u === 'hPa' ? 1 : 2);
   const lib = (m) => ({ 15: '15 min', 30: '30 min', 60: '1 h', 180: '3 h', 360: '6 h', 720: '12 h', 1440: '24 h' }[m] || 'jamais');
   z.innerHTML = `
-    <div class="actions-prop">${[1, 7, 30, 90].map((j) => `<button class="mini ${j === jours ? 'actif' : ''}" data-cj="${j}">${j} j</button>`).join('')}</div>
+    <div class="actions-prop">${[1, 7, 30, 90].map((j) => `<button class="mini ${j === jours ? 'actif' : ''}" data-cj="${j}">${j} j</button>`).join('')}${r.series.length ? `<a class="mini bouton-lien" href="/api/mc/capteurs/${n.cle}/csv?jours=${jours}" download>⬇ CSV (${jours} j)</a>` : ''}</div>
     ${r.peutRegler ? `<div class="reglage-capteurs"><label>Relever toutes les <select id="cap-int">${r.intervalles.map((m) => `<option value="${m}" ${m === r.intervalleMin ? 'selected' : ''}>${lib(m)}</option>`).join('')}</select></label>
       <button class="mini principal" id="cap-maintenant">Relever maintenant</button></div>
       <p class="note">Le relevé passe par le companion de la carte (tâche « télémétrie »). Le nœud doit autoriser la télémétrie : mot de passe invité ou admin mémorisé, ou télémétrie ouverte. Chaque relevé envoie un paquet : 1 h ou plus suffit pour un abri ou une batterie.</p>` : ''}
@@ -1373,9 +1384,17 @@ async function mcRendreCapteurs(n, z, jours = 7) {
     ${r.series.length ? r.series.map((sr) => {
       const pts = sr.points.map(([h, v]) => ({ heure: h, v }));
       const der = sr.points[sr.points.length - 1];
-      return `<div class="serie-capteur"><div class="titre-serie"><b>${esc(libelleCapteur(r, sr.mesure))}</b> <span class="valeur">${fmt(der[1], dec(sr.unite), ' ' + sr.unite)}</span>
-        ${r.peutRegler ? `<button class="mini" data-cap-lib="${esc(sr.mesure)}" title="Renommer cette mesure">✏️</button>` : ''}<small>${esc(sr.mesure.replace(':', ' · canal '))} · ${sr.points.length} relevé${sr.points.length > 1 ? 's' : ''}</small></div>
-        ${pts.length >= 2 ? courbe(pts, 'v', '', ' ' + sr.unite, dec(sr.unite)) : '<p class="note">Une seule valeur pour l’instant : la courbe apparaîtra au relevé suivant.</p>'}</div>`;
+      const se = (r.seuils || {})[sr.mesure] || {};
+      const hors = (se.min != null && der[1] < se.min) || (se.max != null && der[1] > se.max);
+      const txtSeuil = se.min != null || se.max != null ? `alerte ${se.min != null ? 'sous ' + fmt(se.min, dec(sr.unite), ' ' + sr.unite) : ''}${se.min != null && se.max != null ? ' ou ' : ''}${se.max != null ? 'au-dessus de ' + fmt(se.max, dec(sr.unite), ' ' + sr.unite) : ''}` : '';
+      return `<div class="serie-capteur${hors ? ' hors-seuil' : ''}"><div class="titre-serie"><b>${esc(libelleCapteur(r, sr.mesure))}</b> <span class="valeur">${fmt(der[1], dec(sr.unite), ' ' + sr.unite)}</span>${hors ? ' <span class="alerte-seuil">⚠ hors seuil</span>' : ''}
+        ${r.peutRegler ? `<button class="mini" data-cap-lib="${esc(sr.mesure)}" title="Renommer cette mesure">✏️</button>` : ''}<small>${esc(sr.mesure.replace(':', ' · canal '))} · ${sr.points.length} relevé${sr.points.length > 1 ? 's' : ''}${txtSeuil ? ' · ' + txtSeuil : ''}</small></div>
+        ${pts.length >= 2 ? courbe(pts, 'v', '', ' ' + sr.unite, dec(sr.unite), se.min != null ? se.min : undefined) : '<p class="note">Une seule valeur pour l’instant : la courbe apparaîtra au relevé suivant.</p>'}
+        ${r.peutRegler ? `<details class="seuils-capteur"><summary>🔔 Alerte${txtSeuil ? ' (réglée)' : ''}</summary><div class="ligne-seuils" data-cap-seuil="${esc(sr.mesure)}">
+          <label>sous <input type="number" step="any" data-s="min" value="${se.min ?? ''}" placeholder="—"></label>
+          <label>au-dessus de <input type="number" step="any" data-s="max" value="${se.max ?? ''}" placeholder="—"></label>
+          <span>${esc(sr.unite || '')}</span><button class="mini principal" data-s-ok>Enregistrer</button></div>
+          <p class="note">Alerte MeshCore (et notification du navigateur, carte ouverte) quand le dernier relevé sort de ces limites. Laissez vide pour ne pas surveiller.</p></details>` : ''}</div>`;
     }).join('') : '<div class="vide">Aucune mesure enregistrée. Choisissez un intervalle de relevé, ou « Relever maintenant ».</div>'}`;
   z.querySelectorAll('[data-cj]').forEach((b) => (b.onclick = () => mcRendreCapteurs(n, z, Number(b.dataset.cj))));
   const si = $('#cap-int');
@@ -1386,6 +1405,12 @@ async function mcRendreCapteurs(n, z, jours = 7) {
     try { await postJson('/api/mc/admin/taches', { type: 'telemetrie', cles: [n.cle] }); } catch (e) { alert(e.message); bm.disabled = false; bm.textContent = 'Relever maintenant'; return; }
     setTimeout(() => mcRendreCapteurs(n, z, jours), 25000);
   };
+  z.querySelectorAll('[data-cap-seuil]').forEach((l) => (l.querySelector('[data-s-ok]').onclick = async () => {
+    const v = (k) => l.querySelector(`[data-s="${k}"]`).value.replace(',', '.');
+    try { await postJson(`/api/mc/capteurs/${n.cle}`, { nom: n.nom || '', seuils: { [l.dataset.capSeuil]: { min: v('min'), max: v('max') } } }); } catch (e) { alert(e.message); return; }
+    if ('Notification' in window && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch { /* refus */ } }
+    mcRendreCapteurs(n, z, jours);
+  }));
   z.querySelectorAll('[data-cap-lib]').forEach((b) => (b.onclick = async () => {
     const m = b.dataset.capLib;
     const v = prompt(`Nom de la mesure « ${m.replace(':', ' · canal ')} » (vide = nom par défaut) :`, (r.libelles || {})[m] || '');

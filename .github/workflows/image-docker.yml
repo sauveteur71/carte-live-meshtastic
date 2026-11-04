@@ -1,6 +1,9 @@
 # Construit l'image Docker (PC/NAS Intel et ARM) et la publie sur GitHub Container Registry :
 #   - à chaque envoi sur main  → ghcr.io/<propriétaire>/carte-live-meshtastic:main
 #   - à chaque version vX.Y.Z (ou X.Y.Z, sans le « v ») → :X.Y.Z, :X.Y et :latest
+# Avant toute publication, l'image est essayée : le service doit démarrer et servir ses pages principales.
+# Sur main, quand la version de carte-live/package.json n'a pas encore de version GitHub, celle-ci est créée
+# automatiquement (étiquette vX.Y.Z, notes tirées des messages de commit, agents attachés, image :latest).
 name: Image Docker
 
 on:
@@ -14,7 +17,41 @@ permissions:
   packages: write
 
 jobs:
+  essai:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: carte-essai:local
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Démarrage et pages principales
+        run: |
+          docker run -d --name essai -e MQTT_URL= -p 8095:8095 carte-essai:local
+          ok=0
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8095/api/config > /dev/null 2>&1; then ok=1; break; fi
+            sleep 2
+          done
+          docker logs essai 2>&1 | tail -40
+          [ "$ok" = 1 ] || { echo "Le service ne répond pas"; exit 1; }
+          for p in / /publique /api/config /api/noeuds /api/mc/noeuds /api/departements /app.js /publique.js /meshcore.js; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8095$p")
+            echo "$p → $code"
+            [ "$code" = 200 ] || { echo "Page $p en erreur ($code)"; exit 1; }
+          done
+          sleep 5
+          docker inspect -f '{{.State.Running}}' essai | grep -q true || { echo "Le service s'est arrêté"; docker logs essai; exit 1; }
+          if docker logs essai 2>&1 | grep -E "Uncaught|TypeError|ReferenceError|SyntaxError"; then echo "Erreur au démarrage"; exit 1; fi
+
   image:
+    needs: essai
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +68,7 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=ref,event=branch
+            type=sha,prefix=sha-,format=short
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
@@ -43,3 +81,73 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Version GitHub automatique quand package.json annonce une version qui n'existe pas encore
+  version:
+    needs: image
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: v
+        name: Version à publier ?
+        run: |
+          v=$(node -p "require('./carte-live/package.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$v" >/dev/null || git rev-parse -q --verify "refs/tags/$v" >/dev/null; then
+            echo "La version $v existe déjà"; echo "nouvelle=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "nouvelle=1" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.v.outputs.nouvelle == '1'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - if: steps.v.outputs.nouvelle == '1'
+        uses: docker/setup-buildx-action@v3
+      - if: steps.v.outputs.nouvelle == '1'
+        name: Étiquettes de l'image (:X.Y.Z, :X.Y, :latest)
+        run: |
+          v=${{ steps.v.outputs.version }}
+          img=ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          court=$(git rev-parse --short=7 HEAD)
+          docker buildx imagetools create -t "$img:$v" -t "$img:${v%.*}" -t "$img:latest" "$img:sha-$court"
+      - if: steps.v.outputs.nouvelle == '1'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - if: steps.v.outputs.nouvelle == '1'
+        name: Compilation de l'agent
+        working-directory: agent
+        run: |
+          mkdir -p ../dist
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o ../dist/agent-gaulix-windows.exe .
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o ../dist/agent-gaulix-linux-amd64 .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o ../dist/agent-gaulix-raspberrypi-arm64 .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="-s -w" -o ../dist/agent-gaulix-raspberrypi-armv7 .
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o ../dist/agent-gaulix-macos-arm64 .
+      - if: steps.v.outputs.nouvelle == '1'
+        name: Notes et publication
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v=${{ steps.v.outputs.version }}
+          prec=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)
+          {
+            echo "## Nouveautés${prec:+ depuis $prec}"
+            echo
+            git log ${prec:+$prec..}HEAD --no-merges --format='%s' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+ ?:' | sed -E 's/^([0-9.]+) ?: ?/- **\1** : /'
+            echo
+            echo "## Mise à jour"
+            echo
+            echo '`docker compose pull && docker compose up -d`'
+          } > notes.md
+          cat notes.md
+          gh release create "v$v" dist/* --target "$GITHUB_SHA" --title "$v" --notes-file notes.md

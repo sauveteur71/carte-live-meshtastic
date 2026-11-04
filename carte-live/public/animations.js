@@ -5,7 +5,8 @@
  *    depuis 10 minutes sont soulignés par un halo plus épais. */
 'use strict';
 
-const anim = { enCours: 0, max: 30, axes: new Map(), couche: null, coucheAllumes: null, minuterie: null };
+// Téléphone ou tablette : 6 comètes à la fois au plus (30 sur ordinateur)
+const anim = { enCours: 0, max: (() => { try { return matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900 ? 6 : 30; } catch { return 30; } })(), axes: new Map(), couche: null, coucheAllumes: null, minuterie: null };
 
 // Durée d'un saut (ms) selon sa longueur : rapide pour les sauts courts, plafonnée pour les longs
 const dureeSaut = (km) => Math.min(1100, 320 + km * 22);

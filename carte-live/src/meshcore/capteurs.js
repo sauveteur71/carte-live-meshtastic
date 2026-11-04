@@ -17,10 +17,11 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
   const q = {
     inserer: db.prepare('INSERT INTO mc_capteurs (cle, heure, mesure, valeur, unite) VALUES (?, ?, ?, ?, ?)'),
     serie: db.prepare('SELECT heure, mesure, valeur, unite FROM mc_capteurs WHERE cle = ? AND heure >= ? ORDER BY heure'),
+    derniers: db.prepare('SELECT c.cle, c.mesure, c.valeur, c.unite, c.heure FROM mc_capteurs c JOIN (SELECT cle, mesure, MAX(heure) h FROM mc_capteurs WHERE cle = ? GROUP BY mesure) d ON d.cle = c.cle AND d.mesure = c.mesure AND d.h = c.heure'),
     purger: db.prepare('DELETE FROM mc_capteurs WHERE heure < ?'),
   };
   const fichier = path.join(path.dirname(config.fichierBase), 'meshcore-capteurs.json');
-  let reglages = {}; // cle -> { intervalleMin, libelles: { 'temperature:2': 'Abri' }, dernier }
+  let reglages = {}; // cle -> { intervalleMin, libelles: { 'temperature:2': 'Abri' }, seuils: { 'tension:1': { min: 3.4 } }, dernier, nom }
   try { reglages = JSON.parse(fs.readFileSync(fichier, 'utf8')) || {}; } catch { /* aucun */ }
   const sauver = () => { try { fs.writeFileSync(fichier, JSON.stringify(reglages)); } catch { /* lecture seule */ } };
 
@@ -45,10 +46,10 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
       if (!series.has(p.mesure)) series.set(p.mesure, { mesure: p.mesure, unite: p.unite, points: [] });
       series.get(p.mesure).points.push([p.heure, p.valeur]);
     }
-    return { intervalleMin: r.intervalleMin || 0, libelles: r.libelles || {}, dernier: r.dernier || null, intervalles: INTERVALLES, series: [...series.values()] };
+    return { intervalleMin: r.intervalleMin || 0, libelles: r.libelles || {}, seuils: r.seuils || {}, dernier: r.dernier || null, intervalles: INTERVALLES, series: [...series.values()] };
   }
 
-  function regler(cle, { intervalleMin, libelles } = {}) {
+  function regler(cle, { intervalleMin, libelles, seuils, nom } = {}) {
     const r = reglages[cle] || {};
     if (intervalleMin !== undefined) {
       const v = Number(intervalleMin);
@@ -63,6 +64,17 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
         if (t) r.libelles[k] = t; else delete r.libelles[k];
       }
     }
+    // Seuils d'alerte d'une mesure : minimum et/ou maximum (vide = pas de seuil)
+    if (seuils && typeof seuils === 'object') {
+      r.seuils = { ...(r.seuils || {}) };
+      for (const [k, v] of Object.entries(seuils)) {
+        if (!/^[a-z_]+:\d{1,3}$/.test(k)) continue;
+        const num = (x) => (x === '' || x == null || !Number.isFinite(Number(x)) ? null : Number(x));
+        const mn = num(v && v.min), mx = num(v && v.max);
+        if (mn == null && mx == null) delete r.seuils[k]; else r.seuils[k] = { min: mn, max: mx };
+      }
+    }
+    if (typeof nom === 'string' && nom) r.nom = nom.slice(0, 40);
     reglages[cle] = r;
     sauver();
     return lire(cle, 1);
@@ -84,7 +96,41 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
   // Historique gardé 90 jours
   const purge = setInterval(() => { try { q.purger.run(Date.now() - 90 * 86400000); } catch { /* ignoré */ } }, 6 * 3600000);
 
-  return { noter, lire, regler, arreter: () => { clearInterval(minut); clearInterval(purge); }, INTERVALLES };
+  // Alertes : dernière valeur d'une mesure hors des seuils réglés (valeur de moins de 48 h)
+  const LIB = { tension: 'tension', temperature: 'température', humidite: 'humidité', pression: 'pression', courant: 'courant', pourcentage: 'charge', luminosite: 'luminosité' };
+  function alertes(nomDe = () => null) {
+    const l = [];
+    for (const [cle, r] of Object.entries(reglages)) {
+      if (!r.seuils || !Object.keys(r.seuils).length) continue;
+      for (const d of q.derniers.all(cle)) {
+        const s = r.seuils[d.mesure];
+        if (!s || Date.now() - d.heure > 48 * 3600000) continue;
+        const bas = s.min != null && d.valeur < s.min, haut = s.max != null && d.valeur > s.max;
+        if (!bas && !haut) continue;
+        const [type, canal] = d.mesure.split(':');
+        const libelle = (r.libelles && r.libelles[d.mesure]) || `${LIB[type] || type}${canal !== '1' ? ' ' + canal : ''}`;
+        const nom = nomDe(cle) || r.nom || cle.slice(0, 8);
+        const v = String(Math.round(d.valeur * 100) / 100).replace('.', ',');
+        l.push({ cle: `mc-capteur:${cle}:${d.mesure}`, noeud: cle, type: 'capteur', niveau: 'attention', nom, depuis: d.heure,
+          message: `${nom} · ${libelle} : ${v} ${d.unite || ''}`.trim() + ` (${bas ? 'sous ' + String(s.min).replace('.', ',') : 'au-dessus de ' + String(s.max).replace('.', ',')} ${d.unite || ''})`.replace(' )', ')') });
+      }
+    }
+    return l;
+  }
+  // Export CSV (séparateur « ; », virgule décimale, pour un tableur français)
+  function csv(cle, jours = 90) {
+    const r = reglages[cle] || {};
+    const lignes = ['date;heure;mesure;libellé;valeur;unité'];
+    for (const p of q.serie.all(cle, Date.now() - jours * 86400000)) {
+      const d = new Date(p.heure);
+      const jour = d.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }), h = d.toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris' });
+      const lib = String((r.libelles && r.libelles[p.mesure]) || '').replace(/[;\r\n"]/g, ' ');
+      lignes.push([jour, h, p.mesure, lib, String(p.valeur).replace('.', ','), p.unite || ''].join(';'));
+    }
+    return '\ufeff' + lignes.join('\r\n') + '\r\n';
+  }
+
+  return { noter, lire, regler, alertes, csv, arreter: () => { clearInterval(minut); clearInterval(purge); }, INTERVALLES };
 }
 
 module.exports = { creerCapteursMc };

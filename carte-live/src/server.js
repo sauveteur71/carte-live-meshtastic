@@ -345,7 +345,8 @@ function meilleurDepartement(lat, lon, rayonKm) {
   return meilleur || departementDuPoint(lat, lon);
 }
 function Rdep(req, depForce) {
-  const dep = String(depForce || req.query.dep || (req.body && req.body.dep) || '').toUpperCase();
+  // Relief d'un autre département : chargement lourd (IGN, quelques minutes), réservé aux comptes connectés
+  const dep = String(depForce || (estMembre(req) ? req.query.dep || (req.body && req.body.dep) : '') || '').toUpperCase();
   if (!dep || dep === String(config.departement.code).toUpperCase() || !/^(\d{2}|2A|2B)$/.test(dep)) return relief;
   if (!reliefsEtude.has(dep)) {
     if (!listeDepartements.some((d) => d.code === dep)) return relief;
@@ -2306,6 +2307,7 @@ function diffuserEtatMc() {
   if (!config.meshcore.actif) return;
   const c = companion.etat();
   alertesMc = reseauMc.calculerAlertes({ administres: adminMc.memorises(), companion: { cible: c.cible || c.navigateur, connecte: c.connecte, nom: c.nom, cle: c.cle, erreur: c.erreur } });
+  try { alertesMc = [...alertesMc, ...capteursMc.alertes(nomNoeudMc)]; } catch (e) { journal('alertes des capteurs :', e.message); }
   diffuser({ genre: 'mc-etat', ...etatMc(false) });
 }
 function planifierEtatMc() { if (!minuterieEtatMc) minuterieEtatMc = setTimeout(() => { minuterieEtatMc = null; diffuserEtatMc(); }, 15000); } // statuts d'observateurs fréquents : au plus toutes les 15 s
@@ -2412,6 +2414,8 @@ function fabriquerCompanionEcoute({ cible, nom }) {
 }
 const adminMc = creerAdministrationMc(config, companion, reseauMc, (...a) => journal('[MeshCore]', ...a), (t) => { if (['statut', 'lire', 'chemin', 'voisins', 'tracer', 'telemetrie'].includes(t.type)) { planifierEtatMc(); diffuser({ genre: 'mc-noeuds' }); } });
 // Capteurs MeshCore : relevés périodiques, historique, libellés personnalisés
+const reqNomMc = stockage.db.prepare('SELECT nom FROM mc_noeuds WHERE cle = ?');
+function nomNoeudMc(cle) { try { const r = reqNomMc.get(cle); return r && r.nom; } catch { return null; } }
 const capteursMc = require('./meshcore/capteurs').creerCapteursMc({ db: stockage.db, config, adminMc, companion, journal: (...a) => journal('[MeshCore]', ...a) });
 adminMc.ecouterTelemetrie((cle, mesures) => capteursMc.noter(cle, mesures));
 app.get('/api/mc/capteurs/:cle', (req, res) => {
@@ -2419,6 +2423,12 @@ app.get('/api/mc/capteurs/:cle', (req, res) => {
   const cle = String(req.params.cle).toUpperCase();
   if (!/^[0-9A-F]{64}$/.test(cle)) return res.status(400).json({ erreur: 'clé invalide' });
   res.set('Cache-Control', 'no-store').json({ ...capteursMc.lire(cle, Math.min(Math.max(Number(req.query.jours) || 7, 1), 90)), peutRegler: peutGerer(req, cle) });
+});
+app.get('/api/mc/capteurs/:cle/csv', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  const cle = String(req.params.cle).toUpperCase();
+  if (!/^[0-9A-F]{64}$/.test(cle)) return res.status(400).json({ erreur: 'clé invalide' });
+  res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', `attachment; filename="capteurs-${cle.slice(0, 8)}.csv"`).send(capteursMc.csv(cle, Math.min(Math.max(Number(req.query.jours) || 90, 1), 90)));
 });
 app.post('/api/mc/capteurs/:cle', (req, res) => {
   const cle = String(req.params.cle).toUpperCase();

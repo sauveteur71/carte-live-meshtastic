@@ -32,7 +32,7 @@ Dans *Messages*, un clic sur l'origine d'un message (📡 / 🌐) affiche son **
 
 ## Page publique
 Une page publique (sans messages ni position exacte des particuliers) peut être partagée : *Outils › Partager*. Elle sert à consulter le réseau, sans rien pouvoir modifier.
-- Chaque visiteur choisit le **secteur** affiché : département de la carte, avec ses voisins, une région, n'importe quel département ou la France entière. Nœuds, liaisons, chiffres et animations suivent. Les calculs de couverture portent sur un département (le premier calcul d'un autre département prend quelques minutes).
+- Chaque visiteur choisit le **secteur** affiché : département de la carte, avec ses voisins, une région, n'importe quel département ou la France entière. Nœuds, liaisons, chiffres et animations suivent. Les calculs de couverture (couverture, où poser des relais, couverture d'un point) restent sur le département de la carte : ailleurs, la carte publique est une carte légère du réseau.
 - Le titre suit le réseau et le secteur choisis. Le lien vers la carte complète n'apparaît qu'aux administrateurs connectés.
 
 ## Favoris et « Mes nœuds »
@@ -63,3 +63,9 @@ Un clic droit (ou un appui long sur téléphone) sur un nœud, dans une liste ou
 - 📋 copier l'identifiant.
 
 Le clic droit ailleurs sur la carte garde son menu habituel : couverture, profil, partage du point…
+
+## Liste des nœuds
+La liste Meshtastic, comme celle de MeshCore, peut être rangée **par type** (▦ Par type) : relais, clients, clients muets, traceurs, inconnus, chaque groupe se repliant d'un clic. L'état est gardé dans le navigateur.
+
+## Sur téléphone
+Sur un téléphone ou une tablette, la carte s'allège : lignes dessinées en canevas, 6 animations de paquets à la fois au plus, flux de paquets plus court et pas d'effet de flou derrière les panneaux.
