@@ -981,3 +981,39 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 .suivi-fiche { display: inline-flex; gap: 4px; margin-left: 6px; }
 .suivi-fiche button.actif { border-color: var(--accent, #3ee6c4); color: var(--accent, #3ee6c4); }
 #mes-noeuds h4 { margin: 8px 0 2px; font-size: 12px; opacity: .8; }
+
+/* ---- Panneau Réseau : tableau de bord en tuiles, détail d'une tuile à la fois ---- */
+.tableau { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 4px; }
+.tableau > div.mt-seul, .tableau > div.mc-seul-bloc { display: contents; }
+.tableau > div.mc-seul-bloc[hidden] { display: none; }
+body[data-reseau="meshcore"] .tableau .mt-seul { display: none !important; }
+.tableau details.pli-alertes[hidden] { display: none; }
+.tableau details.pli-alertes {
+  background: var(--surface-2); border: 1px solid var(--bord); border-left: 4px solid rgba(120, 160, 190, .35);
+  border-radius: 10px; min-width: 0;
+}
+.tableau details.pli-alertes:has(.pastille.attention) { border-left-color: var(--attention); }
+.tableau details.pli-alertes:has(.pastille.critique) { border-left-color: var(--critique); }
+.tableau details.pli-alertes > summary { display: block; padding: 9px 10px 8px; border-radius: 9px; height: 100%; box-sizing: border-box; }
+.tableau details.pli-alertes > summary:hover { background: rgba(255, 255, 255, .05); }
+.tableau details.pli-alertes > summary h3 {
+  margin: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 6px;
+  font-size: 11.5px; letter-spacing: .05em; color: var(--texte); line-height: 1.25;
+}
+.tableau details.pli-alertes > summary h3::before { display: none; }
+.tableau details.pli-alertes > summary h3 .pastille { order: 2; font-size: 13px; font-weight: 700; padding: 1px 9px; letter-spacing: 0; margin-left: auto; }
+.tableau details.pli-alertes > summary h3 .titre-reseau { order: -1; flex-basis: 100%; max-width: max-content; }
+.tableau details.pli-alertes > summary h3 .resume-alertes {
+  order: 3; flex-basis: 100%; margin: 0; font-size: 12px; text-transform: none; letter-spacing: 0; color: var(--doux);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;
+}
+/* Détail : la tuile choisie prend toute la largeur, les autres s'effacent */
+.tableau.zoom { grid-template-columns: 1fr; }
+.tableau.zoom details.pli-alertes:not([open]) { display: none; }
+.tableau details.pli-alertes[open] { border: 0; background: transparent; }
+.tableau details.pli-alertes[open] > summary { height: auto; padding: 4px 2px 8px; border-bottom: 1px solid var(--bord); margin-bottom: 8px; position: sticky; top: 0; z-index: 2; background: var(--fond); border-radius: 0; }
+.tableau details.pli-alertes[open] > summary h3 { font-size: 13px; }
+.tableau details.pli-alertes[open] > summary h3::before { content: "‹ Tableau de bord"; display: block; flex-basis: 100%; order: -2; font-size: 12.5px; color: var(--accent); text-transform: none; letter-spacing: 0; width: auto; transform: none; margin-bottom: 4px; }
+.tableau details.pli-alertes[open] .resume-alertes { display: none; }
+.tableau details.pli-alertes[open] .liste-alertes { max-height: none; }
+@media (max-width: 380px) { .tableau { grid-template-columns: 1fr; } }

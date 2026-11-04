@@ -438,11 +438,56 @@ document.addEventListener('pointerdown', (e) => {
 }, true);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.querySelectorAll('details.menu-couches[open]').forEach((d) => (d.open = false)); });
 
-// Menus dépliants des alertes : fermés par défaut, état retenu dans ce navigateur
+// Tableau de bord du panneau Réseau : des tuiles ; un clic ouvre le détail d'une seule à la fois (les autres
+// s'effacent), « ‹ Tableau de bord » ou un nouveau clic y revient. Toujours le tableau de bord à l'ouverture.
+// Ailleurs : menus dépliants dont l'état est retenu dans ce navigateur.
 document.querySelectorAll('details.pli-alertes').forEach((d) => {
+  const tableau = d.closest('.tableau');
+  if (tableau) {
+    d.open = false;
+    d.addEventListener('toggle', () => {
+      if (d.open) {
+        tableau.querySelectorAll('details.pli-alertes[open]').forEach((x) => { if (x !== d) x.open = false; });
+        tableau.classList.add('zoom');
+        const p = tableau.closest('.vue') || tableau; p.scrollTop = 0;
+      } else if (!tableau.querySelector('details.pli-alertes[open]')) tableau.classList.remove('zoom');
+    });
+    return;
+  }
   try { d.open = localStorage.getItem('pli-' + d.dataset.pli) === '1'; } catch { /* stockage indisponible */ }
   d.addEventListener('toggle', () => { try { localStorage.setItem('pli-' + d.dataset.pli, d.open ? '1' : '0'); } catch { /* ignoré */ } });
 });
+// Résumés des tuiles Sources, Modules et Trafic, recalculés quand leur contenu change
+{
+  const resumer = () => {
+    const src = $('#sources');
+    if (src) {
+      const l = [...src.querySelectorAll(':scope > .ligne')].filter((x) => getComputedStyle(x).display !== 'none');
+      const ok = l.filter((x) => x.querySelector('.point.actif')).length;
+      const p = $('#nb-sources'); if (p) { p.textContent = `${ok}/${l.length}`; p.className = 'pastille' + (ok < l.length ? ' attention' : ''); }
+      const r = $('#resume-sources'); if (r) r.textContent = ok === l.length ? 'tout est en ligne' : `${l.length - ok} hors ligne`;
+    }
+    const mod = $('#modules-radio');
+    if (mod) {
+      const principal = mod.querySelector('.ligne.module:not(.ecoute) .point.actif');
+      const nomP = principal ? principal.closest('.ligne').querySelector('.titre').firstChild.textContent.trim() : null;
+      const ec = mod.querySelectorAll('.ligne.module.ecoute').length;
+      const nav = typeof moduleNav !== 'undefined' && moduleNav.etat === 'relie';
+      const p = $('#nb-modules'); if (p) { p.textContent = (principal || nav ? 1 : 0) + ec; p.className = 'pastille' + (!principal && !nav ? ' attention' : ''); }
+      const r = $('#resume-modules'); if (r) r.textContent = `${nomP || (nav ? moduleNav.nom : 'aucun principal')}${ec ? ` · ${ec} en écoute` : ''}`;
+    }
+    const rep = $('#repartition');
+    if (rep) {
+      const barres = [...rep.querySelectorAll('.barre-port')].map((b) => [b.querySelector('span').textContent, Number(b.querySelector('.nb').textContent) || 0]);
+      const total = barres.reduce((t, x) => t + x[1], 0);
+      const p = $('#nb-repartition'); if (p) p.textContent = total;
+      const r = $('#resume-repartition'); if (r) r.textContent = total ? barres.slice(0, 2).map((x) => `${x[0]} ${x[1]}`).join(' · ') : 'pas de trafic';
+    }
+  };
+  let m = null;
+  const obs = new MutationObserver(() => { clearTimeout(m); m = setTimeout(resumer, 100); });
+  for (const id of ['#sources', '#modules-radio', '#repartition']) { const el = $(id); if (el) obs.observe(el, { childList: true, subtree: true }); }
+}
 
 // ---- Santé de la carte (processeur, mémoire, réactivité, disque, base, MQTT) ---------------------------
 async function chargerSanteCarte() {

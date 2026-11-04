@@ -965,7 +965,7 @@ function mcMajAlertes() {
   z.innerHTML = a.length ? a.map((x) => `<div class="alerte ${x.niveau}" data-mc-alerte="${x.noeud || ''}">${esc(x.message)}<small>${x.niveau === 'critique' ? 'Critique' : 'Attention'} · depuis ${ilYa(x.depuis).replace('il y a ', '')}</small></div>`).join('') : '<div class="vide">Aucune alerte MeshCore.</div>';
   // Répéteurs et room servers de la zone
   const vueCarte = !etat.zone && typeof carte !== 'undefined' && carte ? carte.getBounds() : null;
-  const titreInfra = $('#titre-infra-mc'); if (titreInfra) titreInfra.textContent = vueCarte ? 'Répéteurs MeshCore visibles sur la carte' : 'Répéteurs MeshCore de la zone';
+  const titreInfra = $('#titre-infra-mc'); if (titreInfra) titreInfra.textContent = vueCarte ? 'Répéteurs (vue)' : 'Répéteurs';
   const rep = [...mc.noeuds.values()].filter((n) => ['repeteur', 'salon'].includes(n.role) && mcDansZone(n) && (!vueCarte || (n.lat != null && vueCarte.contains([n.lat, n.lon])))).sort((x, y) => (x.nom || '').localeCompare(y.nom || ''));
   const enAlerte = new Set(a.map((x) => x.noeud));
   const nbActifsMc = rep.filter((n) => n.statut !== 'inactif').length;

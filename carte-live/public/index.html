@@ -127,6 +127,7 @@
     </nav>
 
     <section data-vue="reseau" class="vue actif">
+      <div class="tableau" id="tableau-reseau">
       <div class="mt-seul">
         <details class="pli-alertes" data-pli="alertes-mt">
           <summary><h3>Alertes <span class="titre-reseau">Meshtastic</span> <span id="nb-alertes" class="pastille">0</span> <span id="resume-alertes" class="resume-alertes"></span></h3></summary>
@@ -139,37 +140,37 @@
           <div id="alertes-mc" class="liste-alertes"></div>
         </details>
         <details class="pli-alertes" data-pli="infra-mc">
-          <summary><h3><span id="titre-infra-mc">Répéteurs MeshCore de la zone</span> <span id="resume-infra-mc" class="resume-alertes"></span></h3></summary>
+          <summary><h3><span id="titre-infra-mc">Répéteurs</span> <span class="titre-reseau">MeshCore</span> <span id="resume-infra-mc" class="resume-alertes"></span></h3></summary>
           <div id="infra-mc" class="liste"></div>
         </details>
       </div>
+      <details class="pli-alertes" data-pli="mes-noeuds" id="pli-mes-noeuds" hidden>
+        <summary><h3>Mes nœuds <span id="nb-mes-noeuds" class="pastille">0</span> <span id="resume-mes-noeuds" class="resume-alertes"></span></h3></summary>
+        <div id="mes-noeuds" class="liste"></div>
+      </details>
       <div class="mt-seul">
         <details class="pli-alertes" data-pli="passerelles">
           <summary><h3>Passerelles <span class="titre-reseau">Meshtastic</span> <span id="resume-passerelles" class="resume-alertes"></span></h3></summary>
           <div id="passerelles" class="liste"></div>
-        </details>
-        <details class="pli-alertes" data-pli="mes-noeuds" id="pli-mes-noeuds" hidden>
-          <summary><h3>Mes nœuds <span id="nb-mes-noeuds" class="pastille">0</span> <span id="resume-mes-noeuds" class="resume-alertes"></span></h3></summary>
-          <div id="mes-noeuds" class="liste"></div>
         </details>
         <details class="pli-alertes" data-pli="nouveaux">
           <summary><h3>Nouveaux nœuds <span id="nb-nouveaux" class="pastille">0</span> <span id="resume-nouveaux" class="resume-alertes"></span></h3></summary>
           <div id="nouveaux" class="liste"></div>
         </details>
         <details class="pli-alertes" data-pli="asym">
-          <summary><h3>Liaisons à sens unique <span id="nb-asym" class="pastille">0</span> <span id="resume-asym" class="resume-alertes"></span></h3></summary>
+          <summary><h3>Sens unique <span id="nb-asym" class="pastille">0</span> <span id="resume-asym" class="resume-alertes"></span></h3></summary>
           <div id="asym" class="liste"></div>
         </details>
         <details class="pli-alertes" data-pli="bavards" id="pli-bavards" hidden>
-          <summary><h3>Nœuds trop bavards <span class="titre-reseau">radio</span> <span id="nb-bavards" class="pastille">0</span> <span id="resume-bavards" class="resume-alertes"></span></h3></summary>
+          <summary><h3>Trop bavards <span id="nb-bavards" class="pastille">0</span> <span id="resume-bavards" class="resume-alertes"></span></h3></summary>
           <div id="bavards" class="liste"></div>
         </details>
         <details class="pli-alertes" data-pli="chemins">
-          <summary><h3>Chemins mesurés <span class="titre-reseau">traceroutes</span> <span id="resume-chemins" class="resume-alertes"></span></h3></summary>
+          <summary><h3>Chemins mesurés <span id="resume-chemins" class="resume-alertes"></span></h3></summary>
           <div id="chemins"></div>
         </details>
         <details class="pli-alertes" data-pli="infra">
-          <summary><h3>Relais et infrastructure <span class="titre-reseau">Meshtastic</span> <span id="resume-infra" class="resume-alertes"></span></h3></summary>
+          <summary><h3>Relais <span class="titre-reseau">Meshtastic</span> <span id="resume-infra" class="resume-alertes"></span></h3></summary>
           <div id="infra" class="liste"></div>
         </details>
       </div>
@@ -177,15 +178,18 @@
         <summary><h3>Santé de la carte <span id="nb-sante" class="pastille">✓</span> <span id="resume-sante" class="resume-alertes"></span></h3></summary>
         <div id="sante-carte"></div>
       </details>
-      <h3>Sources de données</h3>
-      <div id="sources" class="liste"></div>
-      <div id="bloc-modules" class="mt-seul" hidden>
-        <h3>Modules radio Meshtastic (Wi-Fi, USB)</h3>
+      <details class="pli-alertes" data-pli="sources">
+        <summary><h3>Sources <span id="nb-sources" class="pastille">–</span> <span id="resume-sources" class="resume-alertes"></span></h3></summary>
+        <div id="sources" class="liste"></div>
+      </details>
+      <details class="pli-alertes mt-seul" data-pli="modules" id="bloc-modules" hidden>
+        <summary><h3>Modules radio <span class="titre-reseau">Meshtastic</span> <span id="nb-modules" class="pastille">–</span> <span id="resume-modules" class="resume-alertes"></span></h3></summary>
         <div id="modules-radio" class="liste"></div>
-      </div>
-      <div class="mt-seul">
-        <h3>Trafic Meshtastic de la dernière heure</h3>
+      </details>
+      <details class="pli-alertes mt-seul" data-pli="repartition">
+        <summary><h3>Trafic (1 h) <span class="titre-reseau">Meshtastic</span> <span id="nb-repartition" class="pastille">–</span> <span id="resume-repartition" class="resume-alertes"></span></h3></summary>
         <div id="repartition" class="repartition"></div>
+      </details>
       </div>
     </section>
     <section data-vue="noeuds" class="vue">
