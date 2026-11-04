@@ -108,8 +108,9 @@ function creerAuditMc({ db, config, reseauMc, journal }) {
           const d = Math.hypot((l[i].lat - l[j].lat) * 111.2, (l[i].lon - l[j].lon) * 111.2 * Math.cos((l[i].lat * Math.PI) / 180));
           if (dmin == null || d < dmin) dmin = d;
         }
-        return { prefixe, distanceMinKm: dmin == null ? null : Math.round(dmin * 10) / 10, noeuds: l.map((n) => ({ cle: n.cle, nom: n.nom || n.cle.slice(0, 8), role: n.role, dernierVu: n.dernier_vu })) };
-      }).sort((a, b) => (a.distanceMinKm ?? 999) - (b.distanceMinKm ?? 999));
+        // Même lieu (< 200 m) : presque toujours le même répéteur, réenregistré sous une clé abîmée (annonce mal reçue)
+        return { prefixe, doublon: dmin != null && dmin < 0.2, distanceMinKm: dmin == null ? null : Math.round(dmin * 10) / 10, noeuds: l.map((n) => ({ cle: n.cle, nom: n.nom || n.cle.slice(0, 8), role: n.role, dernierVu: n.dernier_vu })) };
+      }).sort((a, b) => (a.doublon - b.doublon) || (a.distanceMinKm ?? 999) - (b.distanceMinKm ?? 999));
     };
     const tailles = { 1: 0, 2: 0, 3: 0 };
     for (const p of q.tailles.all(Date.now() - 2 * 86400000)) {

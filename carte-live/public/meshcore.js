@@ -556,19 +556,19 @@ async function mcFicheCollisions() {
   let r;
   try { r = await api(`/api/mc/audit/collisions?zone=${(typeof paramZone === 'function' && paramZone()) || '1'}`); } catch (e) { z.innerHTML = `<h2>🔀 Collisions d’identifiants</h2><div class="vide">${esc(e.message)}</div>`; return; }
   const c = r.chemins;
-  const groupe = (g, octets) => `<div class="proposition audit-rep ${g.distanceMinKm != null && g.distanceMinKm < 60 ? 'attention' : ''}">
-      <div class="titre-rep"><span class="mono">${esc(g.prefixe)}</span> <small>${g.noeuds.length} répéteurs${g.distanceMinKm != null ? ` · ${fmt(g.distanceMinKm, 1, ' km')} entre les plus proches` : ''}</small></div>
+  const groupe = (g, octets) => `<div class="proposition audit-rep ${!g.doublon && g.distanceMinKm != null && g.distanceMinKm < 60 ? 'attention' : ''}">
+      <div class="titre-rep"><span class="mono">${esc(g.prefixe)}</span> <small>${g.doublon ? 'même lieu : sans doute <b>un seul répéteur</b> enregistré deux fois sous une clé abîmée (annonce mal reçue), pas une vraie collision' : `${g.noeuds.length} répéteurs${g.distanceMinKm != null ? ` · ${fmt(g.distanceMinKm, 1, ' km')} entre les plus proches` : ''}`}</small></div>
       ${g.noeuds.map((n) => `<div class="audit-ligne"><a href="#" data-mc-fiche-audit="${n.cle}">${esc(n.nom)}</a> <small class="mono">${esc(n.cle.slice(0, octets * 2 + 4))}…</small> <small>${ilYa(n.dernierVu)}</small></div>`).join('')}</div>`;
   z.innerHTML = `<h2>🔀 Collisions d’identifiants</h2>
     <p class="note">Dans un chemin, chaque relais n’est noté que par le début de sa clé : 1 octet (réglage d’usine), 2 ou 3 octets avec <span class="mono">set path.hash.mode 1</span> ou <span class="mono">2</span>. Deux répéteurs proches qui commencent pareil rendent le chemin ambigu : la carte ne sait plus par lequel le message est passé.</p>
     <div class="grille">
       <div class="mesure"><span>Répéteurs actifs (14 j)</span><b>${r.repeteurs}</b></div>
-      <div class="mesure"><span>Collisions à 1 octet</span><b>${r.un.length}</b></div>
-      <div class="mesure"><span>Collisions à 2 octets</span><b>${r.deux.length}</b></div>
+      <div class="mesure"><span>Collisions à 1 octet</span><b>${r.un.filter((g) => !g.doublon).length}</b></div>
+      <div class="mesure"><span>Collisions à 2 octets</span><b>${r.deux.filter((g) => !g.doublon).length}</b></div>
       <div class="mesure"><span>Chemins à 1 octet</span><b>${c.partUnOctetPct == null ? '–' : fmt(c.partUnOctetPct, 0, ' %')}</b></div>
     </div>
     <p class="note">${c.total ? `Sur les paquets relayés des 2 derniers jours : ${c.parTaille[1]} chemins à 1 octet, ${c.parTaille[2]} à 2 octets, ${c.parTaille[3]} à 3 octets.` : ''} ${r.un.length ? 'Passer ces répéteurs en <span class="mono">path.hash.mode 1</span> (2 octets) lève l’ambiguïté, comme le modèle « Répéteur de base (FR-43) ».' : ''}</p>
-    <h3>Même premier octet (${r.un.length})</h3>
+    <h3>Même premier octet (${r.un.filter((g) => !g.doublon).length} vraie${r.un.filter((g) => !g.doublon).length > 1 ? 's' : ''}${r.un.some((g) => g.doublon) ? ` · ${r.un.filter((g) => g.doublon).length} doublon(s)` : ''})</h3>
     ${r.un.map((g) => groupe(g, 1)).join('') || '<div class="vide">Aucune collision à 1 octet dans la zone. 👍</div>'}
     ${r.deux.length ? `<h3>Mêmes deux premiers octets (${r.deux.length})</h3>${r.deux.map((g) => groupe(g, 2)).join('')}` : ''}`;
   z.querySelectorAll('[data-mc-fiche-audit]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); mcOuvrirFiche(a.dataset.mcFicheAudit); }));
