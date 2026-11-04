@@ -1563,13 +1563,31 @@ function courbe(points, cle, lib, unite, dec, seuil) {
   let min = Math.min(...vals), max = Math.max(...vals);
   if (seuil != null) { min = Math.min(min, seuil); max = Math.max(max, seuil); }
   if (max - min < 1e-6) { max += 1; min -= 1; }
+  // Graduations « rondes » : pas de 1, 2 ou 5 × 10^n, 3 à 5 lignes
+  const brut = (max - min) / 4, p10 = 10 ** Math.floor(Math.log10(brut));
+  const pas = [1, 2, 5, 10].map((m) => m * p10).find((v) => v >= brut) || brut;
+  min = Math.floor(min / pas) * pas; max = Math.ceil(max / pas) * pas;
+  if (max - min < pas) max = min + pas;
+  const decAxe = Math.max(0, Math.min(3, -Math.floor(Math.log10(pas) + 1e-9)));
   const t0 = pts[0].heure, t1 = pts[pts.length - 1].heure || t0 + 1;
   const x = (t) => ((t - t0) / Math.max(1, t1 - t0)) * 300;
-  const y = (v) => 42 - ((v - min) / (max - min)) * 38;
+  const y = (v) => 66 - ((v - min) / (max - min)) * 62;
   const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.heure).toFixed(1)},${y(p[cle]).toFixed(1)}`).join('');
-  const ligneSeuil = seuil != null ? `<line x1="0" x2="300" y1="${y(seuil)}" y2="${y(seuil)}" stroke="#ffb547" stroke-dasharray="3 4" stroke-width="1" opacity=".7"/>` : '';
+  const ligneSeuil = seuil != null ? `<line x1="0" x2="300" y1="${y(seuil)}" y2="${y(seuil)}" stroke="#ffb547" stroke-dasharray="3 4" stroke-width="1" opacity=".7" vector-effect="non-scaling-stroke"/>` : '';
+  const graduations = [];
+  for (let v = min; v <= max + pas / 2; v += pas) graduations.push(v);
+  const grille = graduations.map((v) => `<line x1="0" x2="300" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="currentColor" stroke-width="1" opacity=".14" vector-effect="non-scaling-stroke"/>`).join('');
+  const u = unite && unite.trim() ? ' ' + esc(unite.trim()) : '';
+  const etiqY = graduations.map((v, k) => `<span style="top:${((y(v) / 70) * 100).toFixed(1)}%">${fmt(v, decAxe)}${k === graduations.length - 1 ? u : ''}</span>`).join('');
+  // Axe du temps : heures sur moins de 36 h, sinon dates
+  const long = t1 - t0 > 36 * 3600000;
+  const fmtT = (t) => new Date(t).toLocaleString('fr-FR', long ? { day: '2-digit', month: '2-digit' } : { hour: '2-digit', minute: '2-digit' });
+  const etiqX = [0, 0.25, 0.5, 0.75, 1].map((f) => `<span style="left:${f * 100}%">${fmtT(t0 + f * (t1 - t0))}</span>`).join('');
+  const verticales = [0.25, 0.5, 0.75].map((f) => `<line x1="${f * 300}" x2="${f * 300}" y1="0" y2="70" stroke="currentColor" stroke-width="1" opacity=".08" vector-effect="non-scaling-stroke"/>`).join('');
   return `<div class="courbe"><div class="lib"><span>${lib}</span><span>dernier ${fmt(vals[vals.length - 1], dec, unite)} · min ${fmt(Math.min(...vals), dec)} · max ${fmt(Math.max(...vals), dec)}</span></div>
-    <svg viewBox="0 0 300 46" preserveAspectRatio="none">${ligneSeuil}<path d="${d}" fill="none" stroke="#3ee6c4" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg></div>`;
+    <div class="courbe-axes"><div class="axe-y">${etiqY}</div><div class="courbe-trace">
+    <svg viewBox="0 0 300 70" preserveAspectRatio="none">${grille}${verticales}${ligneSeuil}<path d="${d}" fill="none" stroke="#3ee6c4" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>
+    <div class="axe-x">${etiqX}</div></div></div></div>`;
 }
 
 // ---- Fiche d'installation d'un relais (antenne, hauteur, alimentation, site) -----------------------

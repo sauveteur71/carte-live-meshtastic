@@ -150,7 +150,16 @@ button, input, select { font: inherit; color: inherit; }
 .fiche h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--tres-doux); margin: 16px 0 6px; }
 .courbe { background: var(--surface-2); border-radius: 8px; padding: 6px 8px; margin-bottom: 6px; }
 .courbe .lib { display: flex; justify-content: space-between; font-size: 12px; color: var(--doux); }
-.courbe svg { width: 100%; height: 46px; display: block; }
+.courbe svg { width: 100%; height: 70px; display: block; color: var(--texte); }
+.courbe-axes { display: grid; grid-template-columns: auto 1fr; gap: 6px; margin-top: 4px; }
+.courbe .axe-y { position: relative; height: 70px; min-width: 30px; font-size: 10px; color: var(--doux); font-variant-numeric: tabular-nums; }
+.courbe .axe-y span { position: absolute; right: 0; transform: translateY(-50%); white-space: nowrap; }
+.courbe-trace { min-width: 0; }
+.courbe .axe-x { position: relative; height: 14px; font-size: 10px; color: var(--doux); margin-top: 2px; }
+.courbe .axe-x span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.courbe .axe-x span:first-child { transform: none; }
+.courbe .axe-x span:last-child { transform: translateX(-100%); }
+.courbe .unite-axe { font-size: 10px; color: var(--doux); }
 table.voisins { width: 100%; border-collapse: collapse; font-size: 12px; }
 table.voisins th { text-align: left; color: var(--tres-doux); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; padding: 4px 4px; }
 table.voisins td { padding: 5px 4px; border-top: 1px solid rgba(255,255,255,.04); font-variant-numeric: tabular-nums; }
