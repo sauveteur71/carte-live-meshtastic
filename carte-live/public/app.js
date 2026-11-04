@@ -2797,10 +2797,11 @@ function allerPlan() {
 
 // ---- Zone dessinée à la main : clic = un point, double-clic ou « Terminer » pour fermer ------------------
 etat.dessinZone = null;
+// Dessin de zones : plusieurs zones possibles, contour sans croisement (chaque nouveau côté est vérifié)
 function commencerZone() {
   if (etat.dessinZone) arreterZone();
   if (etat.modeCarte) basculerMode(null);
-  etat.dessinZone = { points: [], couche: L.layerGroup().addTo(carte) };
+  etat.dessinZone = { points: [], faites: [], couche: L.layerGroup().addTo(carte), message: '' };
   carte.doubleClickZoom.disable();
   document.body.classList.add('dessin-zone');
   let bar = $('#barre-zone');
@@ -2809,32 +2810,63 @@ function commencerZone() {
   carte.on('dblclick', finirZoneDblclic);
 }
 function finirZoneDblclic(e) { if (!etat.dessinZone) return; L.DomEvent.stop(e); terminerZone(); }
+// Le segment p1-p2 coupe-t-il p3-p4 (en coordonnées écran, sans compter les extrémités communes) ?
+function segmentsCoupes(p1, p2, p3, p4) {
+  const c = (a, b, q) => Math.sign((b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x));
+  return c(p1, p2, p3) * c(p1, p2, p4) < 0 && c(p3, p4, p1) * c(p3, p4, p2) < 0;
+}
+// Le côté (a → b) croise-t-il un côté déjà tracé ? sauf : côtés voisins de a (et de b si on referme)
+function coteCroise(pts, a, b, fermeture) {
+  const P = pts.map((p) => carte.latLngToContainerPoint(p)), A = carte.latLngToContainerPoint(a), B = carte.latLngToContainerPoint(b);
+  for (let i = 0; i + 1 < P.length; i++) {
+    if (i + 1 === P.length - 1) continue; // côté qui arrive au dernier point (voisin)
+    if (fermeture && i === 0) continue; // côté qui part du premier point (voisin à la fermeture)
+    if (segmentsCoupes(A, B, P[i], P[i + 1])) return true;
+  }
+  return false;
+}
 function ajouterPointZone(ll) {
   const d = etat.dessinZone;
   // Le double-clic ajoute deux points au même endroit : on ignore le doublon
   const der = d.points[d.points.length - 1];
   if (der && carte.latLngToContainerPoint(der).distanceTo(carte.latLngToContainerPoint(ll)) < 6) return;
+  if (der && coteCroise(d.points, der, ll, false)) { d.message = '✖ Ce côté croiserait le contour : choisissez un autre point'; majBarreZone(); return; }
+  d.message = '';
   d.points.push(ll);
   dessinerZoneEnCours();
 }
 function dessinerZoneEnCours() {
   const d = etat.dessinZone;
   d.couche.clearLayers();
+  for (const z of d.faites) L.polygon(z, { color: '#facc15', weight: 2.5, fillOpacity: 0.18, pane: 'traces', interactive: false }).addTo(d.couche);
   if (d.points.length >= 2) L.polygon(d.points, { color: '#facc15', weight: 3, dashArray: '6 5', fillOpacity: 0.12, pane: 'traces', interactive: false }).addTo(d.couche);
   d.points.forEach((p, k) => L.circleMarker(p, { radius: k === 0 ? 7 : 5, color: '#111', weight: 2, fillColor: '#facc15', fillOpacity: 1, pane: 'traces' })
     .on('click', (ev) => { if (k === 0 && d.points.length >= 3) { L.DomEvent.stop(ev); terminerZone(); } }).addTo(d.couche));
   majBarreZone();
 }
+// Ferme la zone en cours si elle est valable ; renvoie false (avec un message) sinon
+function fermerZoneEnCours() {
+  const d = etat.dessinZone;
+  if (d.points.length < 3) return d.points.length === 0;
+  if (coteCroise(d.points, d.points[d.points.length - 1], d.points[0], true)) { d.message = '✖ La fermeture croiserait le contour : ajoutez ou retirez un point (↶)'; majBarreZone(); return false; }
+  d.faites.push(d.points.map((p) => [+p.lat.toFixed(5), +p.lng.toFixed(5)]));
+  d.points = [];
+  d.message = '';
+  return true;
+}
 function majBarreZone() {
   const bar = $('#barre-zone'), d = etat.dessinZone;
   if (!bar || !d) return;
-  const n = d.points.length;
-  bar.innerHTML = `<b>🖊 Zone à étudier</b><span>${n < 3 ? `Cliquez sur la carte pour poser les coins (${n}/3 au moins)` : `${n} points · double-clic, clic sur le 1er point ou « Terminer »`}</span>
+  const n = d.points.length, nz = d.faites.length;
+  const pret = n >= 3 || (n === 0 && nz > 0);
+  bar.innerHTML = `<b>🖊 Zone${nz ? ` ${nz + 1}` : ''} à étudier</b><span>${d.message ? `<b class="alerte-zone">${esc(d.message)}</b>` : n < 3 ? `${nz ? `${nz} zone${nz > 1 ? 's' : ''} prête${nz > 1 ? 's' : ''} · ` : ''}Cliquez sur la carte pour poser les coins (${n}/3 au moins)` : `${n} points · double-clic, clic sur le 1er point ou « Terminer »`}</span>
     <input id="zone-nom" placeholder="Nom (ex. Gorges de l’Allier)" maxlength="40" value="${esc(d.nom || '')}">
-    <button class="mini principal" id="zone-fin" ${n < 3 ? 'disabled' : ''}>Terminer et étudier</button><button class="mini" id="zone-annuler-point" ${n ? '' : 'disabled'}>↶ Point</button><button class="mini" id="zone-abandon">Abandonner</button>`;
+    <button class="mini principal" id="zone-fin" ${pret ? '' : 'disabled'}>Terminer et étudier${nz + (n >= 3 ? 1 : 0) > 1 ? ` (${nz + (n >= 3 ? 1 : 0)} zones)` : ''}</button><button class="mini" id="zone-autre" ${n >= 3 && nz < 9 ? '' : 'disabled'} title="Fermer cette zone et en dessiner une autre, étudiées ensemble">➕ Autre zone</button><button class="mini" id="zone-annuler-point" ${n || nz ? '' : 'disabled'}>↶ Point</button><button class="mini" id="zone-abandon">Abandonner</button>`;
   $('#zone-nom').oninput = (e) => { d.nom = e.target.value; };
   $('#zone-fin').onclick = terminerZone;
-  $('#zone-annuler-point').onclick = () => { d.points.pop(); dessinerZoneEnCours(); };
+  $('#zone-autre').onclick = () => { if (fermerZoneEnCours()) dessinerZoneEnCours(); };
+  // ↶ : retire le dernier point ; sans point en cours, rouvre la dernière zone fermée
+  $('#zone-annuler-point').onclick = () => { d.message = ''; if (d.points.length) d.points.pop(); else if (d.faites.length) d.points = d.faites.pop().map(([la, lo]) => L.latLng(la, lo)); dessinerZoneEnCours(); };
   $('#zone-abandon').onclick = arreterZone;
 }
 function arreterZone() {
@@ -2848,19 +2880,21 @@ function arreterZone() {
 }
 function terminerZone() {
   const d = etat.dessinZone;
-  if (!d || d.points.length < 3) return;
-  const poly = d.points.map((p) => [+p.lat.toFixed(5), +p.lng.toFixed(5)]);
-  const nom = (d.nom || '').trim() || `Zone du ${new Date().toLocaleDateString('fr-FR')}`;
+  if (!d || !fermerZoneEnCours() || !d.faites.length) return;
+  const polys = d.faites;
+  const nom = (d.nom || '').trim() || `Zone${polys.length > 1 ? 's' : ''} du ${new Date().toLocaleDateString('fr-FR')}`;
   arreterZone();
   // Enregistrée dans ce navigateur pour la retrouver (10 au plus, la plus récente en tête)
   const l = lireLs('gaulix_zones', []).filter((z) => z.nom !== nom);
-  l.unshift({ nom, polygone: poly });
+  l.unshift({ nom, polygones: polys });
   ecrireLs('gaulix_zones', l.slice(0, 10));
   const zm = $('#zone-memo'); if (zm) zm.innerHTML = '<option value="">Zones enregistrées…</option>' + l.slice(0, 10).map((z, i) => `<option value="${i}">${esc(z.nom)}</option>`).join('');
-  planZoneDessinee(poly, nom);
+  planZoneDessinee(polys, nom);
 }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && etat.dessinZone) arreterZone(); });
-async function planZoneDessinee(poly, nom, opts = {}) {
+async function planZoneDessinee(polys, nom, opts = {}) {
+  // Ancien format : une seule zone (liste de points)
+  if (polys.length && typeof polys[0][0] === 'number') polys = [polys];
   const objectif = Number(($('#plan-objectif') || {}).value) || 95, max = Number(($('#plan-max') || {}).value) || 10;
   const acces = opts.acces || ($('#plan-acces') || {}).value || lireLs('gaulix_zone_acces', null) || 'tous', reseau = $('#plan-reseau') ? $('#plan-reseau').checked : true, realiste = $('#plan-realiste') ? $('#plan-realiste').checked : false;
   $('#fiche').hidden = false;
@@ -2871,17 +2905,17 @@ async function planZoneDessinee(poly, nom, opts = {}) {
   const g = L.layerGroup().addTo(carte);
   etat.coucheCouverture = g;
   $('#btn-effacer').hidden = false;
-  L.polygon(poly, { color: '#facc15', weight: 2.5, fill: false, pane: 'traces', interactive: false }).addTo(g);
-  carte.fitBounds(L.latLngBounds(poly).pad(0.15), { maxZoom: 13 });
+  for (const poly of polys) L.polygon(poly, { color: '#facc15', weight: 2.5, fill: false, pane: 'traces', interactive: false }).addTo(g);
+  carte.fitBounds(L.latLngBounds(polys.flat()).pad(0.15), { maxZoom: 13 });
   let r;
-  try { r = await postJson('/api/relief/plan-zone', { polygone: poly, objectif, max, acces, reseau, realiste }); } catch (e) { z.innerHTML = `<h2>🖊 ${esc(nom)}</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  try { r = await postJson('/api/relief/plan-zone', { polygones: polys, objectif, max, acces, reseau, realiste }); } catch (e) { z.innerHTML = `<h2>🖊 ${esc(nom)}</h2><div class="vide">${esc(e.message)}</div>`; return; }
   const e2 = r.emprise;
   L.imageOverlay(r.image, [[e2.sud, e2.ouest], [e2.nord, e2.est]], { opacity: 0.75, pane: 'couverture', className: 'pixelise' }).addTo(g);
   r.sites.forEach((x) => L.marker([x.lat, x.lon], { icon: L.divIcon({ className: 'relais-a-installer', html: `<div class="epingle"><b>${x.rang}</b></div>`, iconSize: [34, 44], iconAnchor: [17, 42] }), pane: 'traces', zIndexOffset: 900 })
     .bindTooltip(`<b>${x.rang} · ${esc(nomSommet(x))}</b><br>${x.alt} m${x.commune ? ' · ' + esc(x.commune) : ''}<br>+${x.gainKm2} km² · cumul ${fmt(x.totalPct, 1, ' %')}`, { className: 'info' }).addTo(g));
   const nomAcces = { tous: 'tous les points hauts', voiture: 'accessibles en voiture', '4x4': 'accessibles en 4×4 ou voiture', pied: 'accessibles à pied, en 4×4 ou voiture' }[r.filtreAcces];
   z.innerHTML = `<h2>🖊 ${esc(nom)}</h2>
-    <div class="ident">${r.surfaceZoneKm2} km² · objectif ${r.objectifPct} % · au plus ${r.max} sites · ${esc(nomAcces)} · ${r.avecReseau ? `avec le réseau actuel (${r.reseau.length} relais à portée)` : 'sans le réseau actuel'}</div>
+    <div class="ident">${r.zones > 1 ? r.zones + ' zones · ' : ''}${r.surfaceZoneKm2} km² · objectif ${r.objectifPct} % · au plus ${r.max} sites · ${esc(nomAcces)} · ${r.avecReseau ? `avec le réseau actuel (${r.reseau.length} relais à portée)` : 'sans le réseau actuel'}</div>
     <div class="parametres compact"><label>Accès des nouveaux relais <select id="zone-acces">${Object.entries({ voiture: '🚗 En voiture', '4x4': '🚙 En 4×4 ou voiture', pied: '🥾 À pied ou mieux', tous: 'Tous les points hauts' }).map(([k, v]) => `<option value="${k}" ${k === r.filtreAcces ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
     ${r.filtreAcces !== 'tous' && r.accesEtat && r.accesEtat.faits < r.accesEtat.total ? `<div class="alerte attention">Accès aux sites en cours d’évaluation (OpenStreetMap) : ${r.accesEtat.faits}/${r.accesEtat.total} points. Seuls les sites déjà évalués sont proposés.</div>` : ''}
     ${r.horsReliefKm2 > 2 ? `<div class="alerte attention">${r.horsReliefKm2} km² de la zone sortent du relief chargé (département et ses abords) : ils ne sont pas étudiés.</div>` : ''}
@@ -2898,7 +2932,7 @@ async function planZoneDessinee(poly, nom, opts = {}) {
     <p class="note">Bleu : déjà couvert · turquoise : apporté par les sites proposés · rouge : non couvert. ${r.candidats} points hauts candidats (dans la zone ou à moins de 10 km). Antenne supposée à ${(r.parametres && r.parametres.hs) || 6} m au site, ${(r.parametres && r.parametres.ht) || 2} m au sol. La zone est gardée dans ce navigateur (Couverture › Plan › Zones enregistrées).</p>`;
   const gx = $('#zone-gpx'); if (gx) gx.onclick = () => telechargerGpx(`zone-${nom.replace(/[^\w-]+/g, '-')}.gpx`, r.sites.map((x) => ({ lat: x.lat, lon: x.lon, alt: x.alt, nom: `${x.rang} - ${nomSommet(x)}`, desc: `+${x.gainKm2} km², cumul ${x.totalPct} %` })));
   $('#zone-refaire').onclick = () => commencerZone();
-  $('#zone-acces').onchange = (ev) => { ecrireLs('gaulix_zone_acces', ev.target.value); planZoneDessinee(poly, nom, { acces: ev.target.value }); };
+  $('#zone-acces').onchange = (ev) => { ecrireLs('gaulix_zone_acces', ev.target.value); planZoneDessinee(polys, nom, { acces: ev.target.value }); };
 }
 
 // ---- Plan pour couvrir le département ------------------------------------------------------------
@@ -3225,7 +3259,7 @@ async function rendreSites() {
     };
   }
   { const bz = $('#zone-dessiner'); if (bz) bz.onclick = () => commencerZone(); }
-  { const zm = $('#zone-memo'); if (zm) zm.onchange = () => { const z = lireLs('gaulix_zones', [])[Number(zm.value)]; if (z) planZoneDessinee(z.polygone, z.nom); }; }
+  { const zm = $('#zone-memo'); if (zm) zm.onchange = () => { const z = lireLs('gaulix_zones', [])[Number(zm.value)]; if (z) planZoneDessinee(z.polygones || z.polygone, z.nom); }; }
   { const zs = $('#zone-suppr'); if (zs) zs.onclick = () => { const zm = $('#zone-memo'); const l = lireLs('gaulix_zones', []); const k = Number(zm.value); if (zm.value === '' || !l[k]) return; if (!confirm(`Oublier la zone « ${l[k].nom} » ?`)) return; l.splice(k, 1); ecrireLs('gaulix_zones', l); zm.innerHTML = '<option value="">Zones enregistrées…</option>' + l.map((z, i) => `<option value="${i}">${esc(z.nom)}</option>`).join(''); }; }
   const pc = $('#plan-calculer');
   if (pc) {

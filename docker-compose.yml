@@ -20,13 +20,12 @@ services:
     volumes:
       # Base, comptes, réglages et cache du relief : à sauvegarder
       - donnees:/data
-    # Module Meshtastic ou companion MeshCore branché en USB sur cette machine : décommentez et adaptez
-    # (ls /dev/ttyACM* /dev/ttyUSB* sur la machine), puis Outils › Connecter un module › USB du serveur
-    # devices:
-    #   - "/dev/ttyACM0:/dev/ttyACM0"
-    # group_add:
-    #   - dialout
     mem_limit: 512m
+    # Module Meshtastic ou companion MeshCore branché en USB sur cette machine : retirez le « # » des DEUX lignes
+    # suivantes (au même retrait que mem_limit) et adaptez le port (ls /dev/ttyACM* /dev/ttyUSB* sur la machine),
+    # puis Outils › Connecter un module › USB du serveur
+    # devices: ["/dev/ttyACM0:/dev/ttyACM0"]
+    # group_add: ["dialout"]
     logging:
       driver: json-file
       options:

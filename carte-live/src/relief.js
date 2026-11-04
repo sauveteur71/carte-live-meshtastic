@@ -647,11 +647,28 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   // ---- Plan pour couvrir une zone dessinée à la main (secteur d'intervention, vallée, massif…) ----------------
   // polygone : [[lat, lon], …] ; mêmes critères que le plan du département. La couverture de chaque point haut
   // candidat (dans la zone ou à moins de 10 km) est calculée sur les seules cellules de la zone.
-  async function planZone({ polygone, objectifPct = 95, max = 10, acces: filtre = null, avecReseau = true, realiste = false } = {}) {
+  // Deux côtés non voisins d'un contour fermé qui se coupent : contour « en nœud papillon », refusé
+  function contourCroise(poly) {
+    const n = poly.length;
+    const cote = (a, b, c) => Math.sign((b[1] - a[1]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[1] - a[1]));
+    const coupe = (p1, p2, p3, p4) => cote(p1, p2, p3) * cote(p1, p2, p4) < 0 && cote(p3, p4, p1) * cote(p3, p4, p2) < 0;
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      if (j === i + 1 || (i === 0 && j === n - 1)) continue;
+      if (coupe(poly[i], poly[(i + 1) % n], poly[j], poly[(j + 1) % n])) return true;
+    }
+    return false;
+  }
+  async function planZone({ polygone, polygones, objectifPct = 95, max = 10, acces: filtre = null, avecReseau = true, realiste = false } = {}) {
     if (etat.mnt !== 'pret') throw new Error('relief pas encore chargé : réessayez dans une minute');
-    const poly = (polygone || []).map((p) => [Number(p[0]), Number(p[1])]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
-    if (poly.length < 3 || poly.length > 200) throw new Error('zone : de 3 à 200 points');
-    const dedans = (lat, lon) => {
+    // Une ou plusieurs zones (la réunion est étudiée comme un seul secteur)
+    const brutes = Array.isArray(polygones) && polygones.length ? polygones : [polygone];
+    if (brutes.length > 10) throw new Error('10 zones au plus');
+    const polys = brutes.map((pl) => (pl || []).map((p) => [Number(p[0]), Number(p[1])]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1])));
+    for (const [k, poly] of polys.entries()) {
+      if (poly.length < 3 || poly.length > 200) throw new Error(`zone ${k + 1} : de 3 à 200 points`);
+      if (contourCroise(poly)) throw new Error(`zone ${k + 1} : le contour se croise lui-même, redessinez-la sans croiser les côtés`);
+    }
+    const dansPoly = (poly, lat, lon) => {
       let d = false;
       for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
         const [yi, xi] = poly[i], [yj, xj] = poly[j];
@@ -659,7 +676,9 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       }
       return d;
     };
-    const lats = poly.map((p) => p[0]), lons = poly.map((p) => p[1]);
+    const dedans = (lat, lon) => polys.some((pl) => dansPoly(pl, lat, lon));
+    const tous = polys.flat();
+    const lats = tous.map((p) => p[0]), lons = tous.map((p) => p[1]);
     const bb = { sud: Math.min(...lats), nord: Math.max(...lats), ouest: Math.min(...lons), est: Math.max(...lons) };
     // Cellules de la zone (limitées à l'emprise du relief chargé)
     const i0 = Math.max(0, Math.floor((bb.sud - emprise.sud) / pasLat)), i1 = Math.min(nLat - 1, Math.ceil((bb.nord - emprise.sud) / pasLat));
@@ -669,7 +688,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     let nb = 0, horsRelief = 0;
     for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (dedans(latDe(i), lonDe(j))) index.set(i * nLon + j, nb++);
     // Surface demandée hors de l'emprise du relief (non étudiée)
-    const surfaceDemandee = (() => { let a = 0; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) a += (poly[j][1] + poly[i][1]) * (poly[j][0] - poly[i][0]); return Math.abs(a / 2) * M_PAR_DEG * M_PAR_DEG * Math.cos(latMoy) / 1e6; })();
+    const surfaceDemandee = polys.reduce((t, poly) => { let a = 0; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) a += (poly[j][1] + poly[i][1]) * (poly[j][0] - poly[i][0]); return t + Math.abs(a / 2) * M_PAR_DEG * M_PAR_DEG * Math.cos(latMoy) / 1e6; }, 0);
     horsRelief = Math.max(0, Math.round(surfaceDemandee - nb * aireCelleKm2));
     if (nb < 4) throw new Error('zone trop petite (moins de 1 km²) ou hors du relief chargé');
     if (nb > 200000) throw new Error('zone trop grande : dessinez un secteur de moins de 12 000 km²');
@@ -716,7 +735,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       rgba[o] = c[0]; rgba[o + 1] = c[1]; rgba[o + 2] = c[2]; rgba[o + 3] = c[3];
     }
     return {
-      zone: true, objectifPct, max, filtreAcces: filtre || 'tous', avecReseau, realiste, realismeEtat: realisme.etat(), accesEtat: acces.etat(),
+      zone: true, zones: polys.length, objectifPct, max, filtreAcces: filtre || 'tous', avecReseau, realiste, realismeEtat: realisme.etat(), accesEtat: acces.etat(),
       candidats: couvertures.filter((c) => accessible(c.s, min)).length,
       surfaceZoneKm2: Math.round(nb * aireCelleKm2), horsReliefKm2: horsRelief,
       departPct: +((depart / nb) * 100).toFixed(1), finalPct: +((finale / nb) * 100).toFixed(1), atteint: finale >= cible,

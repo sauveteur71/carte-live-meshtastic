@@ -589,7 +589,7 @@ app.post('/api/relief/plan-zone', async (req, res) => {
   const RR = R(req);
   planZoneEnCours++;
   try {
-    const r = await RR.planZone({ polygone: b.polygone, objectifPct: Number(b.objectif) || 95, max: Number(b.max) || 10, acces: filtre, avecReseau: b.reseau !== false, realiste: !!b.realiste });
+    const r = await RR.planZone({ polygone: b.polygone, polygones: b.polygones, objectifPct: Number(b.objectif) || 95, max: Number(b.max) || 10, acces: filtre, avecReseau: b.reseau !== false, realiste: !!b.realiste });
     const id = crypto.randomBytes(6).toString('hex');
     cacheCouverture.set(id, { image: r.image });
     if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);

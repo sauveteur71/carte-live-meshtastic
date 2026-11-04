@@ -34,11 +34,10 @@ Le module (Meshtastic ou companion MeshCore USB) est branché **sur la machine q
 1. Sur la machine, repérez le port : `ls /dev/ttyACM* /dev/ttyUSB*` (ou `ls /dev/serial/by-id/`, nom stable conseillé).
 2. Dans `docker-compose.yml`, décommentez et adaptez :
    ```yaml
-   devices:
-     - "/dev/ttyACM0:/dev/ttyACM0"
-   group_add:
-     - dialout
+       devices: ["/dev/ttyACM0:/dev/ttyACM0"]
+       group_add: ["dialout"]
    ```
+   Ces deux lignes vont dans le service `carte-live`, au même retrait que `mem_limit` (pas sous `volumes:`).
    puis `docker compose up -d`.
 3. *Outils › Connecter un module › 🖥️ USB du serveur* : la carte liste les ports vus, reconnaît le type de module et le relie comme **principal** ou **en écoute**.
 

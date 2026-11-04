@@ -69,11 +69,11 @@ Les données (base, comptes, réglages, cache du relief) sont dans le volume `do
 Pour relier un module directement au serveur (sans navigateur ni agent), transmettez son port au conteneur dans `docker-compose.yml` :
 
 ```yaml
-    devices:
-      - "/dev/ttyACM0:/dev/ttyACM0"
-    group_add:
-      - dialout
+    devices: ["/dev/ttyACM0:/dev/ttyACM0"]
+    group_add: ["dialout"]
 ```
+
+Ces deux lignes vont dans le service `carte-live`, au même retrait que `mem_limit`. Placées sous `volumes:`, Docker répond « invalid mount path: 'dialout' ».
 
 Puis *Outils › Connecter un module › USB du serveur*. Voir [[Connecter un module]].
 
