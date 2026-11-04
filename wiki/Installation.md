@@ -56,7 +56,7 @@ Ouvrez `http://IP_DU_SERVEUR:8095`. L'assistant crée le **compte administrateur
 
 ## 4. Mise à jour
 
-Chaque nouvelle version est publiée automatiquement sur GitHub (page *Releases*, image `:latest`) après un essai de démarrage de l'image.
+Chaque image est essayée (démarrage du service) avant d'être publiée. Les versions GitHub (page *Releases*, image `:latest`) sont publiées à la demande : *Actions › Image Docker › Run workflow*, case « publier ».
 
 ```bash
 docker compose pull && docker compose up -d

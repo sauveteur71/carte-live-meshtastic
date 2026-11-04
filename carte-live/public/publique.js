@@ -45,8 +45,12 @@ function nomZone() {
 // Carte légère : ailleurs que dans le département de la carte, on affiche le réseau (nœuds, liaisons, animations)
 // sans calcul de couverture (le relief n'est chargé que pour le département de la carte)
 const depCarte = () => String((config.departement && config.departement.code) || '');
-const couvPossible = () => zoneSel === 'dep' || zoneSel === 'v' || (depSel() && depSel().code === depCarte());
-const avecDep = (url) => url;
+// Si l'admin l'a ouvert (« tous les départements ») : calculs sur le département choisi (relief chargé à la demande)
+const franceOuverte = () => config.couverturePublique === 'france';
+const couvPossible = () => zoneSel === 'dep' || zoneSel === 'v' || (depSel() && (depSel().code === depCarte() || franceOuverte()));
+// « Couverture d'un point » : en mode France, partout (le département du point est choisi par le serveur)
+const pointPossible = () => couvPossible() || franceOuverte();
+const avecDep = (url) => { const d = depSel(); return franceOuverte() && d && d.code !== depCarte() && !/[?&](lat|dep)=/.test(url) ? url + (url.includes('?') ? '&' : '?') + 'dep=' + d.code : url; };
 const zoneLarge = (n) => { const z = config && bboxZone(); return !z || (n.lat != null && n.lat >= z[0] - 0.3 && n.lat <= z[2] + 0.3 && n.lon >= z[1] - 0.3 && n.lon <= z[3] + 0.3); };
 const voitMt = () => vue !== 'meshcore', voitMc = () => !!config.meshcore && vue !== 'meshtastic';
 function eclair(m, sel) { const el = m && m.getElement() && m.getElement().querySelector(sel); if (!el) return; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
@@ -249,7 +253,7 @@ function majTitre() {
   document.title = titre + ' · carte publique';
 }
 // « du département » quand la zone est un département, sinon le nom de la zone (région, zone libre)
-const libZone = () => (config.departement && config.zoneNom && config.departement.nom && config.zoneNom !== config.departement.nom ? `de la zone ${config.zoneNom}` : 'du département');
+const libZone = () => (depSel() && depSel().code !== depCarte() ? `du département (${depSel().nom})` : config.departement && config.zoneNom && config.departement.nom && config.zoneNom !== config.departement.nom ? `de la zone ${config.zoneNom}` : 'du département');
 function recadrer() {
   const z = bboxZone();
   if (z) carte.fitBounds([[z[0], z[1]], [z[2], z[3]]], { padding: [10, 10] }); else carte.setView([46.6, 2.5], 6);
@@ -265,7 +269,7 @@ function installerZone() {
   sel.onchange = () => {
     zoneSel = sel.value;
     try { localStorage.setItem('publique_zone', zoneSel); } catch { /* indisponible */ }
-    if (couv.mode) { const m = couv.mode; couv.mode = null; if (couvPossible()) basculerCouverture(m); else { if (couv.couche) { couv.couche.remove(); couv.couche = null; } ['b-couv', 'b-sites', 'b-point'].forEach((id) => document.getElementById(id).classList.remove('actif')); document.body.classList.remove('mode-point'); document.getElementById('info-couv').hidden = true; } }
+    if (couv.mode) { const m = couv.mode; couv.mode = null; if (m === 'point' ? pointPossible() : couvPossible()) basculerCouverture(m); else { if (couv.couche) { couv.couche.remove(); couv.couche = null; } ['b-couv', 'b-sites', 'b-point'].forEach((id) => document.getElementById(id).classList.remove('actif')); document.body.classList.remove('mode-point'); document.getElementById('info-couv').hidden = true; } }
     majBoutonsCouv();
     majTitre();
     recadrer();
@@ -279,11 +283,12 @@ function majBoutonsCouv() {
   for (const id of ['b-couv', 'b-sites', 'b-point']) {
     const b = document.getElementById(id);
     if (b.dataset.titre == null) b.dataset.titre = b.title;
-    b.disabled = !ok;
-    b.title = ok ? b.dataset.titre : `Calculs de couverture disponibles sur ${config.zoneNom || 'le département de la carte'}`;
+    const possible = id === 'b-point' ? pointPossible() : ok;
+    b.disabled = !possible;
+    b.title = possible ? b.dataset.titre : franceOuverte() ? 'Choisissez un département pour ce calcul' : `Calculs de couverture disponibles sur ${config.zoneNom || 'le département de la carte'}`;
   }
   const n = document.getElementById('note-couv');
-  if (n) { n.hidden = ok; n.textContent = `Couverture et emplacements de relais : sur ${config.zoneNom || 'le département de la carte'} seulement.`; }
+  if (n) { n.hidden = ok; n.textContent = franceOuverte() ? 'Couverture et emplacements de relais : choisissez un département (la couverture d’un point marche partout).' : `Couverture et emplacements de relais : sur ${config.zoneNom || 'le département de la carte'} seulement.`; }
 }
 
 function changerVue(v, sansCharger) {

@@ -72,7 +72,7 @@ function creerAcces(dossier, journal, suffixe = '') {
   let cache = {};
   try { cache = JSON.parse(fs.readFileSync(fichier, 'utf8')); } catch { /* vide */ }
   const cle = (p) => p.lat.toFixed(4) + ',' + p.lon.toFixed(4);
-  let enCours = false;
+  let enCours = false, arrete = false;
   const etat = { total: 0, faits: 0, erreur: null };
 
   async function requete(lot) {
@@ -95,7 +95,7 @@ function creerAcces(dossier, journal, suffixe = '') {
 
   // Complète les points sans accès connu (en arrière-plan, par lots, avec pauses pour ménager Overpass)
   async function completer(points, apres) {
-    if (enCours) return;
+    if (enCours || arrete) return;
     enCours = true;
     try {
       for (const p of points) { const c = cache[cle(p)]; if (c && Date.now() - c.date < VALIDITE) p.acces = c.acces; }
@@ -104,12 +104,13 @@ function creerAcces(dossier, journal, suffixe = '') {
       if (!manquants.length) return;
       journal(`[Accès] recherche des voies d'accès de ${manquants.length} point(s) haut(s)…`);
       for (let k = 0; k < manquants.length; k += 25) {
+        if (arrete) break;
         const lot = manquants.slice(k, k + 25);
         let voies;
         try { voies = await requete(lot); } catch (e) {
           etat.erreur = e.message;
           journal(`[Accès] Overpass indisponible (${e.message}), nouvel essai dans 10 min`);
-          setTimeout(() => completer(points, apres).catch(() => {}), 10 * 60000);
+          if (!arrete) setTimeout(() => completer(points, apres).catch(() => {}), 10 * 60000);
           break;
         }
         for (const p of lot) { p.acces = evaluer(p, voies); cache[cle(p)] = { date: Date.now(), acces: p.acces }; }
@@ -123,7 +124,7 @@ function creerAcces(dossier, journal, suffixe = '') {
     } finally { enCours = false; }
   }
 
-  return { completer, etat: () => ({ ...etat, enCours }), NIVEAUX };
+  return { completer, etat: () => ({ ...etat, enCours }), arreter: () => { arrete = true; }, NIVEAUX };
 }
 
 module.exports = { creerAcces, classeVoie, evaluer, NIVEAUX };

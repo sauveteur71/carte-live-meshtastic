@@ -2,8 +2,8 @@
 #   - à chaque envoi sur main  → ghcr.io/<propriétaire>/carte-live-meshtastic:main
 #   - à chaque version vX.Y.Z (ou X.Y.Z, sans le « v ») → :X.Y.Z, :X.Y et :latest
 # Avant toute publication, l'image est essayée : le service doit démarrer et servir ses pages principales.
-# Sur main, quand la version de carte-live/package.json n'a pas encore de version GitHub, celle-ci est créée
-# automatiquement (étiquette vX.Y.Z, notes tirées des messages de commit, agents attachés, image :latest).
+# Version GitHub : seulement à la demande (Actions › Image Docker › Run workflow, case « publier »). Elle est créée
+# pour la version de carte-live/package.json (étiquette vX.Y.Z, notes tirées des commits, agents attachés, image :latest).
 name: Image Docker
 
 on:
@@ -11,6 +11,11 @@ on:
     branches: [main]
     tags: ['v*', '[0-9]*.[0-9]*.[0-9]*']
   workflow_dispatch:
+    inputs:
+      publier:
+        description: Publier la version de package.json sur GitHub (release vX.Y.Z et image :latest)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -82,10 +87,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Version GitHub automatique quand package.json annonce une version qui n'existe pas encore
+  # Version GitHub, seulement à la demande (lancement manuel avec « publier »)
   version:
     needs: image
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publier
     runs-on: ubuntu-latest
     permissions:
       contents: write

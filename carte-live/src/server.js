@@ -198,6 +198,7 @@ app.get('/api/config', (req, res) => {
     fond: config.carte.fond,
     couchesMasquees: config.carte.couchesMasquees,
     lienDistanceMaxKm: config.lienDistanceMaxKm,
+    couverturePublique: reliefPublic.couverture,
     precisionPublique: config.precisionPublique,
   });
 });
@@ -293,6 +294,45 @@ const optsRelief = (q) => {
 };
 // Relief d'un autre département (?dep=25) : instance séparée, créée à la demande (2 au plus en mémoire)
 const reliefsEtude = new Map();
+// Couverture de la carte publique : département de la carte seulement, ou toute la France (choix de l'admin).
+// « Préparer toute la France » télécharge à l'avance le relief et les points hauts de chaque département (sur disque),
+// pour que le premier calcul d'un département soit rapide.
+const fReliefPublic = path.join(path.dirname(config.fichierBase), 'relief-public.json');
+let reliefPublic = { couverture: 'departement' };
+try { reliefPublic = { ...reliefPublic, ...JSON.parse(fs.readFileSync(fReliefPublic, 'utf8')) }; } catch { /* défaut */ }
+const franceOuverte = () => reliefPublic.couverture === 'france';
+const precharge = { enCours: false, arret: false, total: 0, faits: 0, deja: 0, erreurs: [], courant: null, instance: null, debut: null, fin: null };
+const reliefSurDisque = (code) => ['mnt-' + code + '.bin', 'sommets-osm-' + code + '.json'].every((f) => fs.existsSync(path.join(path.dirname(config.fichierBase), f)));
+async function prechargerFrance() {
+  if (precharge.enCours) return;
+  const codes = listeDepartements.map((d) => d.code).filter((c) => c !== String(config.departement.code).toUpperCase());
+  Object.assign(precharge, { enCours: true, arret: false, total: codes.length, faits: 0, deja: 0, erreurs: [], courant: null, debut: Date.now(), fin: null });
+  journal(`[Relief] préparation de toute la France : ${codes.length} départements`);
+  for (const code of codes) {
+    if (precharge.arret) break;
+    if (reliefSurDisque(code)) { precharge.deja++; precharge.faits++; continue; }
+    precharge.courant = code;
+    try {
+      const r = reliefsEtude.get(code) || creerRelief(config, journal, { ...fournisseursRelief, envDefaut: () => null }, { code });
+      precharge.instance = reliefsEtude.has(code) ? null : r;
+      const debut = Date.now();
+      // Relief prêt et points hauts classés (ou 20 min au plus)
+      while (!precharge.arret && Date.now() - debut < 20 * 60000) {
+        const e = r.etat();
+        if (e.mnt === 'erreur') throw new Error(e.erreur || 'relief indisponible');
+        // … et voies d'accès des points hauts évaluées (OpenStreetMap), pour le choix voiture / 4×4 / à pied
+        const a = r.accesEtat ? r.accesEtat() : null;
+        if (e.mnt === 'pret' && ['pret', 'erreur'].includes(e.classement) && (!a || (!a.enCours && ((a.total > 0 && a.faits >= a.total) || a.erreur || Date.now() - debut > 5 * 60000)))) break;
+        await new Promise((ok) => setTimeout(ok, 5000));
+      }
+      if (precharge.instance) { try { r.arreter(); } catch { /* déjà */ } }
+    } catch (e) { precharge.erreurs.push({ code, erreur: e.message }); journal(`[Relief] ${code} : ${e.message}`); }
+    precharge.instance = null;
+    precharge.faits++;
+  }
+  journal(`[Relief] préparation de la France ${precharge.arret ? 'arrêtée' : 'terminée'} : ${precharge.faits}/${precharge.total} (${precharge.erreurs.length} erreur(s))`);
+  Object.assign(precharge, { enCours: false, courant: null, fin: Date.now() });
+}
 function R(req, ...pts) {
   const r = Rdep(req);
   // Un point hors du département étudié mais dans celui de la carte : on garde le relief de la carte
@@ -304,7 +344,7 @@ function R(req, ...pts) {
   // Point hors du relief chargé (ex. clic dans un département voisin) : relief du département de ce point
   // (chargé à la demande pour les membres connectés ; il faut quelques minutes la première fois)
   const p = pts.find((x) => x && Number.isFinite(x.lat) && !dansEmprise(x, r.emprise()));
-  if (p && estMembre(req)) {
+  if (p && (estMembre(req) || franceOuverte())) {
     const dep = meilleurDepartement(p.lat, p.lon, Number(req.query.rayon) || 40);
     if (dep) return Rdep(req, dep);
   }
@@ -346,8 +386,9 @@ function meilleurDepartement(lat, lon, rayonKm) {
 }
 function Rdep(req, depForce) {
   // Relief d'un autre département : chargement lourd (IGN, quelques minutes), réservé aux comptes connectés
-  const dep = String(depForce || (estMembre(req) ? req.query.dep || (req.body && req.body.dep) : '') || '').toUpperCase();
+  const dep = String(depForce || (estMembre(req) || franceOuverte() ? req.query.dep || (req.body && req.body.dep) : '') || '').toUpperCase();
   if (!dep || dep === String(config.departement.code).toUpperCase() || !/^(\d{2}|2A|2B)$/.test(dep)) return relief;
+  if (precharge.instance && precharge.courant === dep) return precharge.instance;
   if (!reliefsEtude.has(dep)) {
     if (!listeDepartements.some((d) => d.code === dep)) return relief;
     if (reliefsEtude.size >= 2) { const [k, v] = reliefsEtude.entries().next().value; v.arreter(); reliefsEtude.delete(k); }
@@ -357,6 +398,24 @@ function Rdep(req, depForce) {
   return reliefsEtude.get(dep);
 }
 
+app.get('/api/relief/france', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const surDisque = listeDepartements.filter((d) => d.code === String(config.departement.code).toUpperCase() || reliefSurDisque(d.code)).length;
+  res.set('Cache-Control', 'no-store').json({ couverture: reliefPublic.couverture, surDisque, total: listeDepartements.length, precharge: { ...precharge, instance: undefined } });
+});
+app.post('/api/relief/france', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const b = req.body || {};
+  if (b.couverture !== undefined) {
+    if (!['departement', 'france'].includes(b.couverture)) return res.status(400).json({ erreur: 'choix invalide' });
+    reliefPublic.couverture = b.couverture;
+    try { fs.writeFileSync(fReliefPublic, JSON.stringify(reliefPublic)); } catch (e) { return res.status(500).json({ erreur: e.message }); }
+    journal(`[Relief] couverture de la carte publique : ${b.couverture === 'france' ? 'toute la France' : 'département de la carte'} (${utilisateur(req).identifiant})`);
+  }
+  if (b.precharger === true) prechargerFrance();
+  if (b.precharger === false && precharge.enCours) precharge.arret = true;
+  res.json({ ok: true, couverture: reliefPublic.couverture });
+});
 app.get('/api/relief/etat', (req, res) => res.json({ ...R(req).etat(), emprise: R(req).emprise() }));
 app.get('/api/relief/sommets', (req, res) => {
   res.json(R(req).sommets().map((s) => ({ id: s.id, nom: s.nom, lat: s.lat, lon: s.lon, alt: s.alt, source: s.source, dominance: s.dominance, dansZone: s.dansZone, couverturePct: s.couverturePct, couvertureKm2: s.couvertureKm2, rang: s.rang, rangPlan: s.rangPlan, acces: s.acces || null })));

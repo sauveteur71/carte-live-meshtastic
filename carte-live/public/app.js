@@ -5664,7 +5664,9 @@ async function rendreReglages() {
       <p class="erreur" id="retour-reglages"></p>
       <div class="actions"><button type="submit" class="principal">Enregistrer et redémarrer</button></div>
       <p class="note">L’enregistrement redémarre le service (une dizaine de secondes). Un changement de département retélécharge le relief IGN (quelques minutes).</p>
-    </form>`;
+    </form>
+    <div class="bloc-france" id="bloc-france"></div>`;
+  rendreFrance();
   optionsDepartements(z.querySelector('[name=departement]'), r.departement.code);
   $('#form-reglages').onsubmit = async (e) => {
     e.preventDefault();
@@ -5677,6 +5679,28 @@ async function rendreReglages() {
     try { await postJson('/api/reglages', corps); $('#dlg-gestion').close(); attendreRedemarrage('Réglages enregistrés'); }
     catch (x) { $('#retour-reglages').textContent = x.message; }
   };
+}
+
+// Carte publique : couverture sur le département de la carte ou sur toute la France, préparation du relief
+async function rendreFrance() {
+  const z = $('#bloc-france');
+  if (!z) return;
+  let r;
+  try { r = await api('/api/relief/france'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const p = r.precharge;
+  const duree = p.debut ? Math.round(((p.fin || Date.now()) - p.debut) / 60000) : 0;
+  z.innerHTML = `<h3>🗺️ Carte publique et relief</h3>
+    <label>Calculs de couverture de la carte publique <select id="fr-couv">
+      <option value="departement" ${r.couverture === 'departement' ? 'selected' : ''}>Département de la carte seulement (léger)</option>
+      <option value="france" ${r.couverture === 'france' ? 'selected' : ''}>Tous les départements de France (relief chargé à la demande)</option></select></label>
+    <p class="note">Avec « tous les départements », chaque visiteur peut calculer la couverture, les emplacements de relais et la couverture d’un point dans n’importe quel département. Le premier calcul d’un département télécharge son relief IGN et ses points hauts (quelques minutes), sauf s’il a été préparé ci-dessous.</p>
+    <div class="actions-prop">${p.enCours ? '<button class="mini" id="fr-stop">⏹ Arrêter la préparation</button>' : '<button class="mini principal" id="fr-go">⬇ Préparer toute la France</button>'}<span class="note">Relief prêt sur le serveur : <b>${r.surDisque}</b> / ${r.total} départements</span></div>
+    ${p.enCours ? `<div class="alerte info-lecture"><span class="sablier"></span> Préparation en cours : ${p.faits}/${p.total} départements${p.courant ? ` (département ${esc(p.courant)})` : ''} · ${duree} min. Elle continue même si vous fermez cette page.</div>` : p.fin ? `<p class="note">Dernière préparation : ${p.faits}/${p.total} départements en ${duree} min${p.erreurs.length ? `, ${p.erreurs.length} erreur(s) : ${p.erreurs.slice(0, 5).map((x) => esc(x.code + ' ' + x.erreur)).join(' ; ')}` : ''}.</p>` : ''}
+    <p class="note">La préparation télécharge, département après département, le relief IGN (≈ 1 Mo chacun), les points hauts et leurs voies d’accès (OpenStreetMap). Comptez plusieurs heures pour toute la France et environ 150 Mo sur le disque. Les départements déjà prêts sont sautés.</p>`;
+  $('#fr-couv').onchange = async (e) => { try { await postJson('/api/relief/france', { couverture: e.target.value }); } catch (x) { alert(x.message); } rendreFrance(); };
+  const go = $('#fr-go'); if (go) go.onclick = async () => { try { await postJson('/api/relief/france', { precharger: true }); } catch (x) { alert(x.message); } setTimeout(rendreFrance, 800); };
+  const st = $('#fr-stop'); if (st) st.onclick = async () => { try { await postJson('/api/relief/france', { precharger: false }); } catch (x) { alert(x.message); } setTimeout(rendreFrance, 800); };
+  if (p.enCours) { clearTimeout(etat.minuterieFrance); etat.minuterieFrance = setTimeout(() => { if ($('#bloc-france')) rendreFrance(); }, 15000); }
 }
 
 async function installation() {

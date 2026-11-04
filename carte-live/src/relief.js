@@ -1292,7 +1292,8 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
 
   return {
     code: codeDep,
-    arreter: () => { for (const m of minuteries) { clearTimeout(m); clearInterval(m); } },
+    arreter: () => { for (const m of minuteries) { clearTimeout(m); clearInterval(m); } try { acces.arreter(); } catch { /* déjà */ } },
+    accesEtat: () => acces.etat(),
     etat: () => ({ ...etat, departement: { code: codeDep, nom: options.nom || (options.code ? nomDepartement(codeDep) : config.zoneNom) }, zone: z0, grille: { nLat, nLon, pasM: 250 }, calibration: calibration && { liaisons: calibration.liaisons, ecartMedianDb: calibration.ecartMedianDb, perteEnvironnementDb: calibration.perteEnvironnementDb } }),
     calibration: () => calibration,
     emprise: () => ({ sud: emprise.sud - pasLat / 2, ouest: emprise.ouest - pasLon / 2, nord: emprise.sud + (nLat - 0.5) * pasLat, est: emprise.ouest + (nLon - 0.5) * pasLon }),

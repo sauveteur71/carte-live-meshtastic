@@ -32,7 +32,7 @@ Dans *Messages*, un clic sur l'origine d'un message (📡 / 🌐) affiche son **
 
 ## Page publique
 Une page publique (sans messages ni position exacte des particuliers) peut être partagée : *Outils › Partager*. Elle sert à consulter le réseau, sans rien pouvoir modifier.
-- Chaque visiteur choisit le **secteur** affiché : département de la carte, avec ses voisins, une région, n'importe quel département ou la France entière. Nœuds, liaisons, chiffres et animations suivent. Les calculs de couverture (couverture, où poser des relais, couverture d'un point) restent sur le département de la carte : ailleurs, la carte publique est une carte légère du réseau.
+- Chaque visiteur choisit le **secteur** affiché : département de la carte, avec ses voisins, une région, n'importe quel département ou la France entière. Nœuds, liaisons, chiffres et animations suivent. Par défaut, les calculs de couverture (couverture, où poser des relais, couverture d'un point) restent sur le département de la carte : ailleurs, la carte publique est une carte légère du réseau. L'administrateur peut les ouvrir à **tous les départements** (*Gestion › Réglages › Carte publique et relief*) : le relief d'un département est alors chargé au premier calcul, ou à l'avance avec **⬇ Préparer toute la France** (plusieurs heures en arrière-plan, ≈ 150 Mo, arrêt possible à tout moment).
 - Le titre suit le réseau et le secteur choisis. Le lien vers la carte complète n'apparaît qu'aux administrateurs connectés.
 
 ## Favoris et « Mes nœuds »

@@ -1083,3 +1083,5 @@ a.bouton-lien { text-decoration: none; display: inline-flex; align-items: center
 @media (pointer: coarse) {
   .marque, .kpis, .panneau, .fiche, .rejeu, .recherche-lieu input { backdrop-filter: none; }
 }
+.bloc-france { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--bord); }
+.bloc-france label { display: block; margin: 6px 0; }
