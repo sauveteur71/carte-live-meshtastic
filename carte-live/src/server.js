@@ -2362,6 +2362,23 @@ const ecoutes = creerEcoutes({
 });
 ecoutes.demarrer();
 const administration = creerAdministration(sourceRadio, stockage);
+// Favoris et « mes nœuds » de chaque compte
+const suivis = require('./suivis').creerSuivis(config, {
+  autoAdministres: (u) => (u.role === 'admin'
+    ? [...Object.entries(administration.administrables()).filter(([, e]) => e && e.ok).map(([k]) => k), ...(config.meshcore.actif ? adminMc.memorises() : [])]
+    : u.role === 'gestionnaire' ? u.noeuds || [] : []),
+});
+app.get('/api/suivis', (req, res) => {
+  const u = utilisateur(req);
+  if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
+  res.set('Cache-Control', 'no-store').json(suivis.lire(u));
+});
+app.post('/api/suivis', (req, res) => {
+  const u = utilisateur(req);
+  if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
+  const b = req.body || {};
+  try { res.json(suivis.regler(u, b.id, b.liste, !!b.valeur)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 administration.utiliserAgents(agents);
 const analyse = creerAnalyse(stockage, config, reseau, () => (sourceRadio ? sourceRadio.etat().preset : null));
 const liensMesuresNoeuds = () => fournisseursRelief.liensNoeuds(); // + mesures des nœuds mobiles (couverture mesurée)

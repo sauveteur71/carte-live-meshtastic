@@ -771,27 +771,97 @@ function jauge(v, seuilA, seuilC, inverse) {
   return `<span class="jauge"><i class="${niveau}" style="width:${pct}%"></i></span>`;
 }
 
+// ---- Favoris et « mes nœuds » du compte (Meshtastic : numéro ; MeshCore : clé publique) ------------------
+etat.suivis = { favoris: new Set(), administres: new Set(), auto: new Set() };
+const idSuivi = (x) => String(x);
+const estFavori = (x) => etat.suivis.favoris.has(idSuivi(x));
+const estAdministre = (x) => etat.suivis.administres.has(idSuivi(x));
+function prendreSuivis(r) {
+  etat.suivis = { favoris: new Set(r.favoris || []), administres: new Set(r.administres || []), auto: new Set(r.auto || []) };
+}
+async function chargerSuivis() {
+  if (!etat.membre) return;
+  try { prendreSuivis(await api('/api/suivis')); } catch { return; }
+  rendreMesNoeuds();
+}
+async function basculerSuivi(id, liste) {
+  const valeur = !(liste === 'favoris' ? estFavori(id) : estAdministre(id));
+  try { prendreSuivis(await postJson('/api/suivis', { id: idSuivi(id), liste, valeur })); } catch (e) { alert(e.message); return; }
+  rendreMesNoeuds();
+  try { rendreNoeuds(); } catch { /* panneau absent */ }
+  try { if (typeof mcRendreNoeuds === 'function' && mc.vue === 'noeuds' && $('#mc-recherche')) mcRendreNoeuds(); } catch { /* MeshCore absent */ }
+  document.querySelectorAll(`[data-suivi][data-id="${idSuivi(id)}"]`).forEach(majBoutonSuivi);
+}
+// Boutons ☆ Favori / 🛠 J'administre d'une fiche
+function boutonsSuivi(id) {
+  if (!etat.membre) return '';
+  const t = document.createElement('span');
+  t.innerHTML = `<button class="mini" data-suivi="favoris" data-id="${esc(idSuivi(id))}"></button><button class="mini" data-suivi="administres" data-id="${esc(idSuivi(id))}"></button>`;
+  t.querySelectorAll('[data-suivi]').forEach(majBoutonSuivi);
+  return `<span class="suivi-fiche">${t.innerHTML}</span>`;
+}
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-suivi]'); if (b) { e.preventDefault(); basculerSuivi(b.dataset.id, b.dataset.suivi); } });
+function majBoutonSuivi(b) {
+  const id = b.dataset.id;
+  if (b.dataset.suivi === 'favoris') { const on = estFavori(id); b.textContent = on ? '⭐ Favori' : '☆ Favori'; b.classList.toggle('actif', on); b.title = on ? 'Retirer des favoris' : 'Ajouter aux favoris'; }
+  else { const on = estAdministre(id); b.textContent = on ? '🛠 Mes nœuds ✓' : '🛠 J’administre'; b.classList.toggle('actif', on); b.title = on ? (etat.suivis.auto.has(id) ? 'Ajouté d’office (nœud administrable) : cliquer pour le retirer de « Mes nœuds »' : 'Retirer de « Mes nœuds »') : 'Ajouter à « Mes nœuds » (groupe des nœuds que vous administrez)'; }
+}
+// Section « Mes nœuds » du panneau Réseau : favoris et nœuds administrés, Meshtastic et MeshCore, problèmes d'abord
+function rendreMesNoeuds() {
+  const bloc = $('#pli-mes-noeuds'), z = $('#mes-noeuds');
+  if (!bloc || !z) return;
+  const ids = [...new Set([...etat.suivis.administres, ...etat.suivis.favoris])];
+  bloc.hidden = !etat.membre;
+  if (!etat.membre) return;
+  const lignes = [];
+  for (const id of ids) {
+    if (/^[0-9A-F]{64}$/.test(id)) {
+      const n = typeof mc !== 'undefined' && mc.noeuds ? mc.noeuds.get(id) : null;
+      lignes.push({ id, mc: true, nom: n ? n.nom || n.id : id.slice(0, 8) + '…', statut: n ? n.statut : 'inactif', vu: n ? n.dernierVu : null, role: n ? mcRole(n.role).un : 'MeshCore', connu: !!n });
+    } else {
+      const n = etat.noeuds.get(Number(id));
+      lignes.push({ id, mc: false, nom: n ? n.nomLong || n.id : '!' + Number(id).toString(16).padStart(8, '0'), statut: n ? n.statut : 'inactif', vu: n ? n.dernierVu : null, role: n ? n.role || '' : 'Meshtastic', batterie: n ? n.batterie : null, connu: !!n });
+    }
+  }
+  const ordre = { inactif: 0, recent: 1, actif: 2 };
+  lignes.sort((a, b) => (estAdministre(b.id) - estAdministre(a.id)) || (ordre[a.statut] ?? 0) - (ordre[b.statut] ?? 0) || a.nom.localeCompare(b.nom));
+  const adm = lignes.filter((l) => estAdministre(l.id)), fav = lignes.filter((l) => !estAdministre(l.id));
+  const muets = adm.filter((l) => l.statut === 'inactif').length;
+  const p = $('#nb-mes-noeuds'); p.textContent = lignes.length; p.className = 'pastille' + (muets ? ' attention' : '');
+  $('#resume-mes-noeuds').textContent = lignes.length ? `${adm.length} administré${adm.length > 1 ? 's' : ''}${muets ? ` · ${muets} muet${muets > 1 ? 's' : ''}` : ''}${fav.length ? ` · ${fav.length} favori${fav.length > 1 ? 's' : ''}` : ''}` : 'aucun';
+  const ligne = (l) => `<div class="ligne cliquable" data-suivi-ouvrir="${l.id}" data-mc-suivi="${l.mc ? 1 : 0}"><span class="point ${l.statut}"></span><span class="titre">${estFavori(l.id) ? '⭐ ' : ''}${esc(l.nom)} <small>${l.mc ? 'MeshCore · ' : 'Meshtastic · '}${esc(l.role || '')}${l.batterie != null && l.batterie <= 100 ? ` · ${l.batterie} %` : ''}</small></span><span class="meta">${l.vu ? ilYa(l.vu) : l.connu ? '' : 'pas encore vu'}</span></div>`;
+  z.innerHTML = (adm.length ? '<h4>🛠 Administrés</h4>' + adm.map(ligne).join('') : '')
+    + (fav.length ? '<h4>⭐ Favoris</h4>' + fav.map(ligne).join('') : '')
+    + (!lignes.length ? '<div class="vide">Ouvrez la fiche d’un nœud puis « ☆ Favori » ou « 🛠 J’administre ». Les nœuds que la carte peut programmer s’y ajoutent d’office.</div>' : '');
+  z.querySelectorAll('[data-suivi-ouvrir]').forEach((el) => (el.onclick = () => {
+    const id = el.dataset.suiviOuvrir;
+    if (el.dataset.mcSuivi === '1') { if (typeof mcOuvrirFiche === 'function') { const n = mc.noeuds.get(id); if (n && n.lat != null) carte.flyTo([n.lat, n.lon], Math.max(carte.getZoom(), 11), { duration: 0.6 }); mcOuvrirFiche(id); } }
+    else { const n = etat.noeuds.get(Number(id)); if (n && n.lat != null) carte.flyTo([n.lat, n.lon], Math.max(carte.getZoom(), 11), { duration: 0.6 }); ouvrirFiche(Number(id)); }
+  }));
+}
 function ligneNoeud(n, point, meta, details) {
   const s = etat.config.seuils;
   const sous = details
     ? `<div class="sous-ligne">${n.tension ? `<span>${fmt(n.tension, 2, ' V')}</span>` : ''}${n.batterie != null && n.batterie <= 100 ? `<span>Batt. ${n.batterie} %${jauge(n.batterie, 40, s.batteriePourcent, true)}</span>` : n.batterie > 100 ? '<span>Secteur</span>' : ''}${n.canal != null ? `<span>Canal ${fmt(n.canal, 0, ' %')}${jauge(n.canal, s.canalPourcent, s.canalCritiquePourcent)}</span>` : ''}</div>`
     : '';
-  return `<div class="ligne" data-num="${n.num}"><span class="point ${point}"></span><span class="titre">${esc(n.nomLong || n.id)}<small>${esc(n.nomCourt || '')}</small></span><span class="meta">${esc(meta)}</span>${sous}</div>`;
+  return `<div class="ligne" data-num="${n.num}"><span class="point ${point}"></span><span class="titre">${estFavori(n.num) ? '⭐ ' : ''}${estAdministre(n.num) ? '🛠 ' : ''}${esc(n.nomLong || n.id)}<small>${esc(n.nomCourt || '')}</small></span><span class="meta">${esc(meta)}</span>${sous}</div>`;
 }
 
 // ---- Panneau : nœuds -----------------------------------------------------------
 function rendreNoeuds() {
   const filtre = $('#recherche').value.trim().toLowerCase();
   const tri = $('#tri').value;
-  let liste = [...etat.noeuds.values()].filter((n) => dansZone(n) && (
-    !filtre || [n.nomLong, n.nomCourt, n.id].some((x) => x && x.toLowerCase().includes(filtre))));
+  const groupe = $('#groupe-noeuds') ? $('#groupe-noeuds').value : '';
+  let liste = [...etat.noeuds.values()].filter((n) => (groupe ? true : dansZone(n)) && (
+    !filtre || [n.nomLong, n.nomCourt, n.id].some((x) => x && x.toLowerCase().includes(filtre)))
+    && (groupe !== 'favoris' || estFavori(n.num)) && (groupe !== 'administres' || estAdministre(n.num)));
   const cmp = {
     vu: (a, b) => (b.dernierVu || 0) - (a.dernierVu || 0),
     nom: (a, b) => (a.nomLong || a.id).localeCompare(b.nomLong || b.id),
     sauts: (a, b) => (a.sautsMin ?? 99) - (b.sautsMin ?? 99),
     snr: (a, b) => (b.snr ?? -99) - (a.snr ?? -99),
   }[tri];
-  liste.sort(cmp);
+  liste.sort((a, b) => (estFavori(b.num) - estFavori(a.num)) || cmp(a, b)); // favoris en tête
   const alertes = numAlerte();
   $('#noeuds').innerHTML = liste.length
     ? liste.slice(0, 400).map((n) => {
@@ -1336,7 +1406,7 @@ async function ouvrirFiche(num) {
 
   $('#fiche-contenu').innerHTML = `
     <h2>${esc(n.nomLong || n.id)}</h2>
-    <div class="ident">${esc(n.nomCourt || '')} · ${esc(n.id)} · ${n.num}</div>
+    <div class="ident">${esc(n.nomCourt || '')} · ${esc(n.id)} · ${n.num} ${boutonsSuivi(n.num)}</div>
     ${blocCoords(n.lat, n.lon, { alt: n.alt, approx: !etat.membre && !n.infrastructure && etat.config.precisionPublique >= 0 })}
     <div class="badges">
       <span class="badge ${n.statut}">${{ actif: 'Actif', recent: 'Récent', inactif: 'Inactif' }[n.statut]}</span>
@@ -4807,6 +4877,7 @@ function brancherInterface() {
   });
   $('#recherche').oninput = rendreNoeuds;
   $('#tri').onchange = rendreNoeuds;
+  { const g = $('#groupe-noeuds'); if (g) { try { g.value = localStorage.getItem('gaulix_groupe') || ''; } catch { /* ignoré */ } g.hidden = !etat.membre; g.onchange = () => { try { localStorage.setItem('gaulix_groupe', g.value); } catch { /* ignoré */ } rendreNoeuds(); }; } }
   $('#fenetre').onchange = chargerLiens;
   document.querySelectorAll('.bascule').forEach((b) => (b.onclick = () => {
     const c = b.dataset.couche;
@@ -5289,6 +5360,7 @@ async function demarrer() {
   chargerAsymetrie(); setInterval(chargerAsymetrie, 120000);
   chargerNouveaux(); setInterval(chargerNouveaux, 300000);
   chargerBavards(); setInterval(chargerBavards, 900000);
+  chargerSuivis(); setInterval(rendreMesNoeuds, 60000); setInterval(chargerSuivis, 600000);
   chargerChemins(); setInterval(chargerChemins, 300000);
   chargerSanteCarte(); setInterval(chargerSanteCarte, 60000);
   chargerFederation(); setInterval(chargerFederation, 600000);

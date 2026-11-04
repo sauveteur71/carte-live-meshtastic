@@ -976,3 +976,8 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 .tag-region { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 11px; background: rgba(62, 230, 196, .15); color: var(--texte); margin-left: 4px; }
 .tag-region.sans { background: rgba(255, 255, 255, .08); opacity: .8; }
 .tag-region.inconnue { background: rgba(255, 181, 71, .18); }
+
+/* Favoris et « mes nœuds » */
+.suivi-fiche { display: inline-flex; gap: 4px; margin-left: 6px; }
+.suivi-fiche button.actif { border-color: var(--accent, #3ee6c4); color: var(--accent, #3ee6c4); }
+#mes-noeuds h4 { margin: 8px 0 2px; font-size: 12px; opacity: .8; }

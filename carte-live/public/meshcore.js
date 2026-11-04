@@ -270,13 +270,18 @@ function mcRendreNoeuds() {
   const z = $('#mc-contenu');
   if (!z.querySelector('#mc-recherche')) {
     z.innerHTML = `<div class="recherche"><input id="mc-recherche" type="search" placeholder="Nom ou début de clé…" autocomplete="off">
+      ${etat.membre ? '<select id="mc-groupe" title="Groupe de nœuds"><option value="">Tous</option><option value="favoris">⭐ Favoris</option><option value="administres">🛠 Mes nœuds</option></select>' : ''}
       <select id="mc-tri"><option value="vu">Dernier entendu</option><option value="nom">Nom</option><option value="role">Type</option><option value="sauts">Sauts</option></select></div>
       <div id="mc-resume" class="note"></div><div id="mc-liste" class="liste"></div>`;
     $('#mc-recherche').oninput = mcRendreNoeuds;
     $('#mc-tri').onchange = mcRendreNoeuds;
+    const g = $('#mc-groupe');
+    if (g) { try { g.value = localStorage.getItem('gaulix_mc_groupe') || ''; } catch { /* ignoré */ } g.onchange = () => { try { localStorage.setItem('gaulix_mc_groupe', g.value); } catch { /* ignoré */ } mcRendreNoeuds(); }; }
   }
   const f = $('#mc-recherche').value.trim().toLowerCase(), tri = $('#mc-tri').value;
-  const liste = [...mc.noeuds.values()].filter((n) => mcDansZone(n) && (!f || (n.nom || '').toLowerCase().includes(f) || n.cle.toLowerCase().startsWith(f)));
+  const groupe = $('#mc-groupe') ? $('#mc-groupe').value : '';
+  const liste = [...mc.noeuds.values()].filter((n) => (groupe ? true : mcDansZone(n)) && (!f || (n.nom || '').toLowerCase().includes(f) || n.cle.toLowerCase().startsWith(f))
+    && (groupe !== 'favoris' || estFavori(n.cle)) && (groupe !== 'administres' || estAdministre(n.cle)));
   const ordreRole = { repeteur: 0, salon: 1, capteur: 2, companion: 3, inconnu: 4 };
   liste.sort({
     vu: (a, b) => (b.dernierVu || 0) - (a.dernierVu || 0),
@@ -284,11 +289,12 @@ function mcRendreNoeuds() {
     role: (a, b) => (ordreRole[a.role] ?? 9) - (ordreRole[b.role] ?? 9) || (b.dernierVu || 0) - (a.dernierVu || 0),
     sauts: (a, b) => (a.sautsMin ?? 99) - (b.sautsMin ?? 99),
   }[tri]);
+  liste.sort((a, b) => estFavori(b.cle) - estFavori(a.cle)); // favoris en tête (tri stable)
   const c = (r) => liste.filter((n) => n.role === r).length;
   $('#mc-resume').textContent = `${liste.length} nœud(s) : ${c('repeteur')} répéteur(s), ${c('salon')} room server(s), ${c('companion')} companion(s)${c('capteur') ? `, ${c('capteur')} capteur(s)` : ''}`;
   $('#mc-liste').innerHTML = liste.length ? liste.slice(0, 400).map((n) => {
     const sauts = n.sautsMin == null ? '' : n.sautsMin === 0 ? 'direct · ' : `${n.sautsMin} saut${n.sautsMin > 1 ? 's' : ''} · `;
-    return `<div class="ligne" data-mc="${n.cle}"><span class="point ${n.statut}"></span><span class="titre"><i class="role-mc ${n.role}" style="--mcc:${mcRole(n.role).hex}"></i>${esc(n.nom || n.id)}<small>${esc(mcRole(n.role).un)}${n.observateur ? ' · observateur' : ''}</small></span><span class="meta">${sauts}${ilYa(n.dernierVu)}</span></div>`;
+    return `<div class="ligne" data-mc="${n.cle}"><span class="point ${n.statut}"></span><span class="titre"><i class="role-mc ${n.role}" style="--mcc:${mcRole(n.role).hex}"></i>${estFavori(n.cle) ? '⭐ ' : ''}${estAdministre(n.cle) ? '🛠 ' : ''}${esc(n.nom || n.id)}<small>${esc(mcRole(n.role).un)}${n.observateur ? ' · observateur' : ''}</small></span><span class="meta">${sauts}${ilYa(n.dernierVu)}</span></div>`;
   }).join('') : '<div class="vide">Aucun nœud MeshCore pour l’instant : reliez un companion (onglet Companion) ou abonnez la carte à un flux MQTT MeshCore.</div>';
 }
 
@@ -1297,7 +1303,7 @@ async function mcOuvrirFiche(cle, ongletInitial) {
     <td class="num">${n.lat != null && mc.noeuds.get(v.cle) && mc.noeuds.get(v.cle).lat != null ? `<button class="mini" data-mc-profil="${v.cle}" title="Profil de relief">⛰</button>` : ''}</td></tr>`).join('');
   zc.innerHTML = `
     <h2>${esc(n.nom || n.id)}</h2>
-    <div class="ident">MeshCore · <span class="mono">${esc(n.cle.slice(0, 16))}…</span> <button class="mini" data-copier="${esc(n.cle)}" title="Copier la clé publique complète">Copier la clé</button></div>
+    <div class="ident">MeshCore · <span class="mono">${esc(n.cle.slice(0, 16))}…</span> <button class="mini" data-copier="${esc(n.cle)}" title="Copier la clé publique complète">Copier la clé</button> ${boutonsSuivi(n.cle)}</div>
     ${blocCoords(n.lat, n.lon, { approx: !etat.membre && !n.infrastructure && etat.config.precisionPublique >= 0 })}
     <div class="badges">
       <span class="badge ${n.statut}">${{ actif: 'Actif', recent: 'Récent', inactif: 'Inactif' }[n.statut]}</span>

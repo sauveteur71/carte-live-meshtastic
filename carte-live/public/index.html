@@ -148,6 +148,10 @@
           <summary><h3>Passerelles <span class="titre-reseau">Meshtastic</span> <span id="resume-passerelles" class="resume-alertes"></span></h3></summary>
           <div id="passerelles" class="liste"></div>
         </details>
+        <details class="pli-alertes" data-pli="mes-noeuds" id="pli-mes-noeuds" hidden>
+          <summary><h3>Mes nœuds <span id="nb-mes-noeuds" class="pastille">0</span> <span id="resume-mes-noeuds" class="resume-alertes"></span></h3></summary>
+          <div id="mes-noeuds" class="liste"></div>
+        </details>
         <details class="pli-alertes" data-pli="nouveaux">
           <summary><h3>Nouveaux nœuds <span id="nb-nouveaux" class="pastille">0</span> <span id="resume-nouveaux" class="resume-alertes"></span></h3></summary>
           <div id="nouveaux" class="liste"></div>
@@ -187,6 +191,7 @@
     <section data-vue="noeuds" class="vue">
       <div class="recherche">
         <input id="recherche" type="search" placeholder="Nom, nom court ou !identifiant…" autocomplete="off">
+        <select id="groupe-noeuds" title="Groupe de nœuds"><option value="">Tous</option><option value="favoris">⭐ Favoris</option><option value="administres">🛠 Mes nœuds</option></select>
         <select id="tri">
           <option value="vu">Dernier entendu</option>
           <option value="nom">Nom</option>

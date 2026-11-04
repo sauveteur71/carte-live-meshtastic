@@ -32,3 +32,16 @@ Dans *Messages*, un clic sur l'origine d'un message (📡 / 🌐) affiche son **
 
 ## Page publique
 Une page publique (sans messages ni position exacte des particuliers) peut être partagée : *Outils › Partager*.
+
+## Favoris et « Mes nœuds »
+Dans la fiche d'un nœud, Meshtastic ou MeshCore (compte connecté) :
+- **☆ Favori** : le nœud passe en tête des listes, avec une ⭐ ;
+- **🛠 J'administre** : le nœud entre dans le groupe **Mes nœuds**.
+
+Les nœuds que vous pouvez programmer y figurent d'office :
+- pour un administrateur, les nœuds Meshtastic qui acceptent le module de la carte et les répéteurs MeshCore dont le mot de passe est mémorisé ;
+- pour un gestionnaire, les nœuds de son secteur.
+
+Un clic sur « 🛠 Mes nœuds ✓ » en retire un, et il ne revient plus d'office.
+
+Le panneau **Réseau** a une section **Mes nœuds** : administrés d'abord (les muets en premier), puis favoris, avec l'état, la batterie et le dernier contact. Les listes *Nœuds* (Meshtastic et MeshCore) ont un choix **Tous / ⭐ Favoris / 🛠 Mes nœuds**. Les choix sont propres à chaque compte et suivent d'un appareil à l'autre.
