@@ -502,6 +502,9 @@ async function mcRendreAnalyse() {
 // ---- Gestion : administration des répéteurs et room servers (admin) ---------------------------
 const mcGestion = { selection: new Set(), suivi: null, tache: null, info: null };
 const MC_LPP = { tension: 'Tension', temperature: 'Température', humidite: 'Humidité', pression: 'Pression', courant: 'Courant', pourcentage: 'Charge', luminosite: 'Luminosité', altitude: 'Altitude', puissance: 'Puissance', energie: 'Énergie', concentration: 'Concentration', gps: 'Position', analogique: 'Entrée analogique', entree: 'Entrée', sortie: 'Sortie', generique: 'Capteur', presence: 'Présence', interrupteur: 'Interrupteur' };
+// Dernière opération lancée (par nœud, « * » pour le panneau Programmer) : son bouton est le bouton principal
+const mcDerniereAction = {};
+const mcActionActive = (cle, a) => ((mcDerniereAction[cle] || 'lire') === a ? 'class="principal"' : '');
 const MC_TACHES = { lire: 'Lire la configuration', statut: 'État', voisins: 'Voisins', verifier: 'Vérification de conformité', modifier: 'Modification', cli: 'Commande', annonce: 'Annonce', horloge: 'Horloge', redemarrer: 'Redémarrage', chemin: 'Chemin', tracer: 'Trace (SNR par saut)', telemetrie: 'Télémétrie', motdepasse: 'Mots de passe', regions: 'Régions', modele: 'Application d’un modèle', miseEnService: 'Mise en service' };
 const MC_STATUTS = { en_attente: 'en attente', en_cours: 'en cours…', ok: 'réussi', echec: 'échec', annule: 'arrêté', reprise: 'insiste : nouvel essai prévu' };
 // ---- Maintenance MeshCore : firmwares, accès administrateur, conformité automatique ---------------------
@@ -631,14 +634,14 @@ async function mcRendreGestion() {
         ${i.elements.map((e) => `<label class="case"><input type="checkbox" name="el" value="${e}" ${i.elementsDefaut.includes(e) ? 'checked' : ''}> ${esc((i.params.find((p) => p.cle === e) || {}).nom || e)}</label>`).join('')}
       </details>
       <div class="actions-prop">
-        <button type="button" data-mc-op="lire" class="principal">Lire la configuration</button>
-        <button type="button" data-mc-op="statut">État</button>
-        <button type="button" data-mc-op="voisins">Voisins</button>
-        <button type="button" data-mc-op="verifier">Vérifier la conformité</button>
-        <button type="button" data-mc-op="horloge">Mettre à l’heure</button>
-        <button type="button" data-mc-op="annonce">Annonce</button>
-        <button type="button" data-mc-op="tracer" title="Aller-retour le long du chemin, avec le SNR de chaque saut (sans mot de passe)">Tracer</button>
-        <button type="button" data-mc-op="telemetrie" title="Batterie, température, capteurs (selon les droits du nœud)">Télémétrie</button>
+        <button type="button" data-mc-op="lire" ${mcActionActive('*', 'lire')}>Lire la configuration</button>
+        <button type="button" data-mc-op="statut" ${mcActionActive('*', 'statut')}>État</button>
+        <button type="button" data-mc-op="voisins" ${mcActionActive('*', 'voisins')}>Voisins</button>
+        <button type="button" data-mc-op="verifier" ${mcActionActive('*', 'verifier')}>Vérifier la conformité</button>
+        <button type="button" data-mc-op="horloge" ${mcActionActive('*', 'horloge')}>Mettre à l’heure</button>
+        <button type="button" data-mc-op="annonce" ${mcActionActive('*', 'annonce')}>Annonce</button>
+        <button type="button" data-mc-op="tracer" ${mcActionActive('*', 'tracer')} title="Aller-retour le long du chemin, avec le SNR de chaque saut (sans mot de passe)">Tracer</button>
+        <button type="button" data-mc-op="telemetrie" ${mcActionActive('*', 'telemetrie')} title="Batterie, température, capteurs (selon les droits du nœud)">Télémétrie</button>
         <button type="button" data-mc-outil-adm="motdepasse" title="Changer le mot de passe admin ou invité">🔑 Mots de passe…</button>
         <button type="button" data-mc-outil-adm="regions" title="Régions (zones d’inondation) : lire, créer, autoriser, bloquer, attache">🗺️ Régions…</button>
         <button type="button" data-mc-outil-adm="modeles" title="Réglages types appliqués à plusieurs répéteurs">📋 Modèles…</button>
@@ -660,6 +663,7 @@ async function mcRendreGestion() {
   z.querySelectorAll('[data-mc-op]').forEach((b) => (b.onclick = async () => {
     const f = $('#mc-f-gestion');
     const type = b.dataset.mcOp;
+    mcDerniereAction['*'] = type; z.querySelectorAll('[data-mc-op].principal').forEach((x) => x.classList.remove('principal')); b.classList.add('principal');
     if (!sel.size) { $('#mc-g-retour').textContent = 'Cochez au moins un nœud.'; return; }
     const ordre = [...sel];
     const params = { motDePasse: f.mdp.value || undefined, memoriser: f.memoriser.checked, insister: f.insister.checked, elements: [...f.querySelectorAll('[name=el]:checked')].map((x) => x.value) };
@@ -869,9 +873,9 @@ async function mcRendreAdminFiche(n, z) {
         <label class="case"><input type="checkbox" name="insister"> Insister 2 h en cas d’échec</label>
       </div>
       <div class="actions-prop">
-        <button type="button" data-a="lire" class="principal">Lire la configuration</button><button type="button" data-a="statut">État</button><button type="button" data-a="voisins">Voisins</button>
-        <button type="button" data-a="horloge">Mettre à l’heure</button><button type="button" data-a="annonce">Annonce</button><button type="button" data-a="redemarrer">Redémarrer</button>
-        <button type="button" data-a="tracer" title="Aller-retour le long du chemin, SNR de chaque saut (sans mot de passe)">Tracer</button><button type="button" data-a="telemetrie" title="Batterie, température, capteurs">Télémétrie</button>
+        <button type="button" data-a="lire" ${mcActionActive(n.cle, 'lire')}>Lire la configuration</button><button type="button" data-a="statut" ${mcActionActive(n.cle, 'statut')}>État</button><button type="button" data-a="voisins" ${mcActionActive(n.cle, 'voisins')}>Voisins</button>
+        <button type="button" data-a="horloge" ${mcActionActive(n.cle, 'horloge')}>Mettre à l’heure</button><button type="button" data-a="annonce" ${mcActionActive(n.cle, 'annonce')}>Annonce</button><button type="button" data-a="redemarrer" ${mcActionActive(n.cle, 'redemarrer')}>Redémarrer</button>
+        <button type="button" data-a="tracer" ${mcActionActive(n.cle, 'tracer')} title="Aller-retour le long du chemin, SNR de chaque saut (sans mot de passe)">Tracer</button><button type="button" data-a="telemetrie" ${mcActionActive(n.cle, 'telemetrie')} title="Batterie, température, capteurs">Télémétrie</button>
         <button type="button" data-a="service" title="Modèle, nom, position, contact et mot de passe en une seule opération">🚀 Mise en service…</button><button type="button" data-a="motdepasse">🔑 Mots de passe…</button><button type="button" data-a="regions">🗺️ Régions…</button><button type="button" data-a="modeles">📋 Modèles…</button>
         ${l.memorise ? '<button type="button" data-a="oublier">Oublier le mot de passe</button>' : ''}
       </div>
@@ -910,6 +914,8 @@ async function mcRendreAdminFiche(n, z) {
   };
   f.querySelectorAll('[data-a]').forEach((b) => (b.onclick = async () => {
     const a = b.dataset.a;
+    // Le bouton de la dernière opération lancée devient le bouton principal (vert), celui qu'on relance d'un clic
+    if (!['oublier', 'motdepasse', 'regions', 'modeles', 'service'].includes(a)) { mcDerniereAction[n.cle] = a; f.querySelectorAll('[data-a].principal').forEach((x) => x.classList.remove('principal')); b.classList.add('principal'); }
     if (a === 'oublier') { await postJson('/api/mc/admin/mot-de-passe', { cle: n.cle, motDePasse: null }); mcRendreAdminFiche(n, z); return; }
     if (['motdepasse', 'regions', 'modeles', 'service'].includes(a)) {
       return mcOutilAdmin(a, [n.cle], $('#mc-adm-outil'), { mdp: () => f.mdp.value, memoriser: () => f.memoriser.checked, insister: () => f.insister.checked, viderMdp: () => { f.mdp.value = ''; }, zoneTache: $('#mc-adm-tache'),
