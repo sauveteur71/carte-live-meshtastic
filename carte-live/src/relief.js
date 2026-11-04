@@ -109,6 +109,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   const fSommets = path.join(dossier, `sommets-osm${suffixe}.json`);
   const acces = creerAcces(dossier, journal, suffixe);
   const minuteries = [];
+  let arrete = false; // instance arrêtée (département retiré de la mémoire) : les téléchargements en cours s'interrompent
   const niveauMin = (filtre) => NIVEAUX_ACCES[filtre] || 0; // tous = 0
   const accessible = (s, min) => !min || (s.acces && s.acces.niveau >= min);
   const marge = 0.2; // degrés autour de la zone
@@ -174,6 +175,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     const TAILLE = 4900;
     journal(`[Relief] téléchargement du MNT IGN : ${nLat} × ${nLon} points (pas 250 m)…`);
     for (let debut = 0; debut < total; debut += TAILLE) {
+      if (arrete) throw new Error('chargement interrompu');
       const lats = [], lons = [];
       for (let k = debut; k < Math.min(total, debut + TAILLE); k++) {
         lats.push(latDe(Math.floor(k / nLon)).toFixed(5));
@@ -1278,7 +1280,9 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   async function demarrer() {
     try {
       await chargerMnt();
+      if (arrete) return;
       await calculerSommets();
+      if (arrete) return;
       await calculerClassement();
     } catch (e) {
       etat.mnt = etat.mnt === 'pret' ? 'pret' : 'erreur';
@@ -1292,7 +1296,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
 
   return {
     code: codeDep,
-    arreter: () => { for (const m of minuteries) { clearTimeout(m); clearInterval(m); } try { acces.arreter(); } catch { /* déjà */ } },
+    arreter: () => { arrete = true; for (const m of minuteries) { clearTimeout(m); clearInterval(m); } try { acces.arreter(); } catch { /* déjà */ } },
     accesEtat: () => acces.etat(),
     etat: () => ({ ...etat, departement: { code: codeDep, nom: options.nom || (options.code ? nomDepartement(codeDep) : config.zoneNom) }, zone: z0, grille: { nLat, nLon, pasM: 250 }, calibration: calibration && { liaisons: calibration.liaisons, ecartMedianDb: calibration.ecartMedianDb, perteEnvironnementDb: calibration.perteEnvironnementDb } }),
     calibration: () => calibration,

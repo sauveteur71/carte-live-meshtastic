@@ -303,11 +303,53 @@ try { reliefPublic = { ...reliefPublic, ...JSON.parse(fs.readFileSync(fReliefPub
 const franceOuverte = () => reliefPublic.couverture === 'france';
 const precharge = { enCours: false, arret: false, total: 0, faits: 0, deja: 0, erreurs: [], courant: null, instance: null, debut: null, fin: null };
 const reliefSurDisque = (code) => ['mnt-' + code + '.bin', 'sommets-osm-' + code + '.json'].every((f) => fs.existsSync(path.join(path.dirname(config.fichierBase), f)));
+// Paquet « relief France » : relief IGN, points hauts, accès, sites et communes de chaque département, en un fichier
+// tar.gz. Fabriqué depuis une carte qui a tout préparé (Gestion › Réglages), publié sur GitHub, installé par les autres.
+const RE_FICHIER_PAQUET = /^((mnt|sommets-osm|acces-sommets|realisme)-(\d{2}|2A|2B)\.(bin|json)|communes-sommets\.json)$/;
+const URL_PAQUET_FRANCE = process.env.RELIEF_FRANCE_URL || 'https://github.com/sauveteur71/carte-live-meshtastic/releases/download/relief-france/relief-france.tar.gz';
+function fichiersPaquet() {
+  const d = path.dirname(config.fichierBase), code = String(config.departement.code).toUpperCase();
+  const l = fs.readdirSync(d).filter((f) => RE_FICHIER_PAQUET.test(f) && fs.statSync(path.join(d, f)).isFile());
+  // Département de la carte : fichiers sans suffixe, renommés dans le paquet (mnt.bin → mnt-43.bin)
+  const propres = ['mnt.bin', 'mnt.json', 'sommets-osm.json', 'acces-sommets.json', 'realisme.json'].filter((f) => fs.existsSync(path.join(d, f)) && !l.includes(f.replace(/\.(bin|json)$/, `-${code}.$1`)));
+  return { d, code, l, propres };
+}
+function exporterPaquetFrance(res) {
+  const { d, code, l, propres } = fichiersPaquet();
+  const { spawn } = require('child_process');
+  const args = ['-czf', '-', '-C', d, ...propres.map((f) => `--transform=s/^${f.replace('.', '\\.')}$/${f.replace(/\.(bin|json)$/, `-${code}.$1`)}/`), ...propres, ...l];
+  const t = spawn('tar', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  res.set('Content-Type', 'application/gzip').set('Content-Disposition', 'attachment; filename="relief-france.tar.gz"');
+  t.stdout.pipe(res);
+  t.stderr.on('data', (x) => journal('[Relief] paquet :', String(x).trim()));
+}
+async function importerPaquetFrance() {
+  const d = path.dirname(config.fichierBase), tmp = path.join(d, 'relief-france.tar.gz.part');
+  const r = await fetch(URL_PAQUET_FRANCE, { signal: AbortSignal.timeout(30 * 60000) });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const { Readable } = require('stream'), { pipeline } = require('stream/promises');
+  await pipeline(Readable.fromWeb(r.body), fs.createWriteStream(tmp));
+  const { execFileSync } = require('child_process');
+  try {
+    // Contrôle du contenu avant extraction : uniquement des fichiers de relief attendus, sans dossier
+    const noms = execFileSync('tar', ['-tzf', tmp], { maxBuffer: 16 * 1024 * 1024 }).toString().split('\n').map((x) => x.replace(/^\.\//, '')).filter(Boolean);
+    const mauvais = noms.filter((n) => !RE_FICHIER_PAQUET.test(n));
+    if (mauvais.length) throw new Error(`contenu inattendu (${mauvais.slice(0, 3).join(', ')})`);
+    // Ne remplace pas les fichiers déjà présents (un département préparé ici reste celui d'ici)
+    execFileSync('tar', ['-xzf', tmp, '-C', d, '--skip-old-files', '--no-same-owner', '--no-same-permissions'], { timeout: 10 * 60000 });
+    return noms.length;
+  } finally { try { fs.unlinkSync(tmp); } catch { /* déjà */ } }
+}
 async function prechargerFrance() {
   if (precharge.enCours) return;
   const codes = listeDepartements.map((d) => d.code).filter((c) => c !== String(config.departement.code).toUpperCase());
   Object.assign(precharge, { enCours: true, arret: false, total: codes.length, faits: 0, deja: 0, erreurs: [], courant: null, debut: Date.now(), fin: null });
   journal(`[Relief] préparation de toute la France : ${codes.length} départements`);
+  // D'abord le paquet « relief France » publié sur GitHub (un seul téléchargement), s'il manque des départements
+  if (codes.some((c) => !reliefSurDisque(c))) {
+    precharge.courant = 'paquet';
+    try { const n = await importerPaquetFrance(); journal(`[Relief] paquet France : ${n} fichier(s) installé(s)`); } catch (e) { journal(`[Relief] paquet France indisponible (${e.message}) : téléchargement département par département`); precharge.erreurs.push({ code: 'paquet', erreur: e.message }); }
+  }
   for (const code of codes) {
     if (precharge.arret) break;
     if (reliefSurDisque(code)) { precharge.deja++; precharge.faits++; continue; }
@@ -328,7 +370,7 @@ async function prechargerFrance() {
       if (precharge.instance) { try { r.arreter(); } catch { /* déjà */ } }
     } catch (e) { precharge.erreurs.push({ code, erreur: e.message }); journal(`[Relief] ${code} : ${e.message}`); }
     precharge.instance = null;
-    precharge.faits++;
+    if (!precharge.arret) precharge.faits++;
   }
   journal(`[Relief] préparation de la France ${precharge.arret ? 'arrêtée' : 'terminée'} : ${precharge.faits}/${precharge.total} (${precharge.erreurs.length} erreur(s))`);
   Object.assign(precharge, { enCours: false, courant: null, fin: Date.now() });
@@ -402,6 +444,11 @@ app.get('/api/relief/france', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const surDisque = listeDepartements.filter((d) => d.code === String(config.departement.code).toUpperCase() || reliefSurDisque(d.code)).length;
   res.set('Cache-Control', 'no-store').json({ couverture: reliefPublic.couverture, surDisque, total: listeDepartements.length, precharge: { ...precharge, instance: undefined } });
+});
+app.get('/api/relief/france/paquet', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  journal(`[Relief] paquet France téléchargé par ${utilisateur(req).identifiant}`);
+  exporterPaquetFrance(res);
 });
 app.post('/api/relief/france', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
