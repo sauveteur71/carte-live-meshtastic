@@ -51,3 +51,13 @@ Le panneau **Réseau** a une section **Mes nœuds** : administrés d'abord (les 
 ## GPS figé
 La carte signale dans les alertes un nœud qui continue d'envoyer sa position alors que la mesure GPS qu'il annonce date de plus de 30 min : GPS sans signal, antenne débranchée ou module en panne. Un relais à position fixe, qui n'a jamais bougé, n'est pas concerné.
 
+
+## Clic droit sur un nœud
+Un clic droit (ou un appui long sur téléphone) sur un nœud, dans une liste ou sur la carte, ouvre un menu :
+- ouvrir la fiche, centrer la carte ;
+- ☆ ajouter aux favoris, 🛠 ajouter à « Mes nœuds » (ou les retirer) ;
+- ✉️ message direct, 📶 écouter en direct (Meshtastic), 📡 couverture depuis ce nœud ;
+- 📍 partager sa position dans un message ;
+- 📋 copier l'identifiant.
+
+Le clic droit ailleurs sur la carte garde son menu habituel : couverture, profil, partage du point…

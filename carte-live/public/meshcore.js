@@ -136,6 +136,7 @@ function mcDessinerNoeuds() {
         if (etat.modeProfil) { choisirPointProfil({ lat: n.lat, lon: n.lon, nom: n.nom || n.id, h: n.infrastructure ? 6 : 2 }); return; }
         mcOuvrirFiche(n.cle);
       });
+      m.on('contextmenu', (ev) => { L.DomEvent.stop(ev); const o = ev.originalEvent; if (typeof menuNoeud === 'function') menuNoeud(o.clientX, o.clientY, n.cle); });
       m.bindTooltip('', { className: 'info', direction: 'top', offset: [0, -8] });
       m.addTo(mc.couche);
       mc.marqueurs.set(n.cle, m);

@@ -291,6 +291,7 @@ function dessinerNoeuds() {
         if (etat.modeProfil) { choisirPointProfil({ lat: n.lat, lon: n.lon, nom: n.nomLong || n.nomCourt || n.id, num: n.num, h: n.infrastructure ? 6 : 3 }); return; }
         ouvrirFiche(n.num);
       });
+      m.on('contextmenu', (ev) => { L.DomEvent.stop(ev); const o = ev.originalEvent; menuNoeud(o.clientX, o.clientY, String(n.num)); });
       m.bindTooltip('', { className: 'info', direction: 'top', offset: [0, -8] });
       m.addTo(carte);
       etat.marqueurs.set(n.num, m);
@@ -1379,6 +1380,91 @@ async function partagerPoint(lat, lon) {
   if (etat.admin && ($('#form-envoi').hidden || !$('#form-envoi').vers.querySelector('option[data-nom]'))) await preparerEnvoi();
   setTimeout(() => insererPosition($('#form-envoi').texte, lat, lon), 300);
 }
+// ---- Clic droit (ou appui long) sur un nœud : menu d'actions, dans les listes comme sur la carte ----------
+function menuNoeud(x, y, id) {
+  fermerMenuNoeud();
+  const estMc = /^[0-9A-F]{64}$/.test(String(id));
+  const n = estMc ? (typeof mc !== 'undefined' && mc.noeuds ? mc.noeuds.get(id) : null) : etat.noeuds.get(Number(id));
+  const nom = n ? (estMc ? n.nom || n.id : n.nomLong || n.nomCourt || n.id) : String(id).slice(0, 8);
+  const pos = n && n.lat != null;
+  const ident = estMc ? id : (n ? n.id : '!' + (Number(id) >>> 0).toString(16).padStart(8, '0'));
+  const items = [
+    ['fiche', 'ℹ️ Ouvrir la fiche'],
+    pos && ['centrer', '🎯 Centrer sur la carte'],
+    etat.membre && ['favori', estFavori(id) ? '⭐ Retirer des favoris' : '☆ Ajouter aux favoris'],
+    etat.membre && ['admin', estAdministre(id) ? '🛠 Retirer de « Mes nœuds »' : '🛠 Ajouter à « Mes nœuds »'],
+    etat.admin && ['message', '✉️ Message direct'],
+    !estMc && ['ecouter', '📶 Écouter en direct'],
+    pos && ['couverture', '📡 Couverture depuis ce nœud'],
+    pos && etat.membre && ['partager', '📍 Partager sa position dans un message'],
+    ['copier', `📋 Copier l’identifiant (${estMc ? id.slice(0, 8) + '…' : ident})`],
+  ].filter(Boolean);
+  const d = document.createElement('div');
+  d.id = 'menu-noeud'; d.className = 'menu-noeud'; d.setAttribute('role', 'menu');
+  d.innerHTML = `<div class="menu-noeud-titre">${esc(nom)} <small>${estMc ? 'MeshCore' : 'Meshtastic'}</small></div>` + items.map(([k, t]) => `<button type="button" role="menuitem" data-mn="${k}">${esc(t)}</button>`).join('');
+  document.body.appendChild(d);
+  const r = d.getBoundingClientRect();
+  d.style.left = Math.max(4, Math.min(x, innerWidth - r.width - 4)) + 'px';
+  d.style.top = Math.max(4, Math.min(y, innerHeight - r.height - 4)) + 'px';
+  d.onclick = async (ev) => {
+    const b = ev.target.closest('[data-mn]'); if (!b) return;
+    fermerMenuNoeud();
+    const k = b.dataset.mn;
+    if (k === 'fiche') { if (pos) carte.flyTo([n.lat, n.lon], Math.max(carte.getZoom(), 11), { duration: 0.6 }); estMc ? mcOuvrirFiche(id) : ouvrirFiche(Number(id)); }
+    else if (k === 'centrer') carte.flyTo([n.lat, n.lon], Math.max(carte.getZoom(), 13), { duration: 0.6 });
+    else if (k === 'favori') basculerSuivi(id, 'favoris');
+    else if (k === 'admin') basculerSuivi(id, 'administres');
+    else if (k === 'ecouter') testPortee(Number(id));
+    else if (k === 'couverture') couvertureIci(L.latLng(n.lat, n.lon), n.infrastructure ? 6 : 3);
+    else if (k === 'partager') partagerPoint(n.lat, n.lon);
+    else if (k === 'copier') { try { await navigator.clipboard.writeText(ident); } catch { /* presse-papiers indisponible */ } }
+    else if (k === 'message') {
+      if (estMc) {
+        mc.destMessage = 'direct:' + id;
+        const o = document.querySelector('.onglets button[data-onglet="meshcore"]'); if (o) o.click();
+        const sv = document.querySelector('.sous-onglets-mc button[data-mc-vue="messages"]'); if (sv) sv.click();
+        setTimeout(() => { mcRendreMessages().then(() => { const t = $('#mc-texte'); if (t) t.focus(); }); }, 200);
+      } else {
+        const o = document.querySelector('.onglets button[data-onglet="messages"]'); if (o) o.click();
+        await preparerEnvoi(Number(id)); $('#form-envoi').texte.focus();
+      }
+    }
+  };
+}
+function fermerMenuNoeud() { const d = $('#menu-noeud'); if (d) d.remove(); }
+// Identifiant du nœud sous un élément (listes, alertes, paquets, tableaux)
+function noeudSous(el) {
+  const m = el.closest('[data-mc], [data-num], [data-suivi-ouvrir], [data-mc-fiche], [data-mc-fiche-audit], [data-bavard]');
+  if (!m || m.closest('#menu-noeud')) return null;
+  const v = m.dataset.mc || m.dataset.mcFiche || m.dataset.mcFicheAudit || m.dataset.suiviOuvrir || m.dataset.num || m.dataset.bavard;
+  if (!v) return null;
+  if (/^[0-9A-F]{64}$/i.test(v)) return v.toUpperCase();
+  return /^\d+$/.test(v) && Number(v) > 0 ? String(Number(v) >>> 0) : null;
+}
+document.addEventListener('contextmenu', (e) => {
+  if (e.target.closest('input, textarea, select, .leaflet-container')) return; // la carte a son propre menu
+  const id = noeudSous(e.target);
+  if (!id) return;
+  e.preventDefault();
+  menuNoeud(e.clientX, e.clientY, id);
+});
+// Appui long (téléphone) : même menu
+{
+  let minut = null, depart = null;
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1 || e.target.closest('input, textarea, select, .leaflet-container, #menu-noeud')) return;
+    const id = noeudSous(e.target); if (!id) return;
+    const t = e.touches[0]; depart = [t.clientX, t.clientY];
+    minut = setTimeout(() => { minut = null; menuNoeud(depart[0], depart[1], id); }, 550);
+  }, { passive: true });
+  const annuler = () => { clearTimeout(minut); minut = null; };
+  document.addEventListener('touchmove', (e) => { if (minut && depart && Math.hypot(e.touches[0].clientX - depart[0], e.touches[0].clientY - depart[1]) > 10) annuler(); }, { passive: true });
+  document.addEventListener('touchend', annuler, { passive: true });
+}
+document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#menu-noeud')) fermerMenuNoeud(); }, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fermerMenuNoeud(); });
+document.addEventListener('scroll', fermerMenuNoeud, true);
+
 // Insère une position (« meshand: lat,lon ») dans une zone de saisie
 function insererPosition(zone, lat, lon) {
   if (!zone) return;
