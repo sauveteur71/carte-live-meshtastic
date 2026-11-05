@@ -14,6 +14,7 @@ const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const nouveauCode = () => [...crypto.randomBytes(12)].map((b) => ALPHABET[b % ALPHABET.length]).join('').replace(/(.{4})(?!$)/g, '$1-');
 const slug = (nom) => 'agent-' + (String(nom || 'module').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'module');
 
+const echecsAgents = new Map(); // adresse -> heures des codes faux (15 dernières minutes)
 function creerAgents(config, { surArrivee } = {}) {
   const port = Number(process.env.AGENTS_PORT || 4404);
   const fCode = path.join(path.dirname(config.fichierBase), 'code-agents.txt');
@@ -50,8 +51,13 @@ function creerAgents(config, { surArrivee } = {}) {
       let b;
       try { b = JSON.parse(tampon.subarray(0, i).toString('utf8')); } catch { s.end('ERREUR message illisible\n'); return; }
       const attendu = Buffer.from(code.replace(/-/g, '').toUpperCase()), recu = Buffer.from(String(b.code || '').replace(/[-\s]/g, '').toUpperCase());
+      // Même protection que la connexion : 3 codes faux en 15 min → adresse refusée 15 min
+      const t = Date.now(), ech = (echecsAgents.get(ip) || []).filter((x) => t - x < 15 * 60000);
+      if (ech.length >= 3) { setTimeout(() => s.end('ERREUR trop de codes incorrects : réessayez dans 15 minutes\n'), 1500); return; }
       if (attendu.length !== recu.length || !crypto.timingSafeEqual(attendu, recu)) {
-        journal(`agent refusé depuis ${ip} (code incorrect)`);
+        ech.push(t); echecsAgents.set(ip, ech);
+        if (echecsAgents.size > 5000) echecsAgents.clear();
+        journal(`agent refusé depuis ${ip} (code incorrect${ech.length >= 3 ? ', adresse bloquée 15 min' : ''})`);
         setTimeout(() => s.end('ERREUR code incorrect : recopiez le code affiché dans la carte (Réseau › Modules)\n'), 1500);
         return;
       }

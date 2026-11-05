@@ -123,12 +123,16 @@ function mcIcone(n) {
 }
 function mcDessinerNoeuds() {
   if (!mc.couche) return;
+  // Companions et nœuds proches regroupés aux faibles zooms (répéteurs et room servers toujours visibles)
+  if (!mc.coucheGroupes) mc.coucheGroupes = L.layerGroup().addTo(mc.couche);
+  const seuls = typeof regrouper === 'function' ? regrouper([...mc.noeuds.values()].filter((n) => mcVisible(n) && !n.infrastructure && mc.selection !== n.cle), mc.coucheGroupes, (n) => n.cle) : null;
+  const affiche = (n) => mcVisible(n) && (!seuls || n.infrastructure || mc.selection === n.cle || seuls.has(n.cle));
   for (const [cle, m] of mc.marqueurs) {
     const n = mc.noeuds.get(cle);
-    if (!n || !mcVisible(n)) { m.remove(); mc.marqueurs.delete(cle); }
+    if (!n || !affiche(n)) { m.remove(); mc.marqueurs.delete(cle); }
   }
   for (const n of mc.noeuds.values()) {
-    if (!mcVisible(n)) continue;
+    if (!affiche(n)) continue;
     let m = mc.marqueurs.get(n.cle);
     if (!m) {
       m = L.marker([n.lat, n.lon], { icon: mcIcone(n), riseOnHover: true, zIndexOffset: n.infrastructure ? 600 : 100 });

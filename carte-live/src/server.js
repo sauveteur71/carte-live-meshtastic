@@ -1603,11 +1603,21 @@ app.get('/api/messages', (req, res) => {
   }));
 });
 
+// Blocage après 3 échecs (adresse et compte), voir blocages.js
+const blocages = require('./blocages').creerBlocages(config, journal);
+const heureBlocage = (t) => new Date(t).toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
 app.post('/api/connexion', (req, res) => {
+  const b0 = req.body || {};
+  const bl = blocages.bloque(req.ip, b0.identifiant);
+  if (bl) {
+    audit.noter(String(b0.identifiant || '').slice(0, 32) || null, req.ip, 'connexion refusée', `bloqué (${bl.type === 'ip' ? 'adresse' : 'compte'}) jusqu’à ${heureBlocage(bl.jusqua)}`, false);
+    return res.status(429).json({ erreur: `Trop d’échecs de connexion : ${bl.type === 'ip' ? 'cette adresse est bloquée' : 'ce compte est suspendu'} jusqu’à ${heureBlocage(bl.jusqua)}. Un administrateur peut débloquer.`, bloqueJusqua: bl.jusqua });
+  }
   if (limiter(req.ip)) return res.status(429).json({ erreur: 'Trop de tentatives, réessayez dans 15 minutes' });
   try {
     const b = req.body || {};
     const c = comptes.connecter(b.identifiant, b.motDePasse, b.code);
+    blocages.reussite(req.ip, b.identifiant);
     ouvrirSession(req, res, c);
     journal(`Connexion de ${c.identifiant} (${c.role})`);
     audit.noter(nomCompte(c), req.ip, 'connexion', c.deuxFacteurs ? 'avec double authentification' : null, true);
@@ -1616,6 +1626,15 @@ app.post('/api/connexion', (req, res) => {
     const b = req.body || {};
     // Code manquant : simple étape de la connexion, pas un échec
     if (!(e.codeRequis && !b.code)) audit.noter(String(b.identifiant || '').slice(0, 32) || null, req.ip, 'connexion refusée', e.message, false);
+    // Mauvais mot de passe ou mauvais code : un échec compté (un code simplement demandé ne compte pas)
+    if (/incorrect/i.test(e.message)) {
+      const r = blocages.echec(req.ip, b.identifiant);
+      if (r.blocage) {
+        audit.noter(String(b.identifiant || '').slice(0, 32) || null, req.ip, 'blocage', `${r.blocage.type === 'ip' ? 'adresse bloquée' : 'compte suspendu'} ${Math.round(r.blocage.duree / 60000)} min après ${blocages.MAX_ECHECS} échecs`, false);
+        return res.status(429).json({ erreur: `${e.message}. Trop d’échecs : ${r.blocage.type === 'ip' ? 'cette adresse est bloquée' : 'ce compte est suspendu'} jusqu’à ${heureBlocage(r.blocage.jusqua)}.`, bloqueJusqua: r.blocage.jusqua });
+      }
+      return res.status(401).json({ erreur: `${e.message} (encore ${r.restants} essai${r.restants > 1 ? 's' : ''} avant blocage)`, codeRequis: !!e.codeRequis });
+    }
     res.status(401).json({ erreur: e.message, codeRequis: !!e.codeRequis });
   }
 });
@@ -1677,6 +1696,18 @@ app.post('/api/compte/deconnecter-partout', (req, res) => {
   comptes.deconnecterPartout(u.id);
   ouvrirSession(req, res, u); // cette session reste ouverte, toutes les autres sont fermées
   res.json({ ok: true });
+});
+app.get('/api/securite/blocages', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.set('Cache-Control', 'no-store').json(blocages.liste());
+});
+app.post('/api/securite/debloquer', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const cle = String((req.body || {}).cle || '');
+  if (!/^(ip|compte):/.test(cle)) return res.status(400).json({ erreur: 'clé invalide' });
+  const ok = blocages.debloquer(cle);
+  audit.noter(nomCompte(utilisateur(req)), req.ip, 'déblocage', cle, true);
+  res.json({ ok });
 });
 app.get('/api/audit', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });

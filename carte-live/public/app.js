@@ -159,6 +159,7 @@ function initCarte() {
   // Téléphone ou tablette : lignes dessinées en canevas (bien plus léger que des centaines d'éléments SVG)
   carte = L.map('carte', { zoomControl: false, preferCanvas: MOBILE, worldCopyJump: true }).setView(etat.config.centre, etat.config.zoom);
   L.control.zoom({ position: 'bottomleft' }).addTo(carte);
+  installerMaPosition();
   const t = etat.config.tuiles;
   const wmts = (couche, format = 'image/png', style = 'normal') => `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${couche}&STYLE=${style}&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=${format}`;
   const ign = '&copy; <a href="https://www.ign.fr/" target="_blank" rel="noopener">IGN</a> Géoplateforme';
@@ -278,14 +279,43 @@ function iconeNoeud(n, alerte) {
   });
 }
 
+// Regroupement aux faibles zooms : les nœuds proches à l'écran (hors relais et passerelles) deviennent une pastille
+// « 12 » ; un toucher sur la pastille zoome dessus. Carte plus lisible et plus légère (téléphone surtout).
+const ZOOM_GROUPES = 10;
+function regrouper(liste, couche, cle) {
+  couche.clearLayers();
+  const groupes = new Map(), seuls = new Set();
+  if (!carte || carte.getZoom() >= ZOOM_GROUPES || liste.length < 15) { for (const n of liste) seuls.add(cle(n)); return seuls; }
+  const PAS = 46;
+  for (const n of liste) {
+    const pt = carte.latLngToLayerPoint([n.lat, n.lon]);
+    const k = Math.floor(pt.x / PAS) + ':' + Math.floor(pt.y / PAS);
+    if (!groupes.has(k)) groupes.set(k, []);
+    groupes.get(k).push(n);
+  }
+  for (const l of groupes.values()) {
+    if (l.length === 1) { seuls.add(cle(l[0])); continue; }
+    const lat = l.reduce((t, n) => t + n.lat, 0) / l.length, lon = l.reduce((t, n) => t + n.lon, 0) / l.length;
+    const actifs = l.filter((n) => n.statut === 'actif').length;
+    L.marker([lat, lon], { icon: L.divIcon({ className: '', html: `<div class="groupe-noeuds${actifs ? ' actif' : ''}">${l.length}</div>`, iconSize: [30, 30], iconAnchor: [15, 15] }), zIndexOffset: 300 })
+      .bindTooltip(`${l.length} nœuds proches · ${actifs} actif${actifs > 1 ? 's' : ''}<br><small>Toucher pour zoomer</small>`, { className: 'info', direction: 'top' })
+      .on('click', () => carte.fitBounds(L.latLngBounds(l.map((n) => [n.lat, n.lon])).pad(0.3), { maxZoom: ZOOM_GROUPES + 1 }))
+      .addTo(couche);
+  }
+  return seuls;
+}
 function dessinerNoeuds() {
   const alertes = numAlerte();
+  if (!etat.coucheGroupes) etat.coucheGroupes = L.layerGroup().addTo(carte);
+  const regroupables = [...etat.noeuds.values()].filter((n) => visible(n) && !n.infrastructure && !n.passerelle && !(etat.selection === n.num));
+  const seuls = regrouper(regroupables, etat.coucheGroupes, (n) => n.num);
+  const affiche = (n) => visible(n) && (n.infrastructure || n.passerelle || etat.selection === n.num || seuls.has(n.num));
   for (const [num, m] of etat.marqueurs) {
     const n = etat.noeuds.get(num);
-    if (!n || !visible(n)) { m.remove(); etat.marqueurs.delete(num); }
+    if (!n || !affiche(n)) { m.remove(); etat.marqueurs.delete(num); }
   }
   for (const n of etat.noeuds.values()) {
-    if (!visible(n)) continue;
+    if (!affiche(n)) continue;
     let m = etat.marqueurs.get(n.num);
     const icone = iconeNoeud(n, alertes.has(n.num));
     if (!m) {
@@ -5241,8 +5271,26 @@ function planifierRafraichissement() {
   }, 4000);
 }
 
+// Économie de données et de batterie : onglet caché depuis 2 min (téléphone en poche), le flux en direct est coupé ;
+// au retour, reconnexion et rechargement des nœuds et liaisons
+const veille = { ws: null, minuterie: null, endormi: false };
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearTimeout(veille.minuterie);
+    veille.minuterie = setTimeout(() => { if (document.hidden && veille.ws) { veille.endormi = true; try { veille.ws.close(); } catch { /* déjà */ } } }, 120000);
+  } else {
+    clearTimeout(veille.minuterie);
+    if (veille.endormi) {
+      veille.endormi = false;
+      connecterWs();
+      Promise.all([chargerNoeuds(), chargerLiens()]).then(() => rendreReseau()).catch(() => {});
+      if (typeof mcPlanifier === 'function') mcPlanifier();
+    }
+  }
+});
 function connecterWs() {
   const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  veille.ws = ws;
   const temoin = $('#direct');
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
@@ -5274,6 +5322,7 @@ function connecterWs() {
   };
   ws.onclose = () => {
     temoin.className = 'direct ko';
+    if (veille.endormi) { temoin.querySelector('b').textContent = 'En pause'; return; } // reprise au retour sur l'onglet
     temoin.querySelector('b').textContent = 'Reconnexion…';
     setTimeout(connecterWs, 4000);
   };
@@ -5290,6 +5339,10 @@ function brancherInterface() {
     if (b.dataset.onglet === 'gestion') { rendreGestion(); suivreTaches(); }
   }));
   installerTiroir();
+  installerFicheTiroir();
+  appliquerTheme(lireLs('gaulix_theme_clair', false));
+  { const b = $('#outil-theme'); if (b) b.onclick = () => appliquerTheme(!document.body.classList.contains('theme-clair')); }
+  { const b = $('#outil-installer'); if (b) b.onclick = async () => { if (!invitationInstall) return; invitationInstall.prompt(); await invitationInstall.userChoice.catch(() => null); invitationInstall = null; b.hidden = true; }; }
   $('#replier').onclick = () => { $('#panneau').classList.add('replie'); $('#deplier').hidden = false; document.body.classList.add('panneau-replie'); };
   $('#deplier').onclick = () => { $('#panneau').classList.remove('replie'); $('#deplier').hidden = true; document.body.classList.remove('panneau-replie'); };
   $('#fermer-fiche').onclick = () => { $('#fiche').hidden = true; etat.selection = null; if (etat.trajet) { etat.trajet.remove(); etat.trajet = null; } };
@@ -5321,7 +5374,7 @@ function brancherInterface() {
     rendreFiltres();
     chargerFlux();
   };
-  carte.on('zoomend', () => { dessinerNoeuds(); });
+  carte.on('zoomend', () => { dessinerNoeuds(); if (typeof mcDessinerNoeuds === 'function') mcDessinerNoeuds(); });
   { let m = null; carte.on('moveend', () => { clearTimeout(m); m = setTimeout(dessinerSommets, 150); }); }
   $('#btn-couvrir').onclick = () => { basculerMode(etat.modeCarte === 'couvrir' ? null : 'couvrir'); if (etat.modeProfil) $('#btn-profil').click(); };
   $('#btn-couv-ici').onclick = () => { basculerMode(etat.modeCarte === 'ici' ? null : 'ici'); if (etat.modeProfil) $('#btn-profil').click(); };
@@ -5601,13 +5654,22 @@ async function rendreJournal(filtre) {
   const z = $('#pan-journal');
   let l;
   try { l = await api('/api/audit?limite=500' + (filtre ? '&action=' + encodeURIComponent(filtre) : '')); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  let bl = [];
+  try { bl = await api('/api/securite/blocages'); } catch { /* ignoré */ }
+  const blocs = bl.length ? `<h3>🔒 Blocages et échecs récents</h3>
+    <table class="voisins"><thead><tr><th>Adresse ou compte</th><th>État</th><th></th></tr></thead><tbody>
+    ${bl.map((x) => `<tr class="${x.bloqueJusqua ? 'refus' : ''}"><td>${x.type === 'ip' ? '🌐 ' : '👤 '}<span class="mono">${esc(x.valeur)}</span></td><td>${x.bloqueJusqua ? `bloqué jusqu’à ${new Date(x.bloqueJusqua).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}${x.niveau > 1 ? ` (${x.niveau}ᵉ blocage)` : ''}` : `${x.echecs} échec${x.echecs > 1 ? 's' : ''} récent${x.echecs > 1 ? 's' : ''}`}</td><td><button class="mini" data-debloquer="${esc(x.cle)}">Débloquer</button></td></tr>`).join('')}
+    </tbody></table>` : '<p class="note">🔒 Aucun blocage en cours.</p>';
   z.innerHTML = `<p class="note">Qui a fait quoi : connexions (et refus), programmation des nœuds, réglages, comptes, sauvegardes… Les mots de passe, clés et codes n’y figurent jamais. Gardé 180 jours.</p>
+    <p class="note">Sécurité : après ${3} échecs de connexion en 15 min, l’adresse est bloquée 15 min (durée doublée à chaque récidive, jusqu’à 24 h) et le compte visé est suspendu 15 min.</p>
+    ${blocs}
     <div class="recherche"><input id="filtre-journal" type="search" placeholder="Filtrer (ex. connexion, admin-noeuds, comptes)…" value="${esc(filtre || '')}"></div>
     <table class="voisins journal-audit"><thead><tr><th>Quand</th><th>Qui</th><th>Action</th><th>Détail</th></tr></thead><tbody>
     ${l.map((x) => `<tr class="${x.ok ? '' : 'refus'}"><td title="${new Date(x.heure).toLocaleString('fr-FR')}">${new Date(x.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td><td>${esc(x.compte || '?')}<br><small>${esc(x.ip || '')}</small></td><td>${x.ok ? '' : '⛔ '}${libelleAudit(x.action)}</td><td><small>${esc(x.detail || '')}</small></td></tr>`).join('') || '<tr><td colspan="4" class="vide">Rien pour l’instant.</td></tr>'}
     </tbody></table>`;
   const fi = $('#filtre-journal');
   fi.onchange = () => rendreJournal(fi.value.trim());
+  z.querySelectorAll('[data-debloquer]').forEach((b) => (b.onclick = async () => { try { await postJson('/api/securite/debloquer', { cle: b.dataset.debloquer }); } catch (e) { alert(e.message); return; } rendreJournal(filtre); }));
 }
 async function rendreComptes() {
   const z = $('#pan-comptes');
@@ -5765,6 +5827,70 @@ function installerTiroir() {
   document.querySelectorAll('.onglets button[data-onglet]').forEach((b) => b.addEventListener('click', () => { if (mq.matches && etat.tiroir === 'reduit') appliquer('moitie'); }));
 }
 
+// ---- Ma position (bouton ◎ sur la carte) : point bleu et précision, suivi tant que le bouton est actif ----
+function installerMaPosition() {
+  if (!('geolocation' in navigator)) return;
+  const Ctrl = L.Control.extend({
+    onAdd() {
+      const b = L.DomUtil.create('button', 'btn-position');
+      b.type = 'button'; b.title = 'Ma position (suivre sur la carte)'; b.innerHTML = '◎';
+      L.DomEvent.disableClickPropagation(b);
+      b.onclick = () => basculerMaPosition(b);
+      return b;
+    },
+  });
+  new Ctrl({ position: 'topright' }).addTo(carte);
+}
+function basculerMaPosition(b) {
+  const p = etat.maPosition || (etat.maPosition = { suivi: null, couche: L.layerGroup().addTo(carte), premier: true });
+  if (p.suivi != null) {
+    navigator.geolocation.clearWatch(p.suivi); p.suivi = null; p.couche.clearLayers(); b.classList.remove('actif', 'attente'); return;
+  }
+  b.classList.add('attente'); p.premier = true;
+  p.suivi = navigator.geolocation.watchPosition((pos) => {
+    const { latitude: lat, longitude: lon, accuracy: prec } = pos.coords;
+    b.classList.remove('attente'); b.classList.add('actif');
+    p.couche.clearLayers();
+    L.circle([lat, lon], { radius: prec, color: '#3b82f6', weight: 1, fillOpacity: 0.1, interactive: false }).addTo(p.couche);
+    L.circleMarker([lat, lon], { radius: 8, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1, pane: 'traces' })
+      .bindTooltip(`Vous êtes ici · précision ${Math.round(prec)} m<br><small>${lat.toFixed(5)}, ${lon.toFixed(5)}</small>`, { className: 'info', direction: 'top' }).addTo(p.couche);
+    if (p.premier) { p.premier = false; carte.flyTo([lat, lon], Math.max(carte.getZoom(), 13)); }
+  }, (e) => {
+    b.classList.remove('attente', 'actif'); p.suivi = null;
+    alert(e.code === 1 ? 'Position refusée : autorisez la localisation pour ce site (la carte doit être en HTTPS sur téléphone).' : 'Position indisponible : ' + e.message);
+  }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
+}
+
+// ---- Téléphone : fiche d'un nœud en tiroir (moitié / plein), glisser vers le bas pour fermer ----
+function installerFicheTiroir() {
+  const f = $('#fiche');
+  if (f.querySelector('.poignee-fiche-mob')) return;
+  f.insertAdjacentHTML('afterbegin', '<div class="poignee-fiche-mob" title="Toucher : agrandir / réduire · glisser vers le bas : fermer"></div>');
+  const pg = f.querySelector('.poignee-fiche-mob');
+  let d = null;
+  pg.addEventListener('pointerdown', (ev) => { d = { y: ev.clientY, h: f.offsetHeight }; pg.setPointerCapture(ev.pointerId); f.style.transition = 'none'; });
+  pg.addEventListener('pointermove', (ev) => { if (d) f.style.height = Math.max(120, d.h + (d.y - ev.clientY)) + 'px'; });
+  pg.addEventListener('pointerup', (ev) => {
+    if (!d) return;
+    const dy = ev.clientY - d.y;
+    f.style.height = ''; f.style.transition = ''; d = null;
+    if (dy > 90) { $('#fermer-fiche').click(); document.body.classList.remove('fiche-pleine'); return; }
+    if (Math.abs(dy) < 8) document.body.classList.toggle('fiche-pleine');
+    else document.body.classList.toggle('fiche-pleine', dy < 0);
+  });
+}
+
+// ---- Thème clair à fort contraste (plein soleil), choisi dans Outils, gardé dans ce navigateur ----
+function appliquerTheme(clair) {
+  document.body.classList.toggle('theme-clair', clair);
+  ecrireLs('gaulix_theme_clair', clair);
+  const b = $('#outil-theme'); if (b) b.textContent = clair ? '🌙 Thème sombre' : '☀️ Thème clair (plein soleil)';
+  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = clair ? '#ffffff' : '#0f172a';
+}
+// Installer l'appli (Android, Chrome, Edge) : bouton dans Outils quand le navigateur le propose
+let invitationInstall = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); invitationInstall = e; const b = $('#outil-installer'); if (b) b.hidden = false; });
+
 async function installation() {
   const info = await api('/api/installation');
   if (!info.requise) return false;
@@ -5813,7 +5939,8 @@ async function demarrer() {
   for (const c of etat.config.couchesMasquees || []) if (c in etat.couches) etat.couches[c] = false;
   // Téléphone ou tablette, sans choix enregistré : pas d'animation des paquets (coûteuse sur mobile)
   const choixCouches = lireLs('gaulix_couches', null);
-  if (!choixCouches && window.matchMedia && matchMedia('(pointer: coarse)').matches) etat.couches.animations = false;
+  const economie = !!(navigator.connection && (navigator.connection.saveData || /(^|-)2g$/.test(navigator.connection.effectiveType || '')));
+  if (!choixCouches && ((window.matchMedia && matchMedia('(pointer: coarse)').matches) || economie)) etat.couches.animations = false;
   Object.assign(etat.couches, Object.fromEntries(Object.entries(choixCouches || {}).filter(([k, v]) => k in etat.couches && typeof v === 'boolean')));
   document.querySelectorAll('.bascule[data-couche]').forEach((b) => b.classList.toggle('actif', !!etat.couches[b.dataset.couche]));
   // Liens vers le client et le flasheur officiels (Web Serial / Web Bluetooth : HTTPS et Chrome ou Edge obligatoires)

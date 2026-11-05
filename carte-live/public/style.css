@@ -1121,7 +1121,14 @@ a.bouton-lien { text-decoration: none; display: inline-flex; align-items: center
   .panneau.replie { display: flex; }
   .poignee-tiroir { position: absolute; top: 0; left: 0; right: 0; height: 18px; display: flex; justify-content: center; align-items: center; cursor: grab; touch-action: none; z-index: 6; }
   .poignee-tiroir::after { content: ''; width: 44px; height: 5px; border-radius: 3px; background: var(--doux); opacity: .55; }
-  .fiche { left: 0; right: 0; width: auto; top: 52px; bottom: var(--h-outils, 50px); border-radius: 14px 14px 0 0; z-index: 1003; }
+  .fiche { left: 0; right: 0; width: auto; top: auto; bottom: var(--h-outils, 50px); height: 58dvh; border-radius: 14px 14px 0 0; z-index: 1003; padding-top: 22px; transition: height .22s ease; }
+  body.fiche-pleine .fiche { height: calc(100dvh - var(--h-outils, 50px) - 52px); }
+  .poignee-fiche-mob { position: absolute; top: 0; left: 0; right: 40px; height: 20px; display: flex; justify-content: center; align-items: center; touch-action: none; cursor: grab; }
+  .poignee-fiche-mob::after { content: ''; width: 44px; height: 5px; border-radius: 3px; background: var(--doux); opacity: .55; margin-left: 40px; }
+  .poignee-fiche { display: none; }
+  /* Noms des nœuds seulement en zoomant (sinon ils se chevauchent sur un petit écran) */
+  body:not(.zoom-proche) .mk .lbl, body:not(.zoom-proche) .mkc .lbl { display: none; }
+  .leaflet-top.leaflet-right { top: 100px; }
   .leaflet-bottom.leaflet-right { bottom: calc(var(--h-outils, 50px) + var(--h-tiroir-reel, 96px)); }
   .rejeu { bottom: calc(var(--h-outils, 50px) + 104px); }
   .menu-couches .menu, .menu-outils .menu { position: fixed; left: 8px; right: 8px; top: auto; bottom: calc(var(--h-outils, 50px) + 6px); max-height: 60vh; overflow-y: auto; }
@@ -1129,3 +1136,62 @@ a.bouton-lien { text-decoration: none; display: inline-flex; align-items: center
 @media (min-width: 901px) { .poignee-tiroir { display: none; } }
 /* Tablette en paysage : panneaux un peu plus étroits pour laisser la carte respirer */
 @media (pointer: coarse) and (min-width: 901px) and (max-width: 1366px) { :root { --l-panneau: 320px; --l-fiche: 340px; } }
+
+@media (min-width: 901px) { .poignee-fiche-mob { display: none; } }
+
+/* ---- Écrans tactiles : cibles assez grandes pour le doigt (≈ 40 px) ---- */
+@media (pointer: coarse) {
+  button.mini, a.mini { min-height: 34px; padding: 4px 11px; font-size: 13px; }
+  .fiche button, .fiche .actions-prop button, .actions-prop a, .fiche [data-copier] { min-height: 38px; }
+  .onglets-fiche button { padding: 11px 10px; font-size: 13px; }
+  .ligne { min-height: 44px; }
+  .liste .ligne { padding-top: 8px; padding-bottom: 8px; }
+  input, select, textarea { font-size: 16px; } /* évite le zoom automatique d'iOS sur un champ */
+  .outils button, .outils .choix, .outils summary { min-height: 38px; }
+  /* Menus Couches et Outils : grands boutons, une ligne chacun */
+  .menu-couches .menu button, .menu-couches .menu a { display: block; width: 100%; text-align: left; padding: 11px 12px; font-size: 15px; }
+  .popup-contexte button { display: block; width: 100%; text-align: left; padding: 11px 10px; font-size: 15px; }
+  details.groupe-mc > summary { padding: 11px 10px; }
+}
+
+/* ---- Téléphone en paysage : panneau sur le côté gauche, fiche sur le côté droit ---- */
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 520px) {
+  .panneau { top: 52px; bottom: var(--h-outils, 50px); height: auto !important; width: 46vw; right: auto; border-radius: 0 14px 0 0; border-bottom: 1px solid var(--bord); }
+  body.tiroir-reduit .panneau { bottom: auto; height: var(--h-tiroir-reduit, 124px) !important; }
+  body.tiroir-plein .panneau { width: 62vw; }
+  .fiche, body.fiche-pleine .fiche { left: auto; right: 0; width: 50vw; top: 52px; height: auto; border-radius: 14px 0 0 0; }
+  .recherche-lieu { left: calc(46vw + 8px); }
+  .leaflet-bottom.leaflet-right { bottom: var(--h-outils, 50px); }
+}
+
+/* ---- Ma position ---- */
+.btn-position { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--bord); background: var(--surface); color: var(--texte); font-size: 22px; line-height: 1; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.btn-position.actif { color: #fff; background: #2563eb; border-color: #93c5fd; }
+.btn-position.attente { animation: clignote 1s ease-in-out infinite; }
+
+/* ---- Nœuds regroupés aux faibles zooms ---- */
+.groupe-noeuds { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 700 12px/1 var(--police, system-ui); color: #fff; background: rgba(100,116,139,.92); border: 2px solid rgba(255,255,255,.85); box-shadow: 0 0 0 4px rgba(100,116,139,.3), 0 2px 6px rgba(0,0,0,.5); cursor: pointer; }
+.groupe-noeuds.actif { background: rgba(168,85,247,.95); box-shadow: 0 0 0 4px rgba(168,85,247,.3), 0 2px 6px rgba(0,0,0,.5); }
+
+/* ---- Thème clair à fort contraste (lecture en plein soleil) ---- */
+body.theme-clair {
+  --fond: #f4f6f8; --surface: rgba(255,255,255,.97); --surface-2: #e9eef3; --bord: rgba(15,30,45,.32);
+  --texte: #05090d; --doux: #1f2d3a; --tres-doux: #33475a; --accent: #0b6e63;
+  color: var(--texte);
+}
+body.theme-clair .marque, body.theme-clair .kpis, body.theme-clair .panneau, body.theme-clair .fiche, body.theme-clair .outils, body.theme-clair .recherche-lieu input, body.theme-clair .rejeu { backdrop-filter: none; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
+body.theme-clair .principal, body.theme-clair button.principal, body.theme-clair .outils .vue-zone.actif { color: #fff !important; background: var(--accent) !important; border-color: var(--accent) !important; }
+body.theme-clair .onglets button.actif { color: var(--accent); font-weight: 700; }
+body.theme-clair .note, body.theme-clair small { color: var(--tres-doux); }
+body.theme-clair .alerte { color: var(--texte); }
+body.theme-clair input, body.theme-clair select, body.theme-clair textarea { color: var(--texte); background: #fff; border-color: var(--bord); }
+body.theme-clair .leaflet-tooltip.info { background: #fff; color: #05090d; border-color: #33475a; }
+body.theme-clair .mk .lbl { color: #05090d; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff; }
+body.theme-clair .mkc .lbl { color: #7c2d12; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff; }
+body.theme-clair .courbe svg { color: #05090d; }
+body.theme-clair[data-reseau="les-deux"] .mc-seul-bloc .titre-reseau, body.theme-clair .badge.reseau-mc { color: #9a3412; background: rgba(249,115,22,.18); }
+body.theme-clair[data-reseau="les-deux"] .titre-reseau { color: #0b6e63; background: rgba(11,110,99,.12); }
+body.theme-clair .choix-reseau button.actif { color: #05090d; font-weight: 700; border-width: 2px; }
+body.theme-clair .choix-reseau button[data-reseau="les-deux"].actif { background: linear-gradient(90deg, rgba(11,110,99,.22), rgba(234,88,12,.25)); border-color: #33475a; }
+body.theme-clair .mesure b, body.theme-clair .vue h3 { color: var(--texte); }
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 520px) { .panneau, .fiche, body.fiche-pleine .fiche { top: 66px; } }

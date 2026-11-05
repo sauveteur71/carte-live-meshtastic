@@ -67,5 +67,13 @@ Le clic droit ailleurs sur la carte garde son menu habituel : couverture, profil
 ## Liste des nœuds
 La liste Meshtastic, comme celle de MeshCore, peut être rangée **par type** (▦ Par type) : relais, clients, clients muets, traceurs, inconnus, chaque groupe se repliant d'un clic. L'état est gardé dans le navigateur.
 
-## Sur téléphone
-Sur un téléphone ou une tablette, la carte s'allège : lignes dessinées en canevas, 6 animations de paquets à la fois au plus, flux de paquets plus court et pas d'effet de flou derrière les panneaux.
+## Sur téléphone et tablette
+- **Panneau en tiroir** (téléphone, tablette en hauteur) : poignée à tirer ou à toucher, trois hauteurs (onglets seuls, moitié, plein). En paysage, le panneau passe sur le côté.
+- **Fiche d'un nœud en tiroir** : toucher la poignée pour l'agrandir, la glisser vers le bas pour la fermer.
+- **◎ Ma position** (en haut à droite de la carte) : point bleu et précision, suivi tant que le bouton est allumé (la carte doit être en HTTPS).
+- **Appui long sur la carte** : couverture depuis ce point, relier, profil, partager le point, copier les coordonnées.
+- Barre d'outils sur une ligne qui défile au doigt, boutons et menus agrandis pour le doigt.
+- Noms des nœuds affichés seulement en zoomant ; aux faibles zooms, les nœuds proches (hors relais et passerelles) sont **regroupés** en une pastille « 12 » qu'un toucher agrandit.
+- **☀️ Thème clair** (Outils › Affichage) : interface claire à fort contraste pour le plein soleil.
+- **📲 Installer l'application** (Outils, quand le navigateur le propose) : icône sur l'écran d'accueil, plein écran, dernière carte connue affichée sans réseau (nœuds, liaisons, MeshCore).
+- **Économie** : animations coupées par défaut sur mobile et en mode économie de données ; flux en direct mis en pause après 2 min en arrière-plan, repris au retour ; lignes dessinées en canevas.

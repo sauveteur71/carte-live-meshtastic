@@ -1,10 +1,10 @@
 'use strict';
 // Service worker du mode terrain : l'application s'ouvre sans réseau (dernière version connue)
 // et les fonds de carte déjà vus (ou préparés) restent affichés hors connexion.
-const APPLI = 'appli-v1';
+const APPLI = 'appli-v2';
 const TUILES = 'tuiles-v1';
 const MAX_TUILES = 4000;
-const COQUILLE = ['/', '/index.html', '/style.css', '/app.js', '/meshcore.js', '/animations.js', '/vendor/leaflet/leaflet.css', '/vendor/leaflet/leaflet.js', '/manifest.webmanifest', '/icone-192.png'];
+const COQUILLE = ['/', '/index.html', '/style.css', '/app.js', '/meshcore.js', '/animations.js', '/vendor/leaflet/leaflet.css', '/vendor/leaflet/leaflet.js', '/manifest.webmanifest', '/icone-192.png', '/publique.html', '/publique.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(APPLI).then((c) => c.addAll(COQUILLE)).catch(() => {}).then(() => self.skipWaiting()));
@@ -41,7 +41,7 @@ self.addEventListener('fetch', (e) => {
   if (u.origin !== self.location.origin) return;
   // API : toujours le réseau (données en direct) ; quelques listes gardées pour l'affichage hors connexion
   if (u.pathname.startsWith('/api/')) {
-    if (!['/api/config', '/api/noeuds', '/api/liens', '/api/releves'].includes(u.pathname)) return;
+    if (!['/api/config', '/api/noeuds', '/api/liens', '/api/releves', '/api/mc/noeuds', '/api/mc/liens', '/api/departements'].includes(u.pathname)) return;
     e.respondWith(fetch(r).then((rep) => { if (rep.ok) { const cl = rep.clone(); caches.open(APPLI).then((c) => c.put(r, cl)); } return rep; }).catch(() => caches.match(r).then((m) => m || new Response(JSON.stringify({ erreur: 'Hors connexion' }), { status: 503, headers: { 'Content-Type': 'application/json' } }))));
     return;
   }
