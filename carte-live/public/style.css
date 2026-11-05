@@ -1094,3 +1094,38 @@ a.bouton-lien { text-decoration: none; display: inline-flex; align-items: center
 }
 .bloc-france { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--bord); }
 .bloc-france label { display: block; margin: 6px 0; }
+
+/* ---- Téléphone et tablette en portrait : panneau en tiroir depuis le bas ----
+   Trois hauteurs (réduit : onglets seuls, moitié, plein écran), poignée à tirer ou à toucher.
+   Barre d'outils sur une seule ligne en bas, qui défile au doigt. */
+@media (max-width: 900px) {
+  .barre { left: 6px; right: 6px; top: 6px; }
+  .marque { padding: 5px 10px; gap: 8px; }
+  .marque .nom { font-size: 13px; }
+  .marque .sous, .marque .version { font-size: 10px; }
+  .recherche-lieu { top: 56px; left: 6px; right: 6px; }
+  .recherche-lieu input { padding-top: 7px; padding-bottom: 7px; }
+  .outils { left: 0; right: 0; bottom: 0; top: auto; border-radius: 0; border-width: 1px 0 0; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; scrollbar-width: none; gap: 4px; }
+  .outils::-webkit-scrollbar { display: none; }
+  .outils > * { flex: none; }
+  .outils #sel-zone { max-width: 150px; }
+  .panneau { left: 0; right: 0; width: auto; top: auto; bottom: var(--h-outils, 50px); height: var(--h-tiroir, 45vh); border-radius: 14px 14px 0 0; border-bottom: 0; transition: height .22s ease; padding-top: 14px; }
+  body.tiroir-reduit .panneau { --h-tiroir: var(--h-tiroir-reduit, 124px); }
+  .panneau > .choix-reseau, .panneau > .onglets { flex: none; }
+  .panneau > .choix-reseau { padding-top: 4px; padding-bottom: 4px; }
+  .panneau .onglets { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-right: 6px; }
+  .panneau .onglets button[data-onglet] { flex: none; }
+  body.tiroir-reduit .panneau > .vue { visibility: hidden; }
+  body.tiroir-plein .panneau { --h-tiroir: calc(100dvh - var(--h-outils, 50px) - 104px); }
+  .panneau .replier, .deplier { display: none !important; }
+  .panneau.replie { display: flex; }
+  .poignee-tiroir { position: absolute; top: 0; left: 0; right: 0; height: 18px; display: flex; justify-content: center; align-items: center; cursor: grab; touch-action: none; z-index: 6; }
+  .poignee-tiroir::after { content: ''; width: 44px; height: 5px; border-radius: 3px; background: var(--doux); opacity: .55; }
+  .fiche { left: 0; right: 0; width: auto; top: 52px; bottom: var(--h-outils, 50px); border-radius: 14px 14px 0 0; z-index: 1003; }
+  .leaflet-bottom.leaflet-right { bottom: calc(var(--h-outils, 50px) + var(--h-tiroir-reel, 96px)); }
+  .rejeu { bottom: calc(var(--h-outils, 50px) + 104px); }
+  .menu-couches .menu, .menu-outils .menu { position: fixed; left: 8px; right: 8px; top: auto; bottom: calc(var(--h-outils, 50px) + 6px); max-height: 60vh; overflow-y: auto; }
+}
+@media (min-width: 901px) { .poignee-tiroir { display: none; } }
+/* Tablette en paysage : panneaux un peu plus étroits pour laisser la carte respirer */
+@media (pointer: coarse) and (min-width: 901px) and (max-width: 1366px) { :root { --l-panneau: 320px; --l-fiche: 340px; } }

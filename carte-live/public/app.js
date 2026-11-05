@@ -5289,6 +5289,7 @@ function brancherInterface() {
     if (b.dataset.onglet === 'sites') rendreSites();
     if (b.dataset.onglet === 'gestion') { rendreGestion(); suivreTaches(); }
   }));
+  installerTiroir();
   $('#replier').onclick = () => { $('#panneau').classList.add('replie'); $('#deplier').hidden = false; document.body.classList.add('panneau-replie'); };
   $('#deplier').onclick = () => { $('#panneau').classList.remove('replie'); $('#deplier').hidden = true; document.body.classList.remove('panneau-replie'); };
   $('#fermer-fiche').onclick = () => { $('#fiche').hidden = true; etat.selection = null; if (etat.trajet) { etat.trajet.remove(); etat.trajet = null; } };
@@ -5720,6 +5721,48 @@ async function rendreFrance() {
   const go = $('#fr-go'); if (go) go.onclick = async () => { try { await postJson('/api/relief/france', { precharger: true }); } catch (x) { alert(x.message); } setTimeout(rendreFrance, 800); };
   const st = $('#fr-stop'); if (st) st.onclick = async () => { try { await postJson('/api/relief/france', { precharger: false }); } catch (x) { alert(x.message); } setTimeout(rendreFrance, 800); };
   if (p.enCours) { clearTimeout(etat.minuterieFrance); etat.minuterieFrance = setTimeout(() => { if ($('#bloc-france')) rendreFrance(); }, 15000); }
+}
+
+// Téléphone : panneau en tiroir (réduit / moitié / plein), poignée à tirer ou à toucher, état gardé
+function installerTiroir() {
+  const mq = matchMedia('(max-width: 900px)');
+  const p = $('#panneau');
+  if (!p.querySelector('.poignee-tiroir')) p.insertAdjacentHTML('afterbegin', '<div class="poignee-tiroir" title="Tirer ou toucher pour agrandir / réduire"></div>');
+  const ETATS = ['reduit', 'moitie', 'plein'];
+  // Hauteur réduite : poignée + choix du réseau + onglets, sans contenu (mesurée une fois la page affichée)
+  const majReduit = () => {
+    const o = p.querySelector('.onglets');
+    if (mq.matches && o && o.offsetHeight) document.documentElement.style.setProperty('--h-tiroir-reduit', Math.min(220, o.offsetTop + o.offsetHeight + 4) + 'px');
+  };
+  setTimeout(majReduit, 400); setTimeout(majReduit, 2500);
+  const appliquer = (e) => {
+    document.body.classList.remove('tiroir-reduit', 'tiroir-moitie', 'tiroir-plein');
+    if (mq.matches) document.body.classList.add('tiroir-' + e);
+    etat.tiroir = e; ecrireLs('gaulix_tiroir', e);
+    const o = document.querySelector('.outils');
+    if (o) document.documentElement.style.setProperty('--h-outils', o.offsetHeight + 'px');
+    majReduit();
+    setTimeout(() => { document.documentElement.style.setProperty('--h-tiroir-reel', p.offsetHeight + 'px'); if (typeof carte !== 'undefined' && carte) carte.invalidateSize(); }, 260);
+  };
+  appliquer(lireLs('gaulix_tiroir', 'reduit'));
+  mq.addEventListener('change', () => appliquer(etat.tiroir || 'reduit'));
+  window.addEventListener('resize', () => { const o = document.querySelector('.outils'); if (o) document.documentElement.style.setProperty('--h-outils', o.offsetHeight + 'px'); majReduit(); });
+  const poignee = p.querySelector('.poignee-tiroir');
+  let depart = null;
+  poignee.addEventListener('pointerdown', (ev) => { depart = { y: ev.clientY, h: p.offsetHeight, t: Date.now() }; poignee.setPointerCapture(ev.pointerId); p.style.transition = 'none'; });
+  poignee.addEventListener('pointermove', (ev) => { if (!depart) return; p.style.height = Math.max(70, depart.h + (depart.y - ev.clientY)) + 'px'; });
+  poignee.addEventListener('pointerup', (ev) => {
+    if (!depart) return;
+    const dy = depart.y - ev.clientY, h = p.offsetHeight;
+    p.style.height = ''; p.style.transition = '';
+    let e;
+    if (Math.abs(dy) < 8) e = ETATS[(ETATS.indexOf(etat.tiroir) + 1) % 3]; // simple toucher : hauteur suivante
+    else { const r = h / window.innerHeight; e = r < 0.25 ? 'reduit' : r < 0.62 ? 'moitie' : 'plein'; }
+    depart = null;
+    appliquer(e);
+  });
+  // Un onglet touché alors que le tiroir est réduit : il s'ouvre à mi-hauteur
+  document.querySelectorAll('.onglets button[data-onglet]').forEach((b) => b.addEventListener('click', () => { if (mq.matches && etat.tiroir === 'reduit') appliquer('moitie'); }));
 }
 
 async function installation() {
