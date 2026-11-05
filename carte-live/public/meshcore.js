@@ -404,10 +404,11 @@ async function mcRendreMessages() {
       <div class="note" id="mc-retour-envoi"></div>
     </form>` : `<p class="note">${etat.admin ? 'Reliez un companion (onglet Companion) pour envoyer des messages.' : 'L’envoi est réservé aux administrateurs.'}</p>`}
     <div class="filtre-messages"><label>Afficher <select id="mc-filtre-msg">
-      <option value="">Tous (${l.length})</option>
-      ${filtreCanaux.map((x) => `<option value="c:${esc(x)}" ${mcFiltreMsg === 'c:' + x ? 'selected' : ''}>📢 ${esc(x)} (${l.filter((m) => m.genre !== 'direct' && memeCanalMc(m.canal, x)).length})</option>`).join('')}
-      <option value="direct" ${mcFiltreMsg === 'direct' ? 'selected' : ''}>✉️ Messages directs (${l.filter((m) => m.genre === 'direct').length})</option>
-      ${etat.config.passerelle || l.some((m) => estRelaye(m.texte)) ? `<option value="passerelle" ${mcFiltreMsg === 'passerelle' ? 'selected' : ''}>⇄ Relayés par la passerelle (${l.filter((m) => estRelaye(m.texte)).length})</option>` : ''}
+      ${(() => { const nl = (k) => (typeof nonLus !== 'undefined' && nonLus[k]) || 0, tx = (n) => (n ? ` · ${n} nouveau${n > 1 ? 'x' : ''}` : ''); const tot = typeof nonLus !== 'undefined' ? Object.entries(nonLus).filter(([k]) => k.startsWith('mc')).reduce((a, [, n]) => a + n, 0) : 0;
+        return `<option value="">Tous${tx(tot)}</option>
+      ${filtreCanaux.map((x) => `<option value="c:${esc(x)}" ${mcFiltreMsg === 'c:' + x ? 'selected' : ''}>📢 ${esc(x)}${tx(nl('mc:' + String(x).toLowerCase()))}</option>`).join('')}
+      <option value="direct" ${mcFiltreMsg === 'direct' ? 'selected' : ''}>✉️ Messages directs${tx(nl('mcdirect'))}</option>
+      ${etat.config.passerelle || l.some((m) => estRelaye(m.texte)) ? `<option value="passerelle" ${mcFiltreMsg === 'passerelle' ? 'selected' : ''}>⇄ Relayés par la passerelle</option>` : ''}`; })()}
     </select></label></div>
     <div id="mc-messages" class="flux">${vus.length ? vus.map(mcLigneMessage).join('') : `<div class="vide">${mcFiltreMsg ? 'Aucun message dans ce choix.' : 'Aucun message pour l’instant.'}</div>`}</div>`;
   $('#mc-filtre-msg').onchange = (e) => { choisirFiltreMc(e.target.value); mcRendreMessages(); };

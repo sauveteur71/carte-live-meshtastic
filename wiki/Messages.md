@@ -43,3 +43,6 @@ Un message qui contient `meshand: 45.04312,3.88512` (le format de l'appli MeshAn
 Pour en envoyer une :
 - **📍 Joindre le centre de la carte**, sous la zone de saisie (Meshtastic et MeshCore) ;
 - ou **clic droit sur la carte › 📍 Partager ce point dans un message**.
+
+## Choisir ce qu'on affiche
+Le menu *Afficher* ne montre que le nombre de **nouveaux** messages de chaque canal (« · 3 nouveaux »). **✉️ Mes messages directs** ne garde que les messages directs envoyés ou reçus par vos modules (module principal et modules en écoute reliés à la carte), pas ceux échangés entre d'autres nœuds.

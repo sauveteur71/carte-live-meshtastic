@@ -2633,7 +2633,7 @@ const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   estSurveille: (n) => reseau.estSurveille(n),
 }, agents);
 // Résumé public des modules Meshtastic en écoute (sources de données)
-function resumeEcoutes() { try { return ecoutes.liste().meshtastic.map((x) => ({ nom: x.nom, connecte: x.connecte, paquets: x.paquets })); } catch { return []; } }
+function resumeEcoutes() { try { return ecoutes.liste().meshtastic.map((x) => ({ nom: x.nom, connecte: x.connecte, paquets: x.paquets, noeud: x.noeud ?? null })); } catch { return []; } }
 // Modules en écoute (Meshtastic et MeshCore), en plus des modules principaux
 const { creerEcoutes } = require('./ecoutes');
 let minuterieStatutEcoute = null;

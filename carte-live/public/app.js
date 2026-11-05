@@ -1287,12 +1287,20 @@ function sonner(k) {
   const nom = k.slice(2);
   if (sons.canaux[nom]) bip([noteCanal(nom)], 0.18);
 }
+// Mes nœuds pour les messages directs : module principal et modules en écoute reliés à la carte
+function mesNums() {
+  const l = new Set();
+  if (etat.radio && etat.radio.noeudLocal != null) l.add(etat.radio.noeudLocal >>> 0);
+  for (const e of etat.ecoutesMt || []) if (e.noeud != null) l.add(e.noeud >>> 0);
+  return l;
+}
+const estMonDirect = (m, mes = mesNums()) => m.vers !== 0xffffffff && (mes.has(m.de >>> 0) || mes.has(m.vers >>> 0));
 function noterMessageRecu(m) {
   if (!m.premiere) return;
   const local = etat.radio ? etat.radio.noeudLocal : null;
   if (local != null && m.de === local) return; // mes propres messages
   const k = cleMessage(m);
-  if (k === 'direct' && local != null && m.vers !== local) return; // message direct entre deux autres nœuds
+  if (k === 'direct' && !mesNums().has(m.vers >>> 0)) return; // message direct qui ne m'est pas adressé
   if (!(ongletMessagesVisible() && filtreVoit(k))) { nonLus[k] = (nonLus[k] || 0) + 1; ecrireLs('gaulix_non_lus', nonLus); }
   sonner(k);
   if (k === 'direct') {
@@ -1540,10 +1548,10 @@ function rendreMessages() {
   const zf = $('#filtre-messages');
   if (zf) {
     zf.innerHTML = `<label>Afficher <select id="sel-filtre-messages">
-      <option value="">Tous les canaux (${tous.length})</option>
-      ${canaux.map((c) => { const n = nonLus['c:' + c.toLowerCase()]; return `<option value="c:${esc(c)}" ${filtreMessages === 'c:' + c ? 'selected' : ''}>📢 ${esc(c)} (${nb((m) => m.vers === 0xffffffff && memeCanal(m.canal, c))})${n ? ` · ${n} nouveau${n > 1 ? 'x' : ''}` : ''}</option>`; }).join('')}
-      <option value="direct" ${filtreMessages === 'direct' ? 'selected' : ''}>✉️ Messages directs (${nb((m) => m.vers !== 0xffffffff)})${nonLus.direct ? ` · ${nonLus.direct} nouveau${nonLus.direct > 1 ? 'x' : ''}` : ''}</option>
-      ${etat.config.passerelle || tous.some((m) => estRelaye(m.texte)) ? `<option value="passerelle" ${filtreMessages === 'passerelle' ? 'selected' : ''}>⇄ Relayés par la passerelle (${nb((m) => estRelaye(m.texte))})</option>` : ''}
+      <option value="">Tous les canaux${(() => { const t = Object.entries(nonLus).filter(([k]) => !k.startsWith('mc')).reduce((a, [, n]) => a + n, 0); return t ? ` · ${t} nouveau${t > 1 ? 'x' : ''}` : ''; })()}</option>
+      ${canaux.map((c) => { const n = nonLus['c:' + c.toLowerCase()]; return `<option value="c:${esc(c)}" ${filtreMessages === 'c:' + c ? 'selected' : ''}>📢 ${esc(c)}${n ? ` · ${n} nouveau${n > 1 ? 'x' : ''}` : ''}</option>`; }).join('')}
+      <option value="direct" ${filtreMessages === 'direct' ? 'selected' : ''}>✉️ Mes messages directs${nonLus.direct ? ` · ${nonLus.direct} nouveau${nonLus.direct > 1 ? 'x' : ''}` : ''}</option>
+      ${etat.config.passerelle || tous.some((m) => estRelaye(m.texte)) ? `<option value="passerelle" ${filtreMessages === 'passerelle' ? 'selected' : ''}>⇄ Relayés par la passerelle</option>` : ''}
     </select></label>
     <button type="button" class="mini" id="btn-sons" title="Bip par canal et alerte des messages directs">🔔 Sons</button>
     ${Object.keys(nonLus).some((k) => !k.startsWith('mc')) ? `<div class="non-lus-canaux">${Object.entries(nonLus).filter(([k]) => !k.startsWith('mc')).map(([k, n]) => `<button type="button" class="mini non-lu${k === 'direct' ? ' direct' : ''}" data-non-lu="${esc(k)}">${k === 'direct' ? '✉️ Direct' : '📢 ' + esc(canaux.find((c) => 'c:' + c.toLowerCase() === k) || k.slice(2))} <b>${n}</b></button>`).join('')}</div>` : ''}`;
@@ -1554,11 +1562,11 @@ function rendreMessages() {
   marquerLus();
   const msgs = !filtreMessages ? tous
     : filtreMessages === 'passerelle' ? tous.filter((m) => estRelaye(m.texte))
-    : filtreMessages === 'direct' ? tous.filter((m) => m.vers !== 0xffffffff)
+    : filtreMessages === 'direct' ? tous.filter((m) => estMonDirect(m))
       : tous.filter((m) => m.vers === 0xffffffff && memeCanal(m.canal, filtreMessages.slice(2)));
   $('#messages').innerHTML = msgs.length
     ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-rowid="${m.rowid}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b>${estRelaye(m.texte) ? ' <span class="badge-passerelle" title="Relayé par une passerelle inter-réseaux">⇄ passerelle</span>' : ''} · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${m.texte ? texteMessageHtml(m.texte, nomNoeud(m.de), m.heure) : '(non conservé)'}</div>${origineMessage(m)}${suiviMessage(m)}</div>`).join('')
-    : `<div class="vide">${filtreMessages ? 'Aucun message dans ce choix sur la période.' : 'Aucun message texte sur la période.'}</div>`;
+    : `<div class="vide">${filtreMessages === 'direct' && !mesNums().size ? 'Aucun module relié à la carte : vos messages directs sont ceux envoyés ou reçus par votre module.' : filtreMessages === 'direct' ? 'Aucun message direct envoyé ou reçu par votre module sur la période.' : filtreMessages ? 'Aucun message dans ce choix sur la période.' : 'Aucun message texte sur la période.'}</div>`;
   epinglerMessages(msgs.map((m) => ({ texte: m.texte, heure: m.heure, qui: nomNoeud(m.de) })));
   if (etat.admin) $('#messages').querySelectorAll('.message[data-de]').forEach((el) => (el.onclick = () => repondreA(el)));
   $('#messages').querySelectorAll('.origines, .suivi-msg').forEach((el) => {
@@ -5175,6 +5183,7 @@ function majEtat(e) {
   etat.stats = e.stats;
   etat.alertes = e.alertes || [];
   etat.radio = e.radio || null;
+  etat.ecoutesMt = e.ecoutes || etat.ecoutesMt || [];
   const s = e.stats;
   if (etat.zone) {
     const z = [...etat.noeuds.values()].filter(dansZone);
