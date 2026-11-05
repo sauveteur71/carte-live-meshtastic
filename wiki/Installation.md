@@ -79,6 +79,10 @@ Ces deux lignes vont dans le service `carte-live`, au même retrait que `mem_lim
 
 Puis *Outils › Connecter un module › USB du serveur*. Voir [[Connecter un module]].
 
+## Relief de toute la France (facultatif)
+
+Le relief du département de la carte se télécharge tout seul. Pour les calculs de couverture dans tous les départements : *Gestion › Réglages › Carte publique et relief › ⬇ Préparer toute la France* (paquet de ≈ 110 Mo récupéré automatiquement sur GitHub). Voir [[Couverture et sites]].
+
 ## 5. Accès depuis l'extérieur et HTTPS
 
 Le plus simple et le plus sûr est **Tailscale** sur le serveur et vos appareils. Le Bluetooth et l'USB dans le navigateur exigent **HTTPS** et **Chrome ou Edge** :
