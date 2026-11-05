@@ -804,7 +804,7 @@ function montrerAsymetrie(it) {
 
 // ---- Panneau : réseau --------------------------------------------------------
 function rendreReseau() {
-  const a = etat.alertes.filter((x) => dansZoneNum(x.num));
+  const a = etat.alertes.filter((x) => x.num == null || dansZoneNum(x.num));
   const pastille = $('#nb-alertes');
   pastille.textContent = a.length;
   pastille.className = 'pastille' + (a.some((x) => x.niveau === 'critique') ? ' critique' : a.length ? ' attention' : '');
@@ -1357,6 +1357,8 @@ function reglerSons(canaux) {
 // Filtre des messages : tous, un canal, ou les messages directs (retenu dans le navigateur)
 let filtreMessages = (() => { try { return localStorage.getItem('filtreMessages') || ''; } catch { return ''; } })();
 let derniersMessages = [];
+// Message relayé par une passerelle inter-réseaux : texte préfixé [MT] / [MC] (ou [MT|nom])
+const estRelaye = (t) => /^\[(MT|MC)[\]|]/.test(String(t || ''));
 function choisirFiltreMessages(v) {
   filtreMessages = v || '';
   try { localStorage.setItem('filtreMessages', filtreMessages); } catch { /* navigation privée */ }
@@ -1541,6 +1543,7 @@ function rendreMessages() {
       <option value="">Tous les canaux (${tous.length})</option>
       ${canaux.map((c) => { const n = nonLus['c:' + c.toLowerCase()]; return `<option value="c:${esc(c)}" ${filtreMessages === 'c:' + c ? 'selected' : ''}>📢 ${esc(c)} (${nb((m) => m.vers === 0xffffffff && memeCanal(m.canal, c))})${n ? ` · ${n} nouveau${n > 1 ? 'x' : ''}` : ''}</option>`; }).join('')}
       <option value="direct" ${filtreMessages === 'direct' ? 'selected' : ''}>✉️ Messages directs (${nb((m) => m.vers !== 0xffffffff)})${nonLus.direct ? ` · ${nonLus.direct} nouveau${nonLus.direct > 1 ? 'x' : ''}` : ''}</option>
+      ${etat.config.passerelle || tous.some((m) => estRelaye(m.texte)) ? `<option value="passerelle" ${filtreMessages === 'passerelle' ? 'selected' : ''}>⇄ Relayés par la passerelle (${nb((m) => estRelaye(m.texte))})</option>` : ''}
     </select></label>
     <button type="button" class="mini" id="btn-sons" title="Bip par canal et alerte des messages directs">🔔 Sons</button>
     ${Object.keys(nonLus).some((k) => !k.startsWith('mc')) ? `<div class="non-lus-canaux">${Object.entries(nonLus).filter(([k]) => !k.startsWith('mc')).map(([k, n]) => `<button type="button" class="mini non-lu${k === 'direct' ? ' direct' : ''}" data-non-lu="${esc(k)}">${k === 'direct' ? '✉️ Direct' : '📢 ' + esc(canaux.find((c) => 'c:' + c.toLowerCase() === k) || k.slice(2))} <b>${n}</b></button>`).join('')}</div>` : ''}`;
@@ -1550,10 +1553,11 @@ function rendreMessages() {
   }
   marquerLus();
   const msgs = !filtreMessages ? tous
+    : filtreMessages === 'passerelle' ? tous.filter((m) => estRelaye(m.texte))
     : filtreMessages === 'direct' ? tous.filter((m) => m.vers !== 0xffffffff)
       : tous.filter((m) => m.vers === 0xffffffff && memeCanal(m.canal, filtreMessages.slice(2)));
   $('#messages').innerHTML = msgs.length
-    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-rowid="${m.rowid}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b> · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${m.texte ? texteMessageHtml(m.texte, nomNoeud(m.de), m.heure) : '(non conservé)'}</div>${origineMessage(m)}${suiviMessage(m)}</div>`).join('')
+    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-rowid="${m.rowid}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b>${estRelaye(m.texte) ? ' <span class="badge-passerelle" title="Relayé par une passerelle inter-réseaux">⇄ passerelle</span>' : ''} · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${m.texte ? texteMessageHtml(m.texte, nomNoeud(m.de), m.heure) : '(non conservé)'}</div>${origineMessage(m)}${suiviMessage(m)}</div>`).join('')
     : `<div class="vide">${filtreMessages ? 'Aucun message dans ce choix sur la période.' : 'Aucun message texte sur la période.'}</div>`;
   epinglerMessages(msgs.map((m) => ({ texte: m.texte, heure: m.heure, qui: nomNoeud(m.de) })));
   if (etat.admin) $('#messages').querySelectorAll('.message[data-de]').forEach((el) => (el.onclick = () => repondreA(el)));
@@ -2158,6 +2162,16 @@ async function chargerAnalyse() {
     ${r.canaux.map((c) => `<tr><td>${esc(c.canal || '?')}</td><td class="num">${c.nb}</td><td class="num">${c.nb ? Math.round((c.dechiffres / c.nb) * 100) : 0} %</td></tr>`).join('')}
     </tbody></table>`;
   zone.querySelectorAll('tr[data-num]').forEach((tr) => (tr.onclick = () => ouvrirFiche(Number(tr.dataset.num))));
+  // Passerelle inter-réseaux : messages relayés par sens et ignorés par motif (administrateurs)
+  if (etat.config.passerelle && etat.admin) {
+    api('/api/passerelle').then((d) => {
+      const rej = Object.entries(d.stats.rejets).sort((x, y) => y[1] - x[1]);
+      zone.insertAdjacentHTML('beforeend', `<h3>⇄ Passerelle inter-réseaux <small>depuis ${esc(ilYa(d.stats.depuis).replace('il y a ', ''))}</small></h3>
+        <div class="grille"><div class="mesure"><span>Relayés MT → MC</span><b>${d.stats.mt2mc}</b></div><div class="mesure"><span>Relayés MC → MT</span><b>${d.stats.mc2mt}</b></div><div class="mesure"><span>Ignorés</span><b>${rej.reduce((t, x) => t + x[1], 0)}</b></div></div>
+        ${rej.length ? `<table class="voisins"><thead><tr><th>Motif</th><th>Messages ignorés</th></tr></thead><tbody>${rej.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join('')}</tbody></table>` : ''}
+        ${d.stats.agreges ? `<p class="note">${d.stats.agreges} message(s) regroupé(s) (émissions évitées).</p>` : ''}`);
+    }).catch(() => {});
+  }
 }
 
 // ---- Rejeu des dernières 24 h ------------------------------------------------------------

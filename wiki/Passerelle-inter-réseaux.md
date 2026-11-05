@@ -25,5 +25,9 @@ Le canal principal Meshtastic (canal 0) est exclu par défaut (autorisable dans 
 ## Liste noire
 Onglet **Liste noire** : choisissez un utilisateur parmi les nœuds connus ; ses messages ne sont plus jamais relayés (il reçoit toujours ceux de son réseau). « Aussi dans l'autre réseau » bloque le même nom des deux côtés.
 
-## Journal
+## Journal, messages, statistiques et alertes
+- Onglet **Messages** (Meshtastic et MeshCore) : choix **⇄ Relayés par la passerelle**, et une étiquette « ⇄ passerelle » sur chaque message relayé.
+- Écran **Statistiques** : messages relayés par sens et ignorés par motif.
+- **Alerte « passerelle hors ligne »** quand un module émetteur d'une liaison active est injoignable ; ses messages attendent en file son retour, la liaison reprend toute seule.
+
 Le tableau de bord compte les messages relayés par sens et les messages ignorés par motif ; le journal en direct montre chaque message reçu, relayé ou ignoré avec sa raison. Les créations, suspensions et suppressions de règles, et la liste noire, sont notées au journal d'audit. Les messages relayés n'apparaissent jamais sur la carte publique.

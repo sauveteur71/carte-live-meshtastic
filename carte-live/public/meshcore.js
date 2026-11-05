@@ -391,7 +391,7 @@ async function mcRendreMessages() {
   // Filtre : canaux du companion et canaux vus dans les messages
   const filtreCanaux = [];
   for (const x of [...canaux.map((k) => k.nom), ...l.filter((m) => m.genre !== 'direct').map((m) => m.canal)]) if (x && !filtreCanaux.some((y) => memeCanalMc(x, y))) filtreCanaux.push(x);
-  const vus = !mcFiltreMsg ? l : mcFiltreMsg === 'direct' ? l.filter((m) => m.genre === 'direct') : l.filter((m) => m.genre !== 'direct' && memeCanalMc(m.canal, mcFiltreMsg.slice(2)));
+  const vus = !mcFiltreMsg ? l : mcFiltreMsg === 'passerelle' ? l.filter((m) => estRelaye(m.texte)) : mcFiltreMsg === 'direct' ? l.filter((m) => m.genre === 'direct') : l.filter((m) => m.genre !== 'direct' && memeCanalMc(m.canal, mcFiltreMsg.slice(2)));
   z.innerHTML = `
     ${peutEnvoyer ? `<form id="mc-envoi" class="envoi">
       <div class="envoi-ligne"><select id="mc-dest" aria-label="Destinataire">
@@ -407,6 +407,7 @@ async function mcRendreMessages() {
       <option value="">Tous (${l.length})</option>
       ${filtreCanaux.map((x) => `<option value="c:${esc(x)}" ${mcFiltreMsg === 'c:' + x ? 'selected' : ''}>📢 ${esc(x)} (${l.filter((m) => m.genre !== 'direct' && memeCanalMc(m.canal, x)).length})</option>`).join('')}
       <option value="direct" ${mcFiltreMsg === 'direct' ? 'selected' : ''}>✉️ Messages directs (${l.filter((m) => m.genre === 'direct').length})</option>
+      ${etat.config.passerelle || l.some((m) => estRelaye(m.texte)) ? `<option value="passerelle" ${mcFiltreMsg === 'passerelle' ? 'selected' : ''}>⇄ Relayés par la passerelle (${l.filter((m) => estRelaye(m.texte)).length})</option>` : ''}
     </select></label></div>
     <div id="mc-messages" class="flux">${vus.length ? vus.map(mcLigneMessage).join('') : `<div class="vide">${mcFiltreMsg ? 'Aucun message dans ce choix.' : 'Aucun message pour l’instant.'}</div>`}</div>`;
   $('#mc-filtre-msg').onchange = (e) => { choisirFiltreMc(e.target.value); mcRendreMessages(); };
@@ -461,7 +462,7 @@ function mcLigneMessage(m) {
   const qui = m.sens === 'envoye' ? `<b>${esc(m.nomDe || 'moi')}</b>${m.genre === 'direct' ? ` → ${esc(m.nomVers || mcNom(m.vers))}` : ''}` : `<b>${esc(m.nomDe || '?')}</b>${m.genre === 'direct' ? ' → moi' : ''}`;
   const lieu = m.genre === 'direct' ? 'Direct' : m.canal || '';
   return `<div class="paquet mc message-mc ${m.sens}" ${m.genre === 'direct' && m.sens === 'recu' && m.de ? `data-mc-repondre="${m.de}"` : m.genre === 'canal' && m.indexCanal != null ? `data-mc-canal="${m.indexCanal}"` : ''}>
-    <div class="entete"><span class="heure">${new Date(m.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span class="tag"><i style="background:${m.genre === 'direct' ? MC_TYPES.message.hex : MC_TYPES.canal.hex}"></i>${esc(lieu)}</span>${mcTagRegion(m.region)}
+    <div class="entete"><span class="heure">${new Date(m.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span class="tag"><i style="background:${m.genre === 'direct' ? MC_TYPES.message.hex : MC_TYPES.canal.hex}"></i>${esc(lieu)}</span>${mcTagRegion(m.region)}${estRelaye(m.texte) ? '<span class="badge-passerelle" title="Relayé par une passerelle inter-réseaux">⇄ passerelle</span>' : ''}
     ${m.sauts != null ? `<span>${m.sauts === 0 ? 'direct' : m.sauts + ' saut' + (m.sauts > 1 ? 's' : '')}</span>` : ''}${m.sens === 'envoye' ? `<span class="statut-msg ${m.statut || ''}">${STATUTS_MSG[m.statut] || ''}${m.relais > 1 ? ' ×' + m.relais : ''}</span>` : ''}</div>
     <div class="corps">${qui} : ${texteMessageHtml(m.texte, m.sens === 'envoye' ? m.nomDe || 'moi' : m.nomDe, m.heure)}</div></div>`;
 }

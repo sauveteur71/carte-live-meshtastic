@@ -1218,3 +1218,5 @@ body.theme-clair .pp-journal .in { color: #047857; } body.theme-clair .pp-journa
 .pp-filtres { margin-top: 4px; } .pp-filtres label { display: block; font-size: 12px; color: var(--doux); margin: 4px 0; } .pp-filtres input { width: 100%; }
 .pp-ajout { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; } .pp-ajout input:not([type=checkbox]) { flex: 1 1 220px; }
 @media (max-width: 700px) { .pp-colonnes { grid-template-columns: 1fr; } .pp-sens { padding-top: 0; flex-direction: row; flex-wrap: wrap; } .pp-grille { grid-template-columns: 1fr; } }
+.badge-passerelle { font-size: 10.5px; padding: 0 6px; border-radius: 99px; border: 1px solid rgba(147,197,253,.6); color: #93c5fd; }
+body.theme-clair .badge-passerelle { color: #1d4ed8; border-color: #1d4ed8; }

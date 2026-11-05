@@ -257,8 +257,23 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
     dernierEtat = e;
   }, 10000).unref();
 
+  // Alertes « passerelle hors ligne » : une règle active dont le module émetteur est injoignable (EF-16).
+  // Ses messages attendent en file (bornée) le retour du module : la liaison reprend toute seule.
+  const horsLigneDepuis = { mt: null, mc: null };
+  function alertes() {
+    const l = [], t = Date.now();
+    for (const v of ['mt', 'mc']) {
+      const concernees = donnees.regles.filter((x) => x.actif && (v === 'mc' ? x.sens !== 'mc2mt' : x.sens !== 'mt2mc'));
+      if (!concernees.length || donnees.reglages.pause || moduleEnLigne(v)) { horsLigneDepuis[v] = null; continue; }
+      if (!horsLigneDepuis[v]) horsLigneDepuis[v] = t;
+      l.push({ cle: 'passerelle:' + v, type: 'passerelle', niveau: 'attention', depuis: horsLigneDepuis[v],
+        message: `Passerelle inter-réseaux : ${v === 'mt' ? 'module Meshtastic' : 'companion MeshCore'} hors ligne, ${concernees.length} liaison(s) en attente de son retour (${concernees.map((x) => x.libelle).join(', ')})` });
+    }
+    return l;
+  }
+
   journal(`[Passerelle] activée : ${donnees.regles.length} règle(s)${donnees.reglages.pause ? ', en pause' : ''}`);
-  return { recevoir, vue, ajouterRegle, modifierRegle, supprimerRegle, regler, bloquer, modifierBlocage, debloquer, MOTIFS, SENS, nomMt };
+  return { recevoir, vue, alertes, ajouterRegle, modifierRegle, supprimerRegle, regler, bloquer, modifierBlocage, debloquer, MOTIFS, SENS, nomMt };
 }
 
 module.exports = { creerPasserelle, LIMITE_MT, LIMITE_MC };
