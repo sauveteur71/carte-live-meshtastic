@@ -91,6 +91,7 @@
         <button class="bascule outils-mc" hidden id="outil-companion-mc" title="Relier à la carte un companion MeshCore branché sur ce PC (onglet MeshCore → Companion)">🔌 Relier un companion MeshCore</button>
         <div class="titre-outils">Réseau</div>
         <a class="bascule outils-mc" hidden href="topologie.html?reseau=mc" title="Graphe des liaisons MeshCore : points de rupture, répéteurs les plus traversés, trafic en direct, simulation de l’inondation">🕸️ Topologie et simulation MeshCore</a>
+        <button id="outil-passerelle" class="bascule" hidden title="Relayer des messages entre un canal Meshtastic et un canal MeshCore (outil d’appoint, administrateurs)">⇄ Passerelle inter-réseaux</button>
         <button id="outil-trafic" class="bascule outils-mt" title="Nœuds trop bavards (positions, télémétrie) et paquets réinjectés depuis MQTT">🚦 Contrôle du trafic</button>
         <a class="bascule outils-mt" href="topologie.html" title="Graphe des liaisons radio : points de rupture, relais les plus traversés, distance aux passerelles, et simulation de la propagation d’un paquet">🕸️ Topologie et simulation</a>
         <div class="titre-outils">Sur le terrain</div>
@@ -355,6 +356,12 @@
     </form>
   </dialog>
 
+  <dialog id="dlg-passerelle" class="large passerelle">
+    <button class="fermer" id="fermer-passerelle" title="Fermer">×</button>
+    <h2>⇄ Passerelle inter-réseaux</h2>
+    <nav class="onglets-dlg"><button data-pp="bord" class="actif">Tableau de bord</button><button data-pp="regles">Règles</button><button data-pp="noire">Liste noire</button><button data-pp="reglages">Réglages</button></nav>
+    <div id="pp-contenu"></div>
+  </dialog>
   <dialog id="dlg-gestion" class="large">
     <button class="fermer" id="fermer-gestion" title="Fermer">×</button>
     <nav class="onglets-dlg">

@@ -5339,6 +5339,7 @@ function brancherInterface() {
     if (b.dataset.onglet === 'gestion') { rendreGestion(); suivreTaches(); }
   }));
   installerTiroir();
+  { const b = $('#outil-passerelle'); if (b) { b.hidden = !(etat.config.passerelle && etat.admin); b.onclick = () => { b.closest('details').open = false; ouvrirPasserelle(); }; } }
   installerFicheTiroir();
   appliquerTheme(lireLs('gaulix_theme_clair', false));
   { const b = $('#outil-theme'); if (b) b.onclick = () => appliquerTheme(!document.body.classList.contains('theme-clair')); }
@@ -5825,6 +5826,116 @@ function installerTiroir() {
   });
   // Un onglet touché alors que le tiroir est réduit : il s'ouvre à mi-hauteur
   document.querySelectorAll('.onglets button[data-onglet]').forEach((b) => b.addEventListener('click', () => { if (mq.matches && etat.tiroir === 'reduit') appliquer('moitie'); }));
+}
+
+
+// ---- Passerelle inter-réseaux Meshtastic ⇄ MeshCore (PASSERELLE=1 dans le .env, administrateurs) ----
+const pp = { onglet: 'bord', donnees: null, minuterie: null, choixMt: null, choixMc: null, sens: 'bi', filtreJournal: '' };
+async function ouvrirPasserelle() {
+  const dlg = $('#dlg-passerelle');
+  if (!dlg.open) dlg.showModal();
+  dlg.querySelectorAll('[data-pp]').forEach((b) => (b.onclick = () => { pp.onglet = b.dataset.pp; dlg.querySelectorAll('[data-pp]').forEach((x) => x.classList.toggle('actif', x === b)); rendrePasserelle(true); }));
+  $('#fermer-passerelle').onclick = () => dlg.close();
+  dlg.addEventListener('close', () => { clearInterval(pp.minuterie); pp.minuterie = null; }, { once: true });
+  await rendrePasserelle(true);
+  clearInterval(pp.minuterie);
+  pp.minuterie = setInterval(() => { if (pp.onglet === 'bord' && !document.hidden) rendrePasserelle(false); }, 3000);
+}
+const ppSens = { mt2mc: 'MT → MC', mc2mt: 'MC → MT', bi: 'MT ⇄ MC' };
+async function rendrePasserelle(complet) {
+  const z = $('#pp-contenu');
+  try { pp.donnees = await api('/api/passerelle'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const d = pp.donnees, m = d.modules, g = d.reglages;
+  const pastille = (ok, txt) => `<span class="badge ${ok ? 'actif' : 'inactif'}">${ok ? '●' : '○'} ${esc(txt)}</span>`;
+  const entete = `<div class="pp-etat">${pastille(m.mt.connecte, 'Meshtastic : ' + (m.mt.connecte ? m.mt.nom || 'module principal' : 'module hors ligne'))}${pastille(m.mc.connecte, 'MeshCore : ' + (m.mc.connecte ? m.mc.nom || 'companion' : 'companion hors ligne'))}
+    <button class="mini ${g.pause ? 'principal' : ''}" id="pp-pause">${g.pause ? '▶ Reprendre la passerelle' : '⏸ Mettre en pause'}</button></div>
+    ${g.pause ? '<div class="alerte attention">Passerelle en pause : aucun message n’est relayé.</div>' : ''}`;
+  if (pp.onglet === 'bord') {
+    const rej = Object.entries(d.stats.rejets).sort((a, b) => b[1] - a[1]);
+    const journalHtml = d.journal.slice().reverse().filter((x) => !pp.filtreJournal || x.type === pp.filtreJournal).slice(0, 150).map((x) => `<div class="${x.type}">[${new Date(x.heure).toLocaleTimeString('fr-FR')}] ${x.type === 'in' ? 'REÇU  ' : x.type === 'out' ? 'RELAYÉ' : 'IGNORÉ'} ${esc(x.texte)}${x.motif ? ` <b>(${esc(x.motif)})</b>` : ''}</div>`).join('') || '<div class="vide">Rien pour l’instant.</div>';
+    if (!complet && $('#pp-journal')) { $('#pp-journal').innerHTML = journalHtml; $('#pp-c1').textContent = d.stats.mt2mc; $('#pp-c2').textContent = d.stats.mc2mt; $('#pp-c3').textContent = rej.reduce((t, x) => t + x[1], 0); return; }
+    z.innerHTML = `${entete}
+      <div class="pp-grille"><div class="mesure"><span>Relayés MT → MC</span><b id="pp-c1">${d.stats.mt2mc}</b></div><div class="mesure"><span>Relayés MC → MT</span><b id="pp-c2">${d.stats.mc2mt}</b></div><div class="mesure"><span>Ignorés</span><b id="pp-c3">${rej.reduce((t, x) => t + x[1], 0)}</b></div></div>
+      <p class="note">Depuis ${ilYa(d.stats.depuis).replace('il y a ', '')}${d.stats.agreges ? ` · ${d.stats.agreges} message(s) regroupé(s)` : ''}${rej.length ? ' · ignorés : ' + rej.map(([k, v]) => `${esc(k)} ${v}`).join(', ') : ''}.</p>
+      <p class="note">${d.regles.filter((x) => x.actif).length} règle(s) active(s) sur ${d.regles.length}. ${d.regles.length ? d.regles.map((x) => `<b>${esc(x.libelle)}</b>${x.actif ? '' : ' (suspendue)'}`).join(' · ') : 'Créez une liaison dans l’onglet Règles.'}</p>
+      <h3>Journal en direct <select id="pp-filtre" class="mini"><option value="">tout</option><option value="in">reçus</option><option value="out">relayés</option><option value="drop">ignorés</option></select></h3>
+      <div class="pp-journal" id="pp-journal">${journalHtml}</div>`;
+    $('#pp-filtre').value = pp.filtreJournal;
+    $('#pp-filtre').onchange = (e) => { pp.filtreJournal = e.target.value; rendrePasserelle(true); };
+  } else if (pp.onglet === 'regles') {
+    const col = (liste, choix, cote) => liste.length ? liste.map((c) => `<div class="pp-canal ${choix === c.index ? 'sel' : ''}" data-cote="${cote}" data-index="${c.index}"><span>#${esc(c.nom)}</span><small>${cote === 'mt' ? (c.index === 0 ? 'canal 0 · principal' : 'canal ' + c.index) : 'canal ' + c.index}</small></div>`).join('') : `<div class="vide">${cote === 'mt' ? 'Module Meshtastic principal non relié : ses canaux s’affichent quand il est connecté.' : 'Companion MeshCore non relié.'}</div>`;
+    z.innerHTML = `${entete}
+      <p class="note">Choisissez un canal de chaque côté (canaux du module Meshtastic principal et du companion MeshCore), le sens, puis « Créer la liaison ». Les messages relayés partent par ces deux modules.</p>
+      <div class="pp-colonnes"><div><h3>Canaux Meshtastic</h3>${col(m.mt.canaux, pp.choixMt, 'mt')}</div>
+        <div class="pp-sens">${Object.entries(ppSens).map(([k, v]) => `<button class="mini ${pp.sens === k ? 'actif' : ''}" data-sens="${k}">${v}</button>`).join('')}
+          <label class="case"><input type="checkbox" id="pp-coal"> Regrouper (${g.coalescenceS} s)</label><button class="principal" id="pp-creer">Créer la liaison</button></div>
+        <div><h3>Canaux MeshCore</h3>${col(m.mc.canaux, pp.choixMc, 'mc')}</div></div>
+      <p class="erreur" id="pp-retour"></p>
+      <h3>Règles</h3>
+      ${d.regles.length ? `<table class="voisins"><thead><tr><th>Liaison</th><th>Regrouper</th><th>Active</th><th></th></tr></thead><tbody>${d.regles.map((x) => `<tr data-id="${x.id}"><td><b>${esc(x.libelle)}</b>${x.enAttente ? ` <small>· ${x.enAttente} en attente</small>` : ''}
+        <details class="pp-filtres"><summary>Filtres${Object.values(x.filtres || {}).some((v) => v && v !== 2) ? ' (réglés)' : ''}</summary>
+          <label>Expéditeurs bloqués <input data-f="expediteurs" value="${esc((x.filtres || {}).expediteurs || '')}" placeholder="noms ou !id, séparés par des virgules"></label>
+          <label>Mot requis <input data-f="motRequis" value="${esc((x.filtres || {}).motRequis || '')}" placeholder="vide = tout"></label>
+          <label>Mots exclus <input data-f="motExclu" value="${esc((x.filtres || {}).motExclu || '')}" placeholder="ex. !pos, !meteo"></label>
+          <label>Longueur min. <input data-f="longueurMin" type="number" min="1" max="50" value="${(x.filtres || {}).longueurMin || 2}"></label>
+          <label>Heures silencieuses <input data-f="silence" value="${esc((x.filtres || {}).silence || '')}" placeholder="ex. 22-7"></label>
+          <button class="mini principal" data-filtres>Enregistrer les filtres</button></details></td>
+        <td><input type="checkbox" data-coal ${x.coalescence ? 'checked' : ''}></td><td><input type="checkbox" data-actif ${x.actif ? 'checked' : ''}></td><td><button class="mini" data-suppr>✕</button></td></tr>`).join('')}</tbody></table>` : '<div class="vide">Aucune règle.</div>'}`;
+    z.querySelectorAll('.pp-canal').forEach((el) => (el.onclick = () => { if (el.dataset.cote === 'mt') pp.choixMt = Number(el.dataset.index); else pp.choixMc = Number(el.dataset.index); rendrePasserelle(true); }));
+    z.querySelectorAll('[data-sens]').forEach((b) => (b.onclick = () => { pp.sens = b.dataset.sens; rendrePasserelle(true); }));
+    $('#pp-creer').onclick = async () => {
+      if (pp.choixMt == null || pp.choixMc == null) { $('#pp-retour').textContent = 'Choisissez un canal de chaque côté.'; return; }
+      try { await postJson('/api/passerelle/regles', { mt: pp.choixMt, mc: pp.choixMc, sens: pp.sens, coalescence: $('#pp-coal').checked }); pp.choixMt = pp.choixMc = null; rendrePasserelle(true); } catch (e) { $('#pp-retour').textContent = e.message; }
+    };
+    z.querySelectorAll('tr[data-id]').forEach((tr) => {
+      const id = tr.dataset.id, maj = async (o) => { try { await postJson(`/api/passerelle/regles/${id}`, o); } catch (e) { alert(e.message); } rendrePasserelle(true); };
+      tr.querySelector('[data-actif]').onchange = (e) => maj({ actif: e.target.checked });
+      tr.querySelector('[data-coal]').onchange = (e) => maj({ coalescence: e.target.checked });
+      tr.querySelector('[data-filtres]').onclick = () => maj({ filtres: Object.fromEntries([...tr.querySelectorAll('[data-f]')].map((i) => [i.dataset.f, i.value])) });
+      tr.querySelector('[data-suppr]').onclick = async () => { if (!confirm('Supprimer cette liaison ?')) return; await fetch(`/api/passerelle/regles/${id}`, { method: 'DELETE' }); rendrePasserelle(true); };
+    });
+  } else if (pp.onglet === 'noire') {
+    const connus = [...etat.noeuds.values()].filter((n) => n.nomCourt || n.nomLong).map((n) => ({ reseau: 'mt', id: String(n.num), nom: n.nomCourt || n.nomLong, lib: `${n.nomLong || n.nomCourt} (${n.id}) — Meshtastic` }))
+      .concat(typeof mc !== 'undefined' && mc.noeuds ? [...mc.noeuds.values()].filter((n) => n.nom).map((n) => ({ reseau: 'mc', id: n.nom, nom: n.nom, lib: `${n.nom} — MeshCore` })) : []);
+    z.innerHTML = `${entete}
+      <p class="note">Les messages de ces utilisateurs ne sont jamais relayés vers l’autre réseau, quelle que soit la règle. Ils reçoivent toujours les messages de leur propre réseau.</p>
+      <div class="pp-ajout"><input list="pp-connus" id="pp-qui" placeholder="Rechercher un nœud Meshtastic ou MeshCore connu…"><datalist id="pp-connus">${connus.slice(0, 1500).map((c) => `<option value="${esc(c.lib)}"></option>`).join('')}</datalist>
+        <input id="pp-motif" placeholder="Motif (facultatif)" maxlength="120"><label class="case"><input type="checkbox" id="pp-recip"> aussi dans l’autre réseau (même nom)</label><button class="principal" id="pp-bloquer">Interdire le transfert</button></div>
+      <p class="erreur" id="pp-retour"></p>
+      ${d.listeNoire.length ? `<table class="voisins"><thead><tr><th>Utilisateur</th><th>Réseau</th><th>Motif</th><th>Autre réseau</th><th>Ajouté</th><th></th></tr></thead><tbody>${d.listeNoire.map((b) => `<tr data-r="${b.reseau}" data-id="${esc(b.id)}"><td><b>${esc(b.nom)}</b></td><td>${b.reseau === 'mt' ? 'Meshtastic' : 'MeshCore'}</td><td>${esc(b.motif || '—')}</td><td><input type="checkbox" data-recip ${b.reciproque ? 'checked' : ''}></td><td><small>${new Date(b.ajoute).toLocaleDateString('fr-FR')}${b.par ? ' · ' + esc(b.par) : ''}</small></td><td><button class="mini" data-retirer>✕</button></td></tr>`).join('')}</tbody></table>` : '<div class="vide">Liste noire vide.</div>'}`;
+    $('#pp-bloquer').onclick = async () => {
+      const v = $('#pp-qui').value.trim(), c = connus.find((x) => x.lib === v);
+      if (!c) { $('#pp-retour').textContent = 'Choisissez un utilisateur dans la liste des nœuds connus.'; return; }
+      try { await postJson('/api/passerelle/liste-noire', { reseau: c.reseau, id: c.id, nom: c.nom, motif: $('#pp-motif').value, reciproque: $('#pp-recip').checked }); rendrePasserelle(true); } catch (e) { $('#pp-retour').textContent = e.message; }
+    };
+    z.querySelectorAll('tr[data-r]').forEach((tr) => {
+      tr.querySelector('[data-recip]').onchange = async (e) => { await postJson('/api/passerelle/liste-noire', { modifier: true, reseau: tr.dataset.r, id: tr.dataset.id, reciproque: e.target.checked }).catch((x) => alert(x.message)); rendrePasserelle(true); };
+      tr.querySelector('[data-retirer]').onclick = async () => { await postJson('/api/passerelle/liste-noire', { retirer: true, reseau: tr.dataset.r, id: tr.dataset.id }).catch((x) => alert(x.message)); rendrePasserelle(true); };
+    });
+  } else {
+    z.innerHTML = `${entete}
+      <form id="pp-form" class="grille-form">
+        <label>Préfixe des messages venus de Meshtastic <input name="prefixeMt" value="${esc(g.prefixeMt)}" maxlength="10"></label>
+        <label>Préfixe des messages venus de MeshCore <input name="prefixeMc" value="${esc(g.prefixeMc)}" maxlength="10"></label>
+        <label class="case"><input type="checkbox" name="avecExpediteur" ${g.avecExpediteur ? 'checked' : ''}> Nom de l’expéditeur dans le préfixe ([MT|F4XYZ])</label>
+        <label class="case"><input type="checkbox" name="canalPrincipalAutorise" ${g.canalPrincipalAutorise ? 'checked' : ''}> Autoriser le canal principal Meshtastic (canal 0)</label>
+        <label>Anti-doublon (minutes) <input name="ttlDoublonMin" type="number" min="1" max="120" value="${g.ttlDoublonMin}"></label>
+        <label>Messages par minute, par règle et par sens <input name="quotaRegleMin" type="number" min="1" max="30" value="${g.quotaRegleMin}"></label>
+        <label>Messages par minute, toute la passerelle <input name="quotaGlobalMin" type="number" min="1" max="120" value="${g.quotaGlobalMin}"></label>
+        <label>File d’attente max. (au-delà : les plus anciens abandonnés) <input name="fileMax" type="number" min="1" max="50" value="${g.fileMax}"></label>
+        <label>Écart minimal entre deux émissions sur un réseau (s) <input name="ecartEnvoiS" type="number" min="2" max="60" value="${g.ecartEnvoiS}"></label>
+        <label>Fenêtre de regroupement <select name="coalescenceS">${[10, 30, 60].map((v) => `<option value="${v}" ${g.coalescenceS === v ? 'selected' : ''}>${v} s</option>`).join('')}</select></label>
+      </form>
+      <div class="actions"><button class="principal" id="pp-enreg">Enregistrer</button></div><p class="erreur" id="pp-retour"></p>
+      <p class="note">Toujours actifs : un message envoyé par nos propres modules n’est jamais repris (anti-écho), un texte commençant par un préfixe de passerelle n’est jamais retransmis (anti-boucle). Messages texte de canal uniquement ; rien n’apparaît sur la carte publique.</p>`;
+    $('#pp-enreg').onclick = async () => {
+      const f = $('#pp-form'), o = {};
+      for (const el of f.elements) if (el.name) o[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+      try { await postJson('/api/passerelle/reglages', o); $('#pp-retour').textContent = ''; rendrePasserelle(true); } catch (e) { $('#pp-retour').textContent = e.message; }
+    };
+  }
+  const bp = $('#pp-pause');
+  if (bp) bp.onclick = async () => { await postJson('/api/passerelle/reglages', { pause: !g.pause }).catch((e) => alert(e.message)); rendrePasserelle(true); };
 }
 
 // ---- Ma position (bouton ◎ sur la carte) : point bleu et précision, suivi tant que le bouton est actif ----

@@ -1,0 +1,29 @@
+# Passerelle inter-réseaux Meshtastic ⇄ MeshCore
+
+Relaie les **messages texte de canal** entre un canal Meshtastic et un canal MeshCore. C'est un **outil d'appoint** (exercice, événement, panne d'un des deux réseaux), pas une passerelle permanente : elle est **désactivée par défaut**.
+
+## Activer
+Dans le `.env` : `PASSERELLE=1`, puis `docker compose up -d`. Le menu *Outils › ⇄ Passerelle inter-réseaux* apparaît pour les administrateurs.
+
+Il faut un **module Meshtastic principal** et un **companion MeshCore principal** reliés à la carte : ce sont eux qui émettent les messages relayés. Les messages entrants sont ceux que la carte décode déjà (MQTT, module, companion, observateurs).
+
+## Règles
+Onglet **Règles** : un canal à gauche (canaux du module Meshtastic), un canal à droite (canaux du companion), le sens (MT → MC, MC → MT ou MT ⇄ MC), puis **Créer la liaison**. Chaque règle se suspend d'un clic, et la passerelle entière se met en pause en haut du panneau.
+
+Par règle, des **filtres** : expéditeurs bloqués, mot requis, mots exclus (ex. `!pos`), longueur minimale, heures silencieuses (ex. `22-7`), et **Regrouper** : les messages reçus dans la fenêtre (10, 30 ou 60 s) partent en une seule émission (`[MC] Bob: salut / Alice: ça va ?`).
+
+Le canal principal Meshtastic (canal 0) est exclu par défaut (autorisable dans les réglages).
+
+## Protections toujours actives
+- **Anti-écho** : ce qu'envoient nos propres modules n'est jamais repris (sinon tout serait doublé).
+- **Anti-boucle** : un texte qui commence par `[MT]` ou `[MC]` (préfixes réglables) n'est jamais retransmis.
+- **Anti-doublon** : même canal, même expéditeur, même texte dans les 10 min (réglable).
+- **Quotas** : 6 messages par minute par règle et par sens, 60 pour toute la passerelle, 4 s au moins entre deux émissions sur un réseau, file de 10 messages : au-delà, les plus anciens sont abandonnés (jamais de rattrapage en rafale).
+- **Module hors ligne** : les messages attendent son retour (file bornée).
+- Taille : 200 octets côté Meshtastic, 140 côté MeshCore (le nom du companion compris), texte tronqué au-delà.
+
+## Liste noire
+Onglet **Liste noire** : choisissez un utilisateur parmi les nœuds connus ; ses messages ne sont plus jamais relayés (il reçoit toujours ceux de son réseau). « Aussi dans l'autre réseau » bloque le même nom des deux côtés.
+
+## Journal
+Le tableau de bord compte les messages relayés par sens et les messages ignorés par motif ; le journal en direct montre chaque message reçu, relayé ou ignoré avec sa raison. Les créations, suspensions et suppressions de règles, et la liste noire, sont notées au journal d'audit. Les messages relayés n'apparaissent jamais sur la carte publique.

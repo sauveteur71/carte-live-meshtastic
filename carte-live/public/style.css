@@ -1200,3 +1200,21 @@ body.theme-clair .mesure b, body.theme-clair .vue h3 { color: var(--texte); }
 .mesures-masquees summary { cursor: pointer; color: var(--doux); font-size: 13px; }
 .ligne-masquee { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--bord); }
 .ligne-masquee small { color: var(--tres-doux); }
+
+/* ---- Passerelle inter-réseaux ---- */
+dialog.passerelle h2 { margin: 0 30px 8px 0; font-size: 18px; }
+.pp-etat { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.pp-etat .mini { margin-left: auto; }
+.pp-grille { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pp-journal { font-family: var(--mono); font-size: 12px; line-height: 1.6; background: var(--fond); border: 1px solid var(--bord); border-radius: 8px; padding: 8px 10px; max-height: 300px; overflow-y: auto; }
+.pp-journal .in { color: #6ee7b7; } .pp-journal .out { color: #93c5fd; } .pp-journal .drop { color: #fda4af; }
+body.theme-clair .pp-journal .in { color: #047857; } body.theme-clair .pp-journal .out { color: #1d4ed8; } body.theme-clair .pp-journal .drop { color: #b91c1c; }
+.pp-colonnes { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: start; }
+.pp-canal { display: flex; justify-content: space-between; gap: 8px; border: 1px solid var(--bord); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; }
+.pp-canal small { color: var(--tres-doux); }
+.pp-canal.sel { border-color: var(--accent); background: rgba(62,230,196,.12); }
+.pp-sens { display: flex; flex-direction: column; gap: 6px; padding-top: 30px; align-items: stretch; }
+.pp-sens .mini.actif { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.pp-filtres { margin-top: 4px; } .pp-filtres label { display: block; font-size: 12px; color: var(--doux); margin: 4px 0; } .pp-filtres input { width: 100%; }
+.pp-ajout { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; } .pp-ajout input:not([type=checkbox]) { flex: 1 1 220px; }
+@media (max-width: 700px) { .pp-colonnes { grid-template-columns: 1fr; } .pp-sens { padding-top: 0; flex-direction: row; flex-wrap: wrap; } .pp-grille { grid-template-columns: 1fr; } }

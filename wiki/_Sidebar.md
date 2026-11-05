@@ -15,6 +15,7 @@
 **Administrer**
 - [[Programmation à distance]]
 - [[MeshCore]]
+- [[Passerelle inter-réseaux]]
 - [[Comptes et sécurité]]
 - [[Archive PostgreSQL]]
 

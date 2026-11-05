@@ -99,6 +99,8 @@ const config = {
     emissionMaxPourcent: nombre('TRACEROUTE_EMISSION_MAX_POURCENT', 6),
   },
   // Source complémentaire : API v1 de MeshMonitor (noms, rôles, sauts et liens vus par le nœud local)
+  // Passerelle inter-réseaux Meshtastic ⇄ MeshCore (messages de canal) : désactivée par défaut
+  passerelle: { actif: /^(1|oui|true|on)$/i.test(texte('PASSERELLE', '')) },
   meshmonitor: {
     url: texte('MESHMONITOR_URL').replace(/\/+$/, ''),
     jeton: texte('MESHMONITOR_JETON'),

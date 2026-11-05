@@ -199,6 +199,7 @@ app.get('/api/config', (req, res) => {
     couchesMasquees: config.carte.couchesMasquees,
     lienDistanceMaxKm: config.lienDistanceMaxKm,
     couverturePublique: reliefPublic.couverture,
+    passerelle: config.passerelle.actif,
     precisionPublique: config.precisionPublique,
   });
 });
@@ -2367,7 +2368,18 @@ setInterval(() => {
   }
 }, 30000);
 
+let passerelle = null; // passerelle inter-réseaux (PASSERELLE=1), créée plus bas
+// Messages de canal décodés : transmis à la passerelle inter-réseaux, si elle est activée
+function verPasserelle(m) {
+  if (!passerelle || !m) return;
+  try {
+    if (m.genre === 'paquet' && m.premiere && m.port === 'texte' && m.texte && m.vers == null) passerelle.recevoir({ reseau: 'mt', canal: m.canal, de: m.de, nom: passerelle.nomMt(m.de), texte: m.texte });
+    else if (m.genre === 'mc-paquet' && m.premiere && m.texte && m.canal) passerelle.recevoir({ reseau: 'mc', canal: m.canal, de: null, nom: m.expediteur || null, texte: m.texte });
+    else if (m.genre === 'mc-message' && m.sens === 'recu' && !m.direct && m.canal && m.texte) passerelle.recevoir({ reseau: 'mc', canal: m.canal, de: null, nom: m.nomDe || null, texte: m.texte });
+  } catch (e) { journal('[Passerelle]', e.message); }
+}
 function diffuser(message) {
+  verPasserelle(message);
   // Vue publique : sans texte, positions des nœuds de particuliers arrondies
   const pub = JSON.stringify(reseau.vueTrame(message.texte !== undefined ? { ...message, texte: undefined } : message, false));
   const adm = JSON.stringify(message);
@@ -2638,6 +2650,54 @@ const ecoutes = creerEcoutes({
 });
 ecoutes.demarrer();
 const administration = creerAdministration(sourceRadio, stockage);
+// ---- Passerelle inter-réseaux Meshtastic ⇄ MeshCore (PASSERELLE=1 dans le .env) ----
+if (config.passerelle.actif) {
+  const reqNomMt = stockage.db.prepare('SELECT nom_court, nom_long FROM noeuds WHERE num = ?');
+  passerelle = require('./passerelle').creerPasserelle({
+    config, journal, audit,
+    nomMt: (num) => { try { const n = reqNomMt.get(Number(num) >>> 0); return (n && (n.nom_court || n.nom_long)) || '!' + (Number(num) >>> 0).toString(16).padStart(8, '0'); } catch { return null; } },
+    envoyerMt: async (index, texte) => administration.envoyerTexte({ texte, canal: index }, 'passerelle'),
+    envoyerMc: async (index, texte) => {
+      await companion.envoyerCanal(index, texte);
+      const c = companion.etat(), canal = companion.canaux().find((x) => x.index === index);
+      reseauMc.noterMessage({ sens: 'envoye', genre: 'canal', canal: canal ? canal.nom : null, indexCanal: index, de: c.cle, nomDe: c.nom, texte, statut: 'envoye', auteur: 'passerelle', region: c.zoneDefaut == null ? null : c.zoneDefaut || '-' });
+      diffuser({ genre: 'mc-message', confirmation: true });
+    },
+    etatMt: () => { const i = sourceRadio.infos(), e = sourceRadio.etat(); return { connecte: !!i.connecte, noeudLocal: i.noeudLocal, nomLocal: e.nomLocal, canaux: i.canaux || [] }; },
+    etatMc: () => { const c = companion.etat(); return { pret: !!(config.meshcore.actif && c.pret), nom: c.nom || null, canaux: config.meshcore.actif ? companion.canaux() : [] }; },
+  });
+}
+const exigerPasserelle = (req, res) => {
+  if (!passerelle) { res.status(404).json({ erreur: 'Passerelle inter-réseaux non activée sur cette carte (PASSERELLE=1 dans le .env)' }); return false; }
+  if (!estAdmin(req)) { res.status(401).json({ erreur: 'Connexion admin requise' }); return false; }
+  return true;
+};
+app.get('/api/passerelle', (req, res) => { if (exigerPasserelle(req, res)) res.set('Cache-Control', 'no-store').json(passerelle.vue()); });
+app.post('/api/passerelle/regles', (req, res) => {
+  if (!exigerPasserelle(req, res)) return;
+  try { const r = passerelle.ajouterRegle(req.body || {}, nomCompte(utilisateur(req))); audit.noter(nomCompte(utilisateur(req)), req.ip, 'passerelle : règle créée', r.libelle, true); res.json(r); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/passerelle/regles/:id', (req, res) => {
+  if (!exigerPasserelle(req, res)) return;
+  try { const r = passerelle.modifierRegle(req.params.id, req.body || {}); audit.noter(nomCompte(utilisateur(req)), req.ip, 'passerelle : règle modifiée', `${r.libelle}${typeof (req.body || {}).actif === 'boolean' ? (req.body.actif ? ' · activée' : ' · suspendue') : ''}`, true); res.json(r); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.delete('/api/passerelle/regles/:id', (req, res) => {
+  if (!exigerPasserelle(req, res)) return;
+  const ok = passerelle.supprimerRegle(req.params.id); audit.noter(nomCompte(utilisateur(req)), req.ip, 'passerelle : règle supprimée', req.params.id, true); res.json({ ok });
+});
+app.post('/api/passerelle/reglages', (req, res) => {
+  if (!exigerPasserelle(req, res)) return;
+  try { const g = passerelle.regler(req.body || {}); audit.noter(nomCompte(utilisateur(req)), req.ip, 'passerelle : réglages', typeof (req.body || {}).pause === 'boolean' ? (req.body.pause ? 'mise en pause' : 'reprise') : null, true); res.json(g); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/passerelle/liste-noire', (req, res) => {
+  if (!exigerPasserelle(req, res)) return;
+  const b = req.body || {};
+  try {
+    const r = b.retirer ? passerelle.debloquer(b.reseau, b.id) : b.modifier ? passerelle.modifierBlocage(b.reseau, b.id, b) : passerelle.bloquer(b, nomCompte(utilisateur(req)));
+    audit.noter(nomCompte(utilisateur(req)), req.ip, b.retirer ? 'passerelle : retiré de la liste noire' : b.modifier ? 'passerelle : liste noire modifiée' : 'passerelle : ajouté à la liste noire', `${b.reseau === 'mt' ? 'Meshtastic' : 'MeshCore'} ${b.nom || b.id}${b.motif ? ' · ' + String(b.motif).slice(0, 60) : ''}`, true);
+    res.json(r);
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 // Favoris et « mes nœuds » de chaque compte
 const suivis = require('./suivis').creerSuivis(config, {
   autoAdministres: (u) => (u.role === 'admin'
