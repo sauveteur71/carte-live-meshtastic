@@ -52,6 +52,7 @@ Fiche d'un répéteur, salon ou capteur, onglet **Capteurs** :
 - une **courbe par mesure** (tension, température, humidité, pression, courant…) sur 1, 7, 30 ou 90 jours, avec dernier, minimum et maximum ;
 - **✏️ libellé** : renommez chaque mesure (« Batterie », « Abri », « Panneau solaire ») au lieu de « tension 1 » ;
 - **🔔 Alerte** : un seuil bas et/ou haut par mesure. Quand le dernier relevé en sort, une alerte MeshCore s'affiche (onglet Réseau) et le navigateur envoie une notification si la carte est ouverte ;
+- **🙈 Masquer** : retire de l'affichage une mesure non pertinente (voie non câblée à 0 V…). Elle reste enregistrée et dans l'export CSV, sans alerte ; *Mesures masquées* permet de la réafficher ;
 - **⬇ CSV** : export des relevés de la période affichée (séparateur « ; », virgule décimale, pour un tableur).
 
 Les relevés faits à la main depuis l'administration alimentent aussi les courbes. L'historique est gardé 90 jours.

@@ -46,10 +46,10 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
       if (!series.has(p.mesure)) series.set(p.mesure, { mesure: p.mesure, unite: p.unite, points: [] });
       series.get(p.mesure).points.push([p.heure, p.valeur]);
     }
-    return { intervalleMin: r.intervalleMin || 0, libelles: r.libelles || {}, seuils: r.seuils || {}, dernier: r.dernier || null, intervalles: INTERVALLES, series: [...series.values()] };
+    return { intervalleMin: r.intervalleMin || 0, libelles: r.libelles || {}, seuils: r.seuils || {}, masquees: r.masquees || [], dernier: r.dernier || null, intervalles: INTERVALLES, series: [...series.values()] };
   }
 
-  function regler(cle, { intervalleMin, libelles, seuils, nom } = {}) {
+  function regler(cle, { intervalleMin, libelles, seuils, masquees, nom } = {}) {
     const r = reglages[cle] || {};
     if (intervalleMin !== undefined) {
       const v = Number(intervalleMin);
@@ -73,6 +73,12 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
         const mn = num(v && v.min), mx = num(v && v.max);
         if (mn == null && mx == null) delete r.seuils[k]; else r.seuils[k] = { min: mn, max: mx };
       }
+    }
+    // Mesures masquées (non pertinentes : tension 0 V d'une voie non câblée…) : { 'tension:4': true | false }
+    if (masquees && typeof masquees === 'object') {
+      const l = new Set(r.masquees || []);
+      for (const [k, v] of Object.entries(masquees)) { if (!/^[a-z_]+:\d{1,3}$/.test(k)) continue; if (v) l.add(k); else l.delete(k); }
+      r.masquees = [...l].slice(0, 60);
     }
     if (typeof nom === 'string' && nom) r.nom = nom.slice(0, 40);
     reglages[cle] = r;
@@ -104,7 +110,7 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
       if (!r.seuils || !Object.keys(r.seuils).length) continue;
       for (const d of q.derniers.all(cle)) {
         const s = r.seuils[d.mesure];
-        if (!s || Date.now() - d.heure > 48 * 3600000) continue;
+        if (!s || Date.now() - d.heure > 48 * 3600000 || (r.masquees || []).includes(d.mesure)) continue;
         const bas = s.min != null && d.valeur < s.min, haut = s.max != null && d.valeur > s.max;
         if (!bas && !haut) continue;
         const [type, canal] = d.mesure.split(':');

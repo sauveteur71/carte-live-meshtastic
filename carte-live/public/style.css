@@ -1195,3 +1195,8 @@ body.theme-clair .choix-reseau button.actif { color: #05090d; font-weight: 700; 
 body.theme-clair .choix-reseau button[data-reseau="les-deux"].actif { background: linear-gradient(90deg, rgba(11,110,99,.22), rgba(234,88,12,.25)); border-color: #33475a; }
 body.theme-clair .mesure b, body.theme-clair .vue h3 { color: var(--texte); }
 @media (max-width: 900px) and (orientation: landscape) and (max-height: 520px) { .panneau, .fiche, body.fiche-pleine .fiche { top: 66px; } }
+
+.mesures-masquees { margin-top: 8px; border: 1px dashed var(--bord); border-radius: 8px; padding: 6px 10px; }
+.mesures-masquees summary { cursor: pointer; color: var(--doux); font-size: 13px; }
+.ligne-masquee { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--bord); }
+.ligne-masquee small { color: var(--tres-doux); }

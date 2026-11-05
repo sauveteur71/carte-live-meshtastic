@@ -1391,21 +1391,22 @@ async function mcRendreCapteurs(n, z, jours = 7) {
       <button class="mini principal" id="cap-maintenant">Relever maintenant</button></div>
       <p class="note">Le relevé passe par le companion de la carte (tâche « télémétrie »). Le nœud doit autoriser la télémétrie : mot de passe invité ou admin mémorisé, ou télémétrie ouverte. Chaque relevé envoie un paquet : 1 h ou plus suffit pour un abri ou une batterie.</p>` : ''}
     ${r.dernier ? `<p class="note">Dernier relevé ${ilYa(r.dernier)}.</p>` : ''}
-    ${r.series.length ? r.series.map((sr) => {
+    ${r.series.length ? r.series.filter((sr) => !(r.masquees || []).includes(sr.mesure)).map((sr) => {
       const pts = sr.points.map(([h, v]) => ({ heure: h, v }));
       const der = sr.points[sr.points.length - 1];
       const se = (r.seuils || {})[sr.mesure] || {};
       const hors = (se.min != null && der[1] < se.min) || (se.max != null && der[1] > se.max);
       const txtSeuil = se.min != null || se.max != null ? `alerte ${se.min != null ? 'sous ' + fmt(se.min, dec(sr.unite), ' ' + sr.unite) : ''}${se.min != null && se.max != null ? ' ou ' : ''}${se.max != null ? 'au-dessus de ' + fmt(se.max, dec(sr.unite), ' ' + sr.unite) : ''}` : '';
       return `<div class="serie-capteur${hors ? ' hors-seuil' : ''}"><div class="titre-serie"><b>${esc(libelleCapteur(r, sr.mesure))}</b> <span class="valeur">${fmt(der[1], dec(sr.unite), ' ' + sr.unite)}</span>${hors ? ' <span class="alerte-seuil">⚠ hors seuil</span>' : ''}
-        ${r.peutRegler ? `<button class="mini" data-cap-lib="${esc(sr.mesure)}" title="Renommer cette mesure">✏️</button>` : ''}<small>${esc(sr.mesure.replace(':', ' · canal '))} · ${sr.points.length} relevé${sr.points.length > 1 ? 's' : ''}${txtSeuil ? ' · ' + txtSeuil : ''}</small></div>
+        ${r.peutRegler ? `<button class="mini" data-cap-lib="${esc(sr.mesure)}" title="Renommer cette mesure">✏️</button><button class="mini" data-cap-masquer="${esc(sr.mesure)}" title="Masquer cette mesure (non pertinente) : elle reste enregistrée et dans l’export CSV">🙈 Masquer</button>` : ''}<small>${esc(sr.mesure.replace(':', ' · canal '))} · ${sr.points.length} relevé${sr.points.length > 1 ? 's' : ''}${txtSeuil ? ' · ' + txtSeuil : ''}</small></div>
         ${pts.length >= 2 ? courbe(pts, 'v', '', ' ' + sr.unite, dec(sr.unite), se.min != null ? se.min : undefined) : '<p class="note">Une seule valeur pour l’instant : la courbe apparaîtra au relevé suivant.</p>'}
         ${r.peutRegler ? `<details class="seuils-capteur"><summary>🔔 Alerte${txtSeuil ? ' (réglée)' : ''}</summary><div class="ligne-seuils" data-cap-seuil="${esc(sr.mesure)}">
           <label>sous <input type="number" step="any" data-s="min" value="${se.min ?? ''}" placeholder="—"></label>
           <label>au-dessus de <input type="number" step="any" data-s="max" value="${se.max ?? ''}" placeholder="—"></label>
           <span>${esc(sr.unite || '')}</span><button class="mini principal" data-s-ok>Enregistrer</button></div>
           <p class="note">Alerte MeshCore (et notification du navigateur, carte ouverte) quand le dernier relevé sort de ces limites. Laissez vide pour ne pas surveiller.</p></details>` : ''}</div>`;
-    }).join('') : '<div class="vide">Aucune mesure enregistrée. Choisissez un intervalle de relevé, ou « Relever maintenant ».</div>'}`;
+    }).join('') : '<div class="vide">Aucune mesure enregistrée. Choisissez un intervalle de relevé, ou « Relever maintenant ».</div>'}
+    ${(() => { const m = r.series.filter((sr) => (r.masquees || []).includes(sr.mesure)); return m.length ? `<details class="mesures-masquees"><summary>🙈 Mesures masquées (${m.length})</summary>${m.map((sr) => { const d = sr.points[sr.points.length - 1]; return `<div class="ligne-masquee"><span>${esc(libelleCapteur(r, sr.mesure))} <small>${esc(sr.mesure.replace(':', ' · canal '))} · dernier ${fmt(d[1], 2, ' ' + sr.unite)}</small></span>${r.peutRegler ? `<button class="mini" data-cap-afficher="${esc(sr.mesure)}">👁 Réafficher</button>` : ''}</div>`; }).join('')}</details>` : ''; })()}`;
   z.querySelectorAll('[data-cj]').forEach((b) => (b.onclick = () => mcRendreCapteurs(n, z, Number(b.dataset.cj))));
   const si = $('#cap-int');
   if (si) si.onchange = async () => { try { await postJson(`/api/mc/capteurs/${n.cle}`, { intervalleMin: Number(si.value) }); } catch (e) { alert(e.message); } };
@@ -1415,6 +1416,9 @@ async function mcRendreCapteurs(n, z, jours = 7) {
     try { await postJson('/api/mc/admin/taches', { type: 'telemetrie', cles: [n.cle] }); } catch (e) { alert(e.message); bm.disabled = false; bm.textContent = 'Relever maintenant'; return; }
     setTimeout(() => mcRendreCapteurs(n, z, jours), 25000);
   };
+  const masquer = async (m, v) => { try { await postJson(`/api/mc/capteurs/${n.cle}`, { masquees: { [m]: v } }); } catch (e) { alert(e.message); return; } mcRendreCapteurs(n, z, jours); };
+  z.querySelectorAll('[data-cap-masquer]').forEach((b) => (b.onclick = () => masquer(b.dataset.capMasquer, true)));
+  z.querySelectorAll('[data-cap-afficher]').forEach((b) => (b.onclick = () => masquer(b.dataset.capAfficher, false)));
   z.querySelectorAll('[data-cap-seuil]').forEach((l) => (l.querySelector('[data-s-ok]').onclick = async () => {
     const v = (k) => l.querySelector(`[data-s="${k}"]`).value.replace(',', '.');
     try { await postJson(`/api/mc/capteurs/${n.cle}`, { nom: n.nom || '', seuils: { [l.dataset.capSeuil]: { min: v('min'), max: v('max') } } }); } catch (e) { alert(e.message); return; }
