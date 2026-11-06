@@ -72,6 +72,9 @@ function creerComptes(db, config) {
     nbAdmins: db.prepare("SELECT COUNT(*) AS n FROM comptes WHERE role = 'admin' AND statut = 'actif'"),
     parId: db.prepare('SELECT * FROM comptes WHERE id = ?'),
     parIdentifiant: db.prepare('SELECT * FROM comptes WHERE identifiant = ?'),
+    // Connexion tolérante : majuscules indifférentes (clavier de téléphone), ou indicatif s'il désigne un seul compte
+    parIdentifiantSouple: db.prepare('SELECT * FROM comptes WHERE identifiant = ? COLLATE NOCASE ORDER BY identifiant = ? DESC LIMIT 1'),
+    parIndicatif: db.prepare('SELECT * FROM comptes WHERE indicatif = ? COLLATE NOCASE LIMIT 2'),
     inserer: db.prepare('INSERT INTO comptes (identifiant, indicatif, email, hash, role, statut, cree) VALUES (@identifiant, @indicatif, @email, @hash, @role, @statut, @cree)'),
     tous: db.prepare('SELECT id, identifiant, indicatif, email, role, statut, cree, derniere, noeuds, totp IS NOT NULL AS deuxFacteurs FROM comptes ORDER BY statut DESC, identifiant'),
     noeuds: db.prepare('UPDATE comptes SET noeuds = ? WHERE id = ?'),
@@ -126,12 +129,14 @@ function creerComptes(db, config) {
     installationRequise: () => q.nombre.get().n === 0,
     creer(donnees, role = 'membre', statut = 'actif') {
       const d = valider(donnees);
-      if (q.parIdentifiant.get(d.identifiant)) throw new Error('Cet identifiant est déjà pris');
+      if (q.parIdentifiantSouple.get(d.identifiant, d.identifiant)) throw new Error('Cet identifiant est déjà pris');
       const r = q.inserer.run({ identifiant: d.identifiant, indicatif: d.indicatif, email: d.email, hash: hacher(d.motDePasse), role, statut, cree: Date.now() });
       return nettoyer(q.parId.get(r.lastInsertRowid));
     },
     connecter(identifiant, motDePasse, code) {
-      const c = q.parIdentifiant.get(String(identifiant || '').trim());
+      const id = String(identifiant || '').trim();
+      let c = q.parIdentifiantSouple.get(id, id);
+      if (!c && id) { const l = q.parIndicatif.all(id); if (l.length === 1) c = l[0]; }
       // Calcul effectué même si le compte n'existe pas (temps de réponse identique)
       const ok = verifierHash(String(motDePasse || ''), c ? c.hash : 'scrypt$00$00') && !!c;
       if (!ok) throw new Error('Identifiant ou mot de passe incorrect');

@@ -5756,6 +5756,7 @@ async function rendreReglages() {
       <div class="grille-form">
         <label>Nom de la carte <input name="titre" value="${esc(r.titre)}" maxlength="80"></label>
         <label>Département <select name="departement"></select><small>Fixe la zone, le contour et le centrage de la carte</small></label>
+        <div class="large-col note-source">${r.depuisPage && r.depuisPage.mqtt ? `⚠️ Le serveur MQTT est réglé ici : ces valeurs <b>remplacent celles du .env</b>${r.env && r.env.mqtt.url ? ` (MQTT_URL=${esc(r.env.mqtt.url)})` : ''}. <button type="button" class="mini" data-revenir-env="mqtt">Revenir au .env</button>` : 'ℹ️ Serveur MQTT lu dans le fichier .env. Une valeur changée ici le remplacera (le .env ne sera plus lu pour elle).'}</div>
         <label>Serveur MQTT <input name="mqttUrl" value="${esc(r.mqtt.url)}"></label>
         <label>Sujet racine <input name="mqttRacine" value="${esc(r.mqtt.racine)}"></label>
         <label>Utilisateur MQTT <input name="mqttUtilisateur" value="${esc(r.mqtt.utilisateur)}" autocomplete="off"></label>
@@ -5764,7 +5765,7 @@ async function rendreReglages() {
         <label>Inscriptions <select name="inscriptions">${[['validation', 'Sur validation de l’admin'], ['ouvertes', 'Ouvertes à tous'], ['fermees', 'Fermées']].map(([v, l]) => `<option value="${v}" ${r.inscriptions === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <label>Positions publiques <select name="precisionPublique">${[[3, 'Arrondies à ≈ 100 m'], [2, 'Arrondies à ≈ 1 km'], [4, 'Arrondies à ≈ 10 m'], [-1, 'Exactes']].map(([v, l]) => `<option value="${v}" ${r.precisionPublique === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <label>Conservation (jours) <input name="retentionJours" type="number" min="1" max="90" value="${r.retentionJours}"></label>
-        <label class="large-col">Canaux à déchiffrer <textarea name="canaux" rows="5">${esc(r.canaux)}</textarea><small>Un canal par ligne : nom=clé en base64</small></label>
+        <label class="large-col">Canaux à déchiffrer <textarea name="canaux" rows="5">${esc(r.canaux)}</textarea><small>Un canal par ligne : nom=clé en base64${r.depuisPage && r.depuisPage.canaux ? ' · réglés ici, ils remplacent CANAUX du .env <button type="button" class="mini" data-revenir-env="canaux">Revenir au .env</button>' : ' · lus dans le .env tant qu’ils ne sont pas changés ici'}</small></label>
       </div>
       <p class="erreur" id="retour-reglages"></p>
       <div class="actions"><button type="submit" class="principal">Enregistrer et redémarrer</button></div>
@@ -5773,6 +5774,10 @@ async function rendreReglages() {
     <div class="bloc-france" id="bloc-france"></div>`;
   rendreFrance();
   optionsDepartements(z.querySelector('[name=departement]'), r.departement.code);
+  z.querySelectorAll('[data-revenir-env]').forEach((b) => (b.onclick = async () => {
+    if (!confirm('Reprendre les valeurs du fichier .env pour ce réglage ? Le service redémarre.')) return;
+    try { const x = await postJson('/api/reglages', { revenirEnv: [b.dataset.revenirEnv] }); if (x.redemarrage) attendreRedemarrage('Réglages du .env repris ✓'); } catch (err) { alert(err.message); }
+  }));
   $('#form-reglages').onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target;

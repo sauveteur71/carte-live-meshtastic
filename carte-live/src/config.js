@@ -160,6 +160,13 @@ config.departement = { code: texte('DEPARTEMENT', '43'), nom: texte('ZONE_NOM', 
 config.inscriptions = texte('INSCRIPTIONS', 'validation'); // fermees | validation | ouvertes
 config.fichierReglages = path.join(path.dirname(config.fichierBase), 'reglages.json');
 config.reglages = {};
+// Valeurs venues du .env (avant les réglages de la page d'administration, qui les remplacent) : pour savoir
+// d'où vient chaque valeur, et pour pouvoir revenir au .env
+config.env = {
+  titre: config.carte.titre, departement: { ...config.departement }, inscriptions: config.inscriptions,
+  mqtt: { url: config.mqtt.url, utilisateur: config.mqtt.utilisateur, racine: config.mqtt.racine, motDePasseDefini: !!config.mqtt.motDePasse },
+  canaux: config.canaux.map((c) => `${c.nom}=${c.cle}`).join('\n'),
+};
 function appliquerReglages(r) {
   if (!r || typeof r !== 'object') return;
   if (r.titre) config.carte.titre = r.titre;

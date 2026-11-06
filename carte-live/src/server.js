@@ -1805,7 +1805,21 @@ function preparerReglages(b, existants = {}) {
   if (b.retentionJours !== undefined) { const n = Number(b.retentionJours); if (Number.isInteger(n) && n >= 1 && n <= 90) r.retentionJours = n; }
   return r;
 }
+// Une valeur identique à celle du .env n'est pas gardée dans reglages.json : elle reste lue dans le .env
+function sansValeursEnv(r) {
+  const e = config.env;
+  if (r.titre && r.titre === e.titre) delete r.titre;
+  if (r.inscriptions && r.inscriptions === e.inscriptions) delete r.inscriptions;
+  if (typeof r.canaux === 'string' && r.canaux.trim().replace(/\r/g, '') === e.canaux.trim()) delete r.canaux;
+  if (r.mqtt) {
+    for (const k of ['url', 'utilisateur', 'racine']) if (r.mqtt[k] !== undefined && String(r.mqtt[k]) === String(e.mqtt[k] || '')) delete r.mqtt[k];
+    if (Array.isArray(r.mqtt.sujetsSupplementaires) && !r.mqtt.sujetsSupplementaires.length) delete r.mqtt.sujetsSupplementaires;
+    if (!Object.keys(r.mqtt).length) delete r.mqtt;
+  }
+  return r;
+}
 function enregistrerReglagesEtRedemarrer(r, qui) {
+  sansValeursEnv(r);
   fs.writeFileSync(config.fichierReglages, JSON.stringify(r, null, 1), { mode: 0o600 });
   journal(`Réglages enregistrés par ${qui}, redémarrage du service…`);
   setTimeout(() => process.exit(0), 1200); // Docker relance le conteneur (restart: unless-stopped)
@@ -1854,15 +1868,29 @@ app.post('/api/installation', (req, res) => {
     const a = crypto.createHash('sha256').update(String(b.code || '').replace(/[\s-]/g, '').toUpperCase()).digest(), c = crypto.createHash('sha256').update(String(codeInstallationAuto || crypto.randomBytes(16).toString('hex')).replace(/-/g, '')).digest();
     if (!crypto.timingSafeEqual(a, c)) return res.status(403).json({ erreur: 'Code d’installation incorrect : il est affiché dans le journal du serveur (docker compose logs carte-live | grep -i installation)' });
   }
+  // Seules les valeurs réellement changées dans l'assistant sont enregistrées : celles reprises telles quelles du
+  // .env restent lues dans le .env (sinon une modification ultérieure du .env serait ignorée)
+  if (b.reglages && typeof b.reglages === 'object') {
+    const g = b.reglages, e = config.env;
+    if (g.titre && g.titre === e.titre) delete g.titre;
+    if (g.departement && String(g.departement) === String(e.departement.code)) delete g.departement;
+    if (g.inscriptions && g.inscriptions === e.inscriptions) delete g.inscriptions;
+    if (typeof g.canaux === 'string' && g.canaux.trim().replace(/\r/g, '') === e.canaux.trim()) delete g.canaux;
+    if (g.mqtt) {
+      for (const k of ['url', 'utilisateur', 'racine']) if (g.mqtt[k] !== undefined && String(g.mqtt[k]).trim() === String(e.mqtt[k] || '')) delete g.mqtt[k];
+      if (!g.mqtt.motDePasse) delete g.mqtt.motDePasse;
+      if (!Object.keys(g.mqtt).length) delete g.mqtt;
+    }
+  }
   let r;
-  try { r = b.reglages ? preparerReglages(b.reglages, config.reglages) : null; } catch (e) { return res.status(400).json({ erreur: e.message }); }
+  try { r = b.reglages && Object.keys(b.reglages).length ? preparerReglages(b.reglages, config.reglages) : null; } catch (e) { return res.status(400).json({ erreur: e.message }); }
   let c;
   try { c = comptes.creer(b.compte || {}, 'admin', 'actif'); } catch (e) { return res.status(400).json({ erreur: e.message }); }
   ouvrirSession(req, res, c);
   journal(`Installation : compte administrateur « ${c.identifiant} » créé`);
   try { fs.unlinkSync(path.join(path.dirname(config.fichierBase), 'code-installation.txt')); } catch { /* aucun */ }
   codeInstallationAuto = null;
-  const redemarrage = !!(r && Object.keys(b.reglages).length);
+  const redemarrage = !!(r && Object.keys(b.reglages || {}).length);
   res.json({ ok: true, redemarrage });
   if (redemarrage) enregistrerReglagesEtRedemarrer(r, c.identifiant);
 });
@@ -1877,11 +1905,21 @@ app.get('/api/reglages', (req, res) => {
     inscriptions: config.inscriptions,
     precisionPublique: config.precisionPublique,
     retentionJours: config.retentionJours,
+    // D'où viennent les valeurs : réglées ici (elles remplacent le .env) ou lues dans le .env
+    depuisPage: { mqtt: !!(config.reglages.mqtt && Object.keys(config.reglages.mqtt).length), canaux: !!config.reglages.canaux, departement: !!config.reglages.departement, titre: !!config.reglages.titre, inscriptions: !!config.reglages.inscriptions },
+    env: { mqtt: { url: masquerUrl(config.env.mqtt.url), utilisateur: config.env.mqtt.utilisateur, racine: config.env.mqtt.racine, motDePasseDefini: config.env.mqtt.motDePasseDefini }, departement: config.env.departement, titre: config.env.titre },
   });
 });
 app.post('/api/reglages', (req, res) => {
   const u = utilisateur(req);
   if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  // « Revenir au .env » : retire des réglages de la page les valeurs choisies (mqtt, canaux…)
+  if (Array.isArray((req.body || {}).revenirEnv)) {
+    const r = { ...config.reglages };
+    for (const k of req.body.revenirEnv) if (['mqtt', 'canaux', 'titre', 'inscriptions'].includes(k)) delete r[k];
+    res.json({ ok: true, redemarrage: true });
+    return enregistrerReglagesEtRedemarrer(r, u.identifiant);
+  }
   let r;
   try { r = preparerReglages(req.body || {}, config.reglages); } catch (e) { return res.status(400).json({ erreur: e.message }); }
   res.json({ ok: true, redemarrage: true });

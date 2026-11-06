@@ -28,6 +28,11 @@ Le minimum :
 
 Tout le reste se règle ensuite depuis la carte (assistant, puis *Gestion › Réglages*).
 
+> **Qui l'emporte : le `.env` ou la page Réglages ?**
+> - Une valeur **changée** dans l'assistant ou dans *Gestion › Réglages* (broker, canaux, titre…) **remplace** celle du `.env`. La page l'indique (« ces valeurs remplacent celles du .env ») et propose **Revenir au .env**.
+> - Une valeur laissée telle quelle reste lue dans le `.env` : vous pouvez la modifier plus tard dans le `.env`.
+> - Après une modification du `.env`, lancez **`docker compose up -d`** : un simple `docker compose restart` ne relit **pas** le `.env`.
+
 Affichage par défaut (facultatif) :
 
 | Variable | Rôle | Valeurs |
@@ -53,6 +58,10 @@ Ouvrez `http://IP_DU_SERVEUR:8095`. L'assistant crée le **compte administrateur
     docker compose logs carte-live | grep -i installation
     ```
     Il ressemble à `ABCD-EFGH`. Il disparaît dès que le compte administrateur est créé.
+
+L'assistant reprend les valeurs du `.env` (broker, canaux) : ne les retouchez que pour les changer. Après l'installation, la carte redémarre (une dizaine de secondes), puis vous êtes connecté.
+
+**Se connecter** : avec l'identifiant choisi (majuscules indifférentes) ou l'indicatif. Après 3 essais faux en 15 min, l'adresse est bloquée 15 min (voir [[Comptes et sécurité]]).
 
 ## 4. Mise à jour
 

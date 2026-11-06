@@ -3,6 +3,17 @@
 ### `getaddrinfo ENOTFOUND` dans le journal
 L'adresse du broker est mal écrite (par exemple `mqttgaulix.fr` au lieu de `mqtt.gaulix.fr`). Corrigez `MQTT_URL` (ou *Gestion › Réglages*), puis `docker compose up -d`.
 
+### Le broker MQTT du `.env` n'est pas pris en compte
+- Après avoir modifié le `.env` : **`docker compose up -d`** (un `docker compose restart` ne relit pas le `.env`).
+- Si le broker a été réglé dans l'assistant ou dans *Gestion › Réglages*, ce réglage **remplace** le `.env` : la page le signale. Corrigez-le sur la page, ou cliquez **Revenir au .env**.
+- Depuis la 2.11.2, l'assistant n'enregistre plus les valeurs reprises telles quelles du `.env` : seules celles que vous changez remplacent le `.env`.
+
+### Impossible de se connecter juste après l'installation
+- Attendez la fin du redémarrage qui suit l'assistant (une dizaine de secondes), puis rechargez la page.
+- Identifiant : celui saisi dans l'assistant (majuscules indifférentes depuis la 2.11.2) ou l'indicatif.
+- « Trop d'échecs… bloqué jusqu'à … » : 3 essais faux en 15 min bloquent l'adresse 15 min. Attendez, ou débloquez depuis un autre compte admin (*Gestion › Journal*). Depuis le réseau local, seule l'adresse est bloquée, jamais le compte.
+- Derrière un proxy inversé, vérifiez que la carte voit l'adresse des visiteurs (voir [[Comptes et sécurité]]).
+
 ### L'installation demande un code que je n'ai pas
 `docker compose logs carte-live | grep -i installation` affiche le code. Ou mettez une valeur dans `ADMIN_MOT_DE_PASSE` (`.env`) et redémarrez.
 
