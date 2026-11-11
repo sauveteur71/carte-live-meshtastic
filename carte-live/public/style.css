@@ -1276,3 +1276,5 @@ code.coupe { word-break: break-all; }
 .res-reglage small { color: var(--doux); white-space: nowrap; }
 .res-reglage.actif, .res-reglage:hover { background: rgba(45,212,191,.18); outline: 1px solid var(--accent); }
 .flash-recherche { outline: 3px solid #fbbf24 !important; outline-offset: 2px; box-shadow: 0 0 0 6px rgba(251,191,36,.35) !important; transition: outline .2s; }
+.dlg-chercher { position: relative; } .dlg-chercher .fermer { position: absolute; top: 6px; right: 8px; }
+.dlg-chercher #chercher-reglage { width: calc(100% - 36px); }

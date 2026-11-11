@@ -384,8 +384,14 @@ async function mcRendreMessages() {
   const c = (mc.etat && mc.etat.companion) || {};
   const canaux = c.canaux || [];
   const peutEnvoyer = etat.admin && c.connecte;
+  // Une demande d'écriture (répondre, message direct depuis une fiche) choisit le canal ou la vue « directs »
+  if (mc.destMessage && mc.destMessage.startsWith('canal:')) { const k = canaux.find((x) => 'canal:' + x.index === mc.destMessage); if (k) choisirFiltreMc('c:' + k.nom); mc.destMessage = null; }
+  else if (mc.destMessage && mc.destMessage.startsWith('direct:') && mc.dernierDirect !== mc.destMessage) { choisirFiltreMc('direct'); mc.dernierDirect = mc.destMessage; }
   const kf = mcFiltreMsg.startsWith('c:') ? canaux.find((x) => memeCanalMc(x.nom, mcFiltreMsg.slice(2))) : null;
-  const dest = mc.destMessage || (kf ? 'canal:' + kf.index : canaux[0] ? 'canal:' + canaux[0].index : '');
+  // Un seul choix pour lire et écrire : le canal affiché est celui où l'on écrit
+  const enDirect = mcFiltreMsg === 'direct';
+  const dest = enDirect ? (mc.destMessage && mc.destMessage.startsWith('direct:') ? mc.destMessage : '') : kf ? 'canal:' + kf.index : '';
+  const lectureSeule = !dest ? (enDirect ? 'Choisissez un destinataire dans la liste (« Message direct à… »).' : mcFiltreMsg.startsWith('c:') ? `Le canal « ${mcFiltreMsg.slice(2)} » n’est pas sur le companion : lecture seule.` : 'Choisissez un canal ci-dessus pour y écrire.') : '';
   const destDirect = dest.startsWith('direct:') ? dest.slice(7) : null;
   const ancienTexte = $('#mc-texte') ? $('#mc-texte').value : '';
   // Filtre : canaux du companion et canaux vus dans les messages
@@ -393,23 +399,23 @@ async function mcRendreMessages() {
   for (const x of [...canaux.map((k) => k.nom), ...l.filter((m) => m.genre !== 'direct').map((m) => m.canal)]) if (x && !filtreCanaux.some((y) => memeCanalMc(x, y))) filtreCanaux.push(x);
   const vus = !mcFiltreMsg ? l : mcFiltreMsg === 'passerelle' ? l.filter((m) => estRelaye(m.texte)) : mcFiltreMsg === 'direct' ? l.filter((m) => m.genre === 'direct') : l.filter((m) => m.genre !== 'direct' && memeCanalMc(m.canal, mcFiltreMsg.slice(2)));
   z.innerHTML = `
-    ${peutEnvoyer ? `<form id="mc-envoi" class="envoi">
-      <div class="envoi-ligne"><select id="mc-dest" aria-label="Destinataire">
-        ${canaux.map((x) => `<option value="canal:${x.index}" ${dest === 'canal:' + x.index ? 'selected' : ''}>Canal ${esc(x.nom)}</option>`).join('')}
-        ${destDirect ? `<option value="direct:${destDirect}" selected>✉️ ${esc(mcNom(destDirect))} (direct)</option>` : ''}
-        <option value="choisir">✉️ Message direct à…</option>
-      </select><span class="compteur" id="mc-compteur">0/140</span></div>
-      <div class="envoi-ligne"><textarea id="mc-texte" rows="2" maxlength="140" placeholder="Votre message (envoyé par ${esc(c.nom || 'le companion')})…" required></textarea><button type="submit" class="principal">Envoyer</button></div>
-      <div class="envoi-ligne"><button type="button" class="mini" id="mc-btn-position" title="Ajoute au message la position du centre de la carte ; clic droit sur la carte : n’importe quel point">📍 Joindre le centre de la carte</button></div>
-      <div class="note" id="mc-retour-envoi"></div>
-    </form>` : `<p class="note">${etat.admin ? 'Reliez un companion (onglet Companion) pour envoyer des messages.' : 'L’envoi est réservé aux administrateurs.'}</p>`}
-    <div class="filtre-messages"><label>Afficher <select id="mc-filtre-msg">
+    <div class="filtre-messages"><label title="Le canal choisi est celui que vous lisez et celui où vous écrivez">Canal <select id="mc-filtre-msg">
       ${(() => { const nl = (k) => (typeof nonLus !== 'undefined' && nonLus[k]) || 0, tx = (n) => (n ? ` · ${n} nouveau${n > 1 ? 'x' : ''}` : ''); const tot = typeof nonLus !== 'undefined' ? Object.entries(nonLus).filter(([k]) => k.startsWith('mc')).reduce((a, [, n]) => a + n, 0) : 0;
         return `<option value="">Tous${tx(tot)}</option>
       ${filtreCanaux.map((x) => `<option value="c:${esc(x)}" ${mcFiltreMsg === 'c:' + x ? 'selected' : ''}>📢 ${esc(x)}${tx(nl('mc:' + String(x).toLowerCase()))}</option>`).join('')}
       <option value="direct" ${mcFiltreMsg === 'direct' ? 'selected' : ''}>✉️ Messages directs${tx(nl('mcdirect'))}</option>
       ${etat.config.passerelle || l.some((m) => estRelaye(m.texte)) ? `<option value="passerelle" ${mcFiltreMsg === 'passerelle' ? 'selected' : ''}>⇄ Relayés par la passerelle</option>` : ''}`; })()}
     </select></label></div>
+    ${peutEnvoyer ? `<form id="mc-envoi" class="envoi">
+      <div class="envoi-ligne"><select id="mc-dest" aria-label="Destinataire" ${enDirect ? '' : 'hidden'}>${!dest ? '<option value="" selected disabled>— destinataire —</option>' : ''}
+        ${canaux.map((x) => `<option value="canal:${x.index}" hidden ${dest === 'canal:' + x.index ? 'selected' : ''}>Canal ${esc(x.nom)}</option>`).join('')}
+        ${destDirect ? `<option value="direct:${destDirect}" selected>✉️ ${esc(mcNom(destDirect))} (direct)</option>` : ''}
+        <option value="choisir">✉️ Message direct à…</option>
+      </select><span class="compteur" id="mc-compteur">0/140</span></div>
+      <div class="envoi-ligne"><textarea id="mc-texte" rows="2" maxlength="140" placeholder="${dest ? (enDirect ? 'Message direct' : 'Message sur ' + esc(kf.nom)) + ' (envoyé par ' + esc(c.nom || 'le companion') + ')…' : 'Choisissez un canal pour écrire'}" required></textarea><button type="submit" class="principal" ${dest ? '' : 'disabled'}>Envoyer</button></div>
+      <div class="envoi-ligne"><button type="button" class="mini" id="mc-btn-position" title="Ajoute au message la position du centre de la carte ; clic droit sur la carte : n’importe quel point">📍 Joindre le centre de la carte</button></div>
+      <div class="note" id="mc-retour-envoi">${esc(lectureSeule)}</div>
+    </form>` : `<p class="note">${etat.admin ? 'Reliez un companion (onglet Companion) pour envoyer des messages.' : 'L’envoi est réservé aux administrateurs.'}</p>`}
     <div id="mc-messages" class="flux">${vus.length ? vus.map(mcLigneMessage).join('') : `<div class="vide">${mcFiltreMsg ? 'Aucun message dans ce choix.' : 'Aucun message pour l’instant.'}</div>`}</div>`;
   $('#mc-filtre-msg').onchange = (e) => { choisirFiltreMc(e.target.value); mcRendreMessages(); };
   epinglerMessages(vus.map((m) => ({ texte: m.texte, heure: m.heure, qui: m.nomDe })));

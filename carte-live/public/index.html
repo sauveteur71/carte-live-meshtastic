@@ -248,6 +248,7 @@
     </section>
 
     <section data-vue="messages" class="vue">
+      <div id="filtre-messages" class="filtre-messages"></div>
       <form id="form-envoi" class="envoi" hidden>
         <div class="envoi-ligne">
           <select name="vers" aria-label="Destinataire"></select>
@@ -260,7 +261,6 @@
         <div class="envoi-ligne"><button type="button" class="mini" id="btn-position-envoi" title="Ajoute au message la position du centre de la carte (« meshand: lat,lon ») ; clic droit sur la carte : n’importe quel point">📍 Joindre le centre de la carte</button></div>
         <div class="note" id="retour-envoi"></div>
       </form>
-      <div id="filtre-messages" class="filtre-messages"></div>
       <div id="messages" class="flux"></div>
     </section>
     <section data-vue="meshcore" class="vue">
@@ -365,6 +365,7 @@
     <div id="pp-contenu"></div>
   </dialog>
   <dialog id="dlg-chercher" class="dlg-chercher">
+    <button class="fermer" id="fermer-chercher" title="Fermer (Échap)">×</button>
     <input id="chercher-reglage" type="search" placeholder="Chercher un réglage ou une fonction : MQTT, mot de passe, IATA, équipes…" autocomplete="off" aria-label="Chercher un réglage">
     <div id="resultats-reglage" role="listbox"></div>
     <p class="note">↑ ↓ pour choisir, Entrée pour y aller, Échap pour fermer · Ctrl+K pour rouvrir</p>

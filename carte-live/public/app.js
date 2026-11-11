@@ -1123,16 +1123,16 @@ async function preparerEnvoi(dest) {
     + (n ? `<option value="d${n.num}" selected>✉️ Direct → ${esc(n.nomLong || n.id)}</option>` : '')
     + (recents.length ? `<optgroup label="Correspondants récents">${recents.map((x) => { const r = etat.noeuds.get(x); return `<option value="d${x}">✉️ ${esc(r ? r.nomLong || r.nomCourt || r.id : '!' + (x >>> 0).toString(16))}</option>`; }).join('')}</optgroup>` : '')
     + '<option value="choisir">✉️ Message direct… (choisir un nœud)</option>';
-  if (dest === undefined && filtreMessages.startsWith('c:')) { const o = [...f.vers.options].find((x) => x.dataset.nom != null && memeCanal(x.dataset.nom, filtreMessages.slice(2))); if (o) f.vers.value = o.value; }
-  f.querySelector('button[type=submit]').disabled = !i.connecte;
-  $('#retour-envoi').textContent = i.connecte ? '' : 'Module radio non connecté : connectez-le dans Réseau › Modules Wi-Fi.';
+  envoi.connecte = i.connecte;
+  // Un message direct demandé : on passe en vue « Mes messages directs »
+  if (n && filtreMessages !== 'direct') { filtreMessages = 'direct'; try { localStorage.setItem('filtreMessages', 'direct'); } catch { /* navigation privée */ } rendreMessages(); }
   f.vers.onchange = () => {
-    if (f.vers.value.startsWith('c')) { const o = f.vers.selectedOptions[0]; if (o && o.dataset.nom != null) choisirFiltreMessages('c:' + o.dataset.nom); return; }
-    if (f.vers.value.startsWith('d')) { choisirFiltreMessages('direct'); return; }
     if (f.vers.value !== 'choisir') return;
-    f.vers.selectedIndex = 0;
+    const premier = [...f.vers.options].find((o) => o.value.startsWith('d'));
+    if (premier) f.vers.value = premier.value;
     choisirDestinataire((num) => preparerEnvoi(num));
   };
+  synchroEnvoi();
   const maj = () => { const o = new TextEncoder().encode(f.texte.value).length; $('#compteur-envoi').textContent = `${o}/200`; $('#compteur-envoi').classList.toggle('trop', o > 200); };
   f.texte.oninput = maj; maj();
   f.texte.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); f.requestSubmit(); } };
@@ -1413,6 +1413,31 @@ function choisirFiltreMessages(v) {
   filtreMessages = v || '';
   try { localStorage.setItem('filtreMessages', filtreMessages); } catch { /* navigation privée */ }
   rendreMessages();
+  synchroEnvoi();
+}
+// Un seul choix pour lire et écrire : le canal affiché est celui où l'on écrit ; « Mes messages directs » propose
+// le destinataire ; « Tous les canaux » et « Relayés » sont en lecture seule.
+function synchroEnvoi() {
+  const f = $('#form-envoi');
+  if (!f || f.hidden || !f.vers) return;
+  const r$ = $('#retour-envoi'), bouton = f.querySelector('button[type=submit]');
+  const direct = filtreMessages === 'direct';
+  [...f.vers.querySelectorAll('option')].forEach((o) => { o.hidden = o.value.startsWith('c'); });
+  f.vers.hidden = !direct;
+  let ok = false, note = '';
+  if (direct) {
+    if (!f.vers.value.startsWith('d')) { const o = [...f.vers.options].find((x) => x.value.startsWith('d')); if (o) f.vers.value = o.value; else f.vers.selectedIndex = -1; }
+    ok = f.vers.value.startsWith('d');
+    if (!ok) note = 'Choisissez un destinataire dans la liste (« Message direct… »).';
+  } else if (filtreMessages.startsWith('c:')) {
+    const o = [...f.vers.options].find((x) => x.dataset.nom != null && memeCanal(x.dataset.nom, filtreMessages.slice(2)));
+    if (o) { f.vers.value = o.value; ok = true; }
+    else note = `Le canal « ${filtreMessages.slice(2)} » n’est pas sur le module de la carte : lecture seule.`;
+  } else note = 'Choisissez un canal ci-dessus pour y écrire.';
+  if (!envoi.connecte) { ok = false; note = 'Module radio non connecté : connectez-le dans Réseau › Modules Wi-Fi.'; }
+  bouton.disabled = !ok; f.texte.disabled = !ok && !!envoi.connecte && !direct;
+  f.texte.placeholder = ok ? (direct ? 'Votre message direct…' : `Message sur ${filtreMessages.slice(2)}…`) : 'Choisissez un canal pour écrire';
+  if (r$ && !/^Envoyé/.test(r$.textContent)) r$.textContent = note;
 }
 const memeCanal = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
 // ---- Positions partagées par message (« meshand: 45.04,3.88 », comme l'appli MeshAnd ; aussi « geo:… » et « 📍 … ») ----
@@ -1578,6 +1603,13 @@ function ouvrirRechercheReglages() {
   };
   inp.value = '';
   rendre();
+  // Fermeture : clic à côté de la fenêtre (sur le fond assombri) ou bouton ×
+  dlg.onclick = (ev) => {
+    if (ev.target !== dlg) return;
+    const b = dlg.getBoundingClientRect();
+    if (ev.clientX < b.left || ev.clientX > b.right || ev.clientY < b.top || ev.clientY > b.bottom) dlg.close();
+  };
+  $('#fermer-chercher').onclick = () => dlg.close();
   if (!dlg.open) dlg.showModal();
   inp.focus();
 }
@@ -1858,7 +1890,7 @@ function rendreMessages() {
   marquerLus(); // le canal affiché est lu : ses compteurs repartent de zéro avant d'être dessinés
   const zf = $('#filtre-messages');
   if (zf) {
-    zf.innerHTML = `<label>Afficher <select id="sel-filtre-messages">
+    zf.innerHTML = `<label title="Le canal choisi est celui que vous lisez et celui où vous écrivez">Canal <select id="sel-filtre-messages">
       <option value="">Tous les canaux${(() => { const t = Object.entries(nonLus).filter(([k]) => !k.startsWith('mc')).reduce((a, [, n]) => a + n, 0); return t ? ` · ${t} nouveau${t > 1 ? 'x' : ''}` : ''; })()}</option>
       ${canaux.map((c) => { const n = nonLus['c:' + c.toLowerCase()]; return `<option value="c:${esc(c)}" ${filtreMessages === 'c:' + c ? 'selected' : ''}>📢 ${esc(c)}${n ? ` · ${n} nouveau${n > 1 ? 'x' : ''}` : ''}</option>`; }).join('')}
       <option value="direct" ${filtreMessages === 'direct' ? 'selected' : ''}>✉️ Mes messages directs${nonLus.direct ? ` · ${nonLus.direct} nouveau${nonLus.direct > 1 ? 'x' : ''}` : ''}</option>
@@ -1898,8 +1930,8 @@ async function repondreA(el) {
   } else {
     if (f.hidden || !f.vers.querySelector('option[data-nom]')) await preparerEnvoi();
     const opt = [...f.vers.options].find((o) => o.dataset.nom === canal) || [...f.vers.options].find((o) => (o.dataset.nom || '').toLowerCase() === canal.toLowerCase());
-    if (opt) { f.vers.value = opt.value; r$.textContent = ''; }
-    else { r$.textContent = `Le canal « ${canal} » n’est pas configuré sur le module connecté : impossible d’y répondre.`; return; }
+    if (!memeCanal(filtreMessages.slice(2), canal) || !filtreMessages.startsWith('c:')) choisirFiltreMessages('c:' + (opt ? opt.dataset.nom : canal));
+    if (!opt) { r$.textContent = `Le canal « ${canal} » n’est pas configuré sur le module connecté : impossible d’y répondre.`; return; }
   }
   $('#messages').querySelectorAll('.message.choisi').forEach((x) => x.classList.remove('choisi'));
   el.classList.add('choisi');
