@@ -2555,6 +2555,8 @@ clientMqtt.on('message', (topic, message) => {
     const evt = decoderMessage(topic, message, canaux);
     if (!evt) return;
     if (evt.genre === 'erreur') { compteur.erreurs++; return; }
+    if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     if (sortie) { compteur.decodes++; diffuser(sortie); }
   } catch (e) {
@@ -2731,6 +2733,8 @@ app.post('/api/mc/maintenance/conformite', (req, res) => {
 });
 const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   integrerEvenement: (evt) => {
+    if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     if (sortie) { compteur.decodes++; diffuser({ ...sortie, viaRadio: true }); }
   },
@@ -2746,7 +2750,9 @@ const ecoutes = creerEcoutes({
   config, journal,
   fabriquerRadio: (m) => creerSourceRadio(stockage, config, canaux, {
     integrerEvenement: (evt) => {
-      const sortie = reseau.integrer(evt);
+      if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
+    const sortie = reseau.integrer(evt);
       if (sortie) { compteur.decodes++; diffuser({ ...sortie, viaRadio: true }); }
     },
     apresSynchro: () => { if (!minuterieStatutEcoute) minuterieStatutEcoute = setTimeout(() => { minuterieStatutEcoute = null; rafraichirEtat(); diffuser({ genre: 'statut' }); }, 3000); },
@@ -2778,6 +2784,82 @@ app.get('/api/equipes/:id/export', routeEquipe((req, b, a) => {
   journal(`[Équipes] clé du canal « ${x.nom} » exportée par ${a}`);
   return x;
 }));
+const reqNomSig = stockage.db.prepare('SELECT nom_court, nom_long FROM noeuds WHERE num = ?');
+// Demande de position à un ou plusieurs nœuds (gestionnaire) : le nœud répond avec sa position
+app.post('/api/demander-position', async (req, res) => {
+  const u = utilisateur(req);
+  if (!u || !estGestion(req)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });
+  const nums = [...new Set((Array.isArray((req.body || {}).nums) ? req.body.nums : []).map((x) => Number(x) >>> 0))].filter(Boolean).slice(0, 60);
+  if (!nums.length) return res.status(400).json({ erreur: 'Aucun nœud' });
+  if (!estAdmin(req) && nums.some((n) => !peutGerer(req, n))) return refuserSecteur(res);
+  try {
+    administration.demanderPosition(nums[0], u.identifiant);
+    // Les suivantes espacées de 3 s pour ne pas saturer le canal
+    nums.slice(1).forEach((n, i) => setTimeout(() => { try { administration.demanderPosition(n, u.identifiant); } catch { /* module coupé */ } }, (i + 1) * 3000));
+    res.json({ ok: true, nb: nums.length, dureeS: (nums.length - 1) * 3 });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+// ---- Mise à jour de la carte en un clic (administrateur) : service « maj » du docker-compose ----
+const MAJ_URL = (process.env.MAJ_URL || 'http://maj:4405').replace(/\/+$/, '');
+function jetonMaj() {
+  if (process.env.MAJ_JETON && process.env.MAJ_JETON.trim()) return process.env.MAJ_JETON.trim();
+  try { return fs.readFileSync(path.join(path.dirname(config.fichierBase), 'maj-jeton.txt'), 'utf8').trim(); } catch { return null; }
+}
+async function appelMaj(methode, chemin) {
+  const jeton = jetonMaj();
+  if (!jeton) throw new Error('service de mise à jour non installé');
+  const r = await fetch(MAJ_URL + chemin, { method: methode, headers: { Authorization: 'Bearer ' + jeton }, signal: AbortSignal.timeout(5000) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.erreur || 'HTTP ' + r.status);
+  return j;
+}
+// Programmations à distance en cours (Meshtastic ou MeshCore) : une mise à jour les couperait
+function tachesEnCours() {
+  let n = 0;
+  try { n += administration.taches().filter((t) => !t.fin).length; } catch { /* aucune */ }
+  try { n += adminMc.taches().filter((t) => !t.fin && t.type !== 'telemetrie').length; } catch { /* aucune */ }
+  return n;
+}
+app.get('/api/maj', async (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const v = infosVersion();
+  try { res.json({ ...v, installe: true, service: await appelMaj('GET', '/etat'), taches: tachesEnCours() }); } catch (e) { res.json({ ...v, installe: false, raison: e.message, taches: tachesEnCours() }); }
+});
+app.post('/api/maj', async (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const n = tachesEnCours();
+  if (n && !(req.body || {}).forcer) return res.status(409).json({ erreur: `${n} programmation(s) à distance en cours : attendez la fin, ou forcez (elles seront interrompues)`, taches: n });
+  try {
+    await appelMaj('POST', '/mettre-a-jour');
+    journal(`[Mise à jour] lancée par ${u.identifiant} (v${VERSION} → ${majDispo.version || 'dernière image'})`);
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+// ---- Signalements : événement posé sur la carte (route inondée…) et diffusé en LoRa (membres) ----
+const signalements = require('./signalements').creerSignalements({
+  config, radio: sourceRadio, administration, companion, reseauMc, racine: require('./decodeur').racine,
+  journal, diffuser,
+  nomNoeud: (num) => { try { const r = reqNomSig.get(num >>> 0); return r && (r.nom_long || r.nom_court); } catch { return null; } },
+});
+app.get('/api/signalements', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  res.set('Cache-Control', 'no-store').json({ signalements: signalements.lister(), ...signalements.canaux() });
+});
+app.post('/api/signalements', async (req, res) => {
+  const u = utilisateur(req);
+  if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
+  try { res.json(await signalements.creer(req.body || {}, u.indicatif || u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/signalements/:id/terminer', async (req, res) => {
+  const u = utilisateur(req);
+  if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
+  try { res.json(await signalements.terminer(String(req.params.id), u.indicatif || u.identifiant, { annoncer: (req.body || {}).annoncer !== false })); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/signalements/:id/renvoyer', async (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  try { res.json(await signalements.renvoyer(String(req.params.id))); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 // ---- Passerelle inter-réseaux Meshtastic ⇄ MeshCore (PASSERELLE=1 dans le .env) ----
 if (config.passerelle.actif) {
   const reqNomMt = stockage.db.prepare('SELECT nom_court, nom_long FROM noeuds WHERE num = ?');

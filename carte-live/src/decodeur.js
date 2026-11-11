@@ -190,7 +190,11 @@ function decoderCharge(portnum, payload) {
       }
       case 8: {
         const w = Waypoint.decode(payload);
-        return { resume: w.name || 'Point de repère' };
+        const lat = w.latitudeI != null ? coord(w.latitudeI) : null, lon = w.longitudeI != null ? coord(w.longitudeI) : null;
+        return {
+          resume: w.name || 'Point de repère',
+          pointRepere: { id: w.id >>> 0, lat, lon, expire: w.expire || 0, nom: w.name || '', description: w.description || '', icone: w.icon || 0, verrou: w.lockedTo || 0 },
+        };
       }
       case 67: {
         const t = Telemetry.decode(payload);

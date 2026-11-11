@@ -67,6 +67,31 @@ L'assistant reprend les valeurs du `.env` (broker, canaux) : ne les retouchez qu
 
 Chaque image est essayée (démarrage du service) avant d'être publiée. Les versions GitHub (page *Releases*, image `:latest`) sont publiées à la demande : *Actions › Image Docker › Run workflow*, case « publier ».
 
+### En un clic (conseillé)
+Quand une nouvelle version est publiée, l'en-tête de la carte affiche « vX disponible ». Un **administrateur** clique dessus (ou ⚙️🔎 › « Mettre à jour la carte ») puis **⬆️ Mettre à jour maintenant** : la carte télécharge la nouvelle image, redémarre avec les mêmes réglages et données (1 à 3 minutes) et la page se recharge toute seule. Si la nouvelle version ne démarre pas, l'ancienne est remise en route. La mise à jour est refusée pendant une programmation à distance (sauf « Forcer »).
+
+Il faut pour cela le petit service **`maj`** du `docker-compose.yml` (présent dans le fichier du dépôt depuis la 2.14.0). Sur une installation plus ancienne, ajoutez ce bloc sous `services:` puis faites une dernière fois `docker compose up -d` :
+
+```yaml
+  maj:
+    image: ghcr.io/sauveteur71/carte-live-meshtastic:latest   # même image que la carte
+    container_name: carte-live-maj
+    command: ["node", "src/majeur.js"]
+    restart: unless-stopped
+    user: "0"
+    environment:
+      MAJ_SERVICE: carte-live          # nom du service de la carte dans votre docker-compose.yml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - donnees:/data                  # le même volume (ou dossier) de données que la carte
+    healthcheck:
+      disable: true
+    mem_limit: 64m
+```
+
+Sécurité : ce service a accès au moteur Docker (comme Watchtower ou Portainer) mais **ne publie aucun port** ; il ne sait faire qu'une chose, mettre à jour le conteneur de la carte, et n'obéit qu'à la carte, avec un jeton créé dans le dossier de données (`maj-jeton.txt`). Si vous ne voulez pas lui donner cet accès, supprimez le bloc et mettez à jour à la main.
+
+### À la main
 ```bash
 docker compose pull && docker compose up -d
 ```

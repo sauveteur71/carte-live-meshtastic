@@ -60,6 +60,7 @@ Un clic droit (ou un appui long sur téléphone) sur un nœud, dans une liste ou
 - ☆ ajouter aux favoris, 🛠 ajouter à « Mes nœuds » (ou les retirer) ;
 - ✉️ message direct, 📶 écouter en direct (Meshtastic), 📡 couverture depuis ce nœud ;
 - 📍 partager sa position dans un message ;
+- 📍 **demander sa position** (gestionnaire, Meshtastic) : le nœud renvoie sa position, la réponse s'affiche en bas de l'écran ;
 - 📋 copier l'identifiant ;
 - 🧭 chemin depuis le companion (MeshCore, membre) : voir [[MeshCore]] ;
 - 🗑 **supprimer ce nœud** (administrateur) : pour un nœud qui n'existe plus. Il disparaît de la carte et de la base (positions, télémétrie, liaisons) ; un nœud MeshCore est aussi retiré des contacts du companion. S'il émet encore, il réapparaîtra à sa prochaine annonce.
@@ -79,3 +80,6 @@ La liste Meshtastic, comme celle de MeshCore, peut être rangée **par type** (�
 - **☀️ Thème clair** (Outils › Affichage) : interface claire à fort contraste pour le plein soleil.
 - **📲 Installer l'application** (Outils, quand le navigateur le propose) : icône sur l'écran d'accueil, plein écran, dernière carte connue affichée sans réseau (nœuds, liaisons, MeshCore).
 - **Économie** : animations coupées par défaut sur mobile et en mode économie de données ; flux en direct mis en pause après 2 min en arrière-plan, repris au retour ; lignes dessinées en canevas.
+
+## Chercher un réglage
+Le bouton **⚙️🔎** en haut (ou **Ctrl+K**) ouvre une recherche dans les réglages et fonctions de la carte : tapez « MQTT », « mot de passe », « IATA », « équipes », « firmware »… puis Entrée. La carte ouvre le bon onglet ou la bonne fenêtre et met le réglage en évidence. Seuls les réglages permis par votre compte sont proposés.

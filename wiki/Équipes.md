@@ -16,6 +16,9 @@ Nom du canal (11 caractères au plus, sans accent ni espace), description, et op
 - Un nœud absent (éteint, hors de portée) est repris **toutes les 10 min pendant 2 h** ; ensuite **↻ Renvoyer aux nœuds pas à jour**.
 - Chaque nœud affiche son état : ✔ à jour (emplacement du canal), ⏳ en attente, ⚠ échec avec la raison.
 
+## Demander les positions
+**📍 Demander les positions** : chaque nœud de l'équipe renvoie sa position (une demande toutes les 3 s pour ne pas saturer le canal). Les réponses s'affichent en bas de l'écran ; un clic centre la carte sur le nœud. Pour un seul nœud : clic droit sur le nœud › **📍 Demander sa position** (gestionnaire), comme « Demander la position » dans l'appli. Le nœud doit avoir sa position activée et recevoir le module de la carte (canal principal en commun, ou clé publique échangée).
+
 ## Nœud perdu ou volé : nouvelle clé
 Retirer un nœud n'efface le canal **que s'il est joignable**. Pour un nœud perdu, volé ou qui ne répond plus : retirez-le de l'équipe, puis **🔑 Nouvelle clé** (taper `NOUVELLE CLE`). Tous les membres reçoivent la nouvelle clé ; l'ancien nœud ne comprend plus rien. Tant qu'un membre n'a pas reçu la nouvelle clé, il ne comprend plus les autres : renvoyez-la jusqu'à ce que tous soient à jour.
 

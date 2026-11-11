@@ -174,6 +174,31 @@ function creerAdministration(radio, stockage) {
     journal(`fiche du module envoyée à ${idNoeud(dest)}`);
   }
 
+  // Demande sa position à un nœud, comme « Demander la position » de l'appli : paquet POSITION_APP vers le nœud
+  // avec wantResponse ; le nœud répond avec sa position (reçue par le module puis placée sur la carte).
+  const demandesPosition = new Map(); // num -> heure de la demande
+  function demanderPosition(dest, auteur) {
+    const info = radio.infos();
+    if (!info.connecte) throw new Error('Module radio non connecté');
+    dest = dest >>> 0;
+    if (dest === info.noeudLocal) throw new Error('C’est le module de la carte');
+    const Position = require('./decodeur').racine.lookupType('meshtastic.Position');
+    radio.envoyerPaquet({
+      to: dest, id: crypto.randomBytes(4).readUInt32LE(0) >>> 0 || 1, channel: 0, wantAck: false, hopLimit: info.hopLimit,
+      decoded: { portnum: 3, payload: Position.encode(Position.create({ time: Math.floor(Date.now() / 1000) })).finish(), wantResponse: true },
+    });
+    demandesPosition.set(dest, Date.now());
+    journal(`position demandée à ${idNoeud(dest)} par ${auteur}`);
+    return { demande: Date.now() };
+  }
+  // Position reçue : réponse à une demande de moins de 10 min ?
+  function reponsePosition(de) {
+    const h = demandesPosition.get(de >>> 0);
+    if (!h || Date.now() - h > 600000) return null;
+    demandesPosition.delete(de >>> 0);
+    return Date.now() - h;
+  }
+
   // ---- Opérations ---------------------------------------------------------------------
   // ---- Lecture de la configuration, reprenable étape par étape ------------------------------
   // Chaque élément lu est gardé (fichier du volume, réservé à l'admin car il contient les clés des canaux) :
@@ -1260,6 +1285,7 @@ function creerAdministration(radio, stockage) {
     },
     lancerConformite,
     brancherEquipes: (e) => { equipes = e; },
+    demanderPosition, reponsePosition,
     infos: () => {
       const i = radio.infos();
       return { connecte: i.connecte, noeudLocal: i.noeudLocal, clePublique: i.clePublique, clesConnues: [...i.clesPubliques.keys()] };

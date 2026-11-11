@@ -32,6 +32,26 @@ services:
         max-size: "5m"
         max-file: "3"
 
+  # Mise à jour en un clic (bouton « Mettre à jour » de la carte, administrateur) : télécharge la nouvelle image
+  # de la carte et recrée son conteneur avec les mêmes réglages ; en cas d'échec, l'ancienne version repart.
+  # Il a accès au moteur Docker (socket) mais aucun port publié : seule la carte peut l'appeler, avec un jeton
+  # créé dans le volume de données. Pour vous en passer : supprimez ce bloc (mise à jour : docker compose pull
+  # && docker compose up -d).
+  maj:
+    image: ghcr.io/sauveteur71/carte-live-meshtastic:latest
+    container_name: carte-live-maj
+    command: ["node", "src/majeur.js"]
+    restart: unless-stopped
+    user: "0"
+    environment:
+      MAJ_SERVICE: carte-live
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - donnees:/data
+    healthcheck:
+      disable: true
+    mem_limit: 64m
+
   # Client officiel Meshtastic (https://github.com/meshtastic/web) : gérer un module en USB, Bluetooth ou HTTP
   client-meshtastic:
     image: ghcr.io/meshtastic/web:latest

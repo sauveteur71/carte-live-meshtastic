@@ -454,7 +454,49 @@ function afficherVersion(v) {
   el.href = v.url;
   el.classList.toggle('maj', !!v.majDisponible);
   el.textContent = v.majDisponible ? `v${v.version} · v${v.derniere} disponible` : `v${v.version}${v.derniere ? ' · à jour' : ''}`;
-  el.title = v.majDisponible ? `Nouvelle version v${v.derniere} publiée sur GitHub : cliquez pour voir les nouveautés. Mise à jour : docker compose pull && docker compose up -d` : v.derniere ? `Version installée v${v.version} — c'est la dernière publiée sur GitHub` : `Version installée v${v.version}`;
+  el.title = v.majDisponible ? `Nouvelle version v${v.derniere} publiée sur GitHub : cliquez pour ${etat.admin ? 'mettre à jour' : 'voir les nouveautés'}` : v.derniere ? `Version installée v${v.version} — c'est la dernière publiée sur GitHub` : `Version installée v${v.version}`;
+  el.onclick = (e) => { if (!etat.admin) return; e.preventDefault(); ficheMaj(); };
+}
+// ---- Mise à jour de la carte en un clic (administrateur) ---------------------------------------------------
+async function ficheMaj() {
+  $('#fiche').hidden = false; etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.innerHTML = '<div class="vide">Vérification…</div>';
+  let r;
+  try { r = await api('/api/maj'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const s = r.service || {};
+  z.innerHTML = `<div class="fiche-maj"><h2>⬆️ Mise à jour de la carte</h2>
+    <div class="grille"><div class="mesure"><span>Installée</span><b>v${esc(r.version)}</b></div><div class="mesure"><span>Dernière publiée</span><b>${r.derniere ? 'v' + esc(r.derniere) : '?'}</b></div></div>
+    <p class="note">${r.majDisponible ? `Une nouvelle version est disponible : <a href="${esc(r.url)}" target="_blank" rel="noopener">voir les nouveautés</a>.` : 'La carte est à jour. Vous pouvez quand même relancer la mise à jour pour reprendre la dernière image publiée.'}</p>
+    ${r.installe ? `
+      ${r.taches ? `<div class="alerte attention">${r.taches} programmation(s) à distance en cours : la mise à jour les interromprait. Attendez leur fin.</div>` : ''}
+      ${s.enCours ? `<div class="alerte info-lecture">Mise à jour en cours : ${esc(s.message || '')}</div>` : s.phase === 'echec' || s.phase === 'retour' ? `<div class="alerte attention">Dernière tentative : ${esc(s.message || '')}</div>` : ''}
+      <div class="actions-prop"><button class="principal" id="maj-go" ${s.enCours ? 'disabled' : ''}>⬆️ Mettre à jour maintenant</button>${r.taches ? '<button id="maj-forcer" class="danger">Forcer quand même</button>' : ''}</div>
+      <p class="note">La carte télécharge la nouvelle image, puis redémarre avec les mêmes réglages et les mêmes données (1 à 3 minutes, la page se recharge toute seule). Si la nouvelle version ne démarre pas, l’ancienne est remise en route.</p>`
+    : `<div class="alerte attention">Le service de mise à jour n’est pas installé sur ce serveur (${esc(r.raison || '')}).</div>
+      <p class="note">Pour mettre à jour en un clic, ajoutez le service <b>maj</b> à votre <code>docker-compose.yml</code> (voir le wiki, page Installation), puis <code>docker compose up -d</code> une dernière fois. En attendant : <code>docker compose pull && docker compose up -d</code>.</p>`}
+    <p class="erreur" id="maj-retour"></p></div>`;
+  const lancer = async (forcer) => {
+    if (!confirm('Mettre la carte à jour maintenant ? Elle sera indisponible 1 à 3 minutes.')) return;
+    try { await postJson('/api/maj', { forcer: !!forcer }); attendreMaj(r.version); } catch (e) { $('#maj-retour').textContent = e.message; }
+  };
+  const g = $('#maj-go'); if (g) g.onclick = () => lancer(false);
+  const f = $('#maj-forcer'); if (f) f.onclick = () => lancer(true);
+}
+// Attend que la carte revienne avec une autre version (ou la même si l'image n'avait pas changé)
+async function attendreMaj(avant) {
+  document.body.insertAdjacentHTML('beforeend', '<div class="voile-redemarrage"><div><b>Mise à jour en cours…</b><br><small id="maj-etape">téléchargement de la nouvelle version</small></div></div>');
+  const t0 = Date.now();
+  let coupe = false;
+  while (Date.now() - t0 < 10 * 60000) {
+    await new Promise((r) => setTimeout(r, 4000));
+    try {
+      const v = await (await fetch('/api/version', { cache: 'no-store' })).json();
+      if (coupe || v.version !== avant) { location.reload(); return; }
+      try { const m = await (await fetch('/api/maj', { cache: 'no-store' })).json(); if (m.service) { const e = document.getElementById('maj-etape'); if (e) e.textContent = m.service.message || ''; if (!m.service.enCours && ['a-jour', 'echec', 'retour'].includes(m.service.phase)) { location.reload(); return; } } } catch { /* carte en redémarrage */ }
+    } catch { coupe = true; const e = document.getElementById('maj-etape'); if (e) e.textContent = 'redémarrage de la carte…'; }
+  }
+  location.reload();
 }
 function resumeAlertes(a) {
   const c = a.filter((x) => x.niveau === 'critique').length, w = a.length - c;
@@ -1425,6 +1467,259 @@ document.addEventListener('click', (ev) => {
   poserEpingle(lat, lon, b.dataset.qui, Number(b.dataset.heure) || null, true);
 }, true);
 // Partager un point : dans le formulaire MeshCore si la vue MeshCore est affichée, sinon dans celui de Meshtastic
+// ---- Recherche d'un réglage ou d'une fonction (Ctrl+K) ------------------------------------------------------
+// Catalogue fixe des réglages « profonds » (fenêtres, sous-onglets), complété à chaque ouverture par ce que
+// l'interface affiche : onglets, menus du haut, outils de Programmer.
+const sansAccent = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+function surligner(el) {
+  if (!el) return;
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.classList.add('flash-recherche');
+  setTimeout(() => el.classList.remove('flash-recherche'), 2600);
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) setTimeout(() => el.focus(), 300);
+}
+const attendreEl = (sel, max = 3000) => new Promise((ok) => { const t0 = Date.now(); const f = () => { const e = document.querySelector(sel); if (e || Date.now() - t0 > max) ok(e); else setTimeout(f, 100); }; f(); });
+function ouvrirOnglet(nom) { const b = document.querySelector(`.onglets button[data-onglet="${nom}"]`); if (b && !b.hidden) b.click(); if ($('#panneau') && $('#panneau').classList.contains('replie')) $('#replier').click(); }
+async function ouvrirDlg(pan, champ) {
+  ouvrirGestion();
+  const b = document.querySelector(`#dlg-gestion [data-dlg="${pan}"]`); if (b) b.click();
+  if (champ) surligner(await attendreEl(`#pan-${pan} ${champ}`));
+}
+async function ouvrirMcVue(vue, champ) {
+  ouvrirOnglet('meshcore');
+  const b = await attendreEl(`.sous-onglets-mc button[data-mc-vue="${vue}"]`); if (b) b.click();
+  if (champ) surligner(await attendreEl(champ));
+}
+async function ouvrirOutilProgrammer(id) { ouvrirOnglet('gestion'); const b = await attendreEl('#' + id); if (b) b.click(); }
+const CATALOGUE_REGLAGES = [
+  // Réglages de la carte (administrateur)
+  ['Nom de la carte', 'Compte › Réglages', 'titre', 'admin', () => ouvrirDlg('reglages', '[name=titre]')],
+  ['Département de la carte', 'Compte › Réglages', 'zone contour centrage relief', 'admin', () => ouvrirDlg('reglages', '[name=departement]')],
+  ['Serveur MQTT (broker)', 'Compte › Réglages', 'mqtt url broker adresse serveur connexion', 'admin', () => ouvrirDlg('reglages', '[name=mqttUrl]')],
+  ['Sujet racine MQTT', 'Compte › Réglages', 'mqtt topic racine msh', 'admin', () => ouvrirDlg('reglages', '[name=mqttRacine]')],
+  ['Utilisateur et mot de passe MQTT', 'Compte › Réglages', 'mqtt identifiant login', 'admin', () => ouvrirDlg('reglages', '[name=mqttUtilisateur]')],
+  ['Sujets MQTT supplémentaires', 'Compte › Réglages', 'mqtt topics abonnement', 'admin', () => ouvrirDlg('reglages', '[name=mqttSujets]')],
+  ['Inscriptions des comptes', 'Compte › Réglages', 'inscription ouverte fermée validation', 'admin', () => ouvrirDlg('reglages', '[name=inscriptions]')],
+  ['Précision des positions publiques', 'Compte › Réglages', 'arrondi confidentialité carte publique', 'admin', () => ouvrirDlg('reglages', '[name=precisionPublique]')],
+  ['Durée de conservation des données', 'Compte › Réglages', 'retention jours historique purge', 'admin', () => ouvrirDlg('reglages', '[name=retentionJours]')],
+  ['Canaux Meshtastic à déchiffrer (clés)', 'Compte › Réglages', 'canaux cle psk aq== messages chiffrement longfast', 'admin', () => ouvrirDlg('reglages', '[name=canaux]')],
+  ['Relief pour toute la France', 'Compte › Réglages', 'relief france paquet mnt télécharger préparer', 'admin', () => ouvrirDlg('reglages', '#bloc-france')],
+  ['Comptes des utilisateurs', 'Compte › Comptes', 'utilisateur ajouter rôle gestionnaire secteur blocage', 'admin', () => ouvrirDlg('comptes')],
+  ['Sauvegardes', 'Compte › Sauvegardes', 'sauvegarde restaurer export', 'admin', () => ouvrirDlg('sauvegardes')],
+  ['Archive PostgreSQL', 'Compte › Archive', 'postgres base archive', 'admin', () => ouvrirDlg('archive')],
+  ['Journal du serveur', 'Compte › Journal', 'logs journal erreurs', 'admin', () => ouvrirDlg('journal')],
+  ['Changer mon mot de passe', 'Compte › Mon compte', 'mot de passe password', 'membre', () => ouvrirDlg('moncompte', '#form-mdp')],
+  ['Double authentification', 'Compte › Mon compte', '2fa totp code authentificateur sécurité', 'membre', () => ouvrirDlg('moncompte', '#zone-2fa')],
+  ['Déconnecter mes autres appareils', 'Compte › Mon compte', 'session déconnexion', 'membre', () => ouvrirDlg('moncompte', '#btn-deco-partout')],
+  // MeshCore
+  ['Relier le companion MeshCore', 'MeshCore › Companion', 'companion usb wifi ble relier', 'admin', () => ouvrirMcVue('companion', '#mc-f-wifi')],
+  ['Code de zone MeshCore (IATA)', 'MeshCore › Companion', 'iata zone lpy aéroport', 'admin', () => ouvrirMcVue('companion', '#mc-f-reglages [name=iata]')],
+  ['Racine des sujets MeshCore', 'MeshCore › Companion', 'mqtt meshcore topic racine', 'admin', () => ouvrirMcVue('companion', '#mc-f-reglages [name=racine]')],
+  ['Paquets MeshCore conservés (périmètre)', 'MeshCore › Companion', 'périmètre département voisins national filtre ignorés', 'admin', () => ouvrirMcVue('companion', '#mc-f-reglages [name=perimetre]')],
+  ['Canaux MeshCore à déchiffrer', 'MeshCore › Companion', 'canaux public hashtag clé', 'admin', () => ouvrirMcVue('companion', '#mc-f-reglages [name=canaux]')],
+  ['Republication MQTT MeshCore', 'MeshCore › Companion', 'republier meshcoretomqtt', 'admin', () => ouvrirMcVue('companion', '#mc-f-reglages [name=republier]')],
+  ['Messages MeshCore', 'MeshCore › Messages', 'message canal direct', 'membre', () => ouvrirMcVue('messages')],
+  ['Administrer les répéteurs MeshCore', 'MeshCore › Programmer', 'répéteur room server cli mot de passe', 'gestion', () => ouvrirMcVue('gestion')],
+  ['Analyse MeshCore', 'MeshCore › Analyse', 'statistiques régions audit', 'membre', () => ouvrirMcVue('analyse')],
+  // Programmer (Meshtastic)
+  ['Clés d’administration', 'Programmer', 'admin key pki clé publique', 'gestion', () => ouvrirOutilProgrammer('voir-cles')],
+  ['Équipes (canal chiffré par équipe)', 'Programmer', 'équipe canal clé psk intervenant cle_equipes', 'admin', () => ouvrirOutilProgrammer('voir-equipes')],
+  ['Favoris entre relais', 'Programmer', 'favoris sauts relais', 'gestion', () => ouvrirOutilProgrammer('voir-favoris')],
+  ['Modèles de réglages', 'Programmer', 'modèle yaml export import', 'gestion', () => ouvrirOutilProgrammer('voir-modeles')],
+  ['Contrôle du trafic', 'Programmer', 'bavard trafic mqtt réinjecté', 'gestion', () => ouvrirOutilProgrammer('voir-trafic')],
+  ['Firmware par le Wi-Fi', 'Programmer', 'firmware mise à jour ota wifi version', 'gestion', () => ouvrirOutilProgrammer('voir-fw')],
+  // Couverture
+  ['Plan de couverture du département', 'Couverture', 'plan sites relais objectif', 'membre', () => { ouvrirOnglet('sites'); attendreEl('#plan-objectif').then(surligner); }],
+  ['Hauteur d’antenne des sites (zone dessinée)', 'Couverture', 'antenne hauteur mât sol', 'membre', () => { ouvrirOnglet('sites'); attendreEl('#plan-hs').then(surligner); }],
+  ['Accès aux sites (voiture, 4×4, à pied)', 'Couverture', 'accès voiture 4x4 pied piste', 'membre', () => { ouvrirOnglet('sites'); attendreEl('#plan-acces').then(surligner); }],
+  ['Mettre à jour la carte', 'Version', 'mise à jour version upgrade docker image nouvelle', 'admin', () => ficheMaj()],
+  ['Signalements (route inondée…)', 'Outils', 'signaler événement inondation alerte waypoint bipper germacrise', 'membre', () => ficheSignalements()],
+];
+function indexReglages() {
+  const r = etat.admin ? 3 : etat.gestion ? 2 : etat.membre ? 1 : 0;
+  const niv = { admin: 3, gestion: 2, membre: 1 };
+  const l = CATALOGUE_REGLAGES.filter((e) => !e[3] || r >= niv[e[3]]).map(([t, ch, m, , go]) => ({ t, ch, m, go }));
+  const cleT = (t) => sansAccent(t).replace(/^[^a-z0-9]+/, '').trim();
+  const vus = new Set(l.map((e) => cleT(e.t)));
+  const ajouter = (t, ch, m, go) => { t = String(t || '').replace(/\s+/g, ' ').trim(); if (!t || t.length < 2 || vus.has(cleT(t))) return; vus.add(cleT(t)); l.push({ t, ch, m, go }); };
+  document.querySelectorAll('.onglets button[data-onglet]').forEach((b) => { if (!b.hidden) ajouter(b.textContent, 'Onglet', b.title, () => b.click()); });
+  document.querySelectorAll('.outils details.menu-couches').forEach((d) => {
+    const nomMenu = (d.querySelector('summary') || {}).textContent || 'Menu';
+    d.querySelectorAll('button, a, label').forEach((el) => {
+      if (el.closest('[hidden]') || el.hidden) return;
+      const txt = el.tagName === 'LABEL' ? el.textContent : el.textContent;
+      ajouter(txt, nomMenu.replace('▾', '').trim(), el.title || '', () => { d.open = true; surligner(el); });
+    });
+  });
+  return l;
+}
+function ouvrirRechercheReglages() {
+  const dlg = $('#dlg-chercher'), inp = $('#chercher-reglage'), zr = $('#resultats-reglage');
+  const index = indexReglages();
+  let res = [], sel = 0;
+  const rendre = () => {
+    const mots = sansAccent(inp.value).split(/\s+/).filter(Boolean);
+    res = !mots.length ? index.slice(0, 12) : index.map((e) => {
+      const h = sansAccent(`${e.t} ${e.ch} ${e.m}`), ti = sansAccent(e.t);
+      if (!mots.every((w) => h.includes(w))) return null;
+      return { e, score: (ti.startsWith(mots[0]) ? 0 : ti.includes(mots[0]) ? 1 : 2) + ti.length / 200 };
+    }).filter(Boolean).sort((a, b) => a.score - b.score).map((x) => x.e).slice(0, 14);
+    sel = Math.min(sel, Math.max(0, res.length - 1));
+    zr.innerHTML = res.length ? res.map((e, i) => `<button type="button" class="res-reglage ${i === sel ? 'actif' : ''}" data-i="${i}" role="option"><b>${esc(e.t)}</b><small>${esc(e.ch)}</small></button>`).join('') : '<div class="vide">Aucun réglage trouvé. Essayez un autre mot (MQTT, clé, mot de passe, IATA, firmware…).</div>';
+    zr.querySelectorAll('[data-i]').forEach((b) => (b.onclick = () => aller(Number(b.dataset.i))));
+  };
+  const aller = (i) => { const e = res[i]; if (!e) return; dlg.close(); try { e.go(); } catch (x) { annonce('⚠ ' + x.message, 'erreur'); } };
+  inp.oninput = () => { sel = 0; rendre(); };
+  inp.onkeydown = (ev) => {
+    if (ev.key === 'ArrowDown') { sel = Math.min(sel + 1, res.length - 1); rendre(); ev.preventDefault(); }
+    else if (ev.key === 'ArrowUp') { sel = Math.max(sel - 1, 0); rendre(); ev.preventDefault(); }
+    else if (ev.key === 'Enter') { aller(sel); ev.preventDefault(); }
+  };
+  inp.value = '';
+  rendre();
+  if (!dlg.open) dlg.showModal();
+  inp.focus();
+}
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); ouvrirRechercheReglages(); }
+});
+// Petit message temporaire en bas de l'écran (clic : action facultative)
+function annonce(texte, genre = 'info', action = null) {
+  let z = document.getElementById('annonces');
+  if (!z) { z = document.createElement('div'); z.id = 'annonces'; z.setAttribute('aria-live', 'polite'); document.body.appendChild(z); }
+  const d = document.createElement('div');
+  d.className = 'annonce ' + genre;
+  d.textContent = texte;
+  if (action) { d.classList.add('cliquable'); d.title = 'Cliquer pour centrer la carte'; }
+  d.onclick = () => { if (action) action(); d.remove(); };
+  z.appendChild(d);
+  setTimeout(() => d.remove(), action ? 15000 : 7000);
+}
+// ---- Signalements : un événement posé sur la carte et diffusé en LoRa (membres) ----------------------------
+const sig = { liste: [], couche: null, info: null };
+async function chargerSignalements() {
+  let r;
+  try { r = await api('/api/signalements'); } catch { return; }
+  sig.liste = r.signalements; sig.info = r;
+  if (!sig.couche) sig.couche = L.layerGroup().addTo(carte);
+  sig.couche.clearLayers();
+  for (const s of sig.liste.filter((x) => x.actif)) {
+    const m = L.marker([s.lat, s.lon], {
+      icon: L.divIcon({ className: 'sig-marqueur', html: `<span>${s.icone}</span>`, iconSize: [34, 34], iconAnchor: [17, 17] }),
+      title: s.titre, zIndexOffset: 900,
+    }).addTo(sig.couche);
+    m.bindPopup(() => popupSignalement(s), { maxWidth: 300 });
+  }
+  const b = $('#outil-signalements');
+  if (b) b.textContent = `🚩 Signalements${sig.liste.some((x) => x.actif) ? ` (${sig.liste.filter((x) => x.actif).length})` : ''}`;
+  if (document.querySelector('#fiche-contenu .liste-signalements')) ficheSignalements();
+}
+const etatEnvoiSig = (e, nom) => !e ? '' : `<div class="envoi-sig ${e.statut}">${nom} canal ${e.canal} : ${e.statut === 'envoye' ? '✔ envoyé ' + ilYa(e.heure) : e.statut === 'echec' ? '⚠ ' + esc(e.erreur || 'échec') : '⏳'}</div>`;
+function popupSignalement(s) {
+  const d = document.createElement('div');
+  d.className = 'popup-sig';
+  d.innerHTML = `<b>${s.icone} ${esc(s.titre)}</b>${s.details ? `<div>${esc(s.details)}</div>` : ''}
+    <div class="note">par ${esc(s.auteur)} ${ilYa(s.cree)} · jusqu’au ${new Date(s.expire).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}<br><span class="mono">${s.lat.toFixed(5)}, ${s.lon.toFixed(5)}</span></div>
+    ${s.source === 'radio' ? `<div class="note">📻 reçu par radio${s.canal ? ' sur ' + esc(s.canal) : ''} (point de passage)</div>` : ''}
+    ${(s.envois.mt || []).map((e) => etatEnvoiSig(e, 'Meshtastic')).join('')}${etatEnvoiSig(s.envois.mc, 'MeshCore')}
+    ${s.actif ? `<div class="actions-prop"><button class="mini principal" data-fin title="${s.source === 'radio' ? 'Le retirer de la carte' : 'Annoncer la fin en LoRa et retirer le point des applis'}">✅ Terminé</button>${s.source === 'radio' ? '' : '<button class="mini" data-renvoi title="Renvoyer en LoRa">↻ Renvoyer</button>'}</div>` : `<div class="note">${s.fin ? 'Terminé par ' + esc(s.finPar || '?') + ' ' + ilYa(s.fin) : 'Expiré'}</div>`}`;
+  const fin = d.querySelector('[data-fin]');
+  if (fin) fin.onclick = async () => {
+    if (!confirm(s.source === 'radio' ? `Retirer « ${s.titre} » de la carte ?` : `Terminer « ${s.titre} » ? Un message de fin part en LoRa et le point disparaît des applis.`)) return;
+    try { await postJson(`/api/signalements/${s.id}/terminer`, {}); carte.closePopup(); } catch (e) { alert(e.message); }
+  };
+  const rv = d.querySelector('[data-renvoi]');
+  if (rv) rv.onclick = async () => { rv.disabled = true; try { await postJson(`/api/signalements/${s.id}/renvoyer`, {}); carte.closePopup(); } catch (e) { alert(e.message); rv.disabled = false; } };
+  return d;
+}
+async function formSignalement(lat, lon) {
+  await chargerSignalements();
+  const r = sig.info;
+  if (!r) return;
+  const mem = lireLs('gaulix_sig', {}) || {};
+  $('#fiche').hidden = false; etat.selection = null;
+  const z = $('#fiche-contenu');
+  // Canaux Meshtastic cochés : ceux du dernier envoi, sinon Fr_Balise et Alerte (comme GerMaCrise / Bipper)
+  const parDefaut = (c) => Array.isArray(mem.mt) ? mem.mt.includes(c.index) : /^(fr_balise|alerte)$/i.test(c.nom);
+  const optMc = r.mc.pret && r.mc.canaux.length ? r.mc.canaux.map((c) => `<option value="${c.index}" ${String(mem.mc) === String(c.index) ? 'selected' : ''}>${c.index} · ${esc(c.nom)}</option>`).join('') : '';
+  let cat = mem.cat && r.categories[mem.cat] ? mem.cat : 'routes';
+  let type = Object.keys(r.types).find((k) => r.types[k].cat.includes(cat));
+  z.innerHTML = `<div class="form-sig"><h2>🚩 Signaler un événement</h2>
+    <div class="note mono">${lat.toFixed(5)}, ${lon.toFixed(5)}</div>
+    <div class="cats-sig">${Object.entries(r.categories).map(([k, n]) => `<button type="button" data-cat="${k}">${esc(n)}</button>`).join('')}</div>
+    <div class="types-sig"></div>
+    <div class="parametres">
+      <label>Titre <input id="sig-titre" maxlength="60"></label>
+      <label>Précisions <input id="sig-details" maxlength="140" placeholder="RD 103 entre Vorey et Retournac, 40 cm d’eau…"></label>
+      <label>Durée <select id="sig-duree">${r.durees.map((h) => `<option value="${h}" ${h === 24 ? 'selected' : ''}>${h < 24 ? h + ' h' : h / 24 + ' j'}</option>`).join('')}</select></label>
+    </div>
+    <h4>Meshtastic <small>point de passage (carte des applis, Bipper, GerMaCrise)</small></h4>
+    ${r.mt.connecte && r.mt.canaux.length ? `<div class="canaux-sig">${r.mt.canaux.map((c) => `<label class="case"><input type="checkbox" data-mt="${c.index}" ${parDefaut(c) ? 'checked' : ''}> ${c.index} · ${esc(c.nom)}</label>`).join('')}</div>
+      <label class="case"><input type="checkbox" id="sig-texte" ${mem.texte === false ? '' : 'checked'}> Envoyer aussi un message texte sur ces canaux</label>` : '<p class="note">Module radio non connecté : pas d’envoi Meshtastic.</p>'}
+    <h4>MeshCore</h4>
+    ${optMc ? `<label>Canal <select id="sig-mc"><option value="">ne pas envoyer</option>${optMc}</select></label>` : '<p class="note">Companion non relié : pas d’envoi MeshCore.</p>'}
+    <div class="apercu-sig"><div class="note">Message texte :</div><div id="sig-apercu" class="mono"></div></div>
+    <div class="actions-prop"><button class="principal" id="sig-envoyer">🚩 Signaler et envoyer</button></div>
+    <p class="erreur" id="sig-retour"></p>
+    <p class="note">Le point de passage apparaît sur la carte des applis Meshtastic avec l’icône et la durée choisies, et sur les Bipper / GerMaCrise. Les points de passage reçus d’autres stations s’affichent aussi ici. « Terminé » retire le point des applis et annonce la fin.</p></div>`;
+  const coup = (t, n) => { const e = new TextEncoder(); while (e.encode(t).length > n) t = [...t].slice(0, -1).join(''); return t; };
+  const auteur = (etat.config.compte && (etat.config.compte.indicatif || etat.config.compte.identifiant)) || '';
+  const apercu = () => {
+    const t = r.types[type];
+    const tx = `${t.icone} ${$('#sig-titre').value.trim() || t.nom}${$('#sig-details').value.trim() ? ' : ' + $('#sig-details').value.trim() : ''} · ${lat.toFixed(5)},${lon.toFixed(5)} · ${auteur}`;
+    const n = new TextEncoder().encode(tx).length;
+    $('#sig-apercu').textContent = coup(tx, 200) + (n > 140 && $('#sig-mc') && $('#sig-mc').value !== '' ? `  (${n} octets : coupé à 140 pour MeshCore)` : '');
+  };
+  const choisirType = (k) => {
+    const ancien = type && r.types[type].nom;
+    type = k;
+    z.querySelectorAll('[data-type]').forEach((x) => x.classList.toggle('actif', x.dataset.type === k));
+    if (!$('#sig-titre').value.trim() || $('#sig-titre').value === ancien) $('#sig-titre').value = r.types[k].nom;
+    apercu();
+  };
+  const montrerCat = (c) => {
+    cat = c;
+    z.querySelectorAll('[data-cat]').forEach((x) => x.classList.toggle('actif', x.dataset.cat === c));
+    const zt = z.querySelector('.types-sig');
+    zt.innerHTML = Object.entries(r.types).filter(([, t]) => t.cat.includes(c)).map(([k, t]) => `<button type="button" data-type="${k}" class="${k === type ? 'actif' : ''}"><span>${t.icone}</span>${esc(t.nom)}</button>`).join('');
+    zt.querySelectorAll('[data-type]').forEach((b) => (b.onclick = () => choisirType(b.dataset.type)));
+  };
+  z.querySelectorAll('[data-cat]').forEach((b) => (b.onclick = () => montrerCat(b.dataset.cat)));
+  montrerCat(cat);
+  $('#sig-titre').value = r.types[type].nom;
+  z.querySelectorAll('input, select').forEach((e) => { if (!e.dataset.mt) e.addEventListener('input', apercu); e.addEventListener('change', apercu); });
+  apercu();
+  $('#sig-envoyer').onclick = async () => {
+    const mt = [...z.querySelectorAll('[data-mt]:checked')].map((x) => Number(x.dataset.mt)), mc = $('#sig-mc') ? $('#sig-mc').value : '';
+    const texte = $('#sig-texte') ? $('#sig-texte').checked : true;
+    if (!mt.length && mc === '' && !confirm('Aucun réseau choisi : le signalement restera seulement sur la carte. Continuer ?')) return;
+    const b = $('#sig-envoyer'); b.disabled = true; b.textContent = 'Envoi…';
+    ecrireLs('gaulix_sig', { mt, mc, cat, texte });
+    try {
+      const s = await postJson('/api/signalements', { lat, lon, type, titre: $('#sig-titre').value, details: $('#sig-details').value, dureeH: Number($('#sig-duree').value), mt, mc, texte });
+      const pb = [...(s.envois.mt || []), s.envois.mc].filter((e) => e && e.statut === 'echec').map((e) => `canal ${e.canal} : ${e.erreur}`);
+      await chargerSignalements();
+      ficheSignalements(pb.length ? '⚠ ' + pb.join(' ; ') : '✔ Signalement envoyé.');
+    } catch (e) { $('#sig-retour').textContent = e.message; b.disabled = false; b.textContent = '🚩 Signaler et envoyer'; }
+  };
+}
+async function ficheSignalements(msg) {
+  $('#fiche').hidden = false; etat.selection = null;
+  const z = $('#fiche-contenu');
+  if (!sig.info) await chargerSignalements();
+  const l = sig.liste;
+  z.innerHTML = `<div class="liste-signalements"><h2>🚩 Signalements</h2>${msg ? `<p class="note"><b>${esc(msg)}</b></p>` : ''}
+    <p class="note">Clic droit (ou appui long) sur la carte › <b>🚩 Signaler un événement ici</b>.</p>
+    ${l.length ? l.map((s) => `<div class="ligne sig-ligne ${s.actif ? '' : 'passe'}" data-sig="${s.id}"><span class="sig-ic">${s.icone}</span><span class="titre">${esc(s.titre)}<small>${esc(s.details || '')} · ${esc(s.auteur)} ${ilYa(s.cree)}${s.actif ? '' : s.fin ? ' · terminé' : ' · expiré'}</small></span>
+      <span class="meta">${s.source === 'radio' ? '📻' : ''}${[...(s.envois.mt || []), s.envois.mc].filter(Boolean).map((e) => e.statut === 'envoye' ? '✔' : e.statut === 'echec' ? '⚠' : '⏳').join(' ')}</span></div>`).join('') : '<div class="vide">Aucun signalement ces 7 derniers jours.</div>'}</div>`;
+  z.querySelectorAll('[data-sig]').forEach((d) => (d.onclick = () => {
+    const s = l.find((x) => x.id === d.dataset.sig);
+    carte.setView([s.lat, s.lon], Math.max(carte.getZoom(), 13));
+    if (s.actif) sig.couche.eachLayer((m) => { const p = m.getLatLng(); if (p.lat === s.lat && p.lng === s.lon) m.openPopup(); });
+    else L.popup().setLatLng([s.lat, s.lon]).setContent(popupSignalement(s)).openOn(carte);
+  }));
+}
+
 async function partagerPoint(lat, lon) {
   const mcVue = typeof mc !== 'undefined' && document.body.dataset.reseau === 'meshcore';
   if (mcVue) {
@@ -1455,6 +1750,7 @@ function menuNoeud(x, y, id) {
     pos && ['couverture', '📡 Couverture depuis ce nœud'],
     pos && etat.membre && ['partager', '📍 Partager sa position dans un message'],
     ['copier', `📋 Copier l’identifiant (${estMc ? id.slice(0, 8) + '…' : ident})`],
+    !estMc && etat.gestion && ['demander-pos', '📍 Demander sa position'],
     estMc && etat.membre && ['chemin', '🧭 Chemin depuis le companion'],
     etat.admin && ['supprimer', '🗑 Supprimer ce nœud'],
   ].filter(Boolean);
@@ -1476,6 +1772,9 @@ function menuNoeud(x, y, id) {
     else if (k === 'ecouter') testPortee(Number(id));
     else if (k === 'couverture') couvertureIci(L.latLng(n.lat, n.lon), n.infrastructure ? 6 : 3);
     else if (k === 'partager') partagerPoint(n.lat, n.lon);
+    else if (k === 'demander-pos') {
+      try { await postJson('/api/demander-position', { nums: [Number(id)] }); annonce(`📍 Position demandée à ${nom}… la réponse arrive en général en moins d’une minute.`); } catch (e) { annonce('⚠ ' + e.message, 'erreur'); }
+    }
     else if (k === 'copier') { try { await navigator.clipboard.writeText(ident); } catch { /* presse-papiers indisponible */ } }
     else if (k === 'chemin') { mcOuvrirFiche(id); setTimeout(() => { const o = document.querySelector('[data-of="admin"]'); if (o) o.click(); setTimeout(() => { const c = document.getElementById('mc-chemin'); if (c) c.scrollIntoView({ block: 'center' }); }, 600); }, 500); }
     else if (k === 'supprimer') {
@@ -4200,6 +4499,7 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
       <div class="champ-ajout"><input type="text" data-saisie placeholder="!a1b2c3d4, !e5f6a7b8…" aria-label="Nœuds à ajouter"><button class="principal" data-ajouter>➕ Ajouter${sel.length ? ` (+ ${sel.length} coché${sel.length > 1 ? 's' : ''})` : ''}</button></div>
       <label class="case"><input type="checkbox" data-positions ${e.positions ? 'checked' : ''}> Positions des membres sur le canal d’équipe (s’applique aux prochains envois)</label>
       <div class="actions-prop">
+        ${e.nbMembres ? `<button data-positions-eq title="Chaque nœud de l’équipe renvoie sa position (espacées de 3 s)">📍 Demander les positions</button>` : ''}
         <button data-reappliquer title="Renvoyer le canal aux nœuds pas à jour, et le retrait à ceux qui ne l’ont pas confirmé">↻ Renvoyer aux nœuds pas à jour</button>
         <button data-cle title="La seule vraie révocation d’un nœud perdu ou volé">🔑 Nouvelle clé</button>
         <button data-export title="Fichier .cle pour la ligne de commande, lien de canal pour l’appli (inscrit dans l’historique)">⬇ Exporter la clé</button>
@@ -4241,6 +4541,11 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
       try { apres(id, await postJson(`/api/equipes/${id}/membres`, { retirer: [Number(b.dataset.retirer)] })); } catch (e) { retour(e.message); }
     }));
     bloc.querySelector('[data-positions]').onchange = async (ev) => { try { await postJson(`/api/equipes/${id}`, { positions: ev.target.checked }, 'PATCH'); retour('Enregistré : « Renvoyer » ou une nouvelle clé l’appliquera aux nœuds déjà membres.'); } catch (e) { retour(e.message); } };
+    { const bp = bloc.querySelector('[data-positions-eq]'); if (bp) bp.onclick = async () => {
+      const eq = r.equipes.find((x) => x.id === id);
+      const nums = eq.membres.filter((m) => m.etat === 'membre').map((m) => m.num);
+      try { const x = await postJson('/api/demander-position', { nums }); retour(`📍 Position demandée à ${x.nb} nœud(s)${x.dureeS ? ` (sur ${x.dureeS} s)` : ''} : les réponses s’affichent en bas de l’écran.`); } catch (e) { retour(e.message); }
+    }; }
     bloc.querySelector('[data-reappliquer]').onclick = async () => { try { apres(id, await postJson(`/api/equipes/${id}/reappliquer`, {})); } catch (e) { retour(e.message); } };
     bloc.querySelector('[data-cle]').onclick = async () => {
       const c = prompt(`Nouvelle clé pour « ${nom} » : elle sera envoyée à tous les membres ; tant qu’un nœud ne l’a pas reçue, il ne comprend plus les autres.\nTapez NOUVELLE CLE pour confirmer.`);
@@ -5458,6 +5763,13 @@ function connecterWs() {
   const temoin = $('#direct');
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
+    if (m.genre === 'signalement') { if (etat.membre) chargerSignalements(); return; }
+    if (m.genre === 'position-reponse') {
+      const n = etat.noeuds.get(m.num >>> 0);
+      const nom = n ? n.nomLong || n.nomCourt || n.id : '!' + (m.num >>> 0).toString(16);
+      annonce(`📍 ${nom} a répondu en ${Math.round(m.delai / 1000)} s`, 'ok', () => carte.setView([m.lat, m.lon], Math.max(carte.getZoom(), 14)));
+      return;
+    }
     // Nœud supprimé par un administrateur : retiré de la carte et des listes
     if (m.genre === 'noeud-supprime') {
       const k = Number(m.num) >>> 0;
@@ -5575,13 +5887,14 @@ function brancherInterface() {
   carte.on('contextmenu', (e) => {
     const div = L.DomUtil.create('div', 'menu-contexte');
     const lat = e.latlng.lat, lon = e.latlng.lng;
-    div.innerHTML = `<div class="ctx-coords"><b class="mono">${lat.toFixed(5)}, ${lon.toFixed(5)}</b><button class="mini" data-copier="${lat.toFixed(5)}, ${lon.toFixed(5)}">Copier</button></div>${etat.membre ? '<button data-a="partager">📍 Partager ce point dans un message</button>' : ''}<button data-a="ici">Couverture depuis ici</button><button data-a="couvrir">Couvrir ce point (4 points hauts)</button><button data-a="relier">${etat.modeCarte === 'relier' && etat.relierA ? 'Relier jusqu’ici (arrivée)' : 'Relier depuis ici (relais nécessaires)'}</button><button data-a="profil">${etat.modeProfil && etat.modeProfil.a ? 'Profil jusqu’ici (point B)' : 'Profil depuis ici (point A)'}</button>`;
+    div.innerHTML = `<div class="ctx-coords"><b class="mono">${lat.toFixed(5)}, ${lon.toFixed(5)}</b><button class="mini" data-copier="${lat.toFixed(5)}, ${lon.toFixed(5)}">Copier</button></div>${etat.membre ? '<button data-a="signaler">🚩 Signaler un événement ici</button><button data-a="partager">📍 Partager ce point dans un message</button>' : ''}<button data-a="ici">Couverture depuis ici</button><button data-a="couvrir">Couvrir ce point (4 points hauts)</button><button data-a="relier">${etat.modeCarte === 'relier' && etat.relierA ? 'Relier jusqu’ici (arrivée)' : 'Relier depuis ici (relais nécessaires)'}</button><button data-a="profil">${etat.modeProfil && etat.modeProfil.a ? 'Profil jusqu’ici (point B)' : 'Profil depuis ici (point A)'}</button>`;
     const pop = L.popup({ closeButton: false, className: 'popup-contexte' }).setLatLng(e.latlng).setContent(div).openOn(carte);
     div.onclick = (ev) => {
       const a = ev.target.closest('button');
       if (!a) return;
       carte.closePopup(pop);
       if (a.dataset.a === 'partager') { partagerPoint(lat, lon); return; }
+      if (a.dataset.a === 'signaler') { formSignalement(lat, lon); return; }
       if (a.dataset.a === 'profil') {
         if (!etat.modeProfil) $('#btn-profil').click();
         choisirPointProfil({ lat: e.latlng.lat, lon: e.latlng.lng, nom: `Point ${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`, h: 3 });
@@ -5609,6 +5922,8 @@ function brancherInterface() {
       <div class="actions-prop"><a class="bascule principal" href="/rapport" target="_blank" rel="noopener">Ouvrir le rapport des 7 derniers jours</a></div>
       <h3>Archives</h3>${l.map((x) => `<div class="ligne"><span class="titre"><a href="/rapports/${encodeURIComponent(x)}" target="_blank" rel="noopener">Semaine du ${esc(x.slice(8, 18).split('-').reverse().join('/'))}</a></span></div>`).join('') || '<div class="vide">Pas encore d’archive (premier rapport lundi prochain vers 7 h).</div>'}`;
   };
+  { const bc = $('#btn-chercher-reglage'); if (bc) bc.onclick = ouvrirRechercheReglages; }
+  { const bs = $('#outil-signalements'); if (bs) bs.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheSignalements(); }; }
   { const bt = $('#outil-trafic'); if (bt) bt.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTrafic(); }; }
   { const bc = $('#outil-connecter'); if (bc) bc.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ouvrirConnexion(); }; }
   $('#outil-portee').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; testPortee(null); };
@@ -6284,6 +6599,7 @@ async function demarrer() {
   chargerSanteCarte(); setInterval(chargerSanteCarte, 60000);
   chargerFederation(); setInterval(chargerFederation, 600000);
   demarrerTerrain();
+  if (etat.membre) chargerSignalements();
   chargerActiviteInitiale();
   setInterval(rendreLegende, 60000);
   if (etat.config.installation) installation();

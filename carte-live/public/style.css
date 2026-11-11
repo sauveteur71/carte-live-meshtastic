@@ -1242,3 +1242,37 @@ svg.profil .etiq-ant { fill: #fbbf24; font-size: 11px; font-weight: 700; paint-o
 .cli-eq pre { white-space: pre-wrap; word-break: break-all; font-size: .8em; background: rgba(0,0,0,.35); padding: .5rem; border-radius: 6px; }
 code.coupe { word-break: break-all; }
 .equipes .principal { background: var(--accent); color: #062019; border-color: var(--accent); font-weight: 600; }
+
+/* Signalements */
+.sig-marqueur span { display: grid; place-items: center; width: 34px; height: 34px; font-size: 20px; background: #fff7ed; border: 3px solid #dc2626; border-radius: 50%; box-shadow: 0 0 0 3px rgba(220,38,38,.35), 0 2px 6px rgba(0,0,0,.5); animation: sig-pulse 2s infinite; }
+@keyframes sig-pulse { 50% { box-shadow: 0 0 0 9px rgba(220,38,38,0), 0 2px 6px rgba(0,0,0,.5); } }
+@media (prefers-reduced-motion: reduce) { .sig-marqueur span { animation: none; } }
+.types-sig { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; margin: .6rem 0; }
+.types-sig button { display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--bord); background: rgba(255,255,255,.04); color: var(--texte); cursor: pointer; font-size: 12.5px; text-align: left; }
+.types-sig button span { font-size: 18px; }
+.types-sig button.actif { border-color: #f87171; background: rgba(220,38,38,.22); font-weight: 700; }
+.apercu-sig { margin: .5rem 0; padding: .5rem; border-radius: 6px; background: rgba(0,0,0,.3); }
+#sig-apercu { white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+.envoi-sig { font-size: 12px; margin-top: 3px; }
+.envoi-sig.envoye { color: var(--ok); } .envoi-sig.echec { color: var(--critique); }
+.popup-sig .actions-prop { margin-top: 6px; }
+.sig-ligne { cursor: pointer; } .sig-ligne.passe { opacity: .55; } .sig-ic { font-size: 20px; width: 28px; text-align: center; }
+.cats-sig { display: flex; flex-wrap: wrap; gap: 4px; margin-top: .5rem; }
+.cats-sig button { padding: 4px 9px; border-radius: 999px; border: 1px solid var(--bord); background: none; color: var(--doux); cursor: pointer; font-size: 12px; }
+.cats-sig button.actif { background: var(--accent); color: #062019; border-color: var(--accent); font-weight: 700; }
+.canaux-sig { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.form-sig h4 small { font-weight: 400; opacity: .75; }
+#annonces { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 3000; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; max-width: calc(100vw - 32px); }
+.annonce { pointer-events: auto; background: #0f172a; color: #f8fafc; border: 2px solid var(--accent); border-radius: 10px; padding: 9px 14px; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+.annonce.ok { border-color: var(--ok); } .annonce.erreur { border-color: var(--critique); } .annonce.cliquable { cursor: pointer; }
+
+/* Recherche d'un réglage */
+.bouton-cherche { background: var(--fond-panneau, #111827); border: 1px solid var(--bord); color: var(--texte); border-radius: 8px; padding: 4px 8px; cursor: pointer; font-size: 14px; }
+.dlg-chercher { width: min(560px, calc(100vw - 32px)); padding: 12px; border-radius: 12px; border: 1px solid var(--bord); background: var(--fond, #0b1220); color: var(--texte); margin-top: 10vh; }
+.dlg-chercher::backdrop { background: rgba(0,0,0,.55); }
+#chercher-reglage { width: 100%; font-size: 16px; padding: 10px 12px; border-radius: 8px; border: 2px solid var(--accent); background: rgba(0,0,0,.3); color: var(--texte); box-sizing: border-box; }
+#resultats-reglage { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; max-height: 55vh; overflow: auto; }
+.res-reglage { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; text-align: left; padding: 8px 10px; border-radius: 6px; border: 0; background: none; color: var(--texte); cursor: pointer; }
+.res-reglage small { color: var(--doux); white-space: nowrap; }
+.res-reglage.actif, .res-reglage:hover { background: rgba(45,212,191,.18); outline: 1px solid var(--accent); }
+.flash-recherche { outline: 3px solid #fbbf24 !important; outline-offset: 2px; box-shadow: 0 0 0 6px rgba(251,191,36,.35) !important; transition: outline .2s; }

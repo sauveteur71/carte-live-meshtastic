@@ -15,6 +15,7 @@
 **Administrer**
 - [[Programmation à distance]]
 - [[Équipes]]
+- [[Signalements]]
 - [[MeshCore]]
 - [[Passerelle inter-réseaux]]
 - [[Comptes et sécurité]]
