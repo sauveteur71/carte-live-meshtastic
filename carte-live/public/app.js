@@ -1532,6 +1532,7 @@ const CATALOGUE_REGLAGES = [
   ['Plan de couverture du département', 'Couverture', 'plan sites relais objectif', 'membre', () => { ouvrirOnglet('sites'); attendreEl('#plan-objectif').then(surligner); }],
   ['Hauteur d’antenne des sites (zone dessinée)', 'Couverture', 'antenne hauteur mât sol', 'membre', () => { ouvrirOnglet('sites'); attendreEl('#plan-hs').then(surligner); }],
   ['Accès aux sites (voiture, 4×4, à pied)', 'Couverture', 'accès voiture 4x4 pied piste', 'membre', () => { ouvrirOnglet('sites'); attendreEl('#plan-acces').then(surligner); }],
+  ['Passerelle Meshtastic ⇄ MeshCore', 'Outils', 'passerelle relais canal adrasec meshpass activer règle', 'admin', () => ouvrirPasserelle()],
   ['Mettre à jour la carte', 'Version', 'mise à jour version upgrade docker image nouvelle', 'admin', () => ficheMaj()],
   ['Signalements (route inondée…)', 'Outils', 'signaler événement inondation alerte waypoint bipper germacrise', 'membre', () => ficheSignalements()],
 ];
@@ -5831,7 +5832,7 @@ function brancherInterface() {
     if (b.dataset.onglet === 'gestion') { rendreGestion(); suivreTaches(); }
   }));
   installerTiroir();
-  { const b = $('#outil-passerelle'); if (b) { b.hidden = !(etat.config.passerelle && etat.admin); b.onclick = () => { b.closest('details').open = false; ouvrirPasserelle(); }; } }
+  { const b = $('#outil-passerelle'); if (b) { b.hidden = !(etat.config.passerelleDispo && etat.admin); b.onclick = () => { b.closest('details').open = false; ouvrirPasserelle(); }; } }
   installerFicheTiroir();
   appliquerTheme(lireLs('gaulix_theme_clair', false));
   { const b = $('#outil-theme'); if (b) b.onclick = () => appliquerTheme(!document.body.classList.contains('theme-clair')); }
@@ -6348,8 +6349,9 @@ async function rendrePasserelle(complet) {
   const d = pp.donnees, m = d.modules, g = d.reglages;
   const pastille = (ok, txt) => `<span class="badge ${ok ? 'actif' : 'inactif'}">${ok ? '●' : '○'} ${esc(txt)}</span>`;
   const entete = `<div class="pp-etat">${pastille(m.mt.connecte, 'Meshtastic : ' + (m.mt.connecte ? m.mt.nom || 'module principal' : 'module hors ligne'))}${pastille(m.mc.connecte, 'MeshCore : ' + (m.mc.connecte ? m.mc.nom || 'companion' : 'companion hors ligne'))}
-    <button class="mini ${g.pause ? 'principal' : ''}" id="pp-pause">${g.pause ? '▶ Reprendre la passerelle' : '⏸ Mettre en pause'}</button></div>
-    ${g.pause ? '<div class="alerte attention">Passerelle en pause : aucun message n’est relayé.</div>' : ''}`;
+    ${d.actif ? `<button class="mini ${g.pause ? 'principal' : ''}" id="pp-pause">${g.pause ? '▶ Reprendre la passerelle' : '⏸ Mettre en pause'}</button><button class="mini danger" id="pp-desactiver" title="Coupe complètement la passerelle (les règles sont gardées)">⏻ Désactiver</button>` : ''}</div>
+    ${!d.actif ? `<div class="alerte attention pp-off"><b>Passerelle désactivée</b> : aucun message n’est relayé entre Meshtastic et MeshCore. Vous pouvez préparer les règles avant de l’activer.
+      <div class="actions-prop"><button class="principal" id="pp-activer">⏻ Activer la passerelle</button></div></div>` : g.pause ? '<div class="alerte attention">Passerelle en pause : aucun message n’est relayé.</div>' : ''}`;
   if (pp.onglet === 'bord') {
     const rej = Object.entries(d.stats.rejets).sort((a, b) => b[1] - a[1]);
     const journalHtml = d.journal.slice().reverse().filter((x) => !pp.filtreJournal || x.type === pp.filtreJournal).slice(0, 150).map((x) => `<div class="${x.type}">[${new Date(x.heure).toLocaleTimeString('fr-FR')}] ${x.type === 'in' ? 'REÇU  ' : x.type === 'out' ? 'RELAYÉ' : 'IGNORÉ'} ${esc(x.texte)}${x.motif ? ` <b>(${esc(x.motif)})</b>` : ''}</div>`).join('') || '<div class="vide">Rien pour l’instant.</div>';
@@ -6434,6 +6436,13 @@ async function rendrePasserelle(complet) {
       try { await postJson('/api/passerelle/reglages', o); $('#pp-retour').textContent = ''; rendrePasserelle(true); } catch (e) { $('#pp-retour').textContent = e.message; }
     };
   }
+  const activer = async (oui) => {
+    if (!oui && !confirm('Désactiver la passerelle ? Plus aucun message ne sera relayé ; les règles sont gardées.')) return;
+    try { await postJson('/api/passerelle/activation', { active: oui }); etat.config.passerelle = oui; } catch (e) { alert(e.message); }
+    rendrePasserelle(true);
+  };
+  { const b = $('#pp-activer'); if (b) b.onclick = () => activer(true); }
+  { const b = $('#pp-desactiver'); if (b) b.onclick = () => activer(false); }
   const bp = $('#pp-pause');
   if (bp) bp.onclick = async () => { await postJson('/api/passerelle/reglages', { pause: !g.pause }).catch((e) => alert(e.message)); rendrePasserelle(true); };
 }

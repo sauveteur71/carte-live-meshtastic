@@ -199,7 +199,8 @@ app.get('/api/config', (req, res) => {
     couchesMasquees: config.carte.couchesMasquees,
     lienDistanceMaxKm: config.lienDistanceMaxKm,
     couverturePublique: reliefPublic.couverture,
-    passerelle: config.passerelle.actif,
+    passerelle: !!(passerelle && passerelle.active()),
+    passerelleDispo: !!passerelle,
     precisionPublique: config.precisionPublique,
   });
 });
@@ -2860,8 +2861,8 @@ app.post('/api/signalements/:id/renvoyer', async (req, res) => {
   if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
   try { res.json(await signalements.renvoyer(String(req.params.id))); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
-// ---- Passerelle inter-réseaux Meshtastic ⇄ MeshCore (PASSERELLE=1 dans le .env) ----
-if (config.passerelle.actif) {
+// ---- Passerelle inter-réseaux Meshtastic ⇄ MeshCore (activée par l'admin dans son panneau ; PASSERELLE=0 l'interdit) ----
+if (!config.passerelle.interdite) {
   const reqNomMt = stockage.db.prepare('SELECT nom_court, nom_long FROM noeuds WHERE num = ?');
   passerelle = require('./passerelle').creerPasserelle({
     config, journal, audit,
@@ -2878,10 +2879,16 @@ if (config.passerelle.actif) {
   });
 }
 const exigerPasserelle = (req, res) => {
-  if (!passerelle) { res.status(404).json({ erreur: 'Passerelle inter-réseaux non activée sur cette carte (PASSERELLE=1 dans le .env)' }); return false; }
+  if (!passerelle) { res.status(404).json({ erreur: 'Passerelle inter-réseaux interdite sur cette carte (PASSERELLE=0 dans le .env)' }); return false; }
   if (!estAdmin(req)) { res.status(401).json({ erreur: 'Connexion admin requise' }); return false; }
   return true;
 };
+app.post('/api/passerelle/activation', (req, res) => {
+  if (!exigerPasserelle(req, res)) return;
+  const oui = !!(req.body || {}).active, qui = nomCompte(utilisateur(req));
+  audit.noter(qui, req.ip, `passerelle : ${oui ? 'activée' : 'désactivée'}`, '', true);
+  res.json(passerelle.activer(oui, qui));
+});
 app.get('/api/passerelle', (req, res) => { if (exigerPasserelle(req, res)) res.set('Cache-Control', 'no-store').json(passerelle.vue()); });
 app.post('/api/passerelle/regles', (req, res) => {
   if (!exigerPasserelle(req, res)) return;

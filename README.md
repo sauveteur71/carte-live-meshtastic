@@ -2,7 +2,7 @@
 
 [![Dernière version](https://img.shields.io/github/v/release/sauveteur71/carte-live-meshtastic?label=derni%C3%A8re%20version)](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest)
 
-**Version actuelle : 2.14.0** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
+**Version actuelle : 2.14.1** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
 
 Carte en temps réel, supervision et **administration à distance** d'un réseau [Meshtastic](https://meshtastic.org) — et désormais [MeshCore](https://meshcore.co.uk) — local ou départemental : elle écoute votre broker MQTT et/ou un module radio, décode les paquets, garde l'historique et permet de programmer vos nœuds par LoRa.
 
@@ -76,7 +76,7 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - **Recherche dans les réglages** (⚙️🔎 ou Ctrl+K) : trouve un réglage ou une fonction et y emmène
 - **Mise à jour en un clic** (administrateur) avec le service `maj` du docker-compose : téléchargement, redémarrage, retour à l'ancienne version en cas d'échec
 - **Équipes** (*Programmer › 👥 Équipes*, administrateur) : un canal chiffré AES-256 par équipe, posé ou retiré à distance sur les nœuds des intervenants par le module de la carte, avec relecture de contrôle ; nouvelle clé pour révoquer un nœud perdu, export de la clé (fichier pour la ligne de commande, lien de canal), clés chiffrées sur le serveur (`CLE_EQUIPES`)
-- **Passerelle inter-réseaux Meshtastic ⇄ MeshCore** (désactivée par défaut, `PASSERELLE=1`) : messages de canal relayés selon des règles canal ↔ canal, anti-écho, anti-boucle, quotas, regroupement, liste noire, journal motivé
+- **Passerelle inter-réseaux Meshtastic ⇄ MeshCore** (désactivée par défaut, activée par l'administrateur dans son panneau) : messages de canal relayés selon des règles canal ↔ canal, anti-écho, anti-boucle, quotas, regroupement, liste noire, journal motivé
 - Le **companion** de la carte sert d'observateur (Wi-Fi, USB par l'agent, ou USB / Bluetooth depuis le navigateur) ; ses paquets sont republiés sur votre broker au format **meshcoretomqtt** (`meshcore/IATA/CLÉ/packets`), et la carte lit aussi les autres observateurs publiés sur le broker
 - **Topologie et simulation MeshCore** (*Outils › Topologie et simulation MeshCore*) : graphe des répéteurs (dernier saut mesuré, voisins déclarés, traces, chemins déduits), points de rupture, répéteurs les plus traversés, trafic en direct animé et simulation de l'inondation selon la logique du firmware répéteur (délai aléatoire selon tx_delay_factor, flood.max, collisions)
 - **Messages** : filtre par canal ou messages directs

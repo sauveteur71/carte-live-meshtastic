@@ -3,7 +3,9 @@
 Relaie les **messages texte de canal** entre un canal Meshtastic et un canal MeshCore. C'est un **outil d'appoint** (exercice, événement, panne d'un des deux réseaux), pas une passerelle permanente : elle est **désactivée par défaut**.
 
 ## Activer
-Dans le `.env` : `PASSERELLE=1`, puis `docker compose up -d`. Le menu *Outils › ⇄ Passerelle inter-réseaux* apparaît pour les administrateurs.
+Administrateur : *Outils › ⇄ Passerelle inter-réseaux* › **⏻ Activer la passerelle** (ou ⚙️🔎 « passerelle »). Les règles peuvent être préparées avant l'activation ; **⏻ Désactiver** coupe tout en gardant les règles, **⏸ Mettre en pause** suspend le relais un moment. Le choix est gardé après un redémarrage.
+
+Dans le `.env`, facultatif : `PASSERELLE=1` l'active au premier démarrage ; `PASSERELLE=0` l'**interdit** sur cette carte (le menu disparaît, même pour un administrateur).
 
 Il faut un **module Meshtastic principal** et un **companion MeshCore principal** reliés à la carte : ce sont eux qui émettent les messages relayés. Les messages entrants sont ceux que la carte décode déjà (MQTT, module, companion, observateurs).
 

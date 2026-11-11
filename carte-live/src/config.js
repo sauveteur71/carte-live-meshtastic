@@ -100,7 +100,8 @@ const config = {
   },
   // Source complémentaire : API v1 de MeshMonitor (noms, rôles, sauts et liens vus par le nœud local)
   // Passerelle inter-réseaux Meshtastic ⇄ MeshCore (messages de canal) : désactivée par défaut
-  passerelle: { actif: /^(1|oui|true|on)$/i.test(texte('PASSERELLE', '')) },
+  // PASSERELLE=1 : active au premier démarrage ; PASSERELLE=0 : interdite (sinon l'admin l'active dans l'interface)
+  passerelle: { actif: /^(1|oui|true|on)$/i.test(texte('PASSERELLE', '')), interdite: /^(0|non|false|off)$/i.test(texte('PASSERELLE', '')) },
   meshmonitor: {
     url: texte('MESHMONITOR_URL').replace(/\/+$/, ''),
     jeton: texte('MESHMONITOR_JETON'),

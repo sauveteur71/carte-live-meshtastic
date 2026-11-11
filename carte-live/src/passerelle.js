@@ -1,6 +1,7 @@
 'use strict';
 // Passerelle inter-réseaux Meshtastic ⇄ MeshCore (messages texte de canal uniquement).
-// Désactivée par défaut : PASSERELLE=1 dans le .env pour l'autoriser. Outil d'appoint (exercice, événement,
+// Désactivée par défaut : un administrateur l'active depuis son panneau (Outils › Passerelle inter-réseaux) ;
+// PASSERELLE=1 dans le .env l'active au premier démarrage, PASSERELLE=0 l'interdit (bouton masqué). Outil d'appoint (exercice, événement,
 // panne d'un réseau), pas une passerelle permanente : chaque règle se coupe d'un clic, et la passerelle entière
 // se met en pause depuis son panneau.
 //
@@ -29,6 +30,8 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
   const fichier = path.join(path.dirname(config.fichierBase), 'passerelle.json');
   let donnees = { regles: [], listeNoire: [], reglages: { ...DEFAUT } };
   try { const d = JSON.parse(fs.readFileSync(fichier, 'utf8')); donnees = { ...donnees, ...d, reglages: { ...DEFAUT, ...(d.reglages || {}) } }; } catch { /* aucun */ }
+  // Activée ou non : choix de l'administrateur gardé dans passerelle.json, sinon la valeur du .env
+  if (typeof donnees.activee !== 'boolean') donnees.activee = !!config.passerelle.actif;
   const sauver = () => { try { fs.writeFileSync(fichier, JSON.stringify(donnees, null, 1), { mode: 0o600 }); } catch (e) { journal('[Passerelle] enregistrement impossible :', e.message); } };
 
   // ---- Journal, statistiques ----
@@ -126,7 +129,7 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
   // ---- Entrée : un message de canal vient d'être décodé ----
   // m : { reseau: 'mt'|'mc', canal, de (num Meshtastic ou nom MeshCore), nom, texte }
   function recevoir(m) {
-    if (!m || !m.texte || !m.canal) return;
+    if (!donnees.activee || !m || !m.texte || !m.canal) return;
     const regles = donnees.regles.filter((x) => (m.reseau === 'mt' ? norm(x.mt.nom) === norm(m.canal) && x.sens !== 'mc2mt' : norm(x.mc.nom) === norm(m.canal) && x.sens !== 'mt2mc'));
     if (!regles.length) return;
     const texte = String(m.texte).trim();
@@ -164,7 +167,7 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
   function vue() {
     const mt = etatMt(), mc = etatMc();
     return {
-      actif: true,
+      actif: donnees.activee,
       modules: { mt: { connecte: !!mt.connecte, nom: mt.nomLocal || null, canaux: mt.canaux || [] }, mc: { connecte: !!mc.pret, nom: mc.nom || null, canaux: mc.canaux || [] } },
       regles: donnees.regles.map((x) => ({ ...x, enAttente: (files.get(`${x.id}|mc`) || { messages: [] }).messages.length + (files.get(`${x.id}|mt`) || { messages: [] }).messages.length })),
       listeNoire: donnees.listeNoire,
@@ -264,7 +267,7 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
     const l = [], t = Date.now();
     for (const v of ['mt', 'mc']) {
       const concernees = donnees.regles.filter((x) => x.actif && (v === 'mc' ? x.sens !== 'mc2mt' : x.sens !== 'mt2mc'));
-      if (!concernees.length || donnees.reglages.pause || moduleEnLigne(v)) { horsLigneDepuis[v] = null; continue; }
+      if (!donnees.activee || !concernees.length || donnees.reglages.pause || moduleEnLigne(v)) { horsLigneDepuis[v] = null; continue; }
       if (!horsLigneDepuis[v]) horsLigneDepuis[v] = t;
       l.push({ cle: 'passerelle:' + v, type: 'passerelle', niveau: 'attention', depuis: horsLigneDepuis[v],
         message: `Passerelle inter-réseaux : ${v === 'mt' ? 'module Meshtastic' : 'companion MeshCore'} hors ligne, ${concernees.length} liaison(s) en attente de son retour (${concernees.map((x) => x.libelle).join(', ')})` });
@@ -272,8 +275,16 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
     return l;
   }
 
-  journal(`[Passerelle] activée : ${donnees.regles.length} règle(s)${donnees.reglages.pause ? ', en pause' : ''}`);
-  return { recevoir, vue, alertes, ajouterRegle, modifierRegle, supprimerRegle, regler, bloquer, modifierBlocage, debloquer, MOTIFS, SENS, nomMt };
+  function activer(oui, qui) {
+    donnees.activee = !!oui;
+    if (!oui) { files.clear(); }
+    sauver();
+    journal(`[Passerelle] ${oui ? 'activée' : 'désactivée'} par ${qui}`);
+    noter('drop', `passerelle ${oui ? 'activée' : 'désactivée'} par ${qui}`, oui ? null : MOTIFS.pause);
+    return vue();
+  }
+  if (donnees.activee) journal(`[Passerelle] activée : ${donnees.regles.length} règle(s)${donnees.reglages.pause ? ', en pause' : ''}`);
+  return { activer, active: () => donnees.activee, recevoir, vue, alertes, ajouterRegle, modifierRegle, supprimerRegle, regler, bloquer, modifierBlocage, debloquer, MOTIFS, SENS, nomMt };
 }
 
 module.exports = { creerPasserelle, LIMITE_MT, LIMITE_MC };
