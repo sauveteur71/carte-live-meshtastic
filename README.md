@@ -43,7 +43,7 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - Modèle de terrain IGN (RGE ALTI), couverture estimée d'un nœud ou de n'importe quel point de la carte, calibrée sur les liaisons réellement mesurées
 - Points hauts du département, classement des **meilleurs sites à ajouter**, « couvrir un point » (4 sites capables de le desservir) ou **plusieurs points (2 à 5) avec un seul site relais** — à défaut, la meilleure paire de sites
 - **Accès aux sites** d'après OpenStreetMap : en voiture, en 4×4, à pied ou hors chemin
-- Export GPX, coordonnées GPS et liens Géoportail / Google Maps pour chaque point
+- Export GPX, coordonnées GPS et liens cartes.gouv.fr (IGN) / Google Maps pour chaque point
 
 **Administration des nœuds (PKI, firmware 2.5 et plus)**
 - Connexion à un module en **Wi-Fi** (TCP 4403), ou en **USB / sur un autre réseau** grâce à l'**agent** (Windows, Linux, Raspberry Pi) relié par Tailscale ou le réseau local

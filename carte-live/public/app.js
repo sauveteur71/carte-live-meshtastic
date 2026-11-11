@@ -101,7 +101,7 @@ function blocCoords(lat, lon, opts = {}) {
     <div class="coords-l"><span>GPS</span><b class="mono">${dec}</b><button class="mini" data-copier="${dec}" title="Copier les coordonnées décimales">Copier</button></div>
     <div class="coords-l"><span>DMS</span><b class="mono">${sexa}</b><button class="mini" data-copier="${sexa}" title="Copier en degrés, minutes, secondes">Copier</button></div>
     <div class="coords-l liens-carto">${opts.alt != null ? `<span>Alt.</span><b>${Math.round(opts.alt)} m</b>` : ''}
-      <a href="https://www.geoportail.gouv.fr/carte?c=${lon.toFixed(5)},${lat.toFixed(5)}&z=16&l0=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2::GEOPORTAIL:OGC:WMTS(1)&permalink=yes" target="_blank" rel="noopener">Géoportail</a>
+      <a href="https://cartes.gouv.fr/explorer-les-cartes/?c=${lon.toFixed(5)},${lat.toFixed(5)}&z=16&l=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2$GEOPORTAIL:OGC:WMTS(1;1;0)&permalink=yes" target="_blank" rel="noopener" title="Carte IGN sur cartes.gouv.fr (remplace le Géoportail)">cartes.gouv.fr</a>
       <a href="https://www.google.com/maps/search/?api=1&query=${lat.toFixed(6)},${lon.toFixed(6)}" target="_blank" rel="noopener">Google Maps</a>
       <a href="geo:${lat.toFixed(6)},${lon.toFixed(6)}">GPS du téléphone</a></div>
     ${opts.approx ? '<div class="note">Position publique arrondie (≈ 100 m) : connectez-vous pour la position exacte.</div>' : ''}
