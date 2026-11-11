@@ -464,6 +464,7 @@ async function ficheMaj() {
   z.innerHTML = '<div class="vide">Vérification…</div>';
   let r;
   try { r = await api('/api/maj'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  afficherVersion(r);
   const s = r.service || {};
   z.innerHTML = `<div class="fiche-maj"><h2>⬆️ Mise à jour de la carte</h2>
     <div class="grille"><div class="mesure"><span>Installée</span><b>v${esc(r.version)}</b></div><div class="mesure"><span>Dernière publiée</span><b>${r.derniere ? 'v' + esc(r.derniere) : '?'}</b></div></div>

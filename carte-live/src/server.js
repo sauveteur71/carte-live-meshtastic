@@ -149,7 +149,7 @@ app.use((req, res, next) => {
 app.use('/vendor/leaflet', express.static(path.join(path.dirname(require.resolve('leaflet/package.json')), 'dist'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '5m' }));
 
-// Version installée et dernière version publiée sur GitHub (vérifiée toutes les 6 h)
+// Version installée et dernière version publiée sur GitHub (vérifiée toutes les heures, et à l'ouverture de la mise à jour)
 const DEPOT = process.env.DEPOT_GITHUB || 'sauveteur71/carte-live-meshtastic';
 const majDispo = { version: null, url: null, verifie: 0, erreur: null };
 const comparerVersions = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); } return 0; };
@@ -166,7 +166,7 @@ async function verifierDerniereVersion() {
   majDispo.verifie = Date.now();
 }
 setTimeout(verifierDerniereVersion, 15000);
-setInterval(verifierDerniereVersion, 6 * 3600000).unref();
+setInterval(verifierDerniereVersion, 3600000).unref();
 const infosVersion = () => ({ version: VERSION, derniere: majDispo.version, url: majDispo.url || `https://github.com/${DEPOT}/releases`, majDisponible: !!(majDispo.version && comparerVersions(majDispo.version, VERSION) > 0), verifie: majDispo.verifie || null });
 app.get('/api/version', (req, res) => res.json(infosVersion()));
 
@@ -2832,6 +2832,8 @@ function tachesEnCours() {
 }
 app.get('/api/maj', async (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  // Fenêtre « Mise à jour » ouverte : on redemande la dernière version à GitHub (au plus une fois par minute)
+  if (Date.now() - (majDispo.verifie || 0) > 60000) await verifierDerniereVersion();
   const v = infosVersion();
   try { res.json({ ...v, installe: true, service: await appelMaj('GET', '/etat'), taches: tachesEnCours() }); } catch (e) { res.json({ ...v, installe: false, raison: e.message, taches: tachesEnCours() }); }
 });
