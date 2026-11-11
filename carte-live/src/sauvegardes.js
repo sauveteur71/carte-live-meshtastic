@@ -9,7 +9,7 @@ const FICHIERS = [
   'reglages.json', 'installations.json', 'traceroutes-reglages.json', 'modules-radio.json', 'config-module.json',
   'configs-noeuds.json', 'lectures-noeuds.json', 'noeuds-administrables.json',
   'meshcore-admin.json', 'meshcore-companion.json', 'meshcore-lectures.json', 'code-agents.txt',
-  'federation.json', 'releves/releves.json', 'modules-cles.json', 'passerelle.json',
+  'federation.json', 'releves/releves.json', 'modules-cles.json', 'passerelle.json', 'equipes.json',
 ];
 const GARDER = 14;
 

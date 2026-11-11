@@ -1023,6 +1023,7 @@ app.post('/api/admin-noeuds/taches', (req, res) => {
   if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const b = req.body || {};
   if (!peutGererTous(req, [...(b.cibles || []), ...(b.params && b.params.reference ? [b.params.reference] : [])])) return refuserSecteur(res);
+  if (String(b.type) === 'equipe') return res.status(400).json({ erreur: 'Les canaux d’équipe se gèrent dans Programmer › Équipes' });
   try { res.json(administration.lancer(String(b.type), b.cibles, b.params || {}, u.identifiant, { insister: !!b.insister })); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 app.get('/api/admin-noeuds/lecture/:num/detail', (req, res) => {
@@ -2748,6 +2749,28 @@ const ecoutes = creerEcoutes({
 });
 ecoutes.demarrer();
 const administration = creerAdministration(sourceRadio, stockage);
+// ---- Équipes : canal chiffré par équipe, posé ou retiré à distance (administrateur) ----
+const equipes = require('./equipes').creerEquipes({ config, administration, journal });
+const routeEquipe = (f) => (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { res.set('Cache-Control', 'no-store').json(f(req, req.body || {}, nomCompte(utilisateur(req)))); } catch (e) { res.status(400).json({ erreur: e.message }); }
+};
+app.get('/api/equipes', routeEquipe(() => ({ equipes: equipes.liste(), sourceCle: equipes.sourceCle(), module: administration.infos() })));
+app.post('/api/equipes', routeEquipe((req, b, a) => equipes.creer(b, a)));
+app.patch('/api/equipes/:id', routeEquipe((req, b) => equipes.modifier(req.params.id, b)));
+app.post('/api/equipes/:id/membres', routeEquipe((req, b, a) => equipes.membres(req.params.id, b, a)));
+app.post('/api/equipes/:id/reappliquer', routeEquipe((req, b, a) => equipes.reappliquer(req.params.id, a)));
+app.post('/api/equipes/:id/nouvelle-cle', routeEquipe((req, b, a) => {
+  if (b.confirmation !== 'NOUVELLE CLE') throw new Error('Confirmation manquante : tapez « NOUVELLE CLE »');
+  return equipes.nouvelleCle(req.params.id, a);
+}));
+app.delete('/api/equipes/:id', routeEquipe((req, b, a) => equipes.supprimer(req.params.id, { retirerDesNoeuds: b.retirerDesNoeuds !== false }, a)));
+app.get('/api/equipes/:id/export', routeEquipe((req, b, a) => {
+  const x = equipes.exporter(req.params.id);
+  audit.noter(a, req.ip, 'Équipes : clé exportée', `canal « ${x.nom} » (empreinte ${x.empreinte})`, true);
+  journal(`[Équipes] clé du canal « ${x.nom} » exportée par ${a}`);
+  return x;
+}));
 // ---- Passerelle inter-réseaux Meshtastic ⇄ MeshCore (PASSERELLE=1 dans le .env) ----
 if (config.passerelle.actif) {
   const reqNomMt = stockage.db.prepare('SELECT nom_court, nom_long FROM noeuds WHERE num = ?');

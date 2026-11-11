@@ -4146,6 +4146,128 @@ const SIGNATURES_FR = {
 const dureeCourte = (s) => (s == null ? '–' : s === 0 ? 'défaut' : s % 3600 === 0 ? `${s / 3600} h` : s % 60 === 0 ? `${s / 60} min` : `${s} s`);
 
 // ---- Favoris entre relais : « sauts gratuits » (firmware 2.7.11+) -------------------------------------------
+// ---- Équipes : canal chiffré par équipe, posé ou retiré à distance (administrateur) -------------------------
+// Numéros de nœuds saisis : !a1b2c3d4, a1b2c3d4 ou numéro décimal, séparés par des virgules ou espaces
+function lireNumsSaisis(t) {
+  return String(t || '').split(/[\s,;]+/).filter(Boolean).map((x) => {
+    const h = x.replace(/^!/, '');
+    if (/^[0-9a-f]{8}$/i.test(h)) return parseInt(h, 16) >>> 0;
+    if (/^\d+$/.test(x)) return Number(x) >>> 0;
+    return null;
+  });
+}
+function telechargerTexte(nomFichier, texte) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([texte], { type: 'text/plain' }));
+  a.download = nomFichier;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+async function ficheEquipes(ouverte) {
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.dataset.tache = '';
+  if (!z.querySelector('.equipes')) z.innerHTML = '<div class="vide">Chargement des équipes…</div>';
+  let r;
+  try { r = await api('/api/equipes'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const sel = [...gestion.selection];
+  const etatMembre = (m) => m.etat === 'retrait' ? (m.dernier && m.dernier.statut === 'echec' ? ['echec', '⚠ retrait non confirmé'] : ['attente', '⏳ retrait en cours'])
+    : m.aJour ? ['ok', `✔ à jour${m.index != null ? ' · canal ' + m.index : ''}`]
+    : m.dernier && m.dernier.statut === 'echec' ? ['echec', '⚠ échec'] : ['attente', '⏳ en attente'];
+  const cli = (e) => `# Depuis le module de la carte (USB : --port /dev/ttyUSB0, Wi-Fi : --host IP), vers le nœud !a1b2c3d4
+# Clé : fichier ${e.nom}.cle exporté ci-dessus (contenu base64), à garder hors de l’historique du shell
+meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --ch-index 1 \\
+  --ch-set name ${e.nom} --ch-set psk base64:$(cat ${e.nom}.cle) \\
+  --ch-set uplink_enabled false --ch-set downlink_enabled false${e.positions ? ' \\\n  --ch-set module_settings.position_precision 32' : ''}
+# Retrait (les canaux suivants remontent d’un cran) :
+meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --ch-index 1 --ch-del
+# Verrouiller le nœud de l’intervenant (seule l’administration à distance peut le modifier) :
+meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true`;
+  z.innerHTML = `<div class="equipes"><h2>👥 Équipes</h2>
+    <p class="note">Chaque équipe a son <b>canal chiffré</b> (AES-256, clé générée par la carte). Le module de la carte le <b>pose ou le retire à distance</b> sur les nœuds des intervenants, avec relecture de contrôle. Il faut que la clé du module soit dans leurs <b>clés d’administration</b> (Programmer › 🔑 Clés d’administration). Les canaux d’équipe ne remontent pas sur MQTT : les messages restent entre les nœuds de l’équipe.</p>
+    ${!r.module.connecte ? '<div class="alerte attention">Module radio non connecté : les équipes se créent, mais il faut relier le module (Réseau › Modules) pour poser ou retirer les canaux.</div>' : ''}
+    ${r.sourceCle === 'fichier' ? '<div class="note">🔐 Les clés des équipes sont chiffrées avec la clé maîtresse <code>cle-equipes.bin</code> du dossier de données. Pour qu’une sauvegarde restaurée ailleurs garde les équipes, définissez <code>CLE_EQUIPES</code> dans le <code>.env</code> <b>avant</b> de créer la première équipe.</div>' : ''}
+    ${sel.length ? `<div class="alerte info-lecture">${sel.length} nœud(s) coché(s) dans Programmer : ${esc(sel.slice(0, 6).map(nomNoeud).join(', '))}${sel.length > 6 ? '…' : ''}</div>` : ''}
+    ${r.equipes.map((e) => `<details class="proposition equipe" data-eq="${esc(e.id)}" ${ouverte === e.id || r.equipes.length === 1 ? 'open' : ''}>
+      <summary class="entete-prop"><b>${esc(e.nom)}</b><span class="marge">${e.aJour}/${e.nbMembres} à jour · clé ${e.empreinte ? esc(e.empreinte) : '<span style="color:var(--critique)">illisible</span>'} · v${e.version}</span></summary>
+      ${e.description ? `<div class="meta-longue">${esc(e.description)}</div>` : ''}
+      ${!e.cleLisible ? '<div class="alerte attention">La clé de cette équipe ne se déchiffre plus (clé maîtresse ou CLE_EQUIPES changée) : créez une nouvelle clé.</div>' : ''}
+      <div class="liste-membres">${e.membres.length ? e.membres.map((m) => { const [c, t] = etatMembre(m); return `<div class="membre-eq ${c}">
+        <span class="nom">${esc(nomNoeud(m.num))} <small>${idHex(m.num)}</small></span><span class="etat">${t}</span>
+        ${m.dernier && m.dernier.statut === 'echec' && m.dernier.detail ? `<small class="detail">${esc(m.dernier.detail)}</small>` : ''}
+        ${m.etat === 'membre' ? `<button class="mini" data-retirer="${m.num}" title="Retirer le canal de ce nœud">Retirer</button>` : ''}</div>`; }).join('') : '<div class="vide">Aucun nœud dans cette équipe.</div>'}</div>
+      <div class="champ-ajout"><input type="text" data-saisie placeholder="!a1b2c3d4, !e5f6a7b8…" aria-label="Nœuds à ajouter"><button class="principal" data-ajouter>➕ Ajouter${sel.length ? ` (+ ${sel.length} coché${sel.length > 1 ? 's' : ''})` : ''}</button></div>
+      <label class="case"><input type="checkbox" data-positions ${e.positions ? 'checked' : ''}> Positions des membres sur le canal d’équipe (s’applique aux prochains envois)</label>
+      <div class="actions-prop">
+        <button data-reappliquer title="Renvoyer le canal aux nœuds pas à jour, et le retrait à ceux qui ne l’ont pas confirmé">↻ Renvoyer aux nœuds pas à jour</button>
+        <button data-cle title="La seule vraie révocation d’un nœud perdu ou volé">🔑 Nouvelle clé</button>
+        <button data-export title="Fichier .cle pour la ligne de commande, lien de canal pour l’appli (inscrit dans l’historique)">⬇ Exporter la clé</button>
+        <button data-supprimer class="danger">🗑 Supprimer l’équipe</button>
+      </div>
+      <div class="export-eq" hidden></div>
+      <details class="cli-eq"><summary>Équivalent en ligne de commande (meshtastic CLI)</summary><pre>${esc(cli(e))}</pre></details>
+      <p class="erreur" data-retour></p>
+    </details>`).join('') || '<div class="vide">Aucune équipe pour l’instant.</div>'}
+    <h3>Nouvelle équipe</h3>
+    <div class="parametres compact">
+      <label>Nom du canal <input id="eq-nom" maxlength="11" placeholder="Equipe1" title="11 caractères au plus, sans accent ni espace"></label>
+      <label>Description <input id="eq-desc" maxlength="120" placeholder="Équipe cynophile, secteur nord…"></label>
+    </div>
+    <label class="case"><input type="checkbox" id="eq-pos"> Partager les positions des membres sur ce canal</label>
+    <details><summary>Importer une clé existante (sinon une clé AES-256 est générée)</summary><input id="eq-cle" type="password" autocomplete="off" placeholder="clé base64 (16 ou 32 octets)"></details>
+    <div class="actions-prop"><button id="eq-creer" class="principal">Créer l’équipe</button></div>
+    <p class="erreur" id="eq-retour"></p>
+    <p class="note">Retirer un nœud n’efface le canal que s’il est joignable. Pour un nœud <b>perdu ou volé</b>, retirez-le puis faites <b>🔑 Nouvelle clé</b> : les autres membres la reçoivent, l’ancien nœud ne comprend plus rien. Les envois se suivent dans Programmer › Opérations récentes ; un nœud absent est repris toutes les 10 min pendant 2 h.</p></div>`;
+  const apres = (id, x, msg) => { ficheEquipes(id).then(() => { const b = z.querySelector(`[data-eq="${id}"] [data-retour]`); if (b) b.textContent = msg || `${x && x.taches ? x.taches.length + ' opération(s) lancée(s) : suivi dans Programmer › Opérations récentes.' : ''}`; }); if (x && x.taches && x.taches.length) suivreTaches(); };
+  $('#eq-creer').onclick = async () => {
+    try {
+      const x = await postJson('/api/equipes', { nom: $('#eq-nom').value, description: $('#eq-desc').value, positions: $('#eq-pos').checked, cle: $('#eq-cle').value || undefined });
+      ficheEquipes(x.id);
+    } catch (e) { $('#eq-retour').textContent = e.message; }
+  };
+  z.querySelectorAll('[data-eq]').forEach((bloc) => {
+    const id = bloc.dataset.eq, nom = bloc.querySelector('summary b').textContent;
+    const retour = (t) => { bloc.querySelector('[data-retour]').textContent = t; };
+    bloc.querySelector('[data-ajouter]').onclick = async () => {
+      const saisis = lireNumsSaisis(bloc.querySelector('[data-saisie]').value);
+      if (saisis.includes(null)) return retour('Identifiant de nœud non reconnu : !a1b2c3d4 ou numéro décimal');
+      const nums = [...new Set([...saisis, ...sel])];
+      if (!nums.length) return retour('Saisissez des identifiants ou cochez des nœuds dans Programmer');
+      try { apres(id, await postJson(`/api/equipes/${id}/membres`, { ajouter: nums })); } catch (e) { retour(e.message); }
+    };
+    bloc.querySelectorAll('[data-retirer]').forEach((b) => (b.onclick = async () => {
+      if (!confirm(`Retirer le canal « ${nom} » de ${nomNoeud(Number(b.dataset.retirer))} ?`)) return;
+      try { apres(id, await postJson(`/api/equipes/${id}/membres`, { retirer: [Number(b.dataset.retirer)] })); } catch (e) { retour(e.message); }
+    }));
+    bloc.querySelector('[data-positions]').onchange = async (ev) => { try { await postJson(`/api/equipes/${id}`, { positions: ev.target.checked }, 'PATCH'); retour('Enregistré : « Renvoyer » ou une nouvelle clé l’appliquera aux nœuds déjà membres.'); } catch (e) { retour(e.message); } };
+    bloc.querySelector('[data-reappliquer]').onclick = async () => { try { apres(id, await postJson(`/api/equipes/${id}/reappliquer`, {})); } catch (e) { retour(e.message); } };
+    bloc.querySelector('[data-cle]').onclick = async () => {
+      const c = prompt(`Nouvelle clé pour « ${nom} » : elle sera envoyée à tous les membres ; tant qu’un nœud ne l’a pas reçue, il ne comprend plus les autres.\nTapez NOUVELLE CLE pour confirmer.`);
+      if (c == null) return;
+      try { apres(id, await postJson(`/api/equipes/${id}/nouvelle-cle`, { confirmation: c.trim().toUpperCase() })); } catch (e) { retour(e.message); }
+    };
+    bloc.querySelector('[data-export]').onclick = async () => {
+      if (!confirm(`Exporter la clé du canal « ${nom} » ? Toute personne qui l’obtient peut lire les messages de l’équipe. L’export est inscrit dans l’historique.`)) return;
+      try {
+        const x = await api(`/api/equipes/${id}/export`);
+        const ex = bloc.querySelector('.export-eq');
+        ex.hidden = false;
+        ex.innerHTML = `<div class="alerte attention">Clé affichée une seule fois, ne la laissez pas à l’écran.</div>
+          <div class="actions-prop"><button data-fichier>💾 Fichier ${esc(x.nom)}.cle</button><button data-lien>📋 Copier le lien de canal</button><button data-masquer>Masquer</button></div>
+          <div class="note">Lien de canal (appli Meshtastic, ajoute le canal sans toucher aux autres) : <code class="coupe">${esc(x.url)}</code></div>`;
+        ex.querySelector('[data-fichier]').onclick = () => telechargerTexte(`${x.nom}.cle`, x.cle + '\n');
+        ex.querySelector('[data-lien]').onclick = async () => { try { await navigator.clipboard.writeText(x.url); retour('Lien copié.'); } catch { retour('Copie impossible : sélectionnez le lien.'); } };
+        ex.querySelector('[data-masquer]').onclick = () => { ex.hidden = true; ex.innerHTML = ''; };
+      } catch (e) { retour(e.message); }
+    };
+    bloc.querySelector('[data-supprimer]').onclick = async () => {
+      if (!confirm(`Supprimer l’équipe « ${nom} » ? Le canal sera retiré de tous ses nœuds joignables.`)) return;
+      try { const x = await postJson(`/api/equipes/${id}`, { retirerDesNoeuds: true }, 'DELETE'); ficheEquipes(); if (x.taches.length) suivreTaches(); } catch (e) { retour(e.message); }
+    };
+  });
+}
+
 async function ficheFavoris() {
   $('#fiche').hidden = false;
   etat.selection = null;
@@ -4365,7 +4487,7 @@ async function rendreGestion() {
   z.innerHTML = `
     <div id="bandeau-fw">${nouveauFw ? `<div class="alerte info-lecture">⬆️ Firmware <b>${esc(fwv(fw.stable))}</b> disponible pour ${esc(fwm.nom || 'le module')} (actuel ${esc(fwm.firmware)}).${fwm.ip ? ' <button class="mini principal" id="fw-maj">Mettre à jour…</button>' : ' Module relié par agent : mise à jour en USB ou depuis son réseau local.'}</div>` : fwm && fw.test && fw.stable && fw.test.tag !== fw.stable.tag ? `<div class="note">Firmware du module : ${esc(fwm.firmware || '?')} (stable à jour) · version test ${esc(fwv(fw.test))} disponible.</div>` : ''}</div>
     ${!etat.admin ? `<div class="alerte">Compte gestionnaire : vous programmez les ${(etat.secteur || []).length} nœud(s) de votre secteur. Le module radio est géré par les administrateurs.</div>` : ''}
-    <div class="titre-programmer"><b>Nœuds Meshtastic</b><button class="mini" id="voir-cles" title="Quels modules peuvent programmer quel relais, et ce qu'il reste à faire sur place">🔑 Clés d’administration</button><button class="mini" id="voir-favoris" title="Favoris entre relais : sauts gratuits (firmware 2.7.11+)">⭐ Favoris relais</button><button class="mini" id="voir-modeles" title="Réglages types par usage, export et import YAML">📋 Modèles</button><button class="mini" id="voir-v28" title="Préparer le passage au firmware 2.8">🆕 Firmware 2.8</button><button class="mini" id="voir-trafic" title="Nœuds trop bavards et paquets réinjectés depuis MQTT">🚦 Contrôle du trafic</button>${etat.admin ? '<button class="mini" id="voir-fw" title="Version et mise à jour par le Wi-Fi des modules joignables en IP">⬆️ Firmware Wi-Fi</button>' : ''}${etat.config.meshcore ? '<button class="mini" id="vers-prog-mc">Répéteurs MeshCore →</button>' : ''}</div>
+    <div class="titre-programmer"><b>Nœuds Meshtastic</b><button class="mini" id="voir-cles" title="Quels modules peuvent programmer quel relais, et ce qu'il reste à faire sur place">🔑 Clés d’administration</button><button class="mini" id="voir-favoris" title="Favoris entre relais : sauts gratuits (firmware 2.7.11+)">⭐ Favoris relais</button>${etat.admin ? '<button class="mini" id="voir-equipes" title="Canal chiffré par équipe, posé ou retiré à distance sur les nœuds des intervenants">👥 Équipes</button>' : ''}<button class="mini" id="voir-modeles" title="Réglages types par usage, export et import YAML">📋 Modèles</button><button class="mini" id="voir-v28" title="Préparer le passage au firmware 2.8">🆕 Firmware 2.8</button><button class="mini" id="voir-trafic" title="Nœuds trop bavards et paquets réinjectés depuis MQTT">🚦 Contrôle du trafic</button>${etat.admin ? '<button class="mini" id="voir-fw" title="Version et mise à jour par le Wi-Fi des modules joignables en IP">⬆️ Firmware Wi-Fi</button>' : ''}${etat.config.meshcore ? '<button class="mini" id="vers-prog-mc">Répéteurs MeshCore →</button>' : ''}</div>
     ${!i.connecte ? '<div class="alerte attention">Le module radio n’est pas connecté : connectez-le dans l’onglet Réseau, section Modules Wi-Fi.</div>' : ''}
     <details class="aide-cle"${i.clePublique ? '' : ' open'}>
       <summary>Autoriser le module à programmer vos nœuds</summary>
@@ -4402,6 +4524,7 @@ async function rendreGestion() {
   $('#filtre-gestion').oninput = (e) => { gestion.filtre = e.target.value; clearTimeout(gestion.minFiltre); gestion.minFiltre = setTimeout(() => { rendreGestion().then(() => { const f = $('#filtre-gestion'); f.focus(); f.setSelectionRange(f.value.length, f.value.length); }); }, 250); };
   { const bc = $('#voir-cles'); if (bc) bc.onclick = ficheCles; }
   { const b = $('#voir-favoris'); if (b) b.onclick = ficheFavoris; }
+  { const b = $('#voir-equipes'); if (b) b.onclick = () => ficheEquipes(); }
   { const b = $('#voir-modeles'); if (b) b.onclick = () => ficheModeles(); }
   { const b = $('#voir-v28'); if (b) b.onclick = ficheV28; }
   { const b = $('#voir-trafic'); if (b) b.onclick = () => ficheTrafic(); }

@@ -800,6 +800,78 @@ function creerAdministration(radio, stockage) {
     await admin(dest, { rebootSeconds: 5 }, { reponse: false });
   }
 
+  // ---- Équipes : canal chiffré d'une équipe posé ou retiré à distance -------------------------------
+  // La clé n'est jamais dans les paramètres de la tâche (enregistrés sur disque) : elle est demandée au module
+  // des équipes au moment de l'écriture. Paramètres : { equipe, action: 'ajouter' | 'retirer' | 'cle', nom }.
+  let equipes = null; // { cle(id) -> { nom, psk (Buffer), version, positions } | null, noter(id, num, resultat) }
+  const pskEgal = (a, b) => Buffer.from(a || '', 'base64').equals(Buffer.isBuffer(b) ? b : Buffer.from(b || '', 'base64'));
+  const versReglages = (st) => ({
+    name: st.name || '', psk: Buffer.from(st.psk || '', 'base64'), id: st.id || 0,
+    uplinkEnabled: !!st.uplinkEnabled, downlinkEnabled: !!st.downlinkEnabled,
+    moduleSettings: { positionPrecision: (st.moduleSettings && st.moduleSettings.positionPrecision) || 0 },
+  });
+  async function lireCanaux(dest, j) {
+    await lire(dest, j, { sections: ['canaux'] });
+    const l = lectures.get(dest >>> 0);
+    if (!l || !l.canauxFin) throw new Error('canaux du nœud illisibles');
+    return l.canauxBruts;
+  }
+  async function appliquerEquipe(dest, p, j) {
+    dest = dest >>> 0;
+    if (!equipes) throw new Error('module des équipes absent');
+    const action = p.action;
+    try {
+      const eq = action === 'retirer' ? null : equipes.cle(p.equipe);
+      if (action !== 'retirer' && !eq) throw Object.assign(new Error('équipe supprimée entre-temps'), { garde: true });
+      const nom = eq ? eq.nom : String(p.nom || '');
+      if (!nom) throw Object.assign(new Error('nom du canal manquant'), { garde: true });
+      await assurerSession(dest);
+      j('lecture des canaux du nœud…');
+      const canaux = await lireCanaux(dest, j);
+      const idx = canaux.findIndex((c, i) => i > 0 && c && c.role !== 'DISABLED' && (c.settings.name || '') === nom);
+      let resultat;
+      if (action === 'retirer') {
+        if (idx < 0) { j(`canal « ${nom} » absent : rien à retirer`); resultat = { retire: true, deja: true }; }
+        else {
+          // Comme « meshtastic --ch-del » : les canaux suivants remontent d'un cran (canaux contigus)
+          const suivants = [];
+          for (let i = idx + 1; i < 8 && canaux[i] && canaux[i].role !== 'DISABLED'; i++) suivants.push(canaux[i]);
+          for (const [k, c] of suivants.entries()) {
+            await admin(dest, { setChannel: { index: idx + k, role: 2, settings: versReglages(c.settings) } }, { reponse: false });
+            j(`canal « ${c.settings.name || '?'} » déplacé en ${idx + k}`);
+          }
+          await admin(dest, { setChannel: { index: idx + suivants.length, role: 0, settings: {} } }, { reponse: false });
+          j(`canal « ${nom} » retiré (emplacement ${idx})`);
+          await new Promise((r) => setTimeout(r, dest === radio.infos().noeudLocal ? 3000 : 15000));
+          const apres = await lireCanaux(dest, j);
+          if (apres.some((c, i) => i > 0 && c && c.role !== 'DISABLED' && (c.settings.name || '') === nom)) throw new Error('le canal est toujours présent à la relecture');
+          resultat = { retire: true };
+        }
+      } else {
+        const libre = canaux.findIndex((c, i) => i > 0 && (!c || c.role === 'DISABLED'));
+        const index = idx >= 0 ? idx : libre >= 0 ? libre : canaux.length < 8 ? canaux.length : -1;
+        if (index < 1) throw Object.assign(new Error('aucun emplacement de canal libre sur ce nœud (8 au plus)'), { garde: true });
+        if (idx >= 0 && pskEgal(canaux[idx].settings.psk, eq.psk)) { j(`canal « ${nom} » déjà présent avec la bonne clé (emplacement ${idx})`); resultat = { index, version: eq.version, deja: true }; }
+        else {
+          const settings = { name: nom, psk: eq.psk, uplinkEnabled: false, downlinkEnabled: false, moduleSettings: { positionPrecision: eq.positions ? 32 : 0 } };
+          await admin(dest, { setChannel: { index, role: 2, settings } }, { reponse: false });
+          j(`canal « ${nom} » ${idx >= 0 ? 'mis à jour (nouvelle clé)' : 'créé'} en ${index}`);
+          await new Promise((r) => setTimeout(r, dest === radio.infos().noeudLocal ? 3000 : 15000));
+          const apres = await lireCanaux(dest, j);
+          const c = apres[index];
+          if (!c || c.role === 'DISABLED' || (c.settings.name || '') !== nom || !pskEgal(c.settings.psk, eq.psk)) throw new Error('relecture : le canal n’a pas la bonne clé (réessayez)');
+          j('relecture de contrôle : canal et clé corrects');
+          resultat = { index, version: eq.version };
+        }
+      }
+      equipes.noter(p.equipe, dest, { statut: 'ok', action, ...resultat });
+      return resultat;
+    } catch (e) {
+      if (equipes) equipes.noter(p.equipe, dest, { statut: e.arret ? 'annule' : 'echec', action, detail: String(e.message).slice(0, 200) });
+      throw e;
+    }
+  }
+
   // ---- Tâches (plusieurs nœuds, suivies depuis la carte) ---------------------------------------
   const OPERATIONS = {
     lire: { nom: 'Lecture de la configuration', f: (d, p, j) => lire(d, j, p) },
@@ -812,6 +884,7 @@ function creerAdministration(radio, stockage) {
     redemarrer: { nom: 'Redémarrage', f: redemarrer },
     favoris: { nom: 'Favoris entre relais', f: (d, p, j) => definirFavoris(d, p, j) },
     firmware: { nom: 'Mise à jour du firmware (Wi-Fi)', f: (d, p, j) => mettreAJourFirmware(d, p, j) },
+    equipe: { nom: 'Canal d’équipe', f: (d, p, j) => appliquerEquipe(d, p, j) },
     echanger: { nom: 'Envoi de la fiche du module', f: async (d) => { await enFile(async () => { echangerInfos(d); await new Promise((r) => setTimeout(r, 3000)); }); } },
   };
   function lancer(type, cibles, params, auteur, options = {}) {
@@ -871,7 +944,7 @@ function creerAdministration(radio, stockage) {
             n.resultat = await executer(true); // une lecture reprend là où elle s'était arrêtée
           }
           n.statut = 'ok';
-          n.detail = type === 'favoris' ? `${n.resultat.ajoutes} favori(s) posé(s)${n.resultat.retires ? `, ${n.resultat.retires} retiré(s)` : ''}` : type === 'firmware' ? (n.resultat && n.resultat.nouvelle ? `firmware ${n.resultat.nouvelle} installé` : (n.resultat && n.resultat.detail) || 'firmware envoyé') : type === 'modifier' ? 'modifié et relu' : type === 'verifier' ? (n.resultat.reference ? 'référence lue' : n.resultat.conforme ? 'conforme' : `${n.resultat.ecarts.length} écart(s)`) : type === 'lire' ? 'configuration lue' : n.resultat && n.resultat.canal0 ? `canal 0 « ${n.resultat.ancien || 'preset'} » → « ${n.resultat.canal0} », vérifié` : 'appliqué (accusé reçu)';
+          n.detail = type === 'favoris' ? `${n.resultat.ajoutes} favori(s) posé(s)${n.resultat.retires ? `, ${n.resultat.retires} retiré(s)` : ''}` : type === 'firmware' ? (n.resultat && n.resultat.nouvelle ? `firmware ${n.resultat.nouvelle} installé` : (n.resultat && n.resultat.detail) || 'firmware envoyé') : type === 'modifier' ? 'modifié et relu' : type === 'verifier' ? (n.resultat.reference ? 'référence lue' : n.resultat.conforme ? 'conforme' : `${n.resultat.ecarts.length} écart(s)`) : type === 'lire' ? 'configuration lue' : type === 'equipe' ? (n.resultat.retire ? (n.resultat.deja ? 'canal déjà absent' : 'canal retiré, vérifié') : n.resultat.deja ? `canal déjà à jour (emplacement ${n.resultat.index})` : `canal posé en ${n.resultat.index}, vérifié`) : n.resultat && n.resultat.canal0 ? `canal 0 « ${n.resultat.ancien || 'preset'} » → « ${n.resultat.canal0} », vérifié` : 'appliqué (accusé reçu)';
         } catch (e) {
           if (e.partiel) n.resultat = e.partiel;
           n.statut = e.arret || tache.arret ? 'annule' : 'echec';
@@ -1055,6 +1128,7 @@ function creerAdministration(radio, stockage) {
     if (t.type === 'verifier') return `référence ${idNoeud(p.reference)} · ${(p.elements || []).map((k) => (ELEMENTS[k] || {}).nom || k).join(', ')}`;
     if (t.type === 'firmware') return `vers ${p.version}`;
     if (t.type === 'favoris') { const v = Object.values(p.plan || {}); return `${v.reduce((a, x) => a + (x.ajouter || []).length, 0)} favori(s) à poser sur ${v.length} relais`; }
+    if (t.type === 'equipe') return `${{ ajouter: 'ajout au', retirer: 'retrait du', cle: 'nouvelle clé du' }[p.action] || ''} canal d’équipe « ${p.nom || ''} »`;
     if (t.type === 'position') return p.retirer ? 'retrait de la position fixe' : `${p.lat}, ${p.lon}`;
     return '';
   }
@@ -1185,6 +1259,7 @@ function creerAdministration(radio, stockage) {
       return conf;
     },
     lancerConformite,
+    brancherEquipes: (e) => { equipes = e; },
     infos: () => {
       const i = radio.infos();
       return { connecte: i.connecte, noeudLocal: i.noeudLocal, clePublique: i.clePublique, clesConnues: [...i.clesPubliques.keys()] };

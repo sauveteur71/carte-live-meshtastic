@@ -1227,3 +1227,18 @@ body.theme-clair .badge-passerelle { color: #1d4ed8; border-color: #1d4ed8; }
 .champ-chemin { display: block; margin-top: 8px; font-size: 12.5px; color: var(--doux); } .champ-chemin input { width: 100%; margin-top: 3px; }
 svg.profil .mat { stroke: #fbbf24; stroke-width: 2.5; }
 svg.profil .etiq-ant { fill: #fbbf24; font-size: 11px; font-weight: 700; paint-order: stroke; stroke: rgba(0,0,0,.6); stroke-width: 3px; }
+
+/* Équipes */
+.equipe summary { cursor: pointer; display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; }
+.liste-membres { display: flex; flex-direction: column; gap: 4px; margin: .5rem 0; }
+.membre-eq { display: grid; grid-template-columns: 1fr auto auto; gap: .25rem .6rem; align-items: center; padding: 4px 8px; border-radius: 6px; background: rgba(255,255,255,.04); border-left: 3px solid var(--attention); }
+.membre-eq.ok { border-left-color: var(--ok); }
+.membre-eq.echec { border-left-color: var(--critique); }
+.membre-eq .etat { font-weight: 600; font-size: .85em; }
+.membre-eq .detail { grid-column: 1 / -1; opacity: .85; }
+.champ-ajout { display: flex; gap: .4rem; margin: .4rem 0; }
+.champ-ajout input { flex: 1; min-width: 0; }
+.champ-ajout button { flex: none; white-space: nowrap; }
+.cli-eq pre { white-space: pre-wrap; word-break: break-all; font-size: .8em; background: rgba(0,0,0,.35); padding: .5rem; border-radius: 6px; }
+code.coupe { word-break: break-all; }
+.equipes .principal { background: var(--accent); color: #062019; border-color: var(--accent); font-weight: 600; }
