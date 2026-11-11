@@ -1381,6 +1381,33 @@ const libelleCapteur = (r, mesure) => {
   const [type, canal] = mesure.split(':');
   return `${MC_LIB_CAPTEUR[type] || type} ${canal}`;
 };
+// Chemin enregistré dans le companion pour joindre ce nœud : le voir, le réinitialiser (inondation), le forcer
+async function mcRendreChemin(n) {
+  const z = $('#mc-chemin');
+  if (!z) return;
+  const titre = '<h4>🧭 Chemin depuis le companion</h4>';
+  if (!(mc.etat && mc.etat.companion && mc.etat.companion.pret)) { z.innerHTML = titre + '<p class="note">Companion de la carte non relié.</p>'; return; }
+  let r;
+  try { r = await api(`/api/mc/noeuds/${n.cle}/chemin`); } catch (e) { z.innerHTML = titre + `<p class="note">${esc(e.message)}</p>`; return; }
+  const gerer = typeof estGestionnaire !== 'undefined' ? estGestionnaire() : (etat.admin || (etat.compte && etat.compte.role === 'gestionnaire'));
+  const etatTxt = !r.contact ? 'Ce nœud n’est pas dans les contacts du companion : le premier envoi part en inondation, le chemin sera appris au retour.'
+    : r.inondation ? '<b>Inondation</b> : aucun chemin enregistré, le prochain envoi passe par tous les répéteurs et le chemin sera appris au retour.'
+    : !r.chemin.length ? '<b>Direct</b> (0 saut) : le companion lui écrit sans relais.'
+    : `<b>${r.chemin.length} relais</b> : ${r.chemin.map((x) => `<span class="saut-chemin" title="${esc(x.cle || '')}">${esc(x.nom || '?')} <code>${esc(x.id)}</code></span>`).join(' → ')} → ${esc(n.nom || 'nœud')}`;
+  z.innerHTML = `${titre}<p>${etatTxt}</p>
+    ${gerer && r.contact ? `<div class="boutons"><button class="mini" id="mc-chemin-reset" title="Oublie le chemin : le prochain envoi part en inondation et le chemin est réappris">↺ Réinitialiser (inondation)</button>
+      <button class="mini" id="mc-chemin-direct" title="Le nœud est entendu en direct par le companion">Forcer en direct</button></div>
+      <label class="champ-chemin">Forcer un chemin <input id="mc-chemin-saisie" placeholder="ex. A3,7F (identifiants des relais, du companion vers le nœud)" value="${r.chemin && r.chemin.length ? esc(r.chemin.map((x) => x.id).join(',')) : ''}"></label>
+      <button class="mini principal" id="mc-chemin-forcer">Appliquer ce chemin</button><p class="erreur" id="mc-chemin-retour"></p>
+      <p class="note">Un chemin faux empêche de joindre le nœud : en cas de doute, réinitialisez. Les identifiants des répéteurs sont les premiers octets de leur clé (voir leur fiche).</p>` : ''}`;
+  const act = async (corps) => {
+    try { await postJson(`/api/mc/noeuds/${n.cle}/chemin`, corps); mcRendreChemin(n); } catch (e) { const x = $('#mc-chemin-retour'); if (x) x.textContent = e.message; else alert(e.message); }
+  };
+  const b1 = $('#mc-chemin-reset'); if (b1) b1.onclick = () => act({ action: 'reinitialiser' });
+  const b2 = $('#mc-chemin-direct'); if (b2) b2.onclick = () => act({ action: 'forcer', chemin: '' });
+  const b3 = $('#mc-chemin-forcer'); if (b3) b3.onclick = () => act({ action: 'forcer', chemin: $('#mc-chemin-saisie').value });
+}
+
 async function mcRendreCapteurs(n, z, jours = 7) {
   if (!z) return;
   let r;
@@ -1499,6 +1526,7 @@ async function mcOuvrirFiche(cle, ongletInitial) {
         ${n.lat != null ? `<button id="mc-couv">Couverture selon le relief</button><label class="champ-mini">antenne <input id="mc-h" type="number" min="0.5" max="80" step="0.5" value="${n.infrastructure ? 6 : 2}"> m</label>` : ''}
       </div>
       <div id="mc-test-zone">${d.chemin ? mcHtmlChemin(d.chemin, n) : ''}</div>
+      ${etat.membre && mc.etat && mc.etat.companion && mc.etat.companion.cle !== n.cle ? '<div id="mc-chemin" class="bloc-chemin"><h4>🧭 Chemin depuis le companion</h4><div class="vide">…</div></div>' : ''}
       ${mcHtmlTelemetrie(d.telemetrie)}
       ${d.entenduPar.length ? `<h4>Entendu par (observateurs)</h4><table class="voisins"><thead><tr><th>Observateur</th><th class="num">Paquets</th><th class="num">SNR</th><th class="num">RSSI</th><th class="num">Sauts min.</th></tr></thead><tbody>
         ${d.entenduPar.map((e) => `<tr data-mc="${e.observateur}"><td>${esc(e.nom || e.observateur.slice(0, 8))}</td><td class="num">${e.nb}</td><td class="num">${fmt(e.snr, 1)}</td><td class="num">${fmt(e.rssi, 0)}</td><td class="num">${e.sauts_min ?? '–'}</td></tr>`).join('')}</tbody></table>` : ''}
@@ -1519,6 +1547,7 @@ async function mcOuvrirFiche(cle, ongletInitial) {
   }));
   if (ongletInitial) { const b = zc.querySelector(`[data-of="${ongletInitial}"]`); if (b) b.click(); }
   const bq = $('#mc-qr'); if (bq) bq.onclick = () => mcOuvrirQr({ cle: n.cle });
+  if ($('#mc-chemin')) mcRendreChemin(n);
   const bt = $('#mc-tester');
   if (bt) bt.onclick = async () => {
     bt.disabled = true;

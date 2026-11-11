@@ -1455,6 +1455,8 @@ function menuNoeud(x, y, id) {
     pos && ['couverture', '📡 Couverture depuis ce nœud'],
     pos && etat.membre && ['partager', '📍 Partager sa position dans un message'],
     ['copier', `📋 Copier l’identifiant (${estMc ? id.slice(0, 8) + '…' : ident})`],
+    estMc && etat.membre && ['chemin', '🧭 Chemin depuis le companion'],
+    etat.admin && ['supprimer', '🗑 Supprimer ce nœud'],
   ].filter(Boolean);
   const d = document.createElement('div');
   d.id = 'menu-noeud'; d.className = 'menu-noeud'; d.setAttribute('role', 'menu');
@@ -1475,6 +1477,15 @@ function menuNoeud(x, y, id) {
     else if (k === 'couverture') couvertureIci(L.latLng(n.lat, n.lon), n.infrastructure ? 6 : 3);
     else if (k === 'partager') partagerPoint(n.lat, n.lon);
     else if (k === 'copier') { try { await navigator.clipboard.writeText(ident); } catch { /* presse-papiers indisponible */ } }
+    else if (k === 'chemin') { mcOuvrirFiche(id); setTimeout(() => { const o = document.querySelector('[data-of="admin"]'); if (o) o.click(); setTimeout(() => { const c = document.getElementById('mc-chemin'); if (c) c.scrollIntoView({ block: 'center' }); }, 600); }, 500); }
+    else if (k === 'supprimer') {
+      if (!confirm(`Supprimer « ${nom} » de la carte et du serveur ?\n\nSa fiche, ses positions, ses liaisons et sa télémétrie sont effacées${estMc ? ', et il est retiré des contacts du companion' : ''}. S’il émet de nouveau, il réapparaîtra.`)) return;
+      try {
+        const r = await fetch(estMc ? `/api/mc/noeuds/${id}` : `/api/noeuds/${Number(id) >>> 0}`, { method: 'DELETE' });
+        const j = await r.json(); if (!r.ok) throw new Error(j.erreur || 'suppression impossible');
+        if (estMc && j.contact && j.contact !== 'retiré') alert(`Nœud supprimé de la carte. Contact du companion : ${j.contact}.`);
+      } catch (e) { alert(e.message); }
+    }
     else if (k === 'message') {
       if (estMc) {
         mc.destMessage = 'direct:' + id;
@@ -1950,6 +1961,7 @@ async function calculerProfil() {
       <div class="mesure"><span>Marge de liaison</span><b style="color:${coul}">${fmt(b.marge, 1, ' dB')}</b></div>
       ${r.a.num != null && r.b.num != null ? `<div class="mesure"><span>SNR mesuré ${esc(r.a.nom.slice(0, 10))} → ${esc(r.b.nom.slice(0, 10))}</span><b>${mes(r.mesure.aVersB)}</b></div>
       <div class="mesure"><span>SNR mesuré ${esc(r.b.nom.slice(0, 10))} → ${esc(r.a.nom.slice(0, 10))}</span><b>${mes(r.mesure.bVersA)}</b></div>` : ''}
+      ${[['A', r.a, f.ha.value, r.serie[0]], ['B', r.b, f.hb.value, r.serie[r.serie.length - 1]]].map(([k, o, h, p]) => `<div class="mesure"><span>Antenne ${k} · ${esc(String(o.nom).slice(0, 14))}</span><b>${fmt(Number(h), 1, ' m')} au-dessus du sol <small>(sol ${fmt(p.sol ?? p.solCourbe, 0, ' m')} → antenne ${fmt((p.sol ?? p.solCourbe) + Number(h), 0, ' m')})</small></b></div>`).join('')}
       <div class="mesure"><span>Obstacle principal</span><b>à ${fmt(r.obstacle.distanceKm, 1, ' km')} · ${r.obstacle.degagementM >= 0 ? `dégagement ${fmt(r.obstacle.degagementM, 0, ' m')}` : `dépasse la visée de ${fmt(-r.obstacle.degagementM, 0, ' m')}`}</b></div>
     </div>
     <p class="note">Survolez le profil pour lire l’altitude ; cliquez pour voir l’endroit sur la carte.</p>
@@ -1979,7 +1991,10 @@ function graphiqueProfil(r) {
     <path d="${sol}" class="sol"/>
     <path d="${fres}" class="fresnel"/><path d="${fres60}" class="fresnel60"/>
     <path d="${visee}" class="visee"/>
+    <line x1="${x(0)}" x2="${x(0)}" y1="${y(s[0].solCourbe)}" y2="${y(s[0].visee)}" class="mat"/><line x1="${x(D)}" x2="${x(D)}" y1="${y(s[s.length - 1].solCourbe)}" y2="${y(s[s.length - 1].visee)}" class="mat"/>
     <circle cx="${x(0)}" cy="${y(s[0].visee)}" r="4" class="ant"/><circle cx="${x(D)}" cy="${y(s[s.length - 1].visee)}" r="4" class="ant"/>
+    <text x="${x(0) + 6}" y="${y(s[0].visee) - 6}" class="etiq-ant">A ${fmt(s[0].visee - s[0].solCourbe, 1, ' m')}</text>
+    <text x="${x(D) - 6}" y="${y(s[s.length - 1].visee) - 6}" text-anchor="end" class="etiq-ant">B ${fmt(s[s.length - 1].visee - s[s.length - 1].solCourbe, 1, ' m')}</text>
     <circle cx="${x(ob.d)}" cy="${y(ob.solCourbe)}" r="4" class="obstacle"/>
     <g class="curseur-profil" visibility="hidden"><line y1="${m.h}" y2="${H - m.b}"/><circle r="4"/><rect class="fond-info" rx="4" height="30"/><text class="info-l1"></text><text class="info-l2"></text></g>
     <rect class="zone-profil" x="${m.g}" y="${m.h}" width="${W - m.g - m.d}" height="${H - m.h - m.b}" fill="transparent"/>
@@ -2993,7 +3008,8 @@ async function planZoneDessinee(polys, nom, opts = {}) {
   for (const poly of polys) L.polygon(poly, { color: '#facc15', weight: 2.5, fill: false, pane: 'traces', interactive: false }).addTo(g);
   carte.fitBounds(L.latLngBounds(polys.flat()).pad(0.15), { maxZoom: 13 });
   let r;
-  try { r = await postJson('/api/relief/plan-zone', { polygones: polys, objectif, max, acces, reseau, realiste }); } catch (e) { z.innerHTML = `<h2>🖊 ${esc(nom)}</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  const hs = Number(($('#plan-hs') || {}).value) || 6;
+  try { r = await postJson('/api/relief/plan-zone', { polygones: polys, objectif, max, acces, reseau, realiste, hs }); } catch (e) { z.innerHTML = `<h2>🖊 ${esc(nom)}</h2><div class="vide">${esc(e.message)}</div>`; return; }
   const e2 = r.emprise;
   L.imageOverlay(r.image, [[e2.sud, e2.ouest], [e2.nord, e2.est]], { opacity: 0.75, pane: 'couverture', className: 'pixelise' }).addTo(g);
   r.sites.forEach((x) => L.marker([x.lat, x.lon], { icon: L.divIcon({ className: 'relais-a-installer', html: `<div class="epingle"><b>${x.rang}</b></div>`, iconSize: [34, 44], iconAnchor: [17, 42] }), pane: 'traces', zIndexOffset: 900 })
@@ -3003,7 +3019,7 @@ async function planZoneDessinee(polys, nom, opts = {}) {
     .bindTooltip(`<b>${x.rang}${String.fromCharCode(97 + j)} · ${esc(nomSommet(o))}</b> (à la place du site ${x.rang})<br>${o.alt} m${o.commune ? ' · ' + esc(o.commune) : ''}<br>+${o.gainKm2} km² au lieu de +${x.gainKm2} km²${o.acces ? '<br>' + ACCES[o.acces.type].icone + ' ' + ACCES[o.acces.type].nom : ''}`, { className: 'info' }).addTo(g)));
   const nomAcces = { tous: 'tous les points hauts', voiture: 'accessibles en voiture', '4x4': 'accessibles en 4×4 ou voiture', pied: 'accessibles à pied, en 4×4 ou voiture' }[r.filtreAcces];
   z.innerHTML = `<h2>🖊 ${esc(nom)}</h2>
-    <div class="ident">${r.zones > 1 ? r.zones + ' zones · ' : ''}${r.surfaceZoneKm2} km² · objectif ${r.objectifPct} % · au plus ${r.max} sites · ${esc(nomAcces)} · ${r.avecReseau ? `avec le réseau actuel (${r.reseau.length} relais à portée)` : 'sans le réseau actuel'}</div>
+    <div class="ident">${r.zones > 1 ? r.zones + ' zones · ' : ''}${r.surfaceZoneKm2} km² · objectif ${r.objectifPct} % · au plus ${r.max} sites · ${esc(nomAcces)} · ${r.avecReseau ? `avec le réseau actuel (${r.reseau.length} relais à portée)` : 'sans le réseau actuel'}${r.parametres && r.parametres.hs != null ? ` · antenne des sites <b>${fmt(r.parametres.hs, 1, ' m')} au-dessus du sol</b>` : ''}</div>
     <div class="parametres compact"><label>Accès des nouveaux relais <select id="zone-acces">${Object.entries({ voiture: '🚗 En voiture', '4x4': '🚙 En 4×4 ou voiture', pied: '🥾 À pied ou mieux', tous: 'Tous les points hauts' }).map(([k, v]) => `<option value="${k}" ${k === r.filtreAcces ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
     ${r.filtreAcces !== 'tous' && r.accesEtat && r.accesEtat.faits < r.accesEtat.total ? `<div class="alerte attention">Accès aux sites en cours d’évaluation (OpenStreetMap) : ${r.accesEtat.faits}/${r.accesEtat.total} points. Seuls les sites déjà évalués sont proposés.</div>` : ''}
     ${r.horsReliefKm2 > 2 ? `<div class="alerte attention">${r.horsReliefKm2} km² de la zone sortent du relief chargé (département et ses abords) : ils ne sont pas étudiés.</div>` : ''}
@@ -3045,7 +3061,7 @@ async function planDepartement() {
   if (r.sites.length) carte.fitBounds(L.latLngBounds(r.sites.map((x) => [x.lat, x.lon])).pad(0.3), { maxZoom: 11 });
   const nomAcces = { tous: 'tous les points hauts', voiture: 'accessibles en voiture', '4x4': 'accessibles en 4×4 ou voiture', pied: 'accessibles à pied, en 4×4 ou voiture' }[r.filtreAcces];
   $('#fiche-contenu').innerHTML = `<h2>Plan pour couvrir le département</h2>
-    <div class="ident">Objectif ${r.objectifPct} % · au plus ${r.max} sites · ${esc(nomAcces)} · ${r.avecReseau ? `en complément du réseau actuel (${r.reseau.length} relais)` : 'sans tenir compte du réseau actuel'}</div>
+    <div class="ident">Objectif ${r.objectifPct} % · au plus ${r.max} sites · ${esc(nomAcces)} · ${r.avecReseau ? `en complément du réseau actuel (${r.reseau.length} relais)` : 'sans tenir compte du réseau actuel'}${r.parametres && r.parametres.hs != null ? ` · antenne des sites ${fmt(r.parametres.hs, 1, ' m')} au-dessus du sol (fixée par le classement des points hauts ; réglable pour une zone dessinée)` : ''}</div>
     <div class="barre-couv"><i style="width:${r.departPct}%" class="actuel"></i><i style="width:${Math.max(0, r.finalPct - r.departPct)}%" class="ajout"></i></div>
     <div class="alerte ${r.atteint ? 'info-lecture' : 'attention'}">${r.atteint ? `✔ Objectif atteint avec <b>${r.sites.length} site${r.sites.length > 1 ? 's' : ''}</b> : ${fmt(r.departPct, 1, ' %')} → <b>${fmt(r.finalPct, 1, ' %')}</b> du département.` : `Objectif non atteint : ${fmt(r.departPct, 1, ' %')} → <b>${fmt(r.finalPct, 1, ' %')}</b> avec ${r.sites.length} site${r.sites.length > 1 ? 's' : ''}. ${r.sites.length >= r.max ? 'Augmentez le nombre de sites' : 'Les sites restants n’apportent presque rien'}${r.filtreAcces !== 'tous' ? ' ou élargissez l’accès' : ''}.`}</div>
     ${r.filtreAcces !== 'tous' && r.accesEtat && r.accesEtat.faits < r.accesEtat.total ? `<div class="alerte attention">Accès aux sites en cours d’évaluation (OpenStreetMap) : ${r.accesEtat.faits}/${r.accesEtat.total} points. ${r.candidats ? 'Le plan ne porte que sur les sites déjà évalués.' : 'Aucun site évalué pour l’instant : choisissez « Tous les points hauts » ou réessayez dans quelques minutes.'}</div>` : ''}
@@ -3257,6 +3273,7 @@ async function rendreSites() {
       <div class="parametres compact">
         <label>Objectif (%) <input id="plan-objectif" type="number" min="10" max="100" step="1" value="95"></label>
         <label>Sites au plus <input id="plan-max" type="number" min="1" max="40" step="1" value="15"></label>
+        <label title="Hauteur de l’antenne des relais proposés, au-dessus du sol (zone dessinée)">Antenne (m au-dessus du sol) <input id="plan-hs" type="number" min="1" max="60" step="0.5" value="6"></label>
         <label>Accès exigé <select id="plan-acces"><option value="voiture">🚗 En voiture</option><option value="4x4">🚙 En 4×4 ou voiture</option><option value="pied">🥾 À pied ou mieux</option><option value="tous">Tous les points hauts</option></select></label>
       </div>
       <label class="case"><input type="checkbox" id="plan-reseau" checked> En complément du réseau actuel</label>
@@ -3353,9 +3370,10 @@ async function rendreSites() {
   { const zs = $('#zone-suppr'); if (zs) zs.onclick = () => { const zm = $('#zone-memo'); const l = lireLs('gaulix_zones', []); const k = Number(zm.value); if (zm.value === '' || !l[k]) return; if (!confirm(`Oublier la zone « ${l[k].nom} » ?`)) return; l.splice(k, 1); ecrireLs('gaulix_zones', l); zm.innerHTML = '<option value="">Zones enregistrées…</option>' + l.map((z, i) => `<option value="${i}">${esc(z.nom)}</option>`).join(''); }; }
   const pc = $('#plan-calculer');
   if (pc) {
-    try { const v = localStorage.getItem('gaulix_plan'); if (v) { const o = JSON.parse(v); $('#plan-objectif').value = o.objectif; $('#plan-max').value = o.max; $('#plan-acces').value = o.acces; $('#plan-reseau').checked = o.reseau; } } catch { /* ignoré */ }
+    try { const v = localStorage.getItem('gaulix_plan'); if (v) { const o = JSON.parse(v); $('#plan-objectif').value = o.objectif; $('#plan-max').value = o.max; $('#plan-acces').value = o.acces; $('#plan-reseau').checked = o.reseau; if (o.hs && $('#plan-hs')) $('#plan-hs').value = o.hs; } } catch { /* ignoré */ }
+    if ($('#plan-hs')) $('#plan-hs').onchange = () => { try { localStorage.setItem('gaulix_plan', JSON.stringify({ objectif: $('#plan-objectif').value, max: $('#plan-max').value, acces: $('#plan-acces').value, reseau: $('#plan-reseau').checked, hs: $('#plan-hs').value })); } catch { /* ignoré */ } };
     pc.onclick = () => {
-      try { localStorage.setItem('gaulix_plan', JSON.stringify({ objectif: $('#plan-objectif').value, max: $('#plan-max').value, acces: $('#plan-acces').value, reseau: $('#plan-reseau').checked })); } catch { /* ignoré */ }
+      try { localStorage.setItem('gaulix_plan', JSON.stringify({ objectif: $('#plan-objectif').value, max: $('#plan-max').value, acces: $('#plan-acces').value, reseau: $('#plan-reseau').checked, hs: ($('#plan-hs') || {}).value })); } catch { /* ignoré */ }
       planDepartement();
     };
   }
@@ -5317,6 +5335,22 @@ function connecterWs() {
   const temoin = $('#direct');
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
+    // Nœud supprimé par un administrateur : retiré de la carte et des listes
+    if (m.genre === 'noeud-supprime') {
+      const k = Number(m.num) >>> 0;
+      etat.noeuds.delete(k);
+      const mk = etat.marqueurs.get(k); if (mk) { mk.remove(); etat.marqueurs.delete(k); }
+      if (etat.selection === k) $('#fermer-fiche').click();
+      rendreNoeuds(); dessinerLiens();
+      return;
+    }
+    if (m.genre === 'mc-supprime' && typeof mc !== 'undefined') {
+      mc.noeuds.delete(m.cle);
+      const mk = mc.marqueurs.get(m.cle); if (mk) { mk.remove(); mc.marqueurs.delete(m.cle); }
+      if (mc.selection === m.cle) $('#fermer-fiche').click();
+      mcRendreNoeuds();
+      return;
+    }
     if (m.genre === 'bienvenue' || m.genre === 'mqtt') {
       const ok = m.genre === 'bienvenue' ? m.mqtt : m.connecte;
       temoin.className = 'direct ' + (ok ? 'ok' : 'ko');

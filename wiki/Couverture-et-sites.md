@@ -9,7 +9,7 @@ Onglet **Couverture** et menu **Couverture radio**. Les calculs utilisent le mod
 - **Plan pour couvrir le département** : objectif, nombre de sites, accès exigé (voiture, 4×4, à pied) ; bouton **voir la couverture** sur chaque site proposé.
 - **Plan à budget** : « j'ai N relais à poser », surface et habitants gagnés.
 - **Simulation « et si… »** : retirer ou ajouter des relais, villes qui ne seraient plus couvertes.
-- **Profil entre deux points**, **sites routiers** (webcams du Département et de la DIR), **déplacer des relais**.
+- **Profil entre deux points** : hauteur de chaque antenne **au-dessus du sol** (mât dessiné sur le profil, altitude du sol et de l'antenne affichées), **sites routiers** (webcams du Département et de la DIR), **déplacer des relais**.
 - **Fiche d'installation** de chaque relais (antenne, hauteur, gain, câble, puissance, alimentation) : utilisée par les calculs.
 - **Couverture mesurée** : d'où les nœuds sont réellement reçus, relevés de terrain.
 - **Bulles voisines** : les relais des cartes des départements voisins (*Outils › Partager*).
@@ -27,6 +27,8 @@ La carte donne, pour la seule zone :
 - les points hauts à équiper, dans l'ordre, avec le gain de surface de chacun ;
 - pour chacun, **d'autres emplacements possibles** (1a, 1b, 1c) d'apport proche, si le site proposé n'est pas utilisable ;
 - la couverture finale (bleu : déjà couvert, turquoise : apporté, rouge : non couvert).
+
+**Antenne (m au-dessus du sol)** : hauteur des antennes des sites proposés pour la zone dessinée (6 m par défaut, de 1 à 60 m) ; elle est rappelée dans le résultat. Le plan du département utilise la hauteur fixée par le classement des points hauts (6 m), indiquée dans son résultat.
 
 Les critères sont ceux du plan du département : objectif, nombre de sites, accès (modifiable dans le résultat : voiture, 4×4, à pied, tous), réseau actuel, sites réalistes. Les points hauts candidats sont ceux de la zone et des 10 km autour. La zone doit rester dans le relief chargé (le département et ses abords). Les zones sont gardées dans ce navigateur (*Zones enregistrées…*), et le GPX des sites se télécharge.
 

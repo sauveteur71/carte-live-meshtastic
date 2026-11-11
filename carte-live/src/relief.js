@@ -689,7 +689,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     }
     return false;
   }
-  async function planZone({ polygone, polygones, objectifPct = 95, max = 10, acces: filtre = null, avecReseau = true, realiste = false } = {}) {
+  async function planZone({ polygone, polygones, objectifPct = 95, max = 10, acces: filtre = null, avecReseau = true, realiste = false, hs = null } = {}) {
     if (etat.mnt !== 'pret') throw new Error('relief pas encore chargé : réessayez dans une minute');
     // Une ou plusieurs zones (la réunion est étudiée comme un seul secteur)
     const brutes = Array.isArray(polygones) && polygones.length ? polygones : [polygone];
@@ -723,7 +723,9 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     horsRelief = Math.max(0, Math.round(surfaceDemandee - nb * aireCelleKm2));
     if (nb < 4) throw new Error('zone trop petite (moins de 1 km²) ou hors du relief chargé');
     if (nb > 200000) throw new Error('zone trop grande : dessinez un secteur de moins de 12 000 km²');
-    const P = parametres({});
+    // Hauteur des antennes des sites proposés au-dessus du sol (1 à 60 m ; défaut 6 m)
+    const hsZone = Number.isFinite(Number(hs)) && Number(hs) > 0 ? Math.min(60, Math.max(1, Number(hs))) : undefined;
+    const P = parametres({ hs: hsZone });
     const mots = Math.ceil(nb / 32);
     const couvrir = (site, Pp, nbRayons = 720) => {
       const bits = new Uint32Array(mots);

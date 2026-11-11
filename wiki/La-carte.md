@@ -60,7 +60,9 @@ Un clic droit (ou un appui long sur téléphone) sur un nœud, dans une liste ou
 - ☆ ajouter aux favoris, 🛠 ajouter à « Mes nœuds » (ou les retirer) ;
 - ✉️ message direct, 📶 écouter en direct (Meshtastic), 📡 couverture depuis ce nœud ;
 - 📍 partager sa position dans un message ;
-- 📋 copier l'identifiant.
+- 📋 copier l'identifiant ;
+- 🧭 chemin depuis le companion (MeshCore, membre) : voir [[MeshCore]] ;
+- 🗑 **supprimer ce nœud** (administrateur) : pour un nœud qui n'existe plus. Il disparaît de la carte et de la base (positions, télémétrie, liaisons) ; un nœud MeshCore est aussi retiré des contacts du companion. S'il émet encore, il réapparaîtra à sa prochaine annonce.
 
 Le clic droit ailleurs sur la carte garde son menu habituel : couverture, profil, partage du point…
 

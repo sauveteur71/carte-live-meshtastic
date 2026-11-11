@@ -514,7 +514,23 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     return { heures, zone, total, airtimeS: Math.round(air), occupationPct: Math.round((air / (heures * 3600)) * 1000) / 10, parType, emetteurs, sauts, observateurs, topRelais, parHeure };
   }
 
+  // Suppression d'un nœud qui n'existe plus : fiche, liaisons, état et télémétrie (les paquets et messages restent
+  // dans l'historique, ils disparaîtront avec la purge habituelle)
+  function supprimerNoeud(cle) {
+    const t = db.transaction(() => {
+      const n = db.prepare('DELETE FROM mc_noeuds WHERE cle = ?').run(cle).changes;
+      db.prepare('DELETE FROM mc_liens WHERE a = ? OR b = ?').run(cle, cle);
+      db.prepare('DELETE FROM mc_telemetrie WHERE cle = ?').run(cle);
+      try { db.prepare('DELETE FROM mc_capteurs WHERE cle = ?').run(cle); } catch { /* table absente */ }
+      return n;
+    });
+    const n = t();
+    cache = null;
+    return n > 0;
+  }
+
   return {
+    supprimerNoeud,
     positionDe, noterEtat, telemetrie, calculerAlertes, analyse, surveilles, integrer, importerContact, noterObservateur, vueNoeud, liens, statistiques, detailNoeud, paquets, detailPaquet, messages, noterMessage, confirmerAck, statutMessage, lierVoisins, lierMesure, definirCanaux, definirMoi, canaux: () => canaux, purger, q, resoudreChemin };
 }
 

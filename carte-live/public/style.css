@@ -1221,3 +1221,9 @@ body.theme-clair .pp-journal .in { color: #047857; } body.theme-clair .pp-journa
 .badge-passerelle { font-size: 10.5px; padding: 0 6px; border-radius: 99px; border: 1px solid rgba(147,197,253,.6); color: #93c5fd; }
 body.theme-clair .badge-passerelle { color: #1d4ed8; border-color: #1d4ed8; }
 .note-source { font-size: 12.5px; color: var(--doux); background: var(--surface-2); border: 1px solid var(--bord); border-radius: 8px; padding: 6px 10px; }
+.bloc-chemin { margin-top: 10px; border: 1px solid var(--bord); border-radius: 8px; padding: 6px 10px 10px; }
+.bloc-chemin h4 { margin: 4px 0 6px; }
+.saut-chemin code { font-size: 11px; color: var(--tres-doux); }
+.champ-chemin { display: block; margin-top: 8px; font-size: 12.5px; color: var(--doux); } .champ-chemin input { width: 100%; margin-top: 3px; }
+svg.profil .mat { stroke: #fbbf24; stroke-width: 2.5; }
+svg.profil .etiq-ant { fill: #fbbf24; font-size: 11px; font-weight: 700; paint-order: stroke; stroke: rgba(0,0,0,.6); stroke-width: 3px; }

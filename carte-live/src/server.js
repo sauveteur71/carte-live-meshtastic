@@ -718,7 +718,7 @@ app.post('/api/relief/plan-zone', async (req, res) => {
   const RR = R(req);
   planZoneEnCours++;
   try {
-    const r = await RR.planZone({ polygone: b.polygone, polygones: b.polygones, objectifPct: Number(b.objectif) || 95, max: Number(b.max) || 10, acces: filtre, avecReseau: b.reseau !== false, realiste: !!b.realiste });
+    const r = await RR.planZone({ polygone: b.polygone, polygones: b.polygones, objectifPct: Number(b.objectif) || 95, max: Number(b.max) || 10, acces: filtre, avecReseau: b.reseau !== false, realiste: !!b.realiste, hs: b.hs });
     const id = crypto.randomBytes(6).toString('hex');
     cacheCouverture.set(id, { image: r.image });
     if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
@@ -2072,6 +2072,65 @@ app.post('/api/mc/companion', (req, res) => {
     companion.connecterA(c);
   }
   res.json({ ok: true });
+});
+// ---- Chemin vers un nœud MeshCore (contact du companion) : voir, réinitialiser, forcer ----
+const cleMc = (x) => { const c = String(x || '').toUpperCase(); if (!/^[0-9A-F]{64}$/.test(c)) throw new Error('clé invalide'); return c; };
+app.get('/api/mc/noeuds/:cle/chemin', async (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  try {
+    const cle = cleMc(req.params.cle);
+    const c = await companion.contact(cle);
+    if (!c) return res.json({ contact: false });
+    const relais = (c.chemin || []).map((p) => { const l = reseauMc.resoudreChemin([p], null, null)[0]; return { id: p, nom: l ? l.nom : null, cle: l ? l.cle : null }; });
+    res.json({ contact: true, inondation: c.chemin == null, chemin: relais, tailleSaut: c.tailleSaut, nom: c.nom });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/mc/noeuds/:cle/chemin', async (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Réservé aux gestionnaires et administrateurs' });
+  try {
+    const cle = cleMc(req.params.cle), b = req.body || {};
+    let r;
+    if (b.action === 'reinitialiser') { await companion.reinitialiserChemin(cle); r = { ok: true }; }
+    else if (b.action === 'forcer') r = await companion.forcerChemin(cle, String(b.chemin || '').split(/[\s,;>→-]+/).filter(Boolean));
+    else return res.status(400).json({ erreur: 'action inconnue' });
+    audit.noter(nomCompte(utilisateur(req)), req.ip, b.action === 'forcer' ? 'MeshCore : chemin forcé' : 'MeshCore : chemin réinitialisé', `${cle.slice(0, 8)}${b.action === 'forcer' ? ' · ' + (r.chemin.join(' → ') || 'direct') : ''}`, true);
+    res.json(r);
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+// ---- Suppression d'un nœud Meshtastic qui n'existe plus (admin) : fiche, positions, télémétrie, liaisons ----
+app.delete('/api/noeuds/:num', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const num = Number(req.params.num) >>> 0;
+  if (!num) return res.status(400).json({ erreur: 'numéro invalide' });
+  const n = stockage.q.noeud.get(num), db = stockage.db;
+  const nb = db.transaction(() => {
+    const k = db.prepare('DELETE FROM noeuds WHERE num = ?').run(num).changes;
+    db.prepare('DELETE FROM positions WHERE num = ?').run(num);
+    db.prepare('DELETE FROM telemetrie WHERE num = ?').run(num);
+    db.prepare('DELETE FROM liens WHERE a = ? OR b = ?').run(num, num);
+    return k;
+  })();
+  const nom = (n && (n.nom_long || n.nom_court)) || '!' + num.toString(16).padStart(8, '0');
+  audit.noter(nomCompte(utilisateur(req)), req.ip, 'Meshtastic : nœud supprimé', `${nom} (!${num.toString(16).padStart(8, '0')})`, true);
+  journal(`nœud « ${nom} » supprimé par ${nomCompte(utilisateur(req))}`);
+  diffuser({ genre: 'noeud-supprime', num });
+  res.json({ ok: nb > 0 });
+});
+// ---- Suppression d'un nœud MeshCore qui n'existe plus (admin) : carte, base et contacts du companion ----
+app.delete('/api/mc/noeuds/:cle', async (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  let cle;
+  try { cle = cleMc(req.params.cle); } catch (e) { return res.status(400).json({ erreur: e.message }); }
+  const n = reseauMc.q.noeud.get(cle);
+  const ok = reseauMc.supprimerNoeud(cle);
+  let contact = 'absent';
+  try { if (companion.etat().pret) { await companion.supprimerContact(cle); contact = 'retiré'; } else contact = 'companion non relié'; } catch (e) { contact = e.message; }
+  for (const c of ecoutes.companions()) { try { if (c.etat().pret) await c.supprimerContact(cle); } catch { /* ignoré */ } }
+  audit.noter(nomCompte(utilisateur(req)), req.ip, 'MeshCore : nœud supprimé', `${(n && n.nom) || cle.slice(0, 8)} (${cle.slice(0, 12)}…) · contact du companion : ${contact}`, true);
+  journal(`[MeshCore] nœud « ${(n && n.nom) || cle.slice(0, 8)} » supprimé par ${nomCompte(utilisateur(req))}`);
+  diffuser({ genre: 'mc-supprime', cle });
+  diffuser({ genre: 'mc-noeuds' });
+  res.json({ ok, contact });
 });
 app.post('/api/mc/companion/relancer', (req, res) => {
   if (!exigerAdmin(req, res) || !exigerMc(res)) return;

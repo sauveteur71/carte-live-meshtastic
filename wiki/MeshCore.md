@@ -45,6 +45,18 @@ Onglet **MeshCore › Programmer** et fiche d'un répéteur :
 
 Les liaisons mesurées (découverte, traces) s'affichent sur la carte et dans la topologie.
 
+## Chemin depuis le companion
+Le companion retient, pour chaque contact, le **chemin** (liste des répéteurs) appris au dernier échange. Si ce chemin est faux (répéteur déplacé, éteint, liaison tombée), les messages directs n'arrivent plus alors que le nœud est joignable. La fiche du nœud (onglet *Infos*) et le clic droit **🧭 Chemin depuis le companion** montrent :
+- **Inondation** (aucun chemin) ou **Direct** (0 saut), ou la liste des répéteurs avec leur nom quand il est connu ;
+- **↺ Réinitialiser** (gestionnaire) : efface le chemin, le prochain envoi part en inondation et le bon chemin est réappris au retour, comme « Reset path » dans l'application officielle ;
+- **Forcer en direct** : 0 saut, si le nœud est à portée du companion ;
+- **Forcer un chemin** : identifiants des répéteurs du companion vers le nœud, séparés par des virgules (`A3,7F`, ou `A3F1,7F02` en identifiants de 2 octets ; tous de la même taille). L'identifiant d'un répéteur est le début de sa clé (voir sa fiche).
+
+Le nœud doit être dans les contacts du companion (lui avoir écrit, ou l'avoir administré). Chaque changement est inscrit dans l'historique des opérations.
+
+## Supprimer un nœud disparu
+Clic droit sur le nœud › **🗑 Supprimer ce nœud** (administrateur) : il est effacé de la carte et de la base (télémétrie, capteurs, liaisons) et retiré des contacts du companion. S'il émet de nouveau, il réapparaîtra.
+
 ## Capteurs : relevés périodiques et courbes
 Fiche d'un répéteur, salon ou capteur, onglet **Capteurs** :
 - **Relever toutes les…** : 15 min, 30 min, 1 h, 3 h, 6 h, 12 h ou 24 h (ou jamais). La carte lance elle-même la tâche « télémétrie » par le companion. Le nœud doit autoriser la télémétrie (mot de passe invité ou admin mémorisé, ou télémétrie ouverte). Chaque relevé envoie un paquet : 1 h ou plus suffit pour un abri ou une batterie ;

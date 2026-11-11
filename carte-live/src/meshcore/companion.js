@@ -22,7 +22,7 @@ const { ROLES } = require('./paquet');
 const CMD = {
   APP_START: 1, SEND_TXT_MSG: 2, SEND_CHANNEL_TXT_MSG: 3, GET_CONTACTS: 4, SET_DEVICE_TIME: 6, SEND_SELF_ADVERT: 7,
   ADD_UPDATE_CONTACT: 9, SYNC_NEXT_MESSAGE: 10, GET_BATT: 20, DEVICE_QUERY: 22, SEND_LOGIN: 26, SEND_STATUS_REQ: 27,
-  LOGOUT: 29, GET_CHANNEL: 31, GET_CONTACT_BY_KEY: 30,
+  LOGOUT: 29, GET_CHANNEL: 31, GET_CONTACT_BY_KEY: 30, RESET_PATH: 13, REMOVE_CONTACT: 15,
 };
 const RESP = {
   OK: 0, ERR: 1, CONTACTS_START: 2, CONTACT: 3, END_CONTACTS: 4, SELF_INFO: 5, SENT: 6, CONTACT_MSG: 7, CHANNEL_MSG: 8,
@@ -376,12 +376,7 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
     }
     if (code === RESP.CONTACT && contactsEnCours) {
       if (t.length < 148) return;
-      const lat = t.readInt32LE(136) / 1e6, lon = t.readInt32LE(140) / 1e6;
-      contactsEnCours.push({
-        cle: t.subarray(1, 33).toString('hex').toUpperCase(), role: ROLES[t[33]] || 'inconnu', drapeaux: t[34], longueurChemin: t[35],
-        nom: texte(t.subarray(100, 132)), horodatage: t.readUInt32LE(132), lat: Math.abs(lat) > 0.0001 ? lat : null, lon: Math.abs(lon) > 0.0001 ? lon : null,
-        vu: t.readUInt32LE(144) * 1000 || null,
-      });
+      contactsEnCours.push(lireTrameContact(t));
       return;
     }
     if (code === RESP.CONTACTS_START) { contactsEnCours = []; return; }
@@ -422,6 +417,25 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
     if (!etat.pret) throw new Error('companion relié mais muet : il ne répond pas encore (firmware « companion », démarrage en cours ?)');
   };
   const cleOctets = (cle) => { if (!/^[0-9A-F]{64}$/i.test(cle)) throw new Error('clé publique invalide'); return Buffer.from(cle, 'hex'); };
+
+  // Trame contact : clé(32) type drapeaux longueur_chemin chemin(64) nom(32) annonce(4) lat lon modif(4)
+  // Longueur du chemin : 0xFF = inconnu (envoi en inondation) ; sinon 2 bits de taille d'identifiant (1 à 3 octets)
+  // et 6 bits de nombre de relais, comme dans les paquets
+  function lireTrameContact(t) {
+    const lat = t.readInt32LE(136) / 1e6, lon = t.readInt32LE(140) / 1e6, lc = t[35];
+    let chemin = null, tailleSaut = 1;
+    if (lc !== 0xff) {
+      tailleSaut = (lc >> 6) + 1;
+      const nb = lc & 0x3f, o = t.subarray(36, 36 + Math.min(64, nb * tailleSaut));
+      chemin = [];
+      for (let i = 0; i + tailleSaut <= o.length; i += tailleSaut) chemin.push(o.subarray(i, i + tailleSaut).toString('hex').toUpperCase());
+    }
+    return {
+      cle: t.subarray(1, 33).toString('hex').toUpperCase(), role: ROLES[t[33]] || 'inconnu', type: t[33], drapeaux: t[34], longueurChemin: lc, chemin, tailleSaut,
+      nom: texte(t.subarray(100, 132)), horodatage: t.readUInt32LE(132), lat: Math.abs(lat) > 0.0001 ? lat : null, lon: Math.abs(lon) > 0.0001 ? lon : null,
+      latBrut: t.readInt32LE(136), lonBrut: t.readInt32LE(140), vu: t.readUInt32LE(144) * 1000 || null,
+    };
+  }
 
   // Ajoute (ou met à jour) un nœud dans les contacts du companion : nécessaire pour lui écrire ou l'administrer
   async function assurerContact(n) {
@@ -474,6 +488,49 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
     },
     agentDisponible(hote) {
       if (!navigateur && !arret && memo.cible && memo.cible.type === 'agent' && memo.cible.hote === hote && (!flux || flux.destroyed)) planifier(500);
+    },
+    // ---- Chemin d'un contact : lire, réinitialiser (retour à l'inondation), forcer à la main ----
+    async contact(cle) {
+      exigerPret();
+      const t = await commande(Buffer.concat([Buffer.from([CMD.GET_CONTACT_BY_KEY]), cleOctets(cle)]), [RESP.CONTACT], 5000)
+        .catch((e) => { if (e.code === 2) return null; throw e; }); // 2 : contact inconnu
+      if (!t || t.length < 148) return null;
+      const c = lireTrameContact(t);
+      contacts.set(c.cle, { ...(contacts.get(c.cle) || {}), ...c });
+      return c;
+    },
+    async reinitialiserChemin(cle) {
+      exigerPret();
+      await commande(Buffer.concat([Buffer.from([CMD.RESET_PATH]), cleOctets(cle)]), [RESP.OK], 5000);
+      const c = contacts.get(cle); if (c) { c.longueurChemin = 0xff; c.chemin = null; }
+      journal(`chemin vers ${cle.slice(0, 8)} réinitialisé (prochain envoi en inondation)`);
+    },
+    // sauts : identifiants hexadécimaux des relais, du premier au dernier (tous de la même taille : 1, 2 ou 3 octets)
+    async forcerChemin(cle, sauts) {
+      exigerPret();
+      const c = await this.contact(cle);
+      if (!c) throw new Error('ce nœud n’est pas dans les contacts du companion : écrivez-lui ou administrez-le d’abord');
+      const l = (sauts || []).map((x) => String(x).trim().toUpperCase()).filter(Boolean);
+      const taille = l.length ? l[0].length / 2 : 1;
+      if (l.some((x) => !/^[0-9A-F]+$/.test(x) || x.length !== taille * 2) || ![1, 2, 3].includes(taille)) throw new Error('chemin : identifiants hexadécimaux de même taille (2, 4 ou 6 caractères), ex. A3,7F');
+      if (l.length > Math.floor(64 / taille) || l.length > 63) throw new Error('chemin trop long');
+      const b = Buffer.alloc(1 + 32 + 3 + 64 + 32 + 4 + 8);
+      b[0] = CMD.ADD_UPDATE_CONTACT; cleOctets(cle).copy(b, 1);
+      b[33] = c.type; b[34] = c.drapeaux;
+      b[35] = ((taille - 1) << 6) | l.length;
+      Buffer.from(l.join(''), 'hex').copy(b, 36);
+      b.write(String(c.nom || cle.slice(0, 8)).slice(0, 31), 100, 'utf8');
+      b.writeUInt32LE(c.horodatage || 0, 132);
+      b.writeInt32LE(c.latBrut || 0, 136); b.writeInt32LE(c.lonBrut || 0, 140);
+      await commande(b, [RESP.OK], 5000);
+      contacts.set(cle, { ...c, longueurChemin: b[35], chemin: l, tailleSaut: taille });
+      journal(`chemin vers ${c.nom || cle.slice(0, 8)} forcé : ${l.length ? l.join(' → ') : 'direct (0 saut)'}`);
+      return { chemin: l, tailleSaut: taille };
+    },
+    async supprimerContact(cle) {
+      exigerPret();
+      await commande(Buffer.concat([Buffer.from([CMD.REMOVE_CONTACT]), cleOctets(cle)]), [RESP.OK], 5000).catch((e) => { if (e.code !== 1 && e.code !== 2) throw e; });
+      contacts.delete(cle);
     },
     async annoncer(inondation) { exigerPret(); await commande([CMD.SEND_SELF_ADVERT, inondation ? 1 : 0], [RESP.OK], 5000); },
     async rechargerContacts() { exigerPret(); await lireContacts(); await lireCanaux(); },
