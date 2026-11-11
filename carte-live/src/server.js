@@ -2705,6 +2705,13 @@ app.post('/api/mc/capteurs/:cle', (req, res) => {
   if (!peutGerer(req, cle)) return refuserSecteur(res);
   try { res.json(capteursMc.regler(cle, req.body || {})); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
+// Remise à zéro des capteurs d'un nœud (historique et/ou libellés, seuils, masquage), ou d'une seule mesure
+app.post('/api/mc/capteurs/:cle/reinitialiser', (req, res) => {
+  const cle = String(req.params.cle).toUpperCase();
+  if (!/^[0-9A-F]{64}$/.test(cle)) return res.status(400).json({ erreur: 'clé invalide' });
+  if (!peutGerer(req, cle)) return refuserSecteur(res);
+  try { res.json(capteursMc.reinitialiser(cle, req.body || {})); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 const { creerMaintenanceMc } = require('./meshcore/maintenance');
 const maintenanceMc = creerMaintenanceMc({ config, reseauMc, adminMc, companion, journal });
 app.get('/api/mc/maintenance', (req, res) => {

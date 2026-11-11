@@ -66,6 +66,8 @@ Fiche d'un répéteur, salon ou capteur, onglet **Capteurs** :
 - **🔔 Alerte** : un seuil bas et/ou haut par mesure. Quand le dernier relevé en sort, une alerte MeshCore s'affiche (onglet Réseau) et le navigateur envoie une notification si la carte est ouverte ;
 - **🙈 Masquer** : retire de l'affichage une mesure non pertinente (voie non câblée à 0 V…). Elle reste enregistrée et dans l'export CSV, sans alerte ; *Mesures masquées* permet de la réafficher ;
 - **⬇ CSV** : export des relevés de la période affichée (séparateur « ; », virgule décimale, pour un tableur).
+- **🗑** (sur une mesure) : efface cette mesure, tout son historique, son nom et son alerte ; elle revient au prochain relevé si le capteur l'envoie encore ;
+- **♻ Remettre à zéro** (en bas de l'onglet) : après un renommage, un recâblage ou une mise à jour du capteur, les canaux peuvent changer de sens et les anciens noms ne correspondent plus. Au choix : effacer tout l'historique, seulement les relevés antérieurs à une date, ou le garder ; et effacer les noms des mesures, les alertes et le masquage. L'intervalle de relevé est gardé.
 
 Les relevés faits à la main depuis l'administration alimentent aussi les courbes. L'historique est gardé 90 jours.
 

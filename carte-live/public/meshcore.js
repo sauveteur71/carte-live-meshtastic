@@ -1427,7 +1427,7 @@ async function mcRendreCapteurs(n, z, jours = 7) {
       const hors = (se.min != null && der[1] < se.min) || (se.max != null && der[1] > se.max);
       const txtSeuil = se.min != null || se.max != null ? `alerte ${se.min != null ? 'sous ' + fmt(se.min, dec(sr.unite), ' ' + sr.unite) : ''}${se.min != null && se.max != null ? ' ou ' : ''}${se.max != null ? 'au-dessus de ' + fmt(se.max, dec(sr.unite), ' ' + sr.unite) : ''}` : '';
       return `<div class="serie-capteur${hors ? ' hors-seuil' : ''}"><div class="titre-serie"><b>${esc(libelleCapteur(r, sr.mesure))}</b> <span class="valeur">${fmt(der[1], dec(sr.unite), ' ' + sr.unite)}</span>${hors ? ' <span class="alerte-seuil">⚠ hors seuil</span>' : ''}
-        ${r.peutRegler ? `<button class="mini" data-cap-lib="${esc(sr.mesure)}" title="Renommer cette mesure">✏️</button><button class="mini" data-cap-masquer="${esc(sr.mesure)}" title="Masquer cette mesure (non pertinente) : elle reste enregistrée et dans l’export CSV">🙈 Masquer</button>` : ''}<small>${esc(sr.mesure.replace(':', ' · canal '))} · ${sr.points.length} relevé${sr.points.length > 1 ? 's' : ''}${txtSeuil ? ' · ' + txtSeuil : ''}</small></div>
+        ${r.peutRegler ? `<button class="mini" data-cap-lib="${esc(sr.mesure)}" title="Renommer cette mesure">✏️</button><button class="mini" data-cap-effacer="${esc(sr.mesure)}" title="Effacer cette mesure : tout son historique, son nom et son alerte">🗑</button><button class="mini" data-cap-masquer="${esc(sr.mesure)}" title="Masquer cette mesure (non pertinente) : elle reste enregistrée et dans l’export CSV">🙈 Masquer</button>` : ''}<small>${esc(sr.mesure.replace(':', ' · canal '))} · ${sr.points.length} relevé${sr.points.length > 1 ? 's' : ''}${txtSeuil ? ' · ' + txtSeuil : ''}</small></div>
         ${pts.length >= 2 ? courbe(pts, 'v', '', ' ' + sr.unite, dec(sr.unite), se.min != null ? se.min : undefined) : '<p class="note">Une seule valeur pour l’instant : la courbe apparaîtra au relevé suivant.</p>'}
         ${r.peutRegler ? `<details class="seuils-capteur"><summary>🔔 Alerte${txtSeuil ? ' (réglée)' : ''}</summary><div class="ligne-seuils" data-cap-seuil="${esc(sr.mesure)}">
           <label>sous <input type="number" step="any" data-s="min" value="${se.min ?? ''}" placeholder="—"></label>
@@ -1435,8 +1435,30 @@ async function mcRendreCapteurs(n, z, jours = 7) {
           <span>${esc(sr.unite || '')}</span><button class="mini principal" data-s-ok>Enregistrer</button></div>
           <p class="note">Alerte MeshCore (et notification du navigateur, carte ouverte) quand le dernier relevé sort de ces limites. Laissez vide pour ne pas surveiller.</p></details>` : ''}</div>`;
     }).join('') : '<div class="vide">Aucune mesure enregistrée. Choisissez un intervalle de relevé, ou « Relever maintenant ».</div>'}
-    ${(() => { const m = r.series.filter((sr) => (r.masquees || []).includes(sr.mesure)); return m.length ? `<details class="mesures-masquees"><summary>🙈 Mesures masquées (${m.length})</summary>${m.map((sr) => { const d = sr.points[sr.points.length - 1]; return `<div class="ligne-masquee"><span>${esc(libelleCapteur(r, sr.mesure))} <small>${esc(sr.mesure.replace(':', ' · canal '))} · dernier ${fmt(d[1], 2, ' ' + sr.unite)}</small></span>${r.peutRegler ? `<button class="mini" data-cap-afficher="${esc(sr.mesure)}">👁 Réafficher</button>` : ''}</div>`; }).join('')}</details>` : ''; })()}`;
+    ${(() => { const m = r.series.filter((sr) => (r.masquees || []).includes(sr.mesure)); return m.length ? `<details class="mesures-masquees"><summary>🙈 Mesures masquées (${m.length})</summary>${m.map((sr) => { const d = sr.points[sr.points.length - 1]; return `<div class="ligne-masquee"><span>${esc(libelleCapteur(r, sr.mesure))} <small>${esc(sr.mesure.replace(':', ' · canal '))} · dernier ${fmt(d[1], 2, ' ' + sr.unite)}</small></span>${r.peutRegler ? `<button class="mini" data-cap-afficher="${esc(sr.mesure)}">👁 Réafficher</button>` : ''}</div>`; }).join('')}</details>` : ''; })()}    ${r.peutRegler && (r.series.length || Object.keys(r.libelles || {}).length) ? `<details class="reinit-capteurs"><summary>♻ Remettre à zéro</summary>
+      <p class="note">Après un renommage, un recâblage ou une mise à jour du capteur, les canaux peuvent changer de sens : les anciens noms et l’historique ne correspondent plus. Repartez de zéro :</p>
+      <label class="case"><input type="radio" name="cap-hist" value="tout" checked> Effacer tout l’historique des mesures</label>
+      <label class="case"><input type="radio" name="cap-hist" value="avant"> Effacer les relevés antérieurs au <input type="date" id="cap-avant" value="${new Date().toISOString().slice(0, 10)}"></label>
+      <label class="case"><input type="radio" name="cap-hist" value=""> Garder l’historique</label>
+      <label class="case"><input type="checkbox" id="cap-reglages" checked> Effacer aussi les noms des mesures, les alertes et le masquage (l’intervalle de relevé est gardé)</label>
+      <div class="actions-prop"><button class="mini danger" id="cap-reinit">♻ Remettre à zéro</button></div></details>` : ''}
+`;
   z.querySelectorAll('[data-cj]').forEach((b) => (b.onclick = () => mcRendreCapteurs(n, z, Number(b.dataset.cj))));
+  z.querySelectorAll('[data-cap-effacer]').forEach((b) => (b.onclick = async () => {
+    const m = b.dataset.capEffacer;
+    if (!confirm(`Effacer la mesure « ${libelleCapteur(r, m)} » : tout son historique, son nom et son alerte ? Elle réapparaîtra au prochain relevé si le capteur l’envoie encore.`)) return;
+    try { await postJson(`/api/mc/capteurs/${n.cle}/reinitialiser`, { mesure: m }); } catch (e) { alert(e.message); return; }
+    mcRendreCapteurs(n, z, jours);
+  }));
+  const bri = $('#cap-reinit');
+  if (bri) bri.onclick = async () => {
+    const h = (z.querySelector('input[name="cap-hist"]:checked') || {}).value || null, avecReglages = $('#cap-reglages').checked;
+    const avant = h === 'avant' ? new Date($('#cap-avant').value + 'T00:00:00').getTime() : null;
+    if (!h && !avecReglages) return alert('Rien à remettre à zéro : cochez au moins une option.');
+    if (!confirm(`Remettre à zéro les capteurs de ${n.nom || 'ce nœud'} ?${h === 'tout' ? '\nTout l’historique sera effacé.' : h === 'avant' ? '\nLes relevés antérieurs à cette date seront effacés.' : ''}${avecReglages ? '\nLes noms des mesures, les alertes et le masquage seront effacés.' : ''}`)) return;
+    try { const x = await postJson(`/api/mc/capteurs/${n.cle}/reinitialiser`, { historique: h, avant, reglages: avecReglages }); alert(`${x.lignes} relevé(s) effacé(s).`); } catch (e) { alert(e.message); return; }
+    mcRendreCapteurs(n, z, jours);
+  };
   const si = $('#cap-int');
   if (si) si.onchange = async () => { try { await postJson(`/api/mc/capteurs/${n.cle}`, { intervalleMin: Number(si.value) }); } catch (e) { alert(e.message); } };
   const bm = $('#cap-maintenant');

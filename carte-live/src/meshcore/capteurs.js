@@ -19,6 +19,9 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
     serie: db.prepare('SELECT heure, mesure, valeur, unite FROM mc_capteurs WHERE cle = ? AND heure >= ? ORDER BY heure'),
     derniers: db.prepare('SELECT c.cle, c.mesure, c.valeur, c.unite, c.heure FROM mc_capteurs c JOIN (SELECT cle, mesure, MAX(heure) h FROM mc_capteurs WHERE cle = ? GROUP BY mesure) d ON d.cle = c.cle AND d.mesure = c.mesure AND d.h = c.heure'),
     purger: db.prepare('DELETE FROM mc_capteurs WHERE heure < ?'),
+    effacerTout: db.prepare('DELETE FROM mc_capteurs WHERE cle = ?'),
+    effacerMesure: db.prepare('DELETE FROM mc_capteurs WHERE cle = ? AND mesure = ?'),
+    effacerAvant: db.prepare('DELETE FROM mc_capteurs WHERE cle = ? AND heure < ?'),
   };
   const fichier = path.join(path.dirname(config.fichierBase), 'meshcore-capteurs.json');
   let reglages = {}; // cle -> { intervalleMin, libelles: { 'temperature:2': 'Abri' }, seuils: { 'tension:1': { min: 3.4 } }, dernier, nom }
@@ -86,6 +89,34 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
     return lire(cle, 1);
   }
 
+  // Remise à zéro (capteur renommé ou recâblé, canaux LPP qui ont changé de sens) :
+  // historique : 'tout' | 'avant' (relevés antérieurs à `avant`) | null ; reglages : libellés, seuils et masquage effacés
+  // (l'intervalle de relevé est gardé) ; mesure : une seule mesure (historique + son libellé, seuil, masquage)
+  function reinitialiser(cle, { historique = null, avant = null, reglages: aussiReglages = false, mesure = null } = {}) {
+    const r = reglages[cle] || {};
+    let lignes = 0;
+    if (mesure) {
+      if (!/^[a-z_]+:\d{1,3}$/.test(mesure)) throw new Error('mesure invalide');
+      lignes = q.effacerMesure.run(cle, mesure).changes;
+      if (r.libelles) delete r.libelles[mesure];
+      if (r.seuils) delete r.seuils[mesure];
+      if (r.masquees) r.masquees = r.masquees.filter((m) => m !== mesure);
+    } else {
+      if (historique === 'tout') lignes = q.effacerTout.run(cle).changes;
+      else if (historique === 'avant') {
+        const t = Number(avant);
+        if (!Number.isFinite(t) || t <= 0) throw new Error('date invalide');
+        lignes = q.effacerAvant.run(cle, t).changes;
+      }
+      if (aussiReglages) { delete r.libelles; delete r.seuils; delete r.masquees; }
+      if (!historique && !aussiReglages) throw new Error('rien à réinitialiser');
+    }
+    reglages[cle] = r;
+    sauver();
+    journal(`capteurs ${cle.slice(0, 8)} : ${mesure ? 'mesure ' + mesure + ' effacée' : 'réinitialisés'} (${lignes} relevé(s) supprimé(s)${aussiReglages ? ', libellés et seuils effacés' : ''})`);
+    return { lignes, ...lire(cle, 1) };
+  }
+
   // Relevés périodiques : une tâche « télémétrie » à la fois, quand le companion est prêt
   const minut = setInterval(() => {
     try {
@@ -136,7 +167,7 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
     return '\ufeff' + lignes.join('\r\n') + '\r\n';
   }
 
-  return { noter, lire, regler, alertes, csv, arreter: () => { clearInterval(minut); clearInterval(purge); }, INTERVALLES };
+  return { noter, lire, regler, reinitialiser, alertes, csv, arreter: () => { clearInterval(minut); clearInterval(purge); }, INTERVALLES };
 }
 
 module.exports = { creerCapteursMc };
