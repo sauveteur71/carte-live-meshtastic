@@ -390,6 +390,12 @@ async function prechargerFrance() {
   }
   }
   precharge.aCompleter = codes.filter((c) => !reliefSurDisque(c));
+  // « Télécharger et installer » : la carte publique passe d'elle-même en « tous les départements » une fois prête
+  if (!precharge.arret && reliefPublic.activerFrance) {
+    reliefPublic.couverture = 'france'; reliefPublic.activerFrance = false;
+    try { fs.writeFileSync(fReliefPublic, JSON.stringify(reliefPublic)); } catch { /* lecture seule */ }
+    journal('[Relief] toute la France prête : la carte publique calcule maintenant dans tous les départements');
+  }
   journal(`[Relief] préparation de la France ${precharge.arret ? 'arrêtée' : 'terminée'} : ${precharge.faits}/${precharge.total} (${precharge.erreurs.length} erreur(s))`);
   Object.assign(precharge, { enCours: false, courant: null, fin: Date.now() });
   if (!redemarrageEnCours) { reliefPublic.preparation = false; try { fs.writeFileSync(fReliefPublic, JSON.stringify(reliefPublic)); } catch { /* lecture seule */ } }
@@ -482,7 +488,10 @@ app.post('/api/relief/france', (req, res) => {
     try { fs.writeFileSync(fReliefPublic, JSON.stringify(reliefPublic)); } catch (e) { return res.status(500).json({ erreur: e.message }); }
     journal(`[Relief] couverture de la carte publique : ${b.couverture === 'france' ? 'toute la France' : 'département de la carte'} (${utilisateur(req).identifiant})`);
   }
-  if (b.precharger === true) prechargerFrance();
+  if (b.precharger === true) {
+    if (b.activer) { reliefPublic.activerFrance = true; try { fs.writeFileSync(fReliefPublic, JSON.stringify(reliefPublic)); } catch { /* lecture seule */ } }
+    prechargerFrance();
+  }
   if (b.precharger === false && precharge.enCours) precharge.arret = true;
   res.json({ ok: true, couverture: reliefPublic.couverture });
 });

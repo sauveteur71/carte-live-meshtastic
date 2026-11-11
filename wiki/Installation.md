@@ -115,7 +115,7 @@ Puis *Outils › Connecter un module › USB du serveur*. Voir [[Connecter un mo
 
 ## Relief de toute la France (facultatif)
 
-Le relief du département de la carte se télécharge tout seul. Pour les calculs de couverture dans tous les départements : *Gestion › Réglages › Carte publique et relief › ⬇ Préparer toute la France* (paquet de ≈ 110 Mo récupéré automatiquement sur GitHub). Voir [[Couverture et sites]].
+Le relief du département de la carte se télécharge tout seul. Pour les calculs de couverture dans tous les départements : *Outils › 🗺️ Toute la France › ⬇ Télécharger et installer toute la France* (aussi dans *Gestion › Réglages › Carte publique et relief*) (paquet de ≈ 110 Mo récupéré automatiquement sur GitHub). Voir [[Couverture et sites]].
 
 ## 5. Accès depuis l'extérieur et HTTPS
 

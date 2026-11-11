@@ -38,12 +38,14 @@ Par défaut, les calculs de couverture portent sur le département de la carte, 
 - **Comptes connectés** : *Couverture › Département étudié* ; le relief du département choisi est téléchargé au premier calcul (quelques minutes), puis gardé sur le serveur.
 - **Carte publique** : l'administrateur choisit dans *Gestion › Réglages › Carte publique et relief* entre « département de la carte seulement » (léger, par défaut) et « tous les départements de France ».
 
-### Préparer toute la France
-*Gestion › Réglages › Carte publique et relief › ⬇ Préparer toute la France* met sur le serveur le relief de tous les départements, pour que chaque calcul soit immédiat. **Rien à télécharger à la main** :
+### Télécharger et installer toute la France
+*Outils › 🗺️ Toute la France › ⬇ Télécharger et installer toute la France* (aussi dans *Gestion › Réglages › Carte publique et relief*) met sur le serveur le relief de tous les départements, pour que chaque calcul soit immédiat. **Rien à télécharger à la main** :
 
 1. la carte télécharge d'abord le **paquet « relief France »** publié sur GitHub (version `relief-france`, ≈ 110 Mo) et l'installe : quelques minutes ;
 2. elle complète ensuite, département par département, ce qui manquerait (IGN, OpenStreetMap) ;
 3. l'avancement s'affiche (département en cours, durée restante) ; la préparation continue page fermée, reprend toute seule après un redémarrage, et s'arrête d'un clic. Les départements déjà prêts sont sautés.
+
+Une fois tout installé, la carte publique passe **d'elle-même** en « tous les départements » : n'importe quel visiteur peut alors calculer la couverture partout en France.
 
 Comptez ≈ 250 Mo sur le disque. Sans le paquet (réseau qui bloque GitHub…), la préparation complète prend plusieurs heures.
 

@@ -1528,7 +1528,7 @@ const CATALOGUE_REGLAGES = [
   ['Précision des positions publiques', 'Compte › Réglages', 'arrondi confidentialité carte publique', 'admin', () => ouvrirDlg('reglages', '[name=precisionPublique]')],
   ['Durée de conservation des données', 'Compte › Réglages', 'retention jours historique purge', 'admin', () => ouvrirDlg('reglages', '[name=retentionJours]')],
   ['Canaux Meshtastic à déchiffrer (clés)', 'Compte › Réglages', 'canaux cle psk aq== messages chiffrement longfast', 'admin', () => ouvrirDlg('reglages', '[name=canaux]')],
-  ['Relief pour toute la France', 'Compte › Réglages', 'relief france paquet mnt télécharger préparer', 'admin', () => ouvrirDlg('reglages', '#bloc-france')],
+  ['Télécharger toute la France (relief)', 'Outils', 'relief france paquet mnt télécharger préparer installer carte', 'admin', () => ficheFrance()],
   ['Comptes des utilisateurs', 'Compte › Comptes', 'utilisateur ajouter rôle gestionnaire secteur blocage', 'admin', () => ouvrirDlg('comptes')],
   ['Sauvegardes', 'Compte › Sauvegardes', 'sauvegarde restaurer export', 'admin', () => ouvrirDlg('sauvegardes')],
   ['Archive PostgreSQL', 'Compte › Archive', 'postgres base archive', 'admin', () => ouvrirDlg('archive')],
@@ -5956,6 +5956,7 @@ function brancherInterface() {
       <h3>Archives</h3>${l.map((x) => `<div class="ligne"><span class="titre"><a href="/rapports/${encodeURIComponent(x)}" target="_blank" rel="noopener">Semaine du ${esc(x.slice(8, 18).split('-').reverse().join('/'))}</a></span></div>`).join('') || '<div class="vide">Pas encore d’archive (premier rapport lundi prochain vers 7 h).</div>'}`;
   };
   { const bc = $('#btn-chercher-reglage'); if (bc) bc.onclick = ouvrirRechercheReglages; }
+  { const bf = $('#outil-france'); if (bf) { bf.hidden = !etat.admin; bf.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheFrance(); }; } }
   { const bs = $('#outil-signalements'); if (bs) bs.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheSignalements(); }; }
   { const bt = $('#outil-trafic'); if (bt) bt.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTrafic(); }; }
   { const bc = $('#outil-connecter'); if (bc) bc.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ouvrirConnexion(); }; }
@@ -6297,6 +6298,12 @@ async function rendreReglages() {
 }
 
 // Carte publique : couverture sur le département de la carte ou sur toute la France, préparation du relief
+// Toute la France (administrateur) : la même chose que dans Réglages, en accès direct depuis Outils
+function ficheFrance() {
+  $('#fiche').hidden = false; etat.selection = null;
+  $('#fiche-contenu').innerHTML = '<div class="bloc-france" id="bloc-france"><div class="vide">Chargement…</div></div>';
+  rendreFrance();
+}
 async function rendreFrance() {
   const z = $('#bloc-france');
   if (!z) return;
@@ -6309,12 +6316,12 @@ async function rendreFrance() {
       <option value="departement" ${r.couverture === 'departement' ? 'selected' : ''}>Département de la carte seulement (léger)</option>
       <option value="france" ${r.couverture === 'france' ? 'selected' : ''}>Tous les départements de France (relief chargé à la demande)</option></select></label>
     <p class="note">Avec « tous les départements », chaque visiteur peut calculer la couverture, les emplacements de relais et la couverture d’un point dans n’importe quel département. Le premier calcul d’un département télécharge son relief IGN et ses points hauts (quelques minutes), sauf s’il a été préparé ci-dessous.</p>
-    <div class="actions-prop">${p.enCours ? '<button class="mini" id="fr-stop">⏹ Arrêter la préparation</button>' : '<button class="mini principal" id="fr-go">⬇ Préparer toute la France</button>'}<span class="note">Relief prêt sur le serveur : <b>${r.surDisque}</b> / ${r.total} départements</span></div>
+    <div class="actions-prop">${p.enCours ? '<button class="mini" id="fr-stop">⏹ Arrêter la préparation</button>' : '<button class="mini principal" id="fr-go" title="Installe le paquet « relief France » puis complète département par département ; la carte publique passe ensuite d’elle-même en « tous les départements »">⬇ Télécharger et installer toute la France</button>'}<span class="note">Relief prêt sur le serveur : <b>${r.surDisque}</b> / ${r.total} départements</span></div>
     ${p.enCours ? `<div class="alerte info-lecture"><span class="sablier"></span> Préparation en cours : ${p.faits}/${p.total} départements${p.courant ? ` · département ${esc(p.courant === 'paquet' ? 'paquet GitHub' : p.courant)}${p.etape ? ' : ' + esc(p.etape) : ''}` : p.etape ? ' · ' + esc(p.etape) : ''} · ${duree} min${p.faits > p.deja + 1 && p.total > p.faits ? `, encore ≈ ${Math.round(((Date.now() - p.debut) / 60000 / Math.max(1, p.faits - p.deja)) * (p.total - p.faits) / 60)} h` : ''}. Elle continue même si vous fermez cette page.</div>` : p.fin ? `<p class="note">Dernière préparation : ${p.faits}/${p.total} départements en ${duree} min${p.erreurs.length ? `, ${p.erreurs.length} erreur(s) : ${p.erreurs.slice(0, 5).map((x) => esc(x.code + ' ' + x.erreur)).join(' ; ')}` : ''}.${p.aCompleter && p.aCompleter.length ? ` Points hauts OpenStreetMap manquants pour ${p.aCompleter.length} département(s) (${esc(p.aCompleter.slice(0, 12).join(', '))}${p.aCompleter.length > 12 ? '…' : ''}) : relancez la préparation plus tard, seuls ceux-là seront repris.` : ''}</p>` : ''}
     <p class="note">La préparation installe d’abord le paquet « relief France » publié sur GitHub (≈ 110 Mo, quelques minutes), puis télécharge département par département ce qui manque encore : relief IGN, points hauts, voies d’accès et sites (OpenStreetMap). Sans paquet, comptez plusieurs heures. Environ 250 Mo sur le disque. Les départements déjà prêts sont sautés.</p>
     <div class="actions-prop"><a class="mini bouton-lien" href="/api/relief/france/paquet" download>📦 Fabriquer le paquet « relief France »</a><span class="note">tous les départements prêts sur ce serveur, en un fichier tar.gz, à publier sur GitHub (version « relief-france »)</span></div>`;
   $('#fr-couv').onchange = async (e) => { try { await postJson('/api/relief/france', { couverture: e.target.value }); } catch (x) { alert(x.message); } rendreFrance(); };
-  const go = $('#fr-go'); if (go) go.onclick = async () => { try { await postJson('/api/relief/france', { precharger: true }); } catch (x) { alert(x.message); } setTimeout(rendreFrance, 800); };
+  const go = $('#fr-go'); if (go) go.onclick = async () => { try { await postJson('/api/relief/france', { precharger: true, activer: true }); } catch (x) { alert(x.message); } setTimeout(rendreFrance, 800); };
   const st = $('#fr-stop'); if (st) st.onclick = async () => { try { await postJson('/api/relief/france', { precharger: false }); } catch (x) { alert(x.message); } setTimeout(rendreFrance, 800); };
   if (p.enCours) { clearTimeout(etat.minuterieFrance); etat.minuterieFrance = setTimeout(() => { if ($('#bloc-france')) rendreFrance(); }, 15000); }
 }
