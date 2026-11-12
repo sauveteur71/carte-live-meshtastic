@@ -1373,3 +1373,8 @@ b.canal-msg { padding: 0 6px; border-radius: 4px; background: color-mix(in srgb,
 
 /* Captures d'écran dans l'aide */
 .capture-aide { display: block; max-width: 100%; height: auto; margin: 6px 0; border-radius: 8px; border: 1px solid rgba(255,255,255,.15); }
+
+/* Carroyage DFCI */
+.etiquette-dfci span { display: inline-block; padding: 0 4px; border-radius: 3px; background: rgba(10,14,20,.72); color: #ffb37a; font: 700 11px/14px ui-monospace, monospace; white-space: nowrap; }
+.etiquette-dfci.zone span { background: transparent; color: #ff9a55; font-size: 10px; }
+body.theme-clair .etiquette-dfci span { background: rgba(255,255,255,.85); color: #b0400a; }

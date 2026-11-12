@@ -36,7 +36,7 @@ const etat = {
   coucheLiens: null,
   alertes: [],
   stats: null,
-  couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true, federation: true, releves: true, routiers: false },
+  couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true, federation: true, releves: true, routiers: false, dfci: false },
   filtresPorts: new Set(Object.keys(PORTS)),
   selection: null,
   trajet: null,
@@ -100,6 +100,7 @@ function blocCoords(lat, lon, opts = {}) {
   return `<div class="coords">
     <div class="coords-l"><span>GPS</span><b class="mono">${dec}</b><button class="mini" data-copier="${dec}" title="Copier les coordonnées décimales">Copier</button></div>
     <div class="coords-l"><span>DMS</span><b class="mono">${sexa}</b><button class="mini" data-copier="${sexa}" title="Copier en degrés, minutes, secondes">Copier</button></div>
+    ${(() => { const d = window.DFCI && DFCI.versDfci(lat, lon); return d ? `<div class="coords-l"><span title="Carroyage DFCI (carreau de 2 km et zone 1 à 5)">DFCI</span><b class="mono">${d}</b><button class="mini" data-copier="${d}" title="Copier le code DFCI">Copier</button></div>` : ''; })()}
     <div class="coords-l liens-carto">${opts.alt != null ? `<span>Alt.</span><b>${Math.round(opts.alt)} m</b>` : ''}
       <a href="https://cartes.gouv.fr/explorer-les-cartes/?c=${lon.toFixed(5)},${lat.toFixed(5)}&z=16&l=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2$GEOPORTAIL:OGC:WMTS(1;1;0)&permalink=yes" target="_blank" rel="noopener" title="Carte IGN sur cartes.gouv.fr (remplace le Géoportail)">cartes.gouv.fr</a>
       <a href="https://www.google.com/maps/search/?api=1&query=${lat.toFixed(6)},${lon.toFixed(6)}" target="_blank" rel="noopener">Google Maps</a>
@@ -4265,8 +4266,11 @@ async function rendreModules(force) {
 
 // ---- Recherche d'un lieu (nœuds, points hauts, lieux et adresses) ------------------------------
 let marqueurRecherche = null;
+let contourRecherche = null;
 function placerLieu(l) {
   if (marqueurRecherche) marqueurRecherche.remove();
+  if (contourRecherche) { contourRecherche.remove(); contourRecherche = null; }
+  if (l.contour) contourRecherche = L.polygon(l.contour, { color: '#ff5a1f', weight: 3, fillOpacity: 0.12, pane: 'traces', interactive: false }).addTo(carte);
   const ll = L.latLng(l.lat, l.lon);
   carte.flyTo(ll, Math.max(carte.getZoom(), l.zoom || 15), { duration: 0.8 });
   const div = document.createElement('div');
@@ -4325,6 +4329,11 @@ function brancherRecherche() {
     clearTimeout(minuterie);
     const q = champ.value.trim();
     if (q.length < 2) { fermer(); return; }
+    // Code DFCI saisi directement : « KD42F7 », « KD42F7.5 », « KD42 »
+    if (window.DFCI && DFCI.estCodeDfci(q)) {
+      const d = DFCI.depuisDfci(q);
+      if (d) { resultats = [{ type: 'DFCI', nom: d.code, detail: d.cote >= 1000 ? `carré de ${d.cote >= 20000 ? d.cote / 1000 + ' km' : d.cote === 2000 ? '2 km' : '1 km (zone)'}` : '', lat: d.lat, lon: d.lon, contour: d.contour, zoom: d.cote <= 1000 ? 15 : d.cote <= 2000 ? 14 : d.cote <= 20000 ? 11 : 9 }]; index = 0; afficher(); return; }
+    }
     // Coordonnées saisies directement : « 45.0473, 3.8852 »
     const m = q.match(/^\s*(-?\d+(?:[.,]\d+)?)\s*[,; ]\s*(-?\d+(?:[.,]\d+)?)\s*$/);
     if (m) {
@@ -6052,7 +6061,7 @@ function brancherInterface() {
     etat.couches[c] = !etat.couches[c];
     b.classList.toggle('actif', etat.couches[c]);
     if (c) ecrireLs('gaulix_couches', etat.couches); // choix gardé pour la prochaine visite
-    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
+    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'dfci') dessinerDfci(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
   }));
   $('#filtres').onclick = (e) => {
     const b = e.target.closest('button[data-port]');
@@ -6063,7 +6072,7 @@ function brancherInterface() {
     chargerFlux();
   };
   carte.on('zoomend', () => { dessinerNoeuds(); if (typeof mcDessinerNoeuds === 'function') mcDessinerNoeuds(); });
-  { let m = null; carte.on('moveend', () => { clearTimeout(m); m = setTimeout(dessinerSommets, 150); }); }
+  { let m = null; carte.on('moveend', () => { clearTimeout(m); m = setTimeout(() => { dessinerSommets(); dessinerDfci(); }, 150); }); }
   $('#btn-couvrir').onclick = () => { basculerMode(etat.modeCarte === 'couvrir' ? null : 'couvrir'); if (etat.modeProfil) $('#btn-profil').click(); };
   $('#btn-couv-ici').onclick = () => { basculerMode(etat.modeCarte === 'ici' ? null : 'ici'); if (etat.modeProfil) $('#btn-profil').click(); };
   $('#btn-relier').onclick = () => { etat.relierA = null; basculerMode(etat.modeCarte === 'relier' ? null : 'relier'); if (etat.modeProfil) $('#btn-profil').click(); };
@@ -7534,3 +7543,50 @@ async function rendreArchive() {
   };
 }
 
+
+// ---- Carroyage DFCI (couche « DFCI ») : 100 km, 20 km, 2 km selon le zoom, codes au centre des carrés ----
+let coucheDfci = null;
+function dessinerDfci() {
+  if (coucheDfci) { coucheDfci.remove(); coucheDfci = null; }
+  if (!etat.couches.dfci || !window.DFCI) return;
+  const z = carte.getZoom();
+  const pas = z >= 12 ? 2000 : z >= 9 ? 20000 : 100000;
+  const b = carte.getBounds();
+  const coins = [b.getSouthWest(), b.getNorthWest(), b.getNorthEast(), b.getSouthEast(), b.getCenter()]
+    .map((p) => DFCI.versLambert2e(Math.min(52, Math.max(40.5, p.lat)), Math.min(10.5, Math.max(-6, p.lng))));
+  const x0 = Math.max(0, Math.floor(Math.min(...coins.map((c) => c[0])) / pas) * pas), x1 = Math.min(1200000, Math.ceil(Math.max(...coins.map((c) => c[0])) / pas) * pas);
+  const y0 = Math.max(1500000, Math.floor(Math.min(...coins.map((c) => c[1])) / pas) * pas), y1 = Math.min(2700000, Math.ceil(Math.max(...coins.map((c) => c[1])) / pas) * pas);
+  if (x1 <= x0 || y1 <= y0 || ((x1 - x0) / pas) * ((y1 - y0) / pas) > 900) return;
+  coucheDfci = L.layerGroup().addTo(carte);
+  const style = { color: '#ff7a1a', weight: pas === 100000 ? 2.5 : pas === 20000 ? 1.8 : 1, opacity: 0.85, interactive: false, pane: 'traces' };
+  const seg = Math.max(2, Math.round((pas === 2000 ? 1 : 4)));
+  const ligne = (pts) => L.polyline(pts.map(([x, y]) => DFCI.depuisLambert2e(x, y)), style).addTo(coucheDfci);
+  for (let x = x0; x <= x1; x += pas) { const pts = []; for (let y = y0; y <= y1; y += pas / seg) pts.push([x, y]); ligne(pts); }
+  for (let y = y0; y <= y1; y += pas) { const pts = []; for (let x = x0; x <= x1; x += pas / seg) pts.push([x, y]); ligne(pts); }
+  // Codes au centre des carrés (pas trop nombreux)
+  const nb = ((x1 - x0) / pas) * ((y1 - y0) / pas);
+  if (nb <= 400) {
+    for (let x = x0; x < x1; x += pas) for (let y = y0; y < y1; y += pas) {
+      const [lat, lon] = DFCI.depuisLambert2e(x + pas / 2, y + pas / 2);
+      const code = DFCI.versDfci(lat, lon, false);
+      if (!code) continue;
+      const t = pas === 100000 ? code.slice(0, 2) : pas === 20000 ? code.slice(0, 4) : code;
+      L.marker([lat, lon], { icon: L.divIcon({ className: 'etiquette-dfci', html: `<span>${t}</span>`, iconSize: [80, 16], iconAnchor: [40, 8] }), interactive: false, keyboard: false, pane: 'traces' }).addTo(coucheDfci);
+    }
+  }
+  // Zoom fort : les 5 zones du carreau (carré central de 1 km et croix)
+  if (z >= 15) {
+    for (let x = x0; x < x1; x += 2000) for (let y = y0; y < y1; y += 2000) {
+      const st = { ...style, weight: 1, dashArray: '4 4', opacity: 0.6 };
+      L.polyline([[x + 500, y + 500], [x + 1500, y + 500], [x + 1500, y + 1500], [x + 500, y + 1500], [x + 500, y + 500]].map(([a, c]) => DFCI.depuisLambert2e(a, c)), st).addTo(coucheDfci);
+      L.polyline([[x + 1000, y], [x + 1000, y + 500]].map(([a, c]) => DFCI.depuisLambert2e(a, c)), st).addTo(coucheDfci);
+      L.polyline([[x + 1000, y + 1500], [x + 1000, y + 2000]].map(([a, c]) => DFCI.depuisLambert2e(a, c)), st).addTo(coucheDfci);
+      L.polyline([[x, y + 1000], [x + 500, y + 1000]].map(([a, c]) => DFCI.depuisLambert2e(a, c)), st).addTo(coucheDfci);
+      L.polyline([[x + 1500, y + 1000], [x + 2000, y + 1000]].map(([a, c]) => DFCI.depuisLambert2e(a, c)), st).addTo(coucheDfci);
+      for (const [k, fx, fy] of [[1, 250, 1750], [2, 1750, 1750], [3, 1750, 250], [4, 250, 250], [5, 1000, 1000]]) {
+        const [la, lo] = DFCI.depuisLambert2e(x + fx, y + fy);
+        L.marker([la, lo], { icon: L.divIcon({ className: 'etiquette-dfci zone', html: `<span>.${k}</span>`, iconSize: [24, 14], iconAnchor: [12, 7] }), interactive: false, keyboard: false, pane: 'traces' }).addTo(coucheDfci);
+      }
+    }
+  }
+}

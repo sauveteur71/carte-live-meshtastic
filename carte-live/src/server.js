@@ -3018,9 +3018,11 @@ app.get('/main-courante', (req, res) => {
   const e = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const h = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   const lignes = [];
+  const { versDfci } = require('../public/dfci.js');
+  const pos = (x) => `${x.lat.toFixed(5)}, ${x.lon.toFixed(5)}${versDfci(x.lat, x.lon) ? '<br>DFCI ' + versDfci(x.lat, x.lon) : ''}`;
   for (const x of signalements.lister()) {
-    lignes.push([x.cree, `${x.icone} ${e(x.titre)}`, e(x.details), `${x.lat.toFixed(5)}, ${x.lon.toFixed(5)}`, e(x.auteur) + (x.source === 'radio' ? ' (reçu par radio)' : ''), [...(x.envois.mt || []).map((v) => `Meshtastic canal ${v.canal} : ${v.statut === 'envoye' ? 'envoyé' : 'échec'}`), x.envois.mc ? `MeshCore : ${x.envois.mc.statut === 'envoye' ? 'envoyé' : 'échec'}` : ''].filter(Boolean).join(' · ')]);
-    if (x.fin) lignes.push([x.fin, `✅ Fin : ${e(x.titre)}`, '', `${x.lat.toFixed(5)}, ${x.lon.toFixed(5)}`, e(x.finPar || ''), '']);
+    lignes.push([x.cree, `${x.icone} ${e(x.titre)}`, e(x.details), pos(x), e(x.auteur) + (x.source === 'radio' ? ' (reçu par radio)' : ''), [...(x.envois.mt || []).map((v) => `Meshtastic canal ${v.canal} : ${v.statut === 'envoye' ? 'envoyé' : 'échec'}`), x.envois.mc ? `MeshCore : ${x.envois.mc.statut === 'envoye' ? 'envoyé' : 'échec'}` : ''].filter(Boolean).join(' · ')]);
+    if (x.fin) lignes.push([x.fin, `✅ Fin : ${e(x.titre)}`, '', pos(x), e(x.finPar || ''), '']);
   }
   lignes.sort((a, b) => a[0] - b[0]);
   res.set('Cache-Control', 'no-store').send(`<!doctype html><html lang="fr"><meta charset="utf-8"><title>Main courante · ${e(config.carte.titre)}</title>

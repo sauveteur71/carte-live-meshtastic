@@ -1,4 +1,5 @@
 'use strict';
+const { versDfci } = require('../public/dfci.js');
 // Signalements : un événement posé sur la carte (route inondée, arbre tombé…) et diffusé en LoRa.
 // - Meshtastic : point de passage (WAYPOINT_APP, visible sur la carte des applis et des Bipper / GerMaCrise), sur un ou
 //   plusieurs canaux du module (Fr_Balise puis Alerte, comme GerMaCrise), et en option un message texte ;
@@ -87,7 +88,8 @@ function creerSignalements({ config, radio, administration, companion, reseauMc,
     while (Buffer.byteLength(t) > n) t = [...t].slice(0, -1).join('');
     return t;
   }
-  const coords = (s) => `${s.lat.toFixed(5)},${s.lon.toFixed(5)}`;
+  // Position et code DFCI (carroyage des pompiers), utile aux secours qui reçoivent le message
+  const coords = (s) => { const d = versDfci(s.lat, s.lon); return `${s.lat.toFixed(5)},${s.lon.toFixed(5)}${d ? ' · DFCI ' + d : ''}`; };
   const actif = (s) => !s.fin && s.expire > Date.now();
 
   function canaux() {

@@ -68,6 +68,15 @@ Le panneau **Réseau** a une section **Mes nœuds** : administrés d'abord (les 
 ## GPS figé
 La carte signale dans les alertes un nœud qui continue d'envoyer sa position alors que la mesure GPS qu'il annonce date de plus de 30 min : GPS sans signal, antenne débranchée ou module en panne. Un relais à position fixe, qui n'a jamais bougé, n'est pas concerné.
 
+## Carroyage DFCI
+Le carroyage DFCI des pompiers (forêts, secours) est intégré à la carte :
+- **Couches ▾ › Carroyage DFCI** : la grille s'affiche selon le zoom (carrés de 100 km, de 20 km, carreaux de 2 km, puis les 5 zones de 1 km au plus près), avec le code de chaque carré.
+- **Coordonnées** : partout où la carte donne des coordonnées (clic droit, fiche d'un nœud, recherche), le **code DFCI** du point s'affiche avec un bouton *Copier* (ex. `HF20B2.1`).
+- **Recherche** : tapez un code (`HF20B2`, `HF20B2.1` ou seulement `HF20`) dans la barre de recherche : la carte se centre dessus et trace le carré.
+- **Signalements** : le message envoyé en LoRa et la main courante donnent aussi le code DFCI.
+
+Le code se lit : 2 lettres (carré de 100 km), 2 chiffres pairs (carré de 20 km), une lettre et un chiffre (carreau de 2 km), puis `.1` à `.5` (zone : 1 nord-ouest, 2 nord-est, 3 sud-est, 4 sud-ouest, 5 centre). Le calcul suit la grille officielle (Lambert II étendu) et a été vérifié sur le carroyage publié sur data.gouv.fr.
+
 ## Clic droit sur un nœud
 Un clic droit (ou un appui long sur téléphone) sur un nœud, dans une liste ou sur la carte, ouvre un menu :
 - ouvrir la fiche, centrer la carte ;

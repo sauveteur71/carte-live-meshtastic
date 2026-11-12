@@ -69,6 +69,15 @@ The **Network** panel has a **My nodes** section: administered first (silent one
 ## Frozen GPS
 The map flags in the alerts a node that keeps sending its position while the GPS fix it announces is more than 30 min old: GPS without signal, unplugged antenna or broken module. A fixed-position relay that has never moved is not concerned.
 
+## DFCI grid
+The French firefighters' DFCI grid (forests, rescue) is built into the map:
+- **Layers ▾ › DFCI grid**: the grid is shown according to zoom (100 km squares, 20 km squares, 2 km squares, then the 5 zones of 1 km when zoomed in), with each square's code.
+- **Coordinates**: wherever the map gives coordinates (right-click, node sheet, search), the point's **DFCI code** is shown with a *Copy* button (e.g. `HF20B2.1`).
+- **Search**: type a code (`HF20B2`, `HF20B2.1` or just `HF20`) in the search bar: the map centres on it and draws the square.
+- **Reports**: the message sent over LoRa and the log book also give the DFCI code.
+
+Reading the code: 2 letters (100 km square), 2 even digits (20 km square), a letter and a digit (2 km square), then `.1` to `.5` (zone: 1 north-west, 2 north-east, 3 south-east, 4 south-west, 5 centre). The computation follows the official grid (Lambert II étendu) and was checked against the grid published on data.gouv.fr.
+
 ## Right-click on a node
 A right-click (or long press on a phone) on a node, in a list or on the map, opens a menu:
 - open the sheet, centre the map;
