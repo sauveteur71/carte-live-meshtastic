@@ -27,6 +27,9 @@ Les signalements actifs ont un marqueur rouge avec leur icône. Un clic : détai
 
 *Outils › 🚩 Signalements* liste les signalements actifs et ceux des 7 derniers jours.
 
+## Sans réseau
+Pas de connexion au moment de signaler (zone blanche, réseau coupé) : le signalement est **gardé sur l'appareil** (marqueur orange en pointillés), puis **envoyé tout seul** au retour du réseau, avec l'heure à laquelle il a été fait. *Réessayer maintenant* force l'envoi. La dernière liste de signalements connue reste affichée hors connexion. Avec *Outils › Mode terrain*, les fonds de carte du secteur peuvent aussi être préparés à l'avance.
+
 ## Carte publique et main courante
 - Les signalements **en cours** s'affichent aussi sur la **carte publique** (`/publique`), en lecture seule : type, titre, précisions et heure, sans l'auteur.
 - **📋 Main courante** (*Outils › Signalements*) : page imprimable (PDF) des signalements des 7 derniers jours, avec heure, position, auteur, diffusion et fin.

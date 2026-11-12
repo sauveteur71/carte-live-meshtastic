@@ -4,6 +4,15 @@ Il faut une machine allumée en permanence avec **Docker** : NAS Synology (Conta
 
 ## 1. Récupérer et lancer
 
+### En une commande (Linux : Debian, Ubuntu, Raspberry Pi OS, VM Proxmox…)
+```bash
+curl -fsSL https://raw.githubusercontent.com/sauveteur71/carte-live-meshtastic/main/install.sh | sudo sh
+```
+Le script installe Docker s'il manque (il demande d'abord), crée `/opt/carte-live-meshtastic` avec le `docker-compose.yml` (service de mise à jour en un clic compris) et un `.env` (avec une clé des équipes tirée au hasard), télécharge les images, lance la carte et affiche l'adresse à ouvrir. Tout le reste se règle ensuite dans la carte : l'assistant crée le compte administrateur et règle le serveur MQTT, avec un bouton **🔌 Tester ce serveur MQTT**. Puis *Réglages › 🩺 Diagnostic* vérifie que tout fonctionne.
+
+Options : `DOSSIER=/autre/dossier`, `CARTE_PORT=8080`, `MISE_A_JOUR=non` (sans le service de mise à jour), à placer avant `sh` : `… | sudo DOSSIER=/srv/carte sh`. Relancé sur une installation existante, le script ne fait que mettre l'image à jour.
+
+### À la main
 ```bash
 git clone https://github.com/sauveteur71/carte-live-meshtastic.git
 cd carte-live-meshtastic

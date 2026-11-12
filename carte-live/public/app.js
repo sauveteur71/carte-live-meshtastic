@@ -1640,9 +1640,29 @@ function annonce(texte, genre = 'info', action = null) {
 }
 // ---- Signalements : un événement posé sur la carte et diffusé en LoRa (membres) ----------------------------
 const sig = { liste: [], couche: null, info: null };
+// Hors connexion : signalements gardés dans le navigateur et envoyés au retour du réseau ; dernière liste connue affichée
+const CLE_SIG_ATTENTE = 'gaulix_sig_attente', CLE_SIG_CACHE = 'gaulix_sig_cache';
+const sigEnAttente = () => lireLs(CLE_SIG_ATTENTE, []) || [];
+let envoiSigEnCours = false;
+async function envoyerSigEnAttente() {
+  const l = sigEnAttente();
+  if (!l.length || envoiSigEnCours || !navigator.onLine) return;
+  envoiSigEnCours = true;
+  const reste = [];
+  let partis = 0;
+  for (const s of l) {
+    try { await postJson('/api/signalements', { ...s, details: `${s.details ? s.details + ' ' : ''}(signalé hors réseau à ${new Date(s.heureLocale).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })})`.trim() }); partis++; }
+    catch (e) { if (/fetch|réseau|network|Failed/i.test(e.message)) reste.push(s); else annonce(`⚠ Signalement « ${s.titre} » refusé : ${e.message}`, 'erreur'); }
+  }
+  ecrireLs(CLE_SIG_ATTENTE, reste);
+  envoiSigEnCours = false;
+  if (partis) { annonce(`✔ ${partis} signalement(s) fait(s) hors réseau envoyé(s)`, 'ok'); chargerSignalements(); }
+}
+window.addEventListener('online', () => setTimeout(envoyerSigEnAttente, 2000));
+setInterval(envoyerSigEnAttente, 60000);
 async function chargerSignalements() {
   let r;
-  try { r = await api('/api/signalements'); } catch { return; }
+  try { r = await api('/api/signalements'); ecrireLs(CLE_SIG_CACHE, r); } catch { r = lireLs(CLE_SIG_CACHE, null); if (!r) return; r = { ...r, horsLigne: true }; }
   sig.liste = r.signalements; sig.info = r;
   if (!sig.couche) sig.couche = L.layerGroup().addTo(carte);
   sig.couche.clearLayers();
@@ -1654,6 +1674,8 @@ async function chargerSignalements() {
     m.bindPopup(() => popupSignalement(s), { maxWidth: 300 });
     if (s.trace && s.trace.length > 1) (s.forme === 'zone' ? L.polygon(s.trace, { color: '#dc2626', weight: 3, fillOpacity: 0.18 }) : L.polyline(s.trace, { color: '#dc2626', weight: 6, opacity: 0.85 })).addTo(sig.couche).bindPopup(() => popupSignalement(s), { maxWidth: 300 });
   }
+  // En attente d'envoi (fait hors réseau) : marqueur pointillé
+  for (const s of sigEnAttente()) L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'sig-marqueur sig-attente', html: `<span>${esc((sig.info.types[s.type] || {}).icone || '❗')}</span>`, iconSize: [34, 34], iconAnchor: [17, 17] }), title: s.titre + ' (en attente du réseau)' }).bindPopup(`<b>${esc(s.titre)}</b><div class="note">⏳ Fait hors réseau : sera envoyé au retour du réseau.</div>`).addTo(sig.couche);
   const b = $('#outil-signalements');
   if (b) b.textContent = `🚩 Signalements${sig.liste.some((x) => x.actif) ? ` (${sig.liste.filter((x) => x.actif).length})` : ''}`;
   if (document.querySelector('#fiche-contenu .liste-signalements')) ficheSignalements();
@@ -1761,7 +1783,18 @@ async function formSignalement(lat, lon) {
     const b = $('#sig-envoyer'); b.disabled = true; b.textContent = 'Envoi…';
     ecrireLs('gaulix_sig', { mt, mc, cat, texte });
     try {
-      const s = await postJson('/api/signalements', { lat, lon, type, titre: $('#sig-titre').value, details: $('#sig-details').value, dureeH: Number($('#sig-duree').value), mt, mc, texte, forme, trace: forme === 'point' ? null : trace });
+      const corpsSig = { lat, lon, type, titre: $('#sig-titre').value, details: $('#sig-details').value, dureeH: Number($('#sig-duree').value), mt, mc, texte, forme, trace: forme === 'point' ? null : trace };
+      let s;
+      try { if (!navigator.onLine) throw new TypeError('Failed to fetch'); s = await postJson('/api/signalements', corpsSig); }
+      catch (x) {
+        if (!(x instanceof TypeError) && !/fetch|network/i.test(x.message)) throw x;
+        // Pas de réseau : gardé dans le navigateur, envoyé tout seul au retour du réseau
+        ecrireLs(CLE_SIG_ATTENTE, [...sigEnAttente(), { ...corpsSig, heureLocale: Date.now() }]);
+        finTrace(); if (dessin) dessin.remove();
+        await chargerSignalements();
+        ficheSignalements('⏳ Pas de réseau : le signalement est gardé sur cet appareil et partira tout seul au retour du réseau.');
+        return;
+      }
       finTrace(); if (dessin) dessin.remove();
       const pb = [...(s.envois.mt || []), s.envois.mc].filter((e) => e && e.statut === 'echec').map((e) => `canal ${e.canal} : ${e.erreur}`);
       await chargerSignalements();
@@ -1796,11 +1829,15 @@ async function ficheSignalements(msg) {
   const z = $('#fiche-contenu');
   if (!sig.info) await chargerSignalements();
   const l = sig.liste;
+  const attente = sigEnAttente();
   z.innerHTML = `<div class="liste-signalements"><h2>🚩 Signalements</h2>${msg ? `<p class="note"><b>${esc(msg)}</b></p>` : ''}
+    ${sig.info && sig.info.horsLigne ? '<div class="alerte attention">Pas de réseau : dernière liste connue.</div>' : ''}
+    ${attente.length ? `<div class="alerte info-lecture">⏳ ${attente.length} signalement(s) fait(s) hors réseau, en attente d’envoi : ${attente.map((s) => esc(s.titre)).join(', ')} <button type="button" class="mini" id="sig-reessayer">Réessayer maintenant</button></div>` : ''}
     <p class="note">Bouton ＋ ou clic droit sur la carte › <b>🚩 Signaler un événement ici</b>. <a href="/main-courante" target="_blank" rel="noopener">📋 Main courante imprimable</a></p>
     ${l.length ? l.map((s) => `<div class="ligne sig-ligne ${s.actif ? '' : 'passe'}" data-sig="${s.id}"><span class="sig-ic">${s.icone}</span><span class="titre">${esc(s.titre)}<small>${esc(s.details || '')} · ${esc(s.auteur)} ${ilYa(s.cree)}${s.actif ? '' : s.fin ? ' · terminé' : ' · expiré'}</small></span>
       <span class="meta">${s.source === 'radio' ? '📻' : ''}${[...(s.envois.mt || []), s.envois.mc].filter(Boolean).map((e) => e.statut === 'envoye' ? '✔' : e.statut === 'echec' ? '⚠' : '⏳').join(' ')}</span></div>`).join('') : '<div class="vide">Aucun signalement ces 7 derniers jours. <button type="button" class="mini principal" id="sig-premier">🚩 Signaler un événement</button></div>'}
     ${etat.gestion ? blocAlertesBipper() : ''}</div>`;
+  { const b = $('#sig-reessayer'); if (b) b.onclick = () => envoyerSigEnAttente(); }
   { const b = $('#sig-premier'); if (b) b.onclick = () => choisirPointPuis('Touchez la carte à l’endroit à signaler.', (ll) => formSignalement(ll.lat, ll.lng)); }
   brancherAlertesBipper();
   z.querySelectorAll('[data-sig]').forEach((d) => (d.onclick = () => {
@@ -6696,6 +6733,14 @@ async function installation() {
       } catch (x) { err.textContent = x.message; }
     };
   }
+  { const bt = $('#inst-tester-mqtt'); if (bt) bt.onclick = async () => {
+    const z = $('#inst-test-mqtt'); bt.disabled = true; z.textContent = '⏳ Connexion au serveur…';
+    try {
+      const r = await postJson('/api/mqtt/tester', { url: f.mqttUrl.value, racine: f.mqttRacine.value, utilisateur: f.mqttUtilisateur.value, motDePasse: f.mqttMotDePasse.value || undefined, code: f.code.value });
+      z.textContent = r.connecte ? `✅ Connecté${r.messages != null ? ` · ${r.messages} message(s) reçu(s) en 10 s${r.messages ? '' : ' : vérifiez le sujet racine'}` : ''}` : `❌ ${r.erreur || 'connexion impossible'}`;
+    } catch (e) { z.textContent = '❌ ' + e.message; }
+    bt.disabled = false;
+  }; }
   dlg.addEventListener('cancel', (e) => e.preventDefault()); // non refermable tant que l'installation n'est pas faite
   dlg.showModal();
   return true;

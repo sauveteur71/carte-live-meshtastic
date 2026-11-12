@@ -423,6 +423,7 @@
         <label>Sujet racine <input name="mqttRacine" placeholder="msh/EU_868"></label>
         <label>Utilisateur MQTT <input name="mqttUtilisateur" autocomplete="off"></label>
         <label>Mot de passe MQTT <input name="mqttMotDePasse" type="password" autocomplete="new-password"></label>
+        <div class="large-col"><button type="button" id="inst-tester-mqtt">🔌 Tester ce serveur MQTT (10 s)</button> <span id="inst-test-mqtt" class="note"></span></div>
         <label class="large-col">Canaux à déchiffrer <textarea name="canaux" rows="3" placeholder="LongFast=AQ==&#10;MonCanal=clé en base64"></textarea><small>Un canal par ligne : nom=clé (AQ== = clé publique par défaut)</small></label>
         <label>Inscriptions <select name="inscriptions"><option value="validation">Sur validation de l'admin</option><option value="ouvertes">Ouvertes à tous</option><option value="fermees">Fermées</option></select></label>
       </div>

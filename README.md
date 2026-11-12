@@ -14,6 +14,8 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 
 ---
 
+
+**Installation en une commande** (Linux) : `curl -fsSL https://raw.githubusercontent.com/sauveteur71/carte-live-meshtastic/main/install.sh | sudo sh`, puis tout se règle dans la carte (voir le wiki, page Installation).
 ## Ce qu'il fait
 
 **Carte et supervision**

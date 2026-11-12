@@ -1964,7 +1964,16 @@ app.get('/api/mqtt', (req, res) => {
 });
 let testMqttEnCours = false;
 app.post('/api/mqtt/tester', async (req, res) => {
-  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  // Pendant l'installation (aucun compte encore) : permis depuis le réseau local, ou avec le code d'installation
+  const enInstallation = comptes.installationRequise() && (ipPrivee(req) || (() => {
+    const code = String((req.body || {}).code || '');
+    const attendu = config.admin.motDePasse || codeInstallationAuto;
+    if (!code || !attendu) return false;
+    const a = crypto.createHash('sha256').update(config.admin.motDePasse ? code : code.replace(/[\s-]/g, '').toUpperCase()).digest(), c = crypto.createHash('sha256').update(String(attendu)).digest();
+    return crypto.timingSafeEqual(a, c);
+  })());
+  if (!estAdmin(req) && !enInstallation) return res.status(401).json({ erreur: comptes.installationRequise() ? 'Saisissez d’abord le code d’installation' : 'Connexion admin requise' });
+  if (enInstallation && limiter(req.ip)) return res.status(429).json({ erreur: 'Trop de tentatives, réessayez dans 15 minutes' });
   if (testMqttEnCours) return res.status(409).json({ erreur: 'Un test est déjà en cours' });
   const b = req.body || {};
   const url = String(b.url || config.mqtt.url).trim();
