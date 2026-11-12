@@ -68,6 +68,9 @@ Le panneau **Réseau** a une section **Mes nœuds** : administrés d'abord (les 
 ## GPS figé
 La carte signale dans les alertes un nœud qui continue d'envoyer sa position alors que la mesure GPS qu'il annonce date de plus de 30 min : GPS sans signal, antenne débranchée ou module en panne. Un relais à position fixe, qui n'a jamais bougé, n'est pas concerné.
 
+## Radar de pluie
+*Couches ▾ › Radar de pluie* : la dernière image radar (RainViewer, gratuit), mise à jour toutes les 10 minutes, par-dessus la carte. Utile pour suivre un orage qui approche des relais ou des équipes.
+
 ## Carroyage DFCI
 Le carroyage DFCI des pompiers (forêts, secours) est intégré à la carte :
 - **Couches ▾ › Carroyage DFCI** : la grille s'affiche selon le zoom (carrés de 100 km, de 20 km, carreaux de 2 km, puis les 5 zones de 1 km au plus près), avec le code de chaque carré.

@@ -69,6 +69,9 @@ The **Network** panel has a **My nodes** section: administered first (silent one
 ## Frozen GPS
 The map flags in the alerts a node that keeps sending its position while the GPS fix it announces is more than 30 min old: GPS without signal, unplugged antenna or broken module. A fixed-position relay that has never moved is not concerned.
 
+## Rain radar
+*Layers ▾ › Rain radar*: the latest radar image (RainViewer, free), updated every 10 minutes, over the map. Handy to follow a storm approaching relays or teams.
+
 ## DFCI grid
 The French firefighters' DFCI grid (forests, rescue) is built into the map:
 - **Layers ▾ › DFCI grid**: the grid is shown according to zoom (100 km squares, 20 km squares, 2 km squares, then the 5 zones of 1 km when zoomed in), with each square's code.

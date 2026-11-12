@@ -36,7 +36,7 @@ const etat = {
   coucheLiens: null,
   alertes: [],
   stats: null,
-  couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true, federation: true, releves: true, routiers: false, dfci: false },
+  couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true, federation: true, releves: true, routiers: false, dfci: false, radar: false },
   filtresPorts: new Set(Object.keys(PORTS)),
   selection: null,
   trajet: null,
@@ -6105,7 +6105,7 @@ function brancherInterface() {
     etat.couches[c] = !etat.couches[c];
     b.classList.toggle('actif', etat.couches[c]);
     if (c) ecrireLs('gaulix_couches', etat.couches); // choix gardé pour la prochaine visite
-    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'dfci') dessinerDfci(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
+    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'dfci') dessinerDfci(); else if (c === 'radar') dessinerRadar(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
   }));
   $('#filtres').onclick = (e) => {
     const b = e.target.closest('button[data-port]');
@@ -7744,4 +7744,23 @@ function montrerZoneEquipe(z, nom, cadrer) {
   coucheZoneEquipe = L.circle([z.lat, z.lon], { radius: z.rayon, color: '#22d3ee', weight: 2, dashArray: '6 6', fillOpacity: 0.06, interactive: false }).addTo(carte);
   coucheZoneEquipe.bindTooltip(`Zone de sécurité · ${nom || ''}`, { permanent: false });
   if (cadrer) carte.fitBounds(coucheZoneEquipe.getBounds(), { padding: [30, 30] });
+}
+
+// ---- Radar de pluie (RainViewer, gratuit, sans clé) : dernière image, mise à jour toutes les 10 min ----
+let coucheRadar = null, minuteurRadar = null;
+async function dessinerRadar() {
+  clearTimeout(minuteurRadar);
+  if (!etat.couches.radar) { if (coucheRadar) { coucheRadar.remove(); coucheRadar = null; } return; }
+  try {
+    const r = await fetch('https://api.rainviewer.com/public/weather-maps.json').then((x) => x.json());
+    const f = (r.radar && r.radar.past || []).slice(-1)[0];
+    if (!f) throw new Error('pas d’image');
+    const url = `${r.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`;
+    const nouvelle = L.tileLayer(url, { opacity: 0.6, maxNativeZoom: 7, maxZoom: 19, zIndex: 350, attribution: `Radar <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a> ${new Date(f.time * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` });
+    if (!etat.couches.radar) return;
+    nouvelle.addTo(carte);
+    if (coucheRadar) coucheRadar.remove();
+    coucheRadar = nouvelle;
+  } catch (e) { annonce('⚠ Radar de pluie indisponible : ' + e.message, 'erreur'); }
+  minuteurRadar = setTimeout(dessinerRadar, 10 * 60000);
 }
