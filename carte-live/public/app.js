@@ -225,7 +225,7 @@ function initCarte() {
   majFondSombre();
   for (const n of surcouchesMemo || []) if (surcouches[n]) surcouches[n].addTo(carte);
   carte.attributionControl.addAttribution('Meshtastic® est une marque de Meshtastic LLC');
-  carte.attributionControl.setPrefix('Carte live par F4GLD · <a href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener" title="Soutenir le projet (don au Radio-club du Velay)">♥ soutenir</a> · <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
+  carte.attributionControl.setPrefix('Carte live par F4GLD · <a href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener" title="Soutenir le projet (don au Radio-club du Velay)">♥ Soutenir le projet</a> · <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
   // Choix du fond et des surcouches dans le menu « Couches »
   const menu = document.querySelector('.menu-couches .menu');
   menu.insertAdjacentHTML('afterbegin', `<div class="titre-menu">Fond de carte</div>${Object.keys(fonds).map((n) => `<button data-fond="${n}" class="${n === choix ? 'actif' : ''}">${n}</button>`).join('')}
@@ -6996,7 +6996,7 @@ async function demarrer() {
     const chromium = !!(navigator.userAgentData && navigator.userAgentData.brands && navigator.userAgentData.brands.some((b) => /Chrom|Edge/i.test(b.brand)));
     if (note) note.textContent = !https ? 'USB et Bluetooth demandent la carte en HTTPS (voir README).' : !('serial' in navigator) && !chromium ? 'USB et Bluetooth : utilisez Chrome ou Edge.' : '';
   }
-  const nomMarque = document.querySelector('.marque .nom');
+  const nomMarque = document.querySelector('.marque .nom-carte');
   if (nomMarque) nomMarque.textContent = etat.config.titre.split(' · ')[0];
   const marque = document.querySelector('.marque .sous');
   if (marque) marque.textContent = `Carte live · ${etat.config.zoneNom}`;

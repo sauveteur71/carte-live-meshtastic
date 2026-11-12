@@ -6,6 +6,9 @@
   <title>Réseau Meshtastic · carte publique</title>
   <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
   <style>
+    .soutien { display: inline-block; padding: 3px 10px; border-radius: 99px; background: #ff4f8b; color: #fff !important; font-weight: 700; font-size: 12px; text-decoration: none; }
+    .soutien:hover { background: #ff2f75; }
+    .leaflet-control-attribution a[href*="helloasso"] { color: #ff6fa3 !important; font-weight: 700; }
     :root { --fond: #0b1118; --surface: rgba(17,26,36,.92); --texte: #e8eef5; --doux: #9fb0c2; --accent: #3ee6c4; --bord: #22303f; }
     html, body { margin: 0; height: 100%; background: var(--fond); color: var(--texte); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
     #carte { position: fixed; inset: 0; background: var(--fond); }
@@ -80,6 +83,7 @@
       <button class="bascule" id="b-sites" title="Points hauts où de nouveaux relais étendraient le plus la couverture">🎯 Où poser des relais ?</button>
       <button class="bascule" id="b-point" title="Cliquez ensuite n’importe où sur la carte : zone couverte par une antenne placée à cet endroit">📍 Couverture d’un point</button>
     </div>
+    <div class="reseaux"><a class="soutien" href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener" title="Le programme est gratuit : un don au Radio-club du Velay aide à le faire vivre">♥ Soutenir le projet</a></div>
     <small id="note-couv" hidden></small>
     <div id="info-couv" class="info-couv" hidden></div>
   </div>

@@ -1422,3 +1422,16 @@ body.alertes-fusionnees .titre-mt-alertes { display: none; }
 .ao-envoi { margin: 6px 0 8px; padding: 8px 10px; border: 1px solid var(--bord); border-radius: 8px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
 .ao-envoi label { display: inline-flex; gap: 4px; align-items: center; }
 .ao-env-btn { float: right; margin-left: 6px; }
+
+/* Soutien au projet : bien visible sans gêner (bandeau et attribution) */
+.soutien { display: inline-block; margin-left: 8px; vertical-align: 1px; padding: 0 9px; border-radius: 99px; background: #ff4f8b; color: #fff; font-weight: 700; font-size: 11px; line-height: 18px; text-decoration: none; white-space: nowrap; }
+.soutien:hover { background: #ff2f75; color: #fff; }
+.leaflet-control-attribution a[href*="helloasso"] { color: #ff6fa3 !important; font-weight: 700; font-size: 12px; }
+body.theme-clair .leaflet-control-attribution a[href*="helloasso"] { color: #c0125a !important; }
+.soutien .s-court { display: none; }
+.marque .nom { white-space: nowrap; }
+@media (max-width: 900px) {
+  .marque .soutien { margin-left: 6px; padding: 0 7px; font-size: 10px; line-height: 15px; }
+  .marque .soutien .s-long { display: none; }
+  .marque .soutien .s-court { display: inline; }
+}
