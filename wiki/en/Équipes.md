@@ -50,3 +50,8 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
 - `equipes.json` is included in backups, `cle-equipes.bin` is **not**: to be able to restore teams on another installation, set `CLE_EQUIPES` **before** creating the first team and keep it separately. Changing `CLE_EQUIPES` afterwards makes the keys unreadable (the map says so: create a new key).
 - The key never appears in the team list, recorded operations, logs or history; only the export (administrator) shows it.
 - Configuration reads kept by the map (Program › Read) contain the channels read, keys included, as for other channels: protect the data folder.
+
+## In the field: safety zone, search mode, help request
+- **Safety zone**: *📍 Set the zone*, then tap the map at the centre and give the radius (0.1 to 100 km). A member whose last position leaves the circle is flagged in the network alerts (“outside the safety zone, X km from the centre”). The circle shows on the map (*view*).
+- **Search mode**: positions requested **every 2 minutes** for 15 min, 30 min, 1 h or 2 h, then back to the usual tracking. To find a team or a responder quickly; each request is a radio packet, hence the limited duration.
+- **Help request**: a message from a member containing the Meshtastic app's **alert bell** (🔔), **SOS**, **MAYDAY**, “au secours” or “besoin d'aide” triggers a critical alert: banner and sound for connected managers, notification, popup on the map at their last position (with the DFCI code), and a fresh position is requested right away. **✔ Acknowledged** clears it.

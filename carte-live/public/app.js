@@ -1463,11 +1463,16 @@ function canauxMtConnus() {
 }
 function barreCanauxHtml(reseau, filtre) {
   const el = [];
-  const mt = canauxMtConnus(), mcl = typeof canauxMcConnus === 'function' && etat.config.meshcore ? canauxMcConnus() : [];
+  // Un réseau désactivé (CARTE_RESEAUX) ou masqué par le choix Meshtastic / MeshCore n'a pas de pastilles
+  const avecMt = etat.config.reseaux !== 'meshcore' && etat.vueReseau !== 'meshcore';
+  const avecMc = !!etat.config.meshcore && etat.config.reseaux !== 'meshtastic' && etat.vueReseau !== 'meshtastic';
+  const mt = avecMt ? canauxMtConnus() : [], mcl = avecMc && typeof canauxMcConnus === 'function' ? canauxMcConnus() : [];
   mt.forEach((c, i) => el.push({ k: 'c:' + c.toLowerCase(), r: 'mt', v: 'c:' + c, nom: c, ic: '📢', o: i, coul: couleurCanal(c) }));
-  el.push({ k: 'direct', r: 'mt', v: 'direct', nom: 'Directs', ic: '✉️', o: 50 });
+  if (avecMt) el.push({ k: 'direct', r: 'mt', v: 'direct', nom: 'Directs', ic: '✉️', o: 50 });
   mcl.forEach((c, i) => el.push({ k: 'mc:' + c.toLowerCase(), r: 'mc', v: 'c:' + c, nom: c, ic: '📢', o: 100 + i, coul: couleurCanal(c) }));
-  if (mcl.length || etat.config.meshcore) el.push({ k: 'mcdirect', r: 'mc', v: 'direct', nom: 'Directs', ic: '✉️', o: 150 });
+  if (avecMc) el.push({ k: 'mcdirect', r: 'mc', v: 'direct', nom: 'Directs', ic: '✉️', o: 150 });
+  // Pastilles de l'autre réseau : affichées seulement s'il y a les deux
+  for (const x of el) x.seul = !(avecMt && avecMc);
   // Du nouveau d'abord (le plus récent en premier), puis l'ordre habituel
   el.sort((a, b) => (!!nonLus[b.k] - !!nonLus[a.k]) || (nonLus[a.k] ? (dernierRecu[b.k] || 0) - (dernierRecu[a.k] || 0) : a.o - b.o));
   const tot = Object.entries(nonLus).filter(([k]) => (reseau === 'mc') === k.startsWith('mc')).reduce((a, [, n]) => a + n, 0);
@@ -1475,7 +1480,7 @@ function barreCanauxHtml(reseau, filtre) {
     const n = nonLus[x.k] || 0, t = dernierRecu[x.k], actif = x.r === reseau && filtre === x.v;
     const recent = t && Date.now() - t < 20000;
     return `<button type="button" class="puce-canal${n ? ' a-lire' : ''}${x.k.endsWith('direct') ? ' direct' : ''}${actif ? ' actif' : ''}${recent && n ? ' vient' : ''}" data-puce-r="${x.r}" data-puce-v="${esc(x.v)}" ${x.coul ? `style="--coul:${x.coul}"` : ''} aria-pressed="${actif}" title="${esc((x.r === 'mc' ? 'MeshCore' : 'Meshtastic') + ' · ' + x.nom + (n ? ` : ${n} message${n > 1 ? 's' : ''} en attente` : '') + (t ? ' · dernier reçu ' + ilYa(t) : ''))}">`
-      + `<span class="reseau ${x.r}">${x.r === 'mc' ? 'MC' : 'MT'}</span>${x.ic} ${esc(x.nom)}${n ? `<b class="nb">${n}</b>` : ''}${n && t ? `<small>${ilYa(t)}</small>` : ''}</button>`;
+      + `${x.seul ? '' : `<span class="reseau ${x.r}">${x.r === 'mc' ? 'MC' : 'MT'}</span>`}${x.ic} ${esc(x.nom)}${n ? `<b class="nb">${n}</b>` : ''}${n && t ? `<small>${ilYa(t)}</small>` : ''}</button>`;
   };
   return `<div class="barre-canaux" role="toolbar" aria-label="Canaux : ceux qui ont des messages en attente sont en tête">`
     + `<button type="button" class="puce-canal tous${!filtre ? ' actif' : ''}" data-puce-r="${reseau}" data-puce-v="">Tous${tot ? `<b class="nb">${tot}</b>` : ''}</button>${el.map(puce).join('')}</div>`;
@@ -4704,6 +4709,15 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
       <div class="champ-ajout"><input type="text" data-saisie placeholder="!a1b2c3d4, !e5f6a7b8…" aria-label="Nœuds à ajouter"><button class="principal" data-ajouter>➕ Ajouter${sel.length ? ` (+ ${sel.length} coché${sel.length > 1 ? 's' : ''})` : ''}</button></div>
       <label>Suivi des positions <select data-suivi>${[[0, 'à la demande'], [5, 'toutes les 5 min'], [10, 'toutes les 10 min'], [15, 'toutes les 15 min'], [30, 'toutes les 30 min'], [60, 'toutes les heures']].map(([v, t]) => `<option value="${v}" ${e.suiviMin === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <label class="case"><input type="checkbox" data-positions ${e.positions ? 'checked' : ''}> Positions des membres sur le canal d’équipe (s’applique aux prochains envois)</label>
+      ${(e.sos || []).map((x) => `<div class="alerte ${x.pris ? 'info-lecture' : 'critique'} sos-eq">🆘 <b>${esc(x.nom)}</b> demande de l’aide ${ilYa(x.heure)} : « ${esc(x.texte)} »${x.position ? ` · <a href="#" data-voir-pos="${x.position.lat},${x.position.lon}">📍 voir</a> <small class="mono">${esc((window.DFCI && DFCI.versDfci(x.position.lat, x.position.lon)) || '')}</small>` : ''}${x.pris ? ` <small>· pris en compte par ${esc(x.prisPar || '?')} ${ilYa(x.pris)}</small>` : ` <button class="mini principal" data-sos-pris="${x.id}">✔ Pris en compte</button>`}</div>`).join('')}
+      <div class="parametres compact">
+        <label>Mode recherche <select data-recherche><option value="0">${e.recherche ? '⏹ Arrêter' : '— désactivé —'}</option>${[15, 30, 60, 120].map((m) => `<option value="${m}">positions toutes les 2 min pendant ${m >= 60 ? m / 60 + ' h' : m + ' min'}</option>`).join('')}</select></label>
+        ${e.recherche ? `<span class="note">🔎 En cours jusqu’à ${new Date(e.recherche.jusqua).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} (toutes les ${e.recherche.intervalle} min)</span>` : ''}
+      </div>
+      <div class="parametres compact">
+        <span>Zone de sécurité : ${e.zone ? `<b>${(e.zone.rayon / 1000).toLocaleString('fr-FR')} km</b> autour de ${e.zone.lat.toFixed(4)}, ${e.zone.lon.toFixed(4)} <a href="#" data-voir-zone>voir</a>` : '<span class="note">aucune</span>'}</span>
+        <button class="mini" data-zone>📍 ${e.zone ? 'Changer' : 'Définir'} la zone</button>${e.zone ? '<button class="mini" data-zone-suppr>Retirer</button>' : ''}
+      </div>
       <div class="actions-prop">
         ${e.nbMembres ? `<button data-positions-eq title="Chaque nœud de l’équipe renvoie sa position (espacées de 3 s)">📍 Demander les positions</button>` : ''}
         <button data-reappliquer title="Renvoyer le canal aux nœuds pas à jour, et le retrait à ceux qui ne l’ont pas confirmé">↻ Renvoyer aux nœuds pas à jour</button>
@@ -4748,6 +4762,21 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
     }));
     bloc.querySelector('[data-suivi]').onchange = async (ev) => { try { await postJson(`/api/equipes/${id}`, { suiviMin: Number(ev.target.value) }, 'PATCH'); retour(Number(ev.target.value) ? 'Suivi activé : la carte demande leur position aux membres à cet intervalle, et signale ceux qui ne répondent plus (onglet Réseau › Alertes).' : 'Suivi arrêté.'); } catch (e) { retour(e.message); } };
     bloc.querySelectorAll('[data-voir-pos]').forEach((l) => (l.onclick = (ev) => { ev.preventDefault(); const [la, lo] = l.dataset.voirPos.split(',').map(Number); carte.setView([la, lo], Math.max(carte.getZoom(), 14)); }));
+    bloc.querySelectorAll('[data-sos-pris]').forEach((b) => (b.onclick = async () => { try { await postJson(`/api/equipes/${id}/sos/${b.dataset.sosPris}`, {}); ficheEquipes(id); } catch (e) { retour(e.message); } }));
+    bloc.querySelector('[data-recherche]').onchange = async (ev) => {
+      const m = Number(ev.target.value);
+      try { await postJson(`/api/equipes/${id}/recherche`, { minutes: m, intervalle: 2 }); ficheEquipes(id).then(() => { const b = z.querySelector(`[data-eq="${id}"] [data-retour]`); if (b) b.textContent = m ? `🔎 Mode recherche : positions demandées toutes les 2 min pendant ${m} min, puis retour au suivi habituel. Chaque demande est un paquet radio.` : 'Mode recherche arrêté.'; }); } catch (e) { retour(e.message); }
+    };
+    { const eq = r.equipes.find((x) => x.id === id);
+      const bz = bloc.querySelector('[data-zone]'); if (bz) bz.onclick = () => choisirPointPuis('Touchez la carte au centre de la zone de sécurité.', async (ll) => {
+        const km = await saisir('Rayon de la zone de sécurité, en km (0,1 à 100) :', eq.zone ? String(eq.zone.rayon / 1000).replace('.', ',') : '2');
+        if (km == null) return;
+        const v = Number(String(km).replace(',', '.'));
+        try { await postJson(`/api/equipes/${id}`, { zone: { lat: ll.lat, lon: ll.lng, rayon: v * 1000 } }, 'PATCH'); ficheEquipes(id); montrerZoneEquipe({ lat: ll.lat, lon: ll.lng, rayon: v * 1000 }, eq.nom); } catch (e) { retour(e.message); }
+      });
+      const bs = bloc.querySelector('[data-zone-suppr]'); if (bs) bs.onclick = async () => { try { await postJson(`/api/equipes/${id}`, { zone: null }, 'PATCH'); montrerZoneEquipe(null); ficheEquipes(id); } catch (e) { retour(e.message); } };
+      const bv = bloc.querySelector('[data-voir-zone]'); if (bv) bv.onclick = (ev) => { ev.preventDefault(); montrerZoneEquipe(eq.zone, eq.nom, true); };
+    }
     bloc.querySelector('[data-positions]').onchange = async (ev) => { try { await postJson(`/api/equipes/${id}`, { positions: ev.target.checked }, 'PATCH'); retour('Enregistré : « Renvoyer » ou une nouvelle clé l’appliquera aux nœuds déjà membres.'); } catch (e) { retour(e.message); } };
     { const bp = bloc.querySelector('[data-positions-eq]'); if (bp) bp.onclick = async () => {
       const eq = r.equipes.find((x) => x.id === id);
@@ -5973,6 +6002,16 @@ function connecterWs() {
     const m = JSON.parse(ev.data);
     if (m.genre === 'signalement') { if (etat.membre) chargerSignalements(); return; }
     if (m.genre === 'alertes-officielles') { chargerAlertesOff(); return; }
+    if (m.genre === 'equipe-sos') {
+      if (etat.gestion) {
+        annonce(`🆘 ${m.nom} (équipe ${m.nomEquipe}) demande de l’aide : « ${m.texte} »`, 'erreur');
+        try { if (window.Notification && Notification.permission === 'granted') new Notification('🆘 Demande d’aide', { body: `${m.nom} (équipe ${m.nomEquipe}) : ${m.texte}` }); } catch { /* pas de notification */ }
+        try { bip([880, 1320, 1760, 1320, 1760], 0.15); } catch { /* pas de son */ }
+        if (m.position) L.popup().setLatLng([m.position.lat, m.position.lon]).setContent(`<b>🆘 ${esc(m.nom)}</b><br>${esc(m.texte)}<br><small>équipe ${esc(m.nomEquipe)}</small>`).openOn(carte);
+      }
+      return;
+    }
+    if (m.genre === 'equipes') { const z = $('#fiche-contenu'); if (z && z.querySelector('.equipes') && !$('#fiche').hidden && !z.contains(document.activeElement)) ficheEquipes(); return; }
     if (m.genre === 'position-reponse') {
       const n = etat.noeuds.get(m.num >>> 0);
       const nom = n ? n.nomLong || n.nomCourt || n.id : '!' + (m.num >>> 0).toString(16);
@@ -7630,7 +7669,7 @@ function blocAlertesOff() {
   const nv = r.niveauxVigipirate || {};
   const rg = r.reglages || {};
   return `<div class="alertes-off"><h3>🌦️ Alertes officielles</h3>
-    <h4>Vigilance Météo-France${rg.voisins ? ' (département et voisins)' : ''}</h4>
+    <h4>Vigilance Météo-France${(rg.departements || []).length > 1 ? ` (${rg.departements.length} départements)` : ''}</h4>
     ${meteo.length ? meteo.map((a) => `<div class="vig-ligne vig-${a.couleur}"><b>${ICONES_VIG[a.couleur]} Vigilance ${a.couleur} ${esc(a.phenomene)}</b> · ${esc(a.depNom)}<small>${a.debut ? 'du ' + h(a.debut) : ''}${a.fin ? ' au ' + h(a.fin) : ''}${a.envois ? ' · diffusée en LoRa' : ''}</small></div>`).join('') : `<p class="note">${r.erreur ? '⚠ Vigilance indisponible : ' + esc(r.erreur) : 'Aucune vigilance en cours.'}</p>`}
     <p class="note">Source : Météo-France, par le flux public MeteoAlarm (mis à jour toutes les 10 min${r.maj ? ', lu ' + ilYa(r.maj) : ''}).</p>
     <h4>Vigipirate</h4>
@@ -7645,10 +7684,14 @@ function blocAlertesOff() {
       <div class="actions-prop"><button type="button" class="mini principal" id="ao-fr-ok">📢 Relayer en LoRa</button></div>
       <p class="note">FR-Alert passe par les antennes des téléphones et n’a pas de flux public fiable : recopiez ici le message reçu pour le relayer sur les canaux ci-dessous, au profit des équipes sans réseau mobile.</p>` : ''}
     ${etat.admin ? `<details class="ao-reglages"><summary>Réglages de diffusion (administrateur)</summary><div class="parametres compact">
-      <label class="case"><input type="checkbox" id="ao-diffuser" ${rg.diffuser ? 'checked' : ''}> Diffuser automatiquement les nouvelles vigilances en LoRa</label>
+      <label class="case ligne-entiere"><input type="checkbox" id="ao-diffuser" ${rg.diffuser ? 'checked' : ''}> <b>Diffusion automatique activée</b> : les nouvelles vigilances partent en LoRa (décoché : rien n’est envoyé automatiquement)</label>
       <label>À partir de <select id="ao-niveau">${['jaune', 'orange', 'rouge'].map((c) => `<option value="${c}" ${rg.niveauMin === c ? 'selected' : ''}>${ICONES_VIG[c]} ${c}</option>`).join('')}</select></label>
-      <label>Canaux (noms, séparés par des virgules) <input id="ao-canaux" value="${esc((rg.canaux || []).join(', '))}"></label>
-      <label class="case"><input type="checkbox" id="ao-voisins" ${rg.voisins ? 'checked' : ''}> Suivre aussi les départements voisins</label>
+      <label>Canaux Meshtastic (noms, séparés par des virgules) <input id="ao-canaux" value="${esc((rg.canaux || []).join(', '))}"></label>
+      <label>Canal MeshCore (vide = aucun) ${(r.canauxMc || []).length ? `<select id="ao-canal-mc"><option value="">— aucun —</option>${r.canauxMc.map((c) => `<option ${rg.canalMc === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>` : `<input id="ao-canal-mc" value="${esc(rg.canalMc || '')}" placeholder="ex. #alerte">`}</label>
+    </div>
+    <div class="ao-deps"><b>Départements suivis</b> <small class="note">(vigilance affichée et diffusée seulement pour ceux-ci)</small><br>
+      ${[r.departementCarte, ...(r.voisins || [])].filter(Boolean).map((c) => { const d = (r.departements || []).find((x) => x.code === c); const coche = (rg.departements || []).length ? rg.departements.includes(c) : c === r.departementCarte; return `<label class="case"><input type="checkbox" data-ao-dep="${esc(c)}" ${coche ? 'checked' : ''}> ${esc(c)} · ${esc(d ? d.nom : c)}${c === r.departementCarte ? ' (carte)' : ''}</label>`; }).join('')}
+      <label>Autres départements (numéros, séparés par des virgules) <input id="ao-deps-autres" value="${esc((rg.departements || []).filter((c) => c !== r.departementCarte && !(r.voisins || []).includes(c)).join(', '))}" placeholder="ex. 07, 48"></label>
     </div><div class="actions-prop"><button type="button" class="mini principal" id="ao-reglages-ok">Enregistrer</button></div>
     <p class="note">Une vigilance n’est diffusée qu’une fois. Les annonces Vigipirate et FR-Alert partent sur les mêmes canaux.</p></details>` : ''}
     <p class="erreur" id="ao-retour"></p></div>`;
@@ -7666,7 +7709,7 @@ function brancherAlertesOff() {
     try { const a = await postJson('/api/fr-alert', { texte: $('#ao-fr-texte').value, zone: $('#ao-fr-zone').value }); await chargerAlertesOff(); const pb = (a.envois || []).filter((e) => e.statut !== 'envoye'); ficheSignalements(pb.length ? '⚠ ' + pb.map((e) => `${e.canal} : ${e.erreur}`).join(' ; ') : '✔ Alerte FR-Alert relayée.'); } catch (e) { ret(e.message); }
   }; }
   document.querySelectorAll('[data-ao-fin]').forEach((b) => (b.onclick = async () => { try { await postJson(`/api/fr-alert/${b.dataset.aoFin}/fin`, {}); await chargerAlertesOff(); ficheSignalements(); } catch (e) { ret(e.message); } }));
-  { const b = $('#ao-reglages-ok'); if (b) b.onclick = async () => { try { await postJson('/api/alertes-officielles/reglages', { diffuser: $('#ao-diffuser').checked, niveauMin: $('#ao-niveau').value, canaux: $('#ao-canaux').value.split(',').map((x) => x.trim()).filter(Boolean), voisins: $('#ao-voisins').checked }); await chargerAlertesOff(); ficheSignalements('✔ Réglages des alertes enregistrés.'); } catch (e) { ret(e.message); } }; }
+  { const b = $('#ao-reglages-ok'); if (b) b.onclick = async () => { try { await postJson('/api/alertes-officielles/reglages', { diffuser: $('#ao-diffuser').checked, niveauMin: $('#ao-niveau').value, canaux: $('#ao-canaux').value.split(',').map((x) => x.trim()).filter(Boolean), departements: [...[...document.querySelectorAll('[data-ao-dep]')].filter((x) => x.checked).map((x) => x.dataset.aoDep), ...$('#ao-deps-autres').value.split(/[,; ]+/).map((x) => x.trim()).filter(Boolean)], canalMc: $('#ao-canal-mc').value }); await chargerAlertesOff(); ficheSignalements('✔ Réglages des alertes enregistrés.'); } catch (e) { ret(e.message); } }; }
 }
 setTimeout(chargerAlertesOff, 2500);
 setInterval(chargerAlertesOff, 5 * 60000);
@@ -7691,4 +7734,14 @@ async function statistiquesNoeud(num, jours = 7) {
     ${r.sauts.length ? `<h4>Sauts pour arriver</h4>${barres(r.sauts, (t) => (t.sauts === 0 ? 'direct' : `${t.sauts} saut${t.sauts > 1 ? 's' : ''}`), (t) => t.nb, (t) => (t.sauts === 0 ? '#2dd4bf' : t.sauts <= 2 ? '#facc15' : '#fb923c'))}` : ''}
     ${r.recepteurs.length ? `<h4>Qui le reçoit le plus</h4>${barres(r.recepteurs, (t) => esc(nomNoeud(t.num)) + (t.sautsMin === 0 ? ' · direct' : ''), (t) => t.nb, (t) => (t.snr != null ? couleurSnr(t.snr) : '#94a3b8'))}` : ''}`;
   const s = $('#stats-jours'); if (s) s.onchange = () => statistiquesNoeud(num, Number(s.value));
+}
+
+// Zone de sécurité d'une équipe tracée sur la carte (cercle), avec les membres
+let coucheZoneEquipe = null;
+function montrerZoneEquipe(z, nom, cadrer) {
+  if (coucheZoneEquipe) { coucheZoneEquipe.remove(); coucheZoneEquipe = null; }
+  if (!z) return;
+  coucheZoneEquipe = L.circle([z.lat, z.lon], { radius: z.rayon, color: '#22d3ee', weight: 2, dashArray: '6 6', fillOpacity: 0.06, interactive: false }).addTo(carte);
+  coucheZoneEquipe.bindTooltip(`Zone de sécurité · ${nom || ''}`, { permanent: false });
+  if (cadrer) carte.fitBounds(coucheZoneEquipe.getBounds(), { padding: [30, 30] });
 }

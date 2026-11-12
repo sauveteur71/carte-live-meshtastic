@@ -50,3 +50,8 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
 - `equipes.json` est inclus dans les sauvegardes, **pas** `cle-equipes.bin` : pour pouvoir restaurer les équipes sur une autre installation, définissez `CLE_EQUIPES` **avant** de créer la première équipe et conservez-la à part. Changer `CLE_EQUIPES` ensuite rend les clés illisibles (la carte le signale : créez une nouvelle clé).
 - La clé n'apparaît jamais dans la liste des équipes, les opérations enregistrées, les journaux ni l'historique ; seul l'export (administrateur) la montre.
 - Les lectures de configuration gardées par la carte (Programmer › Lire) contiennent les canaux lus, clés comprises, comme pour les autres canaux : protégez le dossier de données.
+
+## Sur le terrain : zone de sécurité, mode recherche, demande d'aide
+- **Zone de sécurité** : *📍 Définir la zone* puis toucher la carte au centre et donner le rayon (0,1 à 100 km). Un membre dont la dernière position sort du cercle est signalé dans les alertes du réseau (« hors de la zone de sécurité, à X km du centre »). Le cercle se voit sur la carte (*voir*).
+- **Mode recherche** : positions demandées **toutes les 2 minutes** pendant 15 min, 30 min, 1 h ou 2 h, puis retour au suivi habituel. Pour retrouver vite une équipe ou un intervenant ; chaque demande est un paquet radio, d'où la durée limitée.
+- **Demande d'aide** : un message d'un membre contenant la **cloche d'alerte** de l'appli Meshtastic (🔔), **SOS**, **MAYDAY**, « au secours » ou « besoin d'aide » déclenche une alerte critique : bandeau et son pour les gestionnaires connectés, notification, fenêtre sur la carte à sa dernière position (avec le code DFCI), et une nouvelle position lui est demandée aussitôt. **✔ Pris en compte** l'acquitte.

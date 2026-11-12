@@ -23,13 +23,14 @@ const NIVEAUX_VIGIPIRATE = {
 const sansAccent = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const balise = (bloc, nom) => { const m = new RegExp(`<${nom}[^>]*>([\\s\\S]*?)</${nom}>`).exec(bloc); return m ? m[1].trim() : ''; };
 
-function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer, diffuser }) {
+function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer, envoyerMc = null, diffuser }) {
   const fichier = path.join(path.dirname(config.fichierBase), 'alertes-officielles.json');
   let d = {};
   try { d = JSON.parse(fs.readFileSync(fichier, 'utf8')); } catch { /* premier démarrage */ }
   const etat = {
     // Diffusion LoRa : désactivée par défaut ; canaux Meshtastic par nom ; niveau de vigilance minimal diffusé
-    reglages: { diffuser: false, canaux: ['Alerte'], niveauMin: 'orange', voisins: false, ...(d.reglages || {}) },
+    // departements : codes suivis (vide = celui de la carte) ; canalMc : canal MeshCore (vide = pas d'envoi MeshCore)
+    reglages: { diffuser: false, canaux: ['Alerte'], canalMc: '', niveauMin: 'orange', departements: [], ...(d.reglages || {}) },
     vigipirate: d.vigipirate || null, // { niveau, depuis, par }
     frAlert: d.frAlert || [], // [{ id, texte, zone, date, par, envois }]
     meteo: [], // vigilances en cours pour les départements suivis
@@ -44,6 +45,9 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
       if (k) await new Promise((r) => setTimeout(r, 600));
       try { await envoyer(canal, texte); envois.push({ canal, statut: 'envoye' }); } catch (e) { envois.push({ canal, statut: 'echec', erreur: e.message }); }
     }
+    if (etat.reglages.canalMc && envoyerMc) {
+      try { await envoyerMc(etat.reglages.canalMc, texte); envois.push({ canal: 'MeshCore ' + etat.reglages.canalMc, statut: 'envoye' }); } catch (e) { envois.push({ canal: 'MeshCore ' + etat.reglages.canalMc, statut: 'echec', erreur: e.message }); }
+    }
     return envois;
   }
 
@@ -52,7 +56,7 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
       const r = await fetch(URL_METEOALARM, { headers: { 'User-Agent': 'carte-live-meshtastic' }, signal: AbortSignal.timeout(30000) });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const xml = await r.text();
-      const suivis = departementsSuivis(etat.reglages.voisins);
+      const suivis = departementsSuivis(etat.reglages.departements);
       const parNom = new Map(suivis.map((x) => [sansAccent(x.nom), x]));
       const maintenant = Date.now();
       const liste = [];
@@ -104,7 +108,8 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
     etat: () => ({ meteo: etat.meteo, vigipirate: etat.vigipirate && { ...etat.vigipirate, ...NIVEAUX_VIGIPIRATE[etat.vigipirate.niveau] }, frAlert: etat.frAlert.filter((x) => !x.fin && Date.now() - x.date < 3 * 86400000), reglages: etat.reglages, maj: etat.maj, erreur: etat.erreur }),
     regler(r) {
       if (typeof r.diffuser === 'boolean') etat.reglages.diffuser = r.diffuser;
-      if (typeof r.voisins === 'boolean') etat.reglages.voisins = r.voisins;
+      if (Array.isArray(r.departements)) etat.reglages.departements = [...new Set(r.departements.map((c) => String(c).trim().toUpperCase()).filter((c) => /^(\d{2,3}|2A|2B)$/.test(c)))].slice(0, 30);
+      if (r.canalMc !== undefined) etat.reglages.canalMc = String(r.canalMc || '').trim().slice(0, 32);
       if (RANG[r.niveauMin]) etat.reglages.niveauMin = r.niveauMin;
       if (Array.isArray(r.canaux)) etat.reglages.canaux = r.canaux.map((c) => String(c).trim().slice(0, 12)).filter(Boolean).slice(0, 4);
       sauver();

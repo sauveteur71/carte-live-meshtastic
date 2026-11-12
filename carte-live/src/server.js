@@ -2623,7 +2623,7 @@ clientMqtt.on('message', (topic, message) => {
     if (!evt) return;
     if (evt.genre === 'erreur') { compteur.erreurs++; return; }
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     if (sortie) { compteur.decodes++; diffuser(sortie); }
@@ -2803,7 +2803,7 @@ app.post('/api/mc/maintenance/conformite', (req, res) => {
 const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   integrerEvenement: (evt) => {
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     if (sortie) { compteur.decodes++; diffuser({ ...sortie, viaRadio: true }); }
@@ -2821,7 +2821,7 @@ const ecoutes = creerEcoutes({
   fabriquerRadio: (m) => creerSourceRadio(stockage, config, canaux, {
     integrerEvenement: (evt) => {
       if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
       if (sortie) { compteur.decodes++; diffuser({ ...sortie, viaRadio: true }); }
@@ -2835,7 +2835,7 @@ ecoutes.demarrer();
 const administration = creerAdministration(sourceRadio, stockage);
 // ---- Équipes : canal chiffré par équipe, posé ou retiré à distance (administrateur) ----
 const reqPosEquipe = stockage.db.prepare('SELECT lat, lon, heure_position FROM noeuds WHERE num = ?');
-const equipes = require('./equipes').creerEquipes({ config, administration, journal, positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
+const equipes = require('./equipes').creerEquipes({ config, administration, journal, diffuser, nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); }, positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
 const routeEquipe = (f) => (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   try { res.set('Cache-Control', 'no-store').json(f(req, req.body || {}, nomCompte(utilisateur(req)))); } catch (e) { res.status(400).json({ erreur: e.message }); }
@@ -2845,6 +2845,8 @@ app.post('/api/equipes', routeEquipe((req, b, a) => equipes.creer(b, a)));
 app.patch('/api/equipes/:id', routeEquipe((req, b) => equipes.modifier(req.params.id, b)));
 app.post('/api/equipes/:id/membres', routeEquipe((req, b, a) => equipes.membres(req.params.id, b, a)));
 app.post('/api/equipes/:id/reappliquer', routeEquipe((req, b, a) => equipes.reappliquer(req.params.id, a)));
+app.post('/api/equipes/:id/recherche', routeEquipe((req, b, a) => equipes.recherche(req.params.id, b, a)));
+app.post('/api/equipes/:id/sos/:sid', routeEquipe((req, b, a) => equipes.prendreSos(req.params.id, req.params.sid, a)));
 app.post('/api/equipes/:id/nouvelle-cle', routeEquipe((req, b, a) => {
   if (b.confirmation !== 'NOUVELLE CLE') throw new Error('Confirmation manquante : tapez « NOUVELLE CLE »');
   return equipes.nouvelleCle(req.params.id, a);
@@ -3023,7 +3025,20 @@ const signalements = require('./signalements').creerSignalements({
 // ---- Alertes officielles : vigilance Météo-France (MeteoAlarm), Vigipirate, FR-Alert relayées ----------------
 const alertesOff = require('./alertes-officielles').creerAlertesOfficielles({
   config, journal, diffuser,
-  departementsSuivis: (voisins) => [{ code: String(config.departement.code), nom: config.departement.nom || config.zoneNom }, ...(voisins ? ((zoneVoisins() || {}).departements || []) : [])],
+  // Départements suivis : ceux choisis par l'administrateur, sinon celui de la carte
+  departementsSuivis: (codes) => {
+    const l = (codes && codes.length ? codes : [String(config.departement.code)]).map((c) => listeDepartements.find((d) => d.code === c) || (c === String(config.departement.code) ? { code: c, nom: config.departement.nom } : null)).filter(Boolean);
+    return l;
+  },
+  envoyerMc: async (nomCanal, texte) => {
+    if (!config.meshcore.actif) throw new Error('MeshCore désactivé');
+    const sans = (t) => String(t || '').toLowerCase().replace(/^#/, '');
+    const c = companion.canaux().find((x) => sans(x.nom) === sans(nomCanal));
+    if (!c) throw new Error(`canal « ${nomCanal} » absent du compagnon`);
+    let b = Buffer.from(texte, 'utf8');
+    if (b.length > 130) texte = b.subarray(0, 127).toString('utf8').replace(/\uFFFD+$/, '') + '…';
+    await companion.envoyerCanal(c.index, texte);
+  },
   envoyer: async (nomCanal, texte) => {
     const i = sourceRadio.infos();
     if (!i.connecte) throw new Error('module radio non connecté');
@@ -3034,7 +3049,7 @@ const alertesOff = require('./alertes-officielles').creerAlertesOfficielles({
     return administration.envoyerTexte({ texte, canal: c.index }, 'alertes');
   },
 });
-app.get('/api/alertes-officielles', (req, res) => res.set('Cache-Control', 'no-store').json({ ...alertesOff.etat(), niveauxVigipirate: alertesOff.NIVEAUX_VIGIPIRATE }));
+app.get('/api/alertes-officielles', (req, res) => res.set('Cache-Control', 'no-store').json({ ...alertesOff.etat(), niveauxVigipirate: alertesOff.NIVEAUX_VIGIPIRATE, ...(estAdmin(req) ? { departements: listeDepartements.map((d) => ({ code: d.code, nom: d.nom })), voisins: ((zoneVoisins() || {}).departements || []).map((d) => d.code), departementCarte: String(config.departement.code), canauxMc: config.meshcore.actif ? companion.canaux().map((c) => c.nom) : [] } : {}) }));
 app.post('/api/alertes-officielles/reglages', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const r = alertesOff.regler(req.body || {});

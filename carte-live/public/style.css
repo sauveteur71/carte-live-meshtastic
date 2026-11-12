@@ -1403,3 +1403,5 @@ body.theme-clair .chip-alertes.vig-rouge { color: #7f1d1d; }
 .barre-stat span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .barre-stat i { display: block; height: 10px; border-radius: 3px; min-width: 2px; }
 .barre-stat b { text-align: right; }
+.ao-deps { margin: 8px 0; } .ao-deps label.case { display: inline-flex; margin-right: 10px; }
+.parametres .ligne-entiere { grid-column: 1 / -1; display: block; }

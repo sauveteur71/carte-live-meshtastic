@@ -15,7 +15,10 @@ const crypto = require('crypto');
 
 const NOM_VALIDE = /^[A-Za-z0-9_+\-.]{1,11}$/;
 
-function creerEquipes({ config, administration, journal, positionDe = () => null }) {
+const distance = (a, b) => { const R = 6371000, r = Math.PI / 180; const dl = (b.lat - a.lat) * r, dg = (b.lon - a.lon) * r; const h = Math.sin(dl / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dg / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
+const dansZone = (z, p) => distance(z, p) <= z.rayon;
+
+function creerEquipes({ config, administration, journal, positionDe = () => null, diffuser = () => {}, nomDe = () => null }) {
   const { racine } = require('./decodeur');
   try { racine.lookupType('meshtastic.ChannelSet'); } catch { racine.loadSync(['meshtastic/apponly.proto']); }
   const dossier = path.dirname(config.fichierBase);
@@ -94,8 +97,12 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
     // Sans nouvelle : position plus vieille que 3 fois l'intervalle de suivi (30 min au moins)
     const limite = e.suiviMin ? Math.max(30, 3 * e.suiviMin) * 60000 : 0;
     for (const m of membres) m.sansNouvelle = !!(limite && m.etat === 'membre' && (!m.position || Date.now() - m.position.heure > limite));
+    // Zone de sécurité : un membre dont la dernière position est hors de la zone
+    for (const m of membres) m.horsZone = !!(e.zone && m.etat === 'membre' && m.position && !dansZone(e.zone, m.position));
+    const rech = e.recherche && e.recherche.jusqua > Date.now() ? e.recherche : null;
     return {
       id: e.id, nom: e.nom, description: e.description || '', positions: !!e.positions, version: e.version, suiviMin: e.suiviMin || 0, dernierSuivi: e.dernierSuivi || null,
+      zone: e.zone || null, recherche: rech, sos: (e.sos || []).filter((x) => !x.pris || Date.now() - x.pris < 3600000),
       empreinte: psk ? empreinte(psk) : null, cleLisible: !!psk, creee: e.creee, auteur: e.auteur, cleChangee: e.cleChangee || null,
       membres, nbMembres: membres.filter((m) => m.etat === 'membre').length,
       aJour: membres.filter((m) => m.aJour).length,
@@ -132,12 +139,65 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
     return vue(e);
   }
 
-  function modifier(id, { description, positions, suiviMin }) {
+  function modifier(id, { description, positions, suiviMin, zone }) {
     const e = exiger(id);
     if (suiviMin !== undefined) { const v = Number(suiviMin); if (![0, 5, 10, 15, 30, 60].includes(v)) throw new Error('Intervalle de suivi invalide'); e.suiviMin = v; }
     if (description != null) e.description = String(description).slice(0, 120);
     if (positions != null) e.positions = !!positions;
+    if (zone !== undefined) {
+      if (zone === null) delete e.zone;
+      else {
+        const lat = Number(zone.lat), lon = Number(zone.lon), rayon = Number(zone.rayon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Centre de zone invalide');
+        if (!(rayon >= 100 && rayon <= 100000)) throw new Error('Rayon de zone invalide (100 m à 100 km)');
+        e.zone = { lat, lon, rayon: Math.round(rayon) };
+      }
+    }
     sauver(true);
+    diffuser({ genre: 'equipes' });
+    return vue(e);
+  }
+  // Mode recherche : positions demandées souvent (toutes les 2 à 5 min) pendant une durée limitée, puis retour au suivi normal
+  function recherche(id, { minutes, intervalle }, auteur) {
+    const e = exiger(id);
+    const d = Number(minutes);
+    if (!d) { delete e.recherche; sauver(true); diffuser({ genre: 'equipes' }); return vue(e); }
+    if (![15, 30, 60, 120].includes(d)) throw new Error('Durée de recherche invalide');
+    const iv = [2, 3, 5].includes(Number(intervalle)) ? Number(intervalle) : 2;
+    e.recherche = { debut: Date.now(), jusqua: Date.now() + d * 60000, intervalle: iv, auteur };
+    e.dernierSuivi = 0;
+    sauver(true);
+    journal(`[Équipes] mode recherche sur « ${e.nom} » : toutes les ${iv} min pendant ${d} min (${auteur})`);
+    diffuser({ genre: 'equipes' });
+    return vue(e);
+  }
+  // Demande d'aide d'un membre : message contenant la cloche Meshtastic (🔔 « alerte »), SOS, MAYDAY, « au secours » ou « besoin d'aide »
+  const RE_SOS = /\u0007|\b(SOS|MAYDAY)\b|au secours|besoin d['’]aide/i;
+  const vusSos = new Map();
+  function texteRecu(evt) {
+    if (!evt || !evt.texte || !RE_SOS.test(evt.texte)) return;
+    const de = evt.de >>> 0;
+    const cle = `${de}:${evt.texte}`;
+    if (Date.now() - (vusSos.get(cle) || 0) < 120000) return; // même message reçu par plusieurs sources
+    vusSos.set(cle, Date.now());
+    for (const e of liste) {
+      if (!e.membres[de] || e.membres[de].etat !== 'membre') continue;
+      e.sos = (e.sos || []).filter((x) => Date.now() - x.heure < 86400000);
+      const x = { id: Date.now().toString(36), num: de, nom: nomDe(de) || '!' + de.toString(16), texte: String(evt.texte).replace(/\u0007/g, '🔔').slice(0, 200), heure: Date.now(), canal: evt.canal || null, position: positionDe(de) };
+      e.sos.unshift(x);
+      sauver(true);
+      journal(`[Équipes] 🆘 demande d'aide de ${x.nom} (équipe ${e.nom}) : ${x.texte}`);
+      diffuser({ genre: 'equipe-sos', equipe: e.id, nomEquipe: e.nom, ...x });
+      // Position fraîche demandée tout de suite
+      try { administration.demanderPosition(de, 'aide ' + e.nom); } catch { /* module coupé */ }
+    }
+  }
+  function prendreSos(id, sosId, auteur) {
+    const e = exiger(id);
+    const x = (e.sos || []).find((y) => y.id === sosId);
+    if (!x) throw new Error('Demande d’aide inconnue');
+    x.pris = Date.now(); x.prisPar = auteur;
+    sauver(true); diffuser({ genre: 'equipes' });
     return vue(e);
   }
 
@@ -203,10 +263,13 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
       if (!administration.infos().connecte) return;
       const t = Date.now();
       for (const e of liste) {
-        if (!e.suiviMin || t - (e.dernierSuivi || 0) < e.suiviMin * 60000) continue;
+        const rech = e.recherche && e.recherche.jusqua > t ? e.recherche : null;
+        if (e.recherche && !rech) { delete e.recherche; sauver(true); diffuser({ genre: 'equipes' }); }
+        const iv = rech ? rech.intervalle : e.suiviMin;
+        if (!iv || t - (e.dernierSuivi || 0) < iv * 60000) continue;
         const nums = Object.entries(e.membres).filter(([, m]) => m.etat === 'membre').map(([n]) => Number(n));
         e.dernierSuivi = t; sauver();
-        nums.forEach((n, i) => setTimeout(() => { try { administration.demanderPosition(n, 'suivi ' + e.nom); } catch { /* module coupé */ } }, i * 3000));
+        nums.forEach((n, i) => setTimeout(() => { try { administration.demanderPosition(n, (rech ? 'recherche ' : 'suivi ') + e.nom); } catch { /* module coupé */ } }, i * 3000));
       }
     } catch (x) { journal('[Équipes] suivi :', x.message); }
   }, 60000);
@@ -214,6 +277,10 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
   // Alertes : membre sans nouvelle
   function alertes(nomDe = () => null) {
     const l = [];
+    for (const e of liste.map(vue)) {
+      for (const x of e.sos) if (!x.pris) l.push({ cle: `equipe-sos:${e.id}:${x.id}`, type: 'equipe', niveau: 'critique', noeud: x.num, depuis: x.heure, message: `🆘 Équipe ${e.nom} : ${x.nom} demande de l’aide : « ${x.texte} »` });
+      for (const m of e.membres) if (m.horsZone) l.push({ cle: `equipe-zone:${e.id}:${m.num}`, type: 'equipe', niveau: 'attention', noeud: m.num, depuis: m.position.heure, message: `Équipe ${e.nom} : ${nomDe(m.num) || '!' + m.num.toString(16)} hors de la zone de sécurité (${Math.round(distance(e.zone, m.position) / 100) / 10} km du centre)` });
+    }
     for (const e of liste.map(vue)) for (const m of e.membres) if (m.sansNouvelle) l.push({ cle: `equipe:${e.id}:${m.num}`, type: 'equipe', niveau: 'attention', noeud: m.num, depuis: m.position ? m.position.heure : Date.now(), message: `Équipe ${e.nom} : ${nomDe(m.num) || '!' + m.num.toString(16)} sans position depuis ${m.position ? Math.round((Date.now() - m.position.heure) / 60000) + ' min' : 'le début du suivi'}` });
     return l;
   }
@@ -221,7 +288,7 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
     alertes,
     liste: () => liste.map(vue),
     equipe: (id) => vue(exiger(id)),
-    creer, modifier, membres, reappliquer, nouvelleCle, supprimer, exporter,
+    creer, modifier, membres, reappliquer, nouvelleCle, supprimer, exporter, recherche, texteRecu, prendreSos,
     sourceCle: () => (process.env.CLE_EQUIPES && process.env.CLE_EQUIPES.trim() ? 'env' : 'fichier'),
   };
 }
