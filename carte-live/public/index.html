@@ -153,7 +153,7 @@
       <div class="tableau" id="tableau-reseau">
       <div class="mt-seul">
         <details class="pli-alertes" data-pli="alertes-mt">
-          <summary><h3>Alertes <span class="titre-reseau">Meshtastic</span> <span id="nb-alertes" class="pastille">0</span> <span id="resume-alertes" class="resume-alertes"></span></h3></summary>
+          <summary><h3>Alertes <span class="titre-reseau titre-mt-alertes">Meshtastic</span> <span id="nb-alertes" class="pastille">0</span> <span id="resume-alertes" class="resume-alertes"></span></h3></summary>
           <div id="alertes" class="liste-alertes"></div>
         </details>
       </div>
@@ -217,7 +217,7 @@
     </section>
     <section data-vue="noeuds" class="vue">
       <div class="recherche">
-        <input id="recherche" type="search" placeholder="Nom, nom court ou !identifiant…" autocomplete="off">
+        <input id="recherche" type="search" placeholder="Nom, nom court, !identifiant ou début de clé…" autocomplete="off">
         <select id="groupe-noeuds" title="Groupe de nœuds"><option value="">Tous</option><option value="favoris">⭐ Favoris</option><option value="administres">🛠 Mes nœuds</option></select>
         <select id="tri">
           <option value="vu">Dernier entendu</option>
@@ -227,6 +227,7 @@
         </select>
         <button type="button" class="mini" id="mt-par-type" title="Ranger la liste par type (relais, clients, traceurs…), chaque groupe se replie">▦ Par type</button>
       </div>
+      <div id="filtre-reseau-noeuds" class="filtre-reseau" hidden role="group" aria-label="Réseau"><button type="button" data-r="tous">Tous</button><button type="button" data-r="mt">Meshtastic</button><button type="button" data-r="mc">MeshCore</button></div>
       <div id="noeuds" class="liste"></div>
     </section>
 

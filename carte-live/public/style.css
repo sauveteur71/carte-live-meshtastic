@@ -1408,3 +1408,12 @@ body.theme-clair .chip-alertes.vig-rouge { color: #7f1d1d; }
 /* Assistant d'installation : reprise d'une sauvegarde complète */
 .encart-restauration { border: 1px solid rgba(120, 160, 190, .55); border-radius: 8px; padding: 10px 12px; margin: 8px 0 14px; font-size: 13px; line-height: 1.45; }
 .encart-restauration > div { margin-top: 8px; }
+
+/* Liste et alertes communes aux deux réseaux : pastille MT / MC, filtre de réseau */
+.tag-reseau { display: inline-block; min-width: 22px; margin-right: 5px; padding: 0 4px; border-radius: 4px; font: 700 10px/16px system-ui, sans-serif; text-align: center; vertical-align: 1px; color: #05090d; }
+.tag-reseau.mt { background: #67ea94; }
+.tag-reseau.mc { background: #ffb547; }
+.filtre-reseau { display: flex; gap: 4px; margin: 0 0 8px; }
+.filtre-reseau button { flex: 1; padding: 5px 8px; border: 1px solid var(--bord); border-radius: 6px; background: transparent; color: var(--texte); font-weight: 600; cursor: pointer; }
+.filtre-reseau button.actif { background: var(--accent, #3ee6c4); border-color: var(--accent, #3ee6c4); color: #05090d; }
+body.alertes-fusionnees .titre-mt-alertes { display: none; }

@@ -531,6 +531,8 @@ async function attendreMaj(avant) {
   }
   location.reload();
 }
+// Les deux réseaux sont-ils affichés ensemble ? (MeshCore actif et vue « Les deux »)
+const deuxReseaux = () => typeof mc !== 'undefined' && mc.actif && mc.noeuds && etat.vueReseau !== 'meshtastic' && etat.vueReseau !== 'meshcore';
 function resumeAlertes(a) {
   const c = a.filter((x) => x.niveau === 'critique').length, w = a.length - c;
   return a.length ? [c ? `${c} critique${c > 1 ? 's' : ''}` : '', w ? `${w} attention` : ''].filter(Boolean).join(' · ') : 'aucune';
@@ -879,14 +881,22 @@ function montrerAsymetrie(it) {
 
 // ---- Panneau : réseau --------------------------------------------------------
 function rendreReseau() {
-  const a = etat.alertes.filter((x) => x.num == null || dansZoneNum(x.num));
+  // Les deux réseaux affichés : une seule liste d'alertes, critiques d'abord, avec la pastille du réseau
+  const deux = deuxReseaux();
+  const aMt = etat.alertes.filter((x) => x.num == null || dansZoneNum(x.num)).map((x) => ({ ...x, reseau: 'mt' }));
+  const aMc = deux ? ((mc.etat && mc.etat.alertes) || []).filter((x) => { const n = x.noeud && mc.noeuds.get(x.noeud); return !n || mcDansZone(n); }).map((x) => ({ ...x, reseau: 'mc' })) : [];
+  const a = [...aMt, ...aMc].sort((x, y) => (y.niveau === 'critique') - (x.niveau === 'critique') || (y.depuis || 0) - (x.depuis || 0));
+  document.body.classList.toggle('alertes-fusionnees', deux);
   const pastille = $('#nb-alertes');
   pastille.textContent = a.length;
   pastille.className = 'pastille' + (a.some((x) => x.niveau === 'critique') ? ' critique' : a.length ? ' attention' : '');
   $('#resume-alertes').textContent = resumeAlertes(a);
+  const tagR = (x) => deux ? `<span class="tag-reseau ${x.reseau}">${x.reseau === 'mc' ? 'MC' : 'MT'}</span>` : '';
   $('#alertes').innerHTML = a.length
-    ? a.map((x) => `<div class="alerte ${x.niveau}" data-num="${x.num}">${esc(x.message)}<small>${x.niveau === 'critique' ? 'Critique' : 'Attention'} · depuis ${ilYa(x.depuis).replace('il y a ', '')}</small></div>`).join('')
+    ? a.map((x) => `<div class="alerte ${x.niveau}" ${x.reseau === 'mc' ? `data-mc-alerte="${esc(x.noeud || '')}"` : `data-num="${x.num}"`}>${tagR(x)}${esc(x.message)}<small>${x.niveau === 'critique' ? 'Critique' : 'Attention'} · depuis ${ilYa(x.depuis).replace('il y a ', '')}</small></div>`).join('')
     : '<div class="vide">Aucune alerte, le réseau est en bonne santé.</div>';
+  const za = $('#alertes');
+  if (!za.dataset.brancheMc) { za.dataset.brancheMc = '1'; za.addEventListener('click', (e) => { const el = e.target.closest('[data-mc-alerte]'); if (el && el.dataset.mcAlerte && typeof mcOuvrirFiche === 'function') mcOuvrirFiche(el.dataset.mcAlerte); }); }
 
   const tous = [...etat.noeuds.values()].filter(dansZone);
   const passerelles = tous.filter((n) => n.passerelle).sort((x, y) => (y.dernierVuPasserelle || 0) - (x.dernierVuPasserelle || 0));
@@ -1030,11 +1040,31 @@ function ligneNoeud(n, point, meta, details) {
 }
 
 // ---- Panneau : nœuds -----------------------------------------------------------
+// Familles communes aux deux réseaux pour le rangement par type (rôles MeshCore rapprochés des catégories Meshtastic)
+const FAMILLE_MC = { repeteur: 'relais', salon: 'salon', companion: 'client', capteur: 'traceur' };
+const FAMILLES = [
+  { cle: 'relais', nom: 'Relais / répéteurs', couleur: '#3b82f6' },
+  { cle: 'salon', nom: 'Room servers', couleur: '#14b8a6' },
+  { cle: 'client', nom: 'Clients / companions', couleur: '#a855f7' },
+  { cle: 'discret', nom: 'Clients muets / cachés', couleur: '#ec4899' },
+  { cle: 'traceur', nom: 'Traceurs / capteurs', couleur: '#f59e0b' },
+  { cle: 'inconnu', nom: 'Inconnus', couleur: '#9ca3af' },
+];
 function rendreNoeuds() {
   const filtre = $('#recherche').value.trim().toLowerCase();
   const tri = $('#tri').value;
   const groupe = $('#groupe-noeuds') ? $('#groupe-noeuds').value : '';
-  let liste = [...etat.noeuds.values()].filter((n) => (groupe ? true : dansZone(n)) && (
+  // Filtre de réseau (les deux réseaux affichés seulement) : Tous, Meshtastic ou MeshCore, gardé dans ce navigateur
+  const deux = deuxReseaux();
+  const zr = $('#filtre-reseau-noeuds');
+  if (zr) {
+    zr.hidden = !deux;
+    if (!zr.dataset.branche) { zr.dataset.branche = '1'; zr.onclick = (e) => { const b = e.target.closest('[data-r]'); if (!b) return; ecrireLs('gaulix_noeuds_reseau', b.dataset.r); rendreNoeuds(); }; }
+  }
+  const vueR = deux ? lireLs('gaulix_noeuds_reseau', 'tous') : 'mt';
+  if (zr) zr.querySelectorAll('[data-r]').forEach((b) => b.classList.toggle('actif', b.dataset.r === vueR));
+  const avecMt = vueR !== 'mc', avecMc = deux && vueR !== 'mt';
+  let liste = !avecMt ? [] : [...etat.noeuds.values()].filter((n) => (groupe ? true : dansZone(n)) && (
     !filtre || [n.nomLong, n.nomCourt].some((x) => x && x.toLowerCase().includes(filtre))
     // L'identifiant (!a1b2c3d4) n'est cherché qu'avec « ! » ou au moins 4 caractères : « 43 » ne doit trouver que les noms
     || ((filtre.startsWith('!') || filtre.length >= 4) && n.id && n.id.toLowerCase().includes(filtre)))
@@ -1045,11 +1075,20 @@ function rendreNoeuds() {
     sauts: (a, b) => (a.sautsMin ?? 99) - (b.sautsMin ?? 99),
     snr: (a, b) => (b.snr ?? -99) - (a.snr ?? -99),
   }[tri];
+  // Nœuds MeshCore ajoutés à la même liste (même recherche, mêmes groupes, mêmes tris)
+  const mcListe = !avecMc ? [] : [...mc.noeuds.values()].filter((n) => (groupe ? true : mcDansZone(n))
+    && (!filtre || (n.nom || '').toLowerCase().includes(filtre) || (filtre.length >= 4 && n.cle.toLowerCase().startsWith(filtre)))
+    && (groupe !== 'favoris' || estFavori(n.cle)) && (groupe !== 'administres' || estAdministre(n.cle)))
+    .map((n) => ({ ...n, mcNoeud: true, num: n.cle, nomLong: n.nom || n.cle.slice(0, 8) }));
+  liste = [...liste, ...mcListe];
   liste.sort((a, b) => (estFavori(b.num) - estFavori(a.num)) || cmp(a, b)); // favoris en tête
   const alertes = numAlerte();
+  const alertesMcNoeuds = new Set(((typeof mc !== 'undefined' && mc.etat && mc.etat.alertes) || []).map((x) => x.noeud));
   const ligne = (n) => {
     const sauts = n.sautsMin == null ? '' : n.sautsMin === 0 ? 'direct · ' : `${n.sautsMin} saut${n.sautsMin > 1 ? 's' : ''} · `;
-    return ligneNoeud(n, alertes.has(n.num) ? 'alerte' : n.statut, sauts + ilYa(n.dernierVu));
+    if (n.mcNoeud) return mcLigneListe(n, alertesMcNoeuds.has(n.cle) ? 'alerte' : n.statut, sauts + ilYa(n.dernierVu), deux);
+    const l = ligneNoeud(n, alertes.has(n.num) ? 'alerte' : n.statut, sauts + ilYa(n.dernierVu));
+    return deux ? l.replace('<span class="titre">', '<span class="titre"><span class="tag-reseau mt">MT</span>') : l;
   };
   const parType = lireLs('gaulix_mt_par_type', true);
   const bp = $('#mt-par-type');
@@ -1058,8 +1097,9 @@ function rendreNoeuds() {
   if (!parType) { $('#noeuds').innerHTML = liste.slice(0, 400).map(ligne).join(''); return; }
   // Rangement par type (catégories de la légende), groupes repliables, état gardé dans ce navigateur
   const replies = lireLs('gaulix_mt_replies', {});
-  $('#noeuds').innerHTML = CATEGORIES.map((c) => {
-    const l = liste.filter((n) => categorie(n) === c);
+  const familleDe = (n) => n.mcNoeud ? (FAMILLE_MC[n.role] || 'inconnu') : categorie(n).cle;
+  $('#noeuds').innerHTML = (avecMc ? FAMILLES : CATEGORIES).map((c) => {
+    const l = liste.filter((n) => familleDe(n) === c.cle);
     if (!l.length) return '';
     const actifs = l.filter((n) => n.statut === 'actif').length;
     return `<details class="groupe-mc" data-cat="${c.cle}" ${replies[c.cle] ? '' : 'open'}><summary><i class="pastille-cat" style="background:${c.couleur}"></i><b>${esc(c.nom)}</b> <span class="pastille">${l.length}</span> <small>${actifs} actif${actifs > 1 ? 's' : ''}</small></summary>${l.slice(0, 300).map(ligne).join('')}</details>`;

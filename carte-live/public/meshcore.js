@@ -278,6 +278,10 @@ function mcLibObservateur(n, majuscule) {
   const t = d.carte ? (d.ecoute ? 'observateur de la carte (écoute)' : 'observateur de la carte') : `observateur MQTT${d.iata ? ' · ' + d.iata : ''}`;
   return majuscule ? t[0].toUpperCase() + t.slice(1) : t;
 }
+// Ligne d'un nœud MeshCore dans la liste commune aux deux réseaux (onglet Nœuds)
+function mcLigneListe(n, point, meta, avecTag) {
+  return `<div class="ligne" data-mc="${n.cle}"><span class="point ${point}"></span><span class="titre">${avecTag ? '<span class="tag-reseau mc">MC</span>' : ''}<i class="role-mc ${n.role}" style="--mcc:${mcRole(n.role).hex}"></i>${estFavori(n.cle) ? '⭐ ' : ''}${estAdministre(n.cle) ? '🛠 ' : ''}${esc(n.nom || n.id || n.cle.slice(0, 8))}<small>${esc(mcRole(n.role).un)}${n.observateur ? ' · ' + mcLibObservateur(n) : ''}</small></span><span class="meta">${meta}</span></div>`;
+}
 function mcRendreNoeuds() {
   const z = $('#mc-contenu');
   if (!z.querySelector('#mc-recherche')) {
@@ -1087,6 +1091,8 @@ function mcMajAlertes() {
     z.onclick = (e) => { const el = e.target.closest('[data-mc-alerte]'); if (el && el.dataset.mcAlerte) mcOuvrirFiche(el.dataset.mcAlerte); };
   }
   document.querySelectorAll('.mc-seul-bloc').forEach((b) => (b.hidden = !mcAffiche()));
+  { const pli = z.closest('details'); if (pli) pli.hidden = typeof deuxReseaux === 'function' && deuxReseaux(); }
+  if (typeof deuxReseaux === 'function' && deuxReseaux() && typeof rendreReseau === 'function') { try { rendreReseau(); } catch { /* panneau absent */ } }
   const a = ((mc.etat && mc.etat.alertes) || []).filter((x) => { const n = x.noeud && mc.noeuds.get(x.noeud); return !n || mcDansZone(n); });
   const p = $('#nb-alertes-mc');
   p.textContent = a.length;
@@ -1685,6 +1691,7 @@ async function mcChargerNoeuds(complet) {
   }
   mcDessinerNoeuds();
   if ($('#mc-liste') && mc.vue === 'noeuds') mcRendreNoeuds();
+  if (typeof deuxReseaux === 'function' && deuxReseaux()) { try { rendreNoeuds(); } catch { /* panneau absent */ } }
   mcMajKpis();
   mcMajAlertes();
 }
