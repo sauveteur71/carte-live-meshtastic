@@ -44,3 +44,9 @@ A banner at the top of the map (🟡 / 🟠 / 🔴) shows the alerts in progress
 - **FR-Alert**: the message received on a phone is copied into the map to be **relayed over LoRa** to teams without mobile network. FR-Alert has no reliable public feed.
 
 **Automatic broadcast** (administrator, *Broadcast settings*): new warnings from the chosen level (orange by default) go out as a text message on the given channels (`Alerte` by default), once per warning.
+
+### Sending a warning on demand
+A manager can send a current warning over the air right away, even without automatic broadcasting: in *🌦️ Official alerts*, pick the **MeshCore** channel (the companion's channels) and/or the **Meshtastic** channels (the node's channels), then the **📡 Send** button of the warning. The text is the same as the automatic broadcast, e.g. “🟠 Vigilance orange vent violent · Haute-Loire · du jeu. 12 18:00 au ven. 13 23:00 (Météo-France)”.
+
+## Displayed features
+The administrator can hide, for every user of the map, **reports** (with their layer and “Report an event here”), **Vigipirate**, **FR-Alert**, the **incident log** and **Bipper / GerMaCrise alerts**: *Settings › 👁️ Displayed features*. Météo-France warnings always stay visible; the 🚩 Reports button then becomes 🌦️ Weather warnings. Starting value possible in the `.env`: `FONCTIONS_MASQUEES=signalements,vigipirate,fr-alert,main-courante,bipper`.

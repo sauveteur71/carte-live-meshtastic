@@ -179,6 +179,8 @@ function tuilesAccueil() {
     { ic: '🚩', nom: 'Signaler', aide: 'Route inondée, arbre, accident…', go: () => (etat.membre ? choisirPointPuis('Touchez la carte à l’endroit à signaler.', (ll) => formSignalement(ll.lat, ll.lng)) : $('#btn-admin').click()) },
     { ic: '📡', nom: 'Étudier la couverture', aide: 'Où ça passe, où poser un relais', go: () => allerGroupe('couverture') },
   ];
+  // Signalements masqués par l'administrateur : la tuile mène à la vigilance météo
+  if (typeof masquee === 'function' && masquee('signalements')) t[2] = { ic: '🌦️', nom: 'Alertes météo', aide: 'Vigilance Météo-France en cours', go: () => ficheAlertesOff() };
   if (etat.gestion) t.push({ ic: '🛠', nom: 'Gérer mes nœuds', aide: 'Programmer, équipes, positions', go: () => allerGroupe('gerer') });
   t.push({ ic: '⚙️', nom: etat.membre ? 'Régler la carte' : 'Se connecter, affichage', aide: etat.admin ? 'Tous les réglages au même endroit' : 'Compte, affichage, aide', go: () => allerGroupe('reglages') });
   return t;
@@ -229,6 +231,7 @@ function rendreHubReglages() {
     ['👥', 'Comptes des utilisateurs', 'Créer, valider, rôles, secteurs', () => ouvrirDlg('comptes')],
     ['🩺', 'Diagnostic', 'Pourquoi ça ne marche pas ? Vérifie MQTT, canaux, modules, MeshCore, passerelle', () => ficheDiagnostic()],
     ['💾', 'Sauvegardes des réglages', 'Sauvegarder ou restaurer les réglages et les comptes', () => ouvrirDlg('sauvegardes')],
+    ['👁️', 'Fonctions affichées', 'Masquer les signalements, Vigipirate, FR-Alert, la main courante ou les alertes Bipper / GerMaCrise (pour ne garder que la vigilance météo, par exemple)', () => dlgFonctionsMasquees()],
     ['📦', 'Sauvegarde complète', 'Tout télécharger en un fichier (base, réglages, comptes) pour changer de serveur', async () => { if (await confirmer('Télécharger la sauvegarde complète ? Le fichier contient les comptes et les clés des canaux : gardez-le en lieu sûr.', { ok: 'Télécharger' })) location.href = '/api/sauvegarde-complete'; }],
     ['♻️', 'Restaurer une sauvegarde complète', 'Reprendre tout depuis le fichier .tar.gz d’un autre serveur (remplace la base, les réglages et les comptes)', () => choisirEtRestaurer()],
     ['📜', 'Journal du serveur', 'Ce que fait la carte, erreurs', () => ouvrirDlg('journal')],
@@ -433,4 +436,28 @@ function demarrerErgonomie() {
     window.indexReglages = function () { const l = origine(); const tete = ergo.recents.map((n) => l.find((e) => e.t === n)).filter(Boolean); return [...tete, ...l.filter((e) => !tete.includes(e))]; };
   }
   setTimeout(() => visiteGuidee(false), 1800);
+}
+
+// Réglages › Fonctions affichées : l'administrateur masque des fonctions pour tous les utilisateurs de la carte
+function dlgFonctionsMasquees() {
+  const LISTE = [
+    ['signalements', '🚩 Signalements', 'événements signalés sur la carte (route inondée…), leur couche et « Signaler un événement ici »'],
+    ['vigipirate', '🛡️ Vigipirate', 'niveau affiché dans le bandeau et dans les alertes officielles'],
+    ['fr-alert', '📢 FR-Alert', 'relais manuel des alertes reçues sur les téléphones'],
+    ['main-courante', '📋 Main courante', 'page imprimable des signalements'],
+    ['bipper', '📟 Alertes Bipper / GerMaCrise', 'envoi d’alertes aux pagers'],
+  ];
+  let d = document.getElementById('dlg-fonctions');
+  if (!d) { d = document.createElement('dialog'); d.id = 'dlg-fonctions'; document.body.appendChild(d); }
+  const m = (etat.config && etat.config.fonctionsMasquees) || [];
+  d.innerHTML = `<button class="fermer" type="button" data-fermer title="Fermer">×</button><h3>👁️ Fonctions affichées</h3>
+    <p class="note">Décochez ce que les utilisateurs de cette carte ne doivent pas voir. La vigilance Météo-France reste toujours affichée. Valeur de départ possible dans le .env : <span class="mono">FONCTIONS_MASQUEES=signalements,vigipirate,fr-alert,main-courante,bipper</span>.</p>
+    <div class="parametres">${LISTE.map(([k, t, x]) => `<label class="case ligne-entiere"><input type="checkbox" data-f="${k}" ${m.includes(k) ? '' : 'checked'}> <b>${t}</b> <small>${esc(x)}</small></label>`).join('')}</div>
+    <div class="actions-prop"><button type="button" class="principal" data-ok>Enregistrer</button></div><p class="erreur" data-retour></p>`;
+  d.querySelector('[data-fermer]').onclick = () => d.close();
+  d.querySelector('[data-ok]').onclick = async () => {
+    const masquees = [...d.querySelectorAll('[data-f]')].filter((x) => !x.checked).map((x) => x.dataset.f);
+    try { const r = await postJson('/api/fonctions-masquees', { masquees }); etat.config.fonctionsMasquees = r.masquees; appliquerFonctionsMasquees(); d.close(); annonce('✔ Fonctions affichées enregistrées'); } catch (e) { d.querySelector('[data-retour]').textContent = e.message; }
+  };
+  d.showModal();
 }

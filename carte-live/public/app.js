@@ -1688,7 +1688,7 @@ const CATALOGUE_REGLAGES = [
   ['Diagnostic : pourquoi ça ne marche pas ?', 'Réglages', 'diagnostic problème panne vérifier mqtt messages ne remontent pas', 'admin', () => ficheDiagnostic()],
   ['Sauvegarde complète (changer de serveur)', 'Réglages', 'sauvegarde complète export base migration déménager serveur', 'admin', () => { location.href = '/api/sauvegarde-complete'; }],
   ['Restaurer une sauvegarde complète', 'Réglages', 'restaurer sauvegarde complète import base migration nouveau serveur', 'admin', () => choisirEtRestaurer()],
-  ['Main courante (signalements imprimables)', 'Outils', 'main courante journal intervention pdf imprimer', 'membre', () => window.open('/main-courante', '_blank')],
+  ['Main courante (signalements imprimables)', 'Outils', 'main courante journal intervention pdf imprimer', 'membre', () => (masquee('main-courante') ? annonce('Main courante désactivée sur cette carte') : window.open('/main-courante', '_blank'))],
   ['Mettre à jour la carte', 'Version', 'mise à jour version upgrade docker image nouvelle', 'admin', () => ficheMaj()],
   ['Signalements (route inondée…)', 'Outils', 'signaler événement inondation alerte waypoint bipper germacrise', 'membre', () => ficheSignalements()],
 ];
@@ -1785,7 +1785,7 @@ async function chargerSignalements() {
   let r;
   try { r = await api('/api/signalements'); ecrireLs(CLE_SIG_CACHE, r); } catch { r = lireLs(CLE_SIG_CACHE, null); if (!r) return; r = { ...r, horsLigne: true }; }
   sig.liste = r.signalements; sig.info = r;
-  if (!sig.couche) sig.couche = L.layerGroup().addTo(carte);
+  if (!sig.couche) { sig.couche = L.layerGroup(); if (!masquee('signalements')) sig.couche.addTo(carte); }
   sig.couche.clearLayers();
   for (const s of sig.liste.filter((x) => x.actif)) {
     const m = L.marker([s.lat, s.lon], {
@@ -1946,6 +1946,7 @@ function brancherAlertesBipper() {
   document.querySelectorAll('[data-ab-fin]').forEach((x) => (x.onclick = async () => { try { await postJson('/api/alertes-bipper', { fin: Number(x.dataset.abFin) }); await chargerSignalements(); ficheSignalements('✔ Alerte clôturée.'); } catch (e) { annonce('⚠ ' + e.message, 'erreur'); } }));
 }
 async function ficheSignalements(msg) {
+  if (masquee('signalements')) { ficheAlertesOff(); return; }
   $('#fiche').hidden = false; etat.selection = null;
   const z = $('#fiche-contenu');
   if (!sig.info) await chargerSignalements();
@@ -1954,11 +1955,11 @@ async function ficheSignalements(msg) {
   z.innerHTML = `<div class="liste-signalements"><h2>🚩 Signalements</h2>${msg ? `<p class="note"><b>${esc(msg)}</b></p>` : ''}
     ${sig.info && sig.info.horsLigne ? '<div class="alerte attention">Pas de réseau : dernière liste connue.</div>' : ''}
     ${attente.length ? `<div class="alerte info-lecture">⏳ ${attente.length} signalement(s) fait(s) hors réseau, en attente d’envoi : ${attente.map((s) => esc(s.titre)).join(', ')} <button type="button" class="mini" id="sig-reessayer">Réessayer maintenant</button></div>` : ''}
-    <p class="note">Bouton ＋ ou clic droit sur la carte › <b>🚩 Signaler un événement ici</b>. <a href="/main-courante" target="_blank" rel="noopener">📋 Main courante imprimable</a></p>
+    <p class="note">Bouton ＋ ou clic droit sur la carte › <b>🚩 Signaler un événement ici</b>. ${masquee('main-courante') ? '' : '<a href="/main-courante" target="_blank" rel="noopener">📋 Main courante imprimable</a>'}</p>
     ${l.length ? l.map((s) => `<div class="ligne sig-ligne ${s.actif ? '' : 'passe'}" data-sig="${s.id}"><span class="sig-ic">${s.icone}</span><span class="titre">${esc(s.titre)}<small>${esc(s.details || '')} · ${esc(s.auteur)} ${ilYa(s.cree)}${s.actif ? '' : s.fin ? ' · terminé' : ' · expiré'}</small></span>
       <span class="meta">${s.source === 'radio' ? '📻' : ''}${[...(s.envois.mt || []), s.envois.mc].filter(Boolean).map((e) => e.statut === 'envoye' ? '✔' : e.statut === 'echec' ? '⚠' : '⏳').join(' ')}</span></div>`).join('') : '<div class="vide">Aucun signalement ces 7 derniers jours. <button type="button" class="mini principal" id="sig-premier">🚩 Signaler un événement</button></div>'}
     ${blocAlertesOff()}
-    ${etat.gestion ? blocAlertesBipper() : ''}</div>`;
+    ${etat.gestion && !masquee('bipper') ? blocAlertesBipper() : ''}</div>`;
   { const b = $('#sig-reessayer'); if (b) b.onclick = () => envoyerSigEnAttente(); }
   { const b = $('#sig-premier'); if (b) b.onclick = () => choisirPointPuis('Touchez la carte à l’endroit à signaler.', (ll) => formSignalement(ll.lat, ll.lng)); }
   brancherAlertesBipper();
@@ -6076,6 +6077,13 @@ function connecterWs() {
     const m = JSON.parse(ev.data);
     if (m.genre === 'signalement') { if (etat.membre) chargerSignalements(); return; }
     if (m.genre === 'alertes-officielles') { chargerAlertesOff(); return; }
+    if (m.genre === 'fonctions-masquees') {
+      etat.config.fonctionsMasquees = m.masquees || [];
+      appliquerFonctionsMasquees();
+      const f = $('#fiche-contenu');
+      if (f && !$('#fiche').hidden && f.querySelector('.alertes-off')) (etat.membre && !masquee('signalements') ? ficheSignalements() : ficheAlertesOff());
+      return;
+    }
     if (m.genre === 'equipe-sos') {
       if (etat.gestion) {
         annonce(`🆘 ${m.nom} (équipe ${m.nomEquipe}) demande de l’aide : « ${m.texte} »`, 'erreur');
@@ -6209,7 +6217,7 @@ function brancherInterface() {
   carte.on('contextmenu', (e) => {
     const div = L.DomUtil.create('div', 'menu-contexte');
     const lat = e.latlng.lat, lon = e.latlng.lng;
-    div.innerHTML = `<div class="ctx-coords"><b class="mono">${lat.toFixed(5)}, ${lon.toFixed(5)}</b><button class="mini" data-copier="${lat.toFixed(5)}, ${lon.toFixed(5)}">Copier</button></div>${etat.membre ? '<button data-a="signaler">🚩 Signaler un événement ici</button><button data-a="partager">📍 Partager ce point dans un message</button>' : ''}<button data-a="ici">Couverture depuis ici</button><button data-a="couvrir">Couvrir ce point (4 points hauts)</button><button data-a="relier">${etat.modeCarte === 'relier' && etat.relierA ? 'Relier jusqu’ici (arrivée)' : 'Relier depuis ici (relais nécessaires)'}</button><button data-a="profil">${etat.modeProfil && etat.modeProfil.a ? 'Profil jusqu’ici (point B)' : 'Profil depuis ici (point A)'}</button>`;
+    div.innerHTML = `<div class="ctx-coords"><b class="mono">${lat.toFixed(5)}, ${lon.toFixed(5)}</b><button class="mini" data-copier="${lat.toFixed(5)}, ${lon.toFixed(5)}">Copier</button></div>${etat.membre ? (masquee('signalements') ? '' : '<button data-a="signaler">🚩 Signaler un événement ici</button>') + '<button data-a="partager">📍 Partager ce point dans un message</button>' : ''}<button data-a="ici">Couverture depuis ici</button><button data-a="couvrir">Couvrir ce point (4 points hauts)</button><button data-a="relier">${etat.modeCarte === 'relier' && etat.relierA ? 'Relier jusqu’ici (arrivée)' : 'Relier depuis ici (relais nécessaires)'}</button><button data-a="profil">${etat.modeProfil && etat.modeProfil.a ? 'Profil jusqu’ici (point B)' : 'Profil depuis ici (point A)'}</button>`;
     const pop = L.popup({ closeButton: false, className: 'popup-contexte' }).setLatLng(e.latlng).setContent(div).openOn(carte);
     div.onclick = (ev) => {
       const a = ev.target.closest('button');
@@ -6246,7 +6254,7 @@ function brancherInterface() {
   };
   { const bc = $('#btn-chercher-reglage'); if (bc) bc.onclick = ouvrirRechercheReglages; }
   { const bf = $('#outil-france'); if (bf) { bf.hidden = !etat.admin; bf.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheFrance(); }; } }
-  { const bs = $('#outil-signalements'); if (bs) bs.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheSignalements(); }; }
+  { const bs = $('#outil-signalements'); if (bs) bs.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; if (masquee('signalements')) ficheAlertesOff(); else ficheSignalements(); }; }
   { const bt = $('#outil-trafic'); if (bt) bt.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTrafic(); }; }
   { const bc = $('#outil-connecter'); if (bc) bc.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ouvrirConnexion(); }; }
   $('#outil-portee').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; testPortee(null); };
@@ -6969,6 +6977,7 @@ async function demarrer() {
   etat.secteur = etat.admin ? null : (etat.config.compte && etat.config.compte.noeuds) || [];
   etat.membre = etat.config.membre;
   document.title = etat.config.titre;
+  setTimeout(() => { try { appliquerFonctionsMasquees(); } catch { /* carte pas encore prête */ } }, 0);
   // Couches : masquées par défaut sur cette carte (CARTE_COUCHES_MASQUEES), puis choix du visiteur
   for (const c of etat.config.couchesMasquees || []) if (c in etat.couches) etat.couches[c] = false;
   // Téléphone ou tablette, sans choix enregistré : pas d'animation des paquets (coûteuse sur mobile)
@@ -7751,9 +7760,18 @@ async function chargerAlertesOff() {
   try { ao.info = await api('/api/alertes-officielles'); } catch { return; }
   majChipAlertes();
   const f = $('#fiche-contenu');
-  if (f && !$('#fiche').hidden && f.querySelector('.alertes-off') && !f.contains(document.activeElement)) (etat.membre ? ficheSignalements() : ficheAlertesOff());
+  if (f && !$('#fiche').hidden && f.querySelector('.alertes-off') && !f.contains(document.activeElement)) (etat.membre && !masquee('signalements') ? ficheSignalements() : ficheAlertesOff());
 }
 const ICONES_VIG = { jaune: '🟡', orange: '🟠', rouge: '🔴' };
+// Fonctions masquées par l'administrateur (Réglages › Fonctions affichées, ou FONCTIONS_MASQUEES dans le .env)
+const masquee = (f) => ((etat.config && etat.config.fonctionsMasquees) || []).includes(f);
+function appliquerFonctionsMasquees() {
+  const b = $('#outil-signalements');
+  if (b) { b.textContent = masquee('signalements') ? '🌦️ Alertes météo' : '🚩 Signalements'; b.title = masquee('signalements') ? 'Vigilance Météo-France' : 'Événements signalés sur la carte et diffusés en LoRa'; }
+  if (sig.couche) { if (masquee('signalements')) sig.couche.remove(); else if (!carte.hasLayer(sig.couche)) sig.couche.addTo(carte); }
+  majChipAlertes();
+  if (typeof rendreAccueil === 'function') { try { rendreAccueil(); } catch { /* panneau absent */ } }
+}
 function majChipAlertes() {
   const c = $('#chip-alertes');
   if (!c || !ao.info) return;
@@ -7763,13 +7781,14 @@ function majChipAlertes() {
   const bouts = [];
   const pire = local.sort((a, b) => ({ jaune: 1, orange: 2, rouge: 3 }[b.couleur] - { jaune: 1, orange: 2, rouge: 3 }[a.couleur]))[0];
   if (pire) bouts.push(`${ICONES_VIG[pire.couleur]} ${esc(pire.phenomene)}${local.length > 1 ? ` +${local.length - 1}` : ''}`);
-  if (r.vigipirate) bouts.push(`${r.vigipirate.icone} ${r.vigipirate.niveau === 'urgence' ? 'Urgence attentat' : 'Vigipirate'}`);
-  if ((r.frAlert || []).length) bouts.push('📢 FR-Alert');
+  const vigi = !masquee('vigipirate') && r.vigipirate, fr = !masquee('fr-alert') && (r.frAlert || []).length;
+  if (vigi) bouts.push(`${r.vigipirate.icone} ${r.vigipirate.niveau === 'urgence' ? 'Urgence attentat' : 'Vigipirate'}`);
+  if (fr) bouts.push('📢 FR-Alert');
   c.hidden = !bouts.length;
-  c.className = 'chip-alertes ' + (pire ? 'vig-' + pire.couleur : '') + (r.vigipirate && r.vigipirate.niveau === 'urgence' || (r.frAlert || []).length ? ' vig-rouge' : '');
+  c.className = 'chip-alertes ' + (pire ? 'vig-' + pire.couleur : '') + (vigi && r.vigipirate.niveau === 'urgence' || fr ? ' vig-rouge' : '');
   c.innerHTML = bouts.join(' · ');
   c.title = 'Alertes officielles : vigilance Météo-France, Vigipirate, FR-Alert (cliquer pour le détail)';
-  c.onclick = () => (etat.membre ? ficheSignalements() : ficheAlertesOff());
+  c.onclick = () => (etat.membre && !masquee('signalements') ? ficheSignalements() : ficheAlertesOff());
 }
 function blocAlertesOff() {
   const r = ao.info;
@@ -7780,19 +7799,23 @@ function blocAlertesOff() {
   const rg = r.reglages || {};
   return `<div class="alertes-off"><h3>🌦️ Alertes officielles</h3>
     <h4>Vigilance Météo-France${(rg.departements || []).length > 1 ? ` (${rg.departements.length} départements)` : ''}</h4>
-    ${meteo.length ? meteo.map((a) => `<div class="vig-ligne vig-${a.couleur}"><b>${ICONES_VIG[a.couleur]} Vigilance ${a.couleur} ${esc(a.phenomene)}</b> · ${esc(a.depNom)}<small>${a.debut ? 'du ' + h(a.debut) : ''}${a.fin ? ' au ' + h(a.fin) : ''}${a.envois ? ' · diffusée en LoRa' : ''}</small></div>`).join('') : `<p class="note">${r.erreur ? '⚠ Vigilance indisponible : ' + esc(r.erreur) : 'Aucune vigilance en cours.'}</p>`}
+    ${meteo.length && etat.gestion && r.envoi && (r.envoi.canauxMc.length || r.envoi.canauxMt.length) ? `<div class="ao-envoi"><b>📡 Envoyer une vigilance par radio</b> — canaux :
+      ${r.envoi.canauxMc.length ? `<label>MeshCore <select id="ao-env-mc"><option value="">— aucun —</option>${r.envoi.canauxMc.map((c) => `<option ${(rg.canalMc || r.envoi.canauxMc[0]) === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>` : ''}
+      ${r.envoi.canauxMt.length ? `<span class="ao-env-mt">Meshtastic ${r.envoi.canauxMt.map((c) => `<label class="case"><input type="checkbox" value="${esc(c)}" ${(rg.canaux || []).some((x) => x.toLowerCase() === c.toLowerCase()) && !r.envoi.canauxMc.length ? 'checked' : ''}> ${esc(c)}</label>`).join('')}</span>` : ''}
+      <small class="note">puis le bouton 📡 de la vigilance voulue.</small></div>` : ''}
+    ${meteo.length ? meteo.map((a) => `<div class="vig-ligne vig-${a.couleur}">${etat.gestion && r.envoi && (r.envoi.canauxMc.length || r.envoi.canauxMt.length) ? `<button type="button" class="mini ao-env-btn" data-ao-env="${esc(a.dep)}|${esc(a.phenomene)}" title="Envoyer maintenant cette vigilance sur les canaux choisis">📡 Envoyer</button>` : ''}<b>${ICONES_VIG[a.couleur]} Vigilance ${a.couleur} ${esc(a.phenomene)}</b> · ${esc(a.depNom)}<small>${a.debut ? 'du ' + h(a.debut) : ''}${a.fin ? ' au ' + h(a.fin) : ''}${a.envois ? ' · diffusée en LoRa' : ''}</small></div>`).join('') : `<p class="note">${r.erreur ? '⚠ Vigilance indisponible : ' + esc(r.erreur) : 'Aucune vigilance en cours.'}</p>`}
     <p class="note">Source : Météo-France, par le flux public MeteoAlarm (mis à jour toutes les 10 min${r.maj ? ', lu ' + ilYa(r.maj) : ''}).</p>
-    <h4>Vigipirate</h4>
+    ${masquee('vigipirate') ? '' : `<h4>Vigipirate</h4>
     <p>${r.vigipirate ? `<b>${r.vigipirate.icone} ${esc(r.vigipirate.nom)}</b> <small>réglé par ${esc(r.vigipirate.par || '?')} ${ilYa(r.vigipirate.depuis)}</small>` : '<span class="note">Niveau non renseigné.</span>'}</p>
     ${etat.gestion ? `<div class="parametres compact"><label>Niveau <select id="ao-vigi"><option value="">— non renseigné —</option>${Object.entries(nv).map(([k, v]) => `<option value="${k}" ${r.vigipirate && r.vigipirate.niveau === k ? 'selected' : ''}>${v.icone} ${esc(v.nom)}</option>`).join('')}</select></label>
       <label class="case"><input type="checkbox" id="ao-vigi-annoncer"> Annoncer en LoRa</label></div><div class="actions-prop"><button type="button" class="mini principal" id="ao-vigi-ok">Enregistrer le niveau</button></div>
-      <p class="note">Le niveau Vigipirate n’a pas de flux officiel lisible par un programme : il se règle ici (site du SGDSN ou consignes de la préfecture).</p>` : ''}
-    <h4>FR-Alert</h4>
+      <p class="note">Le niveau Vigipirate n’a pas de flux officiel lisible par un programme : il se règle ici (site du SGDSN ou consignes de la préfecture).</p>` : ''}`}
+    ${masquee('fr-alert') ? '' : `<h4>FR-Alert</h4>
     ${(r.frAlert || []).map((a) => `<div class="vig-ligne vig-rouge"><b>📢 FR-Alert${a.zone ? ' · ' + esc(a.zone) : ''}</b> ${esc(a.texte)}<small>relayée par ${esc(a.par)} ${ilYa(a.date)} · ${(a.envois || []).map((e) => `${esc(e.canal)} ${e.statut === 'envoye' ? '✔' : '⚠'}`).join(' ') || 'pas diffusée'}</small>${etat.gestion ? `<button type="button" class="mini" data-ao-fin="${a.id}">✅ Terminée</button>` : ''}</div>`).join('') || '<p class="note">Aucune alerte FR-Alert relayée.</p>'}
     ${etat.gestion ? `<div class="parametres compact"><label>Zone <input id="ao-fr-zone" maxlength="80" placeholder="ex. Vallée de la Loire, Brives-Charensac"></label>
       <label class="large-col">Texte reçu sur le téléphone <textarea id="ao-fr-texte" rows="3" maxlength="500" placeholder="Recopiez le message FR-Alert"></textarea></label></div>
       <div class="actions-prop"><button type="button" class="mini principal" id="ao-fr-ok">📢 Relayer en LoRa</button></div>
-      <p class="note">FR-Alert passe par les antennes des téléphones et n’a pas de flux public fiable : recopiez ici le message reçu pour le relayer sur les canaux ci-dessous, au profit des équipes sans réseau mobile.</p>` : ''}
+      <p class="note">FR-Alert passe par les antennes des téléphones et n’a pas de flux public fiable : recopiez ici le message reçu pour le relayer sur les canaux ci-dessous, au profit des équipes sans réseau mobile.</p>` : ''}`}
     ${etat.admin ? `<details class="ao-reglages"><summary>Réglages de diffusion (administrateur)</summary><div class="parametres compact">
       <label class="case ligne-entiere"><input type="checkbox" id="ao-diffuser" ${rg.diffuser ? 'checked' : ''}> <b>Diffusion automatique activée</b> : les nouvelles vigilances partent en LoRa (décoché : rien n’est envoyé automatiquement)</label>
       <label>À partir de <select id="ao-niveau">${['jaune', 'orange', 'rouge'].map((c) => `<option value="${c}" ${rg.niveauMin === c ? 'selected' : ''}>${ICONES_VIG[c]} ${c}</option>`).join('')}</select></label>
@@ -7813,6 +7836,21 @@ function ficheAlertesOff() {
 }
 function brancherAlertesOff() {
   const ret = (t) => { const e = $('#ao-retour'); if (e) e.textContent = t; };
+  document.querySelectorAll('[data-ao-env]').forEach((b) => (b.onclick = async () => {
+    const [dep, phenomene] = b.dataset.aoEnv.split('|');
+    const canalMc = $('#ao-env-mc') ? $('#ao-env-mc').value : '';
+    const canaux = [...document.querySelectorAll('.ao-env-mt input:checked')].map((x) => x.value);
+    if (!canalMc && !canaux.length) { ret('Choisissez au moins un canal (MeshCore ou Meshtastic) au-dessus de la liste.'); return; }
+    const vers = [canalMc && 'MeshCore ' + canalMc, ...canaux.map((c) => 'Meshtastic ' + c)].filter(Boolean).join(', ');
+    if (!(await confirmer(`Envoyer la vigilance « ${phenomene} » maintenant sur ${vers} ?`, { ok: 'Envoyer' }))) return;
+    b.disabled = true; b.textContent = '⏳';
+    try {
+      const r = await postJson('/api/alertes-officielles/envoyer', { dep, phenomene, canalMc, canaux });
+      const pb = r.envois.filter((e) => e.statut !== 'envoye');
+      annonce(pb.length ? `⚠ ${pb.map((e) => `${e.canal} : ${e.erreur}`).join(' ; ')}` : `✔ Vigilance envoyée sur ${vers}`, pb.length ? 'erreur' : 'info');
+    } catch (e) { ret(e.message); }
+    b.disabled = false; b.textContent = '📡 Envoyer';
+  }));
   { const b = $('#ao-vigi-ok'); if (b) b.onclick = async () => { try { const r = await postJson('/api/vigipirate', { niveau: $('#ao-vigi').value || null, annoncer: $('#ao-vigi-annoncer').checked }); await chargerAlertesOff(); ficheSignalements(r.envois && r.envois.length ? '✔ Niveau Vigipirate enregistré et annoncé.' : '✔ Niveau Vigipirate enregistré.'); } catch (e) { ret(e.message); } }; }
   { const b = $('#ao-fr-ok'); if (b) b.onclick = async () => {
     if (!(await confirmer('Relayer ce message FR-Alert en LoRa sur les canaux d’alerte ?', { ok: 'Relayer' }))) return;

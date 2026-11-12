@@ -44,3 +44,9 @@ Un bandeau en haut de la carte (🟡 / 🟠 / 🔴) signale les alertes en cours
 - **FR-Alert** : le message reçu sur un téléphone se recopie dans la carte pour être **relayé en LoRa** aux équipes qui n'ont pas de réseau mobile. FR-Alert n'a pas de flux public fiable.
 
 **Diffusion automatique** (administrateur, *Réglages de diffusion*) : **désactivée par défaut** ; une fois cochée, les nouvelles vigilances à partir du niveau choisi (orange par défaut) partent en message texte sur les canaux Meshtastic indiqués (par défaut `Alerte`) et, si on le choisit, sur un canal MeshCore, une seule fois par vigilance : `🟠 Vigilance orange orages · Haute-Loire · du jeu. 12 16:00 au ven. 13 06:00 (Météo-France)`.
+
+### Envoyer une vigilance à la demande
+Un gestionnaire peut envoyer tout de suite une vigilance en cours par radio, même sans diffusion automatique : dans *🌦️ Alertes officielles*, choisir le canal **MeshCore** (canaux du companion) et/ou les canaux **Meshtastic** (canaux du module), puis le bouton **📡 Envoyer** de la vigilance voulue. Le texte part tel qu'il est diffusé automatiquement, par exemple « 🟠 Vigilance orange vent violent · Haute-Loire · du jeu. 12 18:00 au ven. 13 23:00 (Météo-France) ».
+
+## Fonctions affichées
+L'administrateur peut masquer, pour tous les utilisateurs de la carte, les **signalements** (avec leur couche et « Signaler un événement ici »), **Vigipirate**, **FR-Alert**, la **main courante** et les **alertes Bipper / GerMaCrise** : *Réglages › 👁️ Fonctions affichées*. La vigilance Météo-France reste toujours affichée ; le bouton 🚩 Signalements devient alors 🌦️ Alertes météo. Valeur de départ possible dans le `.env` : `FONCTIONS_MASQUEES=signalements,vigipirate,fr-alert,main-courante,bipper`.

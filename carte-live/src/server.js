@@ -204,6 +204,7 @@ app.get('/api/aide/:page', (req, res) => {
 
 app.get('/api/config', (req, res) => {
   res.json({
+    fonctionsMasquees: typeof fonctionsMasquees !== 'undefined' ? [...fonctionsMasquees] : [],
     version: infosVersion(),
     titre: config.carte.titre,
     outils: { client: config.urlClient || '', flasher: config.urlFlasher || '' },
@@ -3112,6 +3113,23 @@ const signalements = require('./signalements').creerSignalements({
   nomNoeud: (num) => { try { const r = reqNomSig.get(num >>> 0); return r && (r.nom_long || r.nom_court); } catch { return null; } },
 });
 // ---- Alertes officielles : vigilance Météo-France (MeteoAlarm), Vigipirate, FR-Alert relayées ----------------
+// Fonctions masquées (ne garder par exemple que la vigilance météo) : FONCTIONS_MASQUEES dans le .env donne la valeur
+// de départ, l'administrateur la change ensuite dans Réglages (fichier fonctions-masquees.json, sans redémarrage)
+const FONCTIONS_MASQUABLES = ['signalements', 'vigipirate', 'fr-alert', 'main-courante', 'bipper'];
+const fFonctionsMasquees = path.join(path.dirname(config.fichierBase), 'fonctions-masquees.json');
+let fonctionsMasquees = new Set(String(process.env.FONCTIONS_MASQUEES || '').split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter((x) => FONCTIONS_MASQUABLES.includes(x)));
+try { fonctionsMasquees = new Set(lireJson(fFonctionsMasquees).filter((x) => FONCTIONS_MASQUABLES.includes(x))); } catch { /* valeur du .env */ }
+const fonctionMasquee = (f) => fonctionsMasquees.has(f);
+app.post('/api/fonctions-masquees', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const l = Array.isArray((req.body || {}).masquees) ? req.body.masquees.filter((x) => FONCTIONS_MASQUABLES.includes(x)) : null;
+  if (!l) return res.status(400).json({ erreur: 'Liste attendue' });
+  fonctionsMasquees = new Set(l);
+  try { ecrireSur(fFonctionsMasquees, JSON.stringify([...fonctionsMasquees])); } catch (e) { return res.status(500).json({ erreur: e.message }); }
+  journal(`Fonctions masquées par ${nomCompte(utilisateur(req))} : ${l.join(', ') || 'aucune'}`);
+  diffuser({ genre: 'fonctions-masquees', masquees: [...fonctionsMasquees] });
+  res.json({ masquees: [...fonctionsMasquees] });
+});
 const alertesOff = require('./alertes-officielles').creerAlertesOfficielles({
   config, journal, diffuser,
   // Départements suivis : ceux choisis par l'administrateur, sinon celui de la carte
@@ -3138,7 +3156,16 @@ const alertesOff = require('./alertes-officielles').creerAlertesOfficielles({
     return administration.envoyerTexte({ texte, canal: c.index }, 'alertes');
   },
 });
-app.get('/api/alertes-officielles', (req, res) => res.set('Cache-Control', 'no-store').json({ ...alertesOff.etat(), niveauxVigipirate: alertesOff.NIVEAUX_VIGIPIRATE, ...(estAdmin(req) ? { departements: listeDepartements.map((d) => ({ code: d.code, nom: d.nom })), voisins: ((zoneVoisins() || {}).departements || []).map((d) => d.code), departementCarte: String(config.departement.code), canauxMc: config.meshcore.actif ? companion.canaux().map((c) => c.nom) : [] } : {}) }));
+app.get('/api/alertes-officielles', (req, res) => res.set('Cache-Control', 'no-store').json({ ...alertesOff.etat(), niveauxVigipirate: alertesOff.NIVEAUX_VIGIPIRATE, ...(estAdmin(req) ? { departements: listeDepartements.map((d) => ({ code: d.code, nom: d.nom })), voisins: ((zoneVoisins() || {}).departements || []).map((d) => d.code), departementCarte: String(config.departement.code), canauxMc: config.meshcore.actif ? companion.canaux().map((c) => c.nom) : [] } : {}),
+  // Canaux proposés pour l'envoi à la demande (gestionnaires) : ceux du companion MeshCore et du module Meshtastic
+  ...(estGestion(req) ? { envoi: { canauxMc: config.meshcore.actif ? companion.canaux().map((c) => c.nom).filter(Boolean) : [], canauxMt: (() => { try { const i = sourceRadio.infos(); return i.connecte ? (i.canaux || []).map((c) => c.nom).filter(Boolean) : []; } catch { return []; } })() } } : {}),
+  fonctionsMasquees: [...fonctionsMasquees] }));
+app.post('/api/alertes-officielles/envoyer', async (req, res) => {
+  const u = utilisateur(req);
+  if (!u || !estGestion(req)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });
+  const b = req.body || {};
+  try { res.json(await alertesOff.envoyerVigilance({ dep: String(b.dep || ''), phenomene: String(b.phenomene || ''), canaux: Array.isArray(b.canaux) ? b.canaux : [], canalMc: String(b.canalMc || '').slice(0, 32) }, u.indicatif || u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 app.post('/api/alertes-officielles/reglages', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const r = alertesOff.regler(req.body || {});
@@ -3175,6 +3202,7 @@ app.get('/api/signalements/publics', (req, res) => {
 });
 // Main courante : signalements des 7 derniers jours, page imprimable (membres)
 app.get('/main-courante', (req, res) => {
+  if (fonctionMasquee('main-courante')) return res.status(404).send('Main courante désactivée sur cette carte');
   if (!estMembre(req)) return res.status(401).send('Connexion requise');
   const e = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const h = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });

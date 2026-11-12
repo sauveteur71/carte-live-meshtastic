@@ -1417,3 +1417,8 @@ body.theme-clair .chip-alertes.vig-rouge { color: #7f1d1d; }
 .filtre-reseau button { flex: 1; padding: 5px 8px; border: 1px solid var(--bord); border-radius: 6px; background: transparent; color: var(--texte); font-weight: 600; cursor: pointer; }
 .filtre-reseau button.actif { background: var(--accent, #3ee6c4); border-color: var(--accent, #3ee6c4); color: #05090d; }
 body.alertes-fusionnees .titre-mt-alertes { display: none; }
+
+/* Envoi d'une vigilance à la demande */
+.ao-envoi { margin: 6px 0 8px; padding: 8px 10px; border: 1px solid var(--bord); border-radius: 8px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.ao-envoi label { display: inline-flex; gap: 4px; align-items: center; }
+.ao-env-btn { float: right; margin-left: 6px; }

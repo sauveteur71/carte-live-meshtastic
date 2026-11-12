@@ -52,6 +52,30 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
     return envois;
   }
 
+  const texteVigilance = (a) => {
+    const h = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', weekday: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return `${ICONE[a.couleur]} Vigilance ${a.couleur} ${a.phenomene} · ${a.depNom}${a.debut ? ' · du ' + h(a.debut) : ''}${a.fin ? ' au ' + h(a.fin) : ''} (Météo-France)`;
+  };
+  // Envoi à la demande d'une vigilance en cours (bouton de la carte), sur les canaux choisis
+  async function envoyerVigilance({ dep, phenomene, canaux = [], canalMc = '' }, par) {
+    const a = etat.meteo.find((x) => x.dep === dep && x.phenomene === phenomene);
+    if (!a) throw new Error('Vigilance terminée ou inconnue : rechargez la liste');
+    const texte = texteVigilance(a), envois = [];
+    for (const [k, canal] of canaux.map((c) => String(c).trim()).filter(Boolean).slice(0, 4).entries()) {
+      if (k) await new Promise((r) => setTimeout(r, 600));
+      try { await envoyer(canal, texte); envois.push({ canal, statut: 'envoye' }); } catch (e) { envois.push({ canal, statut: 'echec', erreur: e.message }); }
+    }
+    if (canalMc) {
+      if (!envoyerMc) envois.push({ canal: 'MeshCore ' + canalMc, statut: 'echec', erreur: 'MeshCore désactivé' });
+      else { try { await envoyerMc(String(canalMc), texte); envois.push({ canal: 'MeshCore ' + canalMc, statut: 'envoye' }); } catch (e) { envois.push({ canal: 'MeshCore ' + canalMc, statut: 'echec', erreur: e.message }); } }
+    }
+    if (!envois.length) throw new Error('Choisissez au moins un canal');
+    a.envois = [...(a.envois || []), ...envois];
+    journal(`[Alertes] envoyé à la demande par ${par} : ${texte} → ${envois.map((e) => `${e.canal} ${e.statut === 'envoye' ? '✓' : '✗ ' + e.erreur}`).join(', ')}`);
+    diffuser({ genre: 'alertes-officielles' });
+    return { texte, envois };
+  }
+
   async function lireMeteo() {
     try {
       const r = await fetch(URL_METEOALARM, { headers: { 'User-Agent': 'carte-live-meshtastic' }, signal: AbortSignal.timeout(30000) });
@@ -87,8 +111,7 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
           const k = `${a.dep}|${a.phenomene}|${a.couleur}|${a.fin}`;
           if (etat.dejaDiffuse[k]) continue;
           etat.dejaDiffuse[k] = maintenant;
-          const h = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', weekday: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-          const texte = `${ICONE[a.couleur]} Vigilance ${a.couleur} ${a.phenomene} · ${a.depNom}${a.debut ? ' · du ' + h(a.debut) : ''}${a.fin ? ' au ' + h(a.fin) : ''} (Météo-France)`;
+          const texte = texteVigilance(a);
           a.envois = await diffuserTexte(texte);
           journal(`[Alertes] diffusé : ${texte}`);
         }
@@ -106,6 +129,7 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
 
   return {
     NIVEAUX_VIGIPIRATE,
+    envoyerVigilance,
     etat: () => ({ meteo: etat.meteo, vigipirate: etat.vigipirate && { ...etat.vigipirate, ...NIVEAUX_VIGIPIRATE[etat.vigipirate.niveau] }, frAlert: etat.frAlert.filter((x) => !x.fin && Date.now() - x.date < 3 * 86400000), reglages: etat.reglages, maj: etat.maj, erreur: etat.erreur }),
     regler(r) {
       if (typeof r.diffuser === 'boolean') etat.reglages.diffuser = r.diffuser;
