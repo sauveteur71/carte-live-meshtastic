@@ -16,6 +16,8 @@ const PARAMS_LORA = {
   LONG_FAST: { sf: 11, bw: 250 }, LONG_SLOW: { sf: 12, bw: 125 }, VERY_LONG_SLOW: { sf: 12, bw: 62.5 },
   MEDIUM_SLOW: { sf: 10, bw: 250 }, MEDIUM_FAST: { sf: 9, bw: 250 }, SHORT_SLOW: { sf: 8, bw: 250 },
   SHORT_FAST: { sf: 7, bw: 250 }, LONG_MODERATE: { sf: 11, bw: 125 }, SHORT_TURBO: { sf: 7, bw: 500 }, LONG_TURBO: { sf: 11, bw: 500 },
+  MEDIUM_TURBO: { sf: 9, bw: 500 }, LITE_FAST: { sf: 9, bw: 125 }, LITE_SLOW: { sf: 10, bw: 125 },
+  NARROW_FAST: { sf: 7, bw: 62.5 }, NARROW_SLOW: { sf: 8, bw: 62.5 }, TINY_FAST: { sf: 7, bw: 15.6 }, TINY_SLOW: { sf: 8, bw: 15.6 },
   // MeshCore, réglage du réseau français (869,618 MHz)
   MESHCORE_FR: { sf: 8, bw: 62.5 },
 };

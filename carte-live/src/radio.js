@@ -20,7 +20,9 @@ const ROLES_CANAL = racine.lookupEnum('meshtastic.Channel.Role').valuesById;
 const NOM_PRESET = {
   LONG_FAST: 'LongFast', LONG_SLOW: 'LongSlow', VERY_LONG_SLOW: 'VLongSlow', MEDIUM_SLOW: 'MediumSlow',
   MEDIUM_FAST: 'MediumFast', SHORT_SLOW: 'ShortSlow', SHORT_FAST: 'ShortFast', LONG_MODERATE: 'LongMod',
-  SHORT_TURBO: 'ShortTurbo', LONG_TURBO: 'LongTurbo',
+  SHORT_TURBO: 'ShortTurbo', LONG_TURBO: 'LongTurbo', MEDIUM_TURBO: 'MediumTurbo',
+  // Presets des régions EU_866 (« lite ») et EU_N_868 (« narrow », 62,5 kHz), firmware 2.8
+  LITE_FAST: 'LiteFast', LITE_SLOW: 'LiteSlow', NARROW_FAST: 'NarrowFast', NARROW_SLOW: 'NarrowSlow', TINY_FAST: 'TinyFast', TINY_SLOW: 'TinySlow',
 };
 
 const journalPrincipal = (...a) => console.log(new Date().toISOString(), '[Module radio]', ...a);

@@ -344,6 +344,8 @@ function decoderMessage(topic, message, canaux) {
     canal: null,
     sujet: i2 >= 0 ? morceaux.slice(0, i2).join('/') : topic,
     pki: !!p.pkiEncrypted,
+    // Firmware 2.8 : signature XEdDSA de l'expéditeur vérifiée par le nœud qui a reçu le paquet
+    signe: !!p.xeddsaSigned,
     demandeAccuse: !!p.wantAck,
     hopDepart: p.hopStart || 0,
     hopRestant: p.hopLimit || 0,

@@ -1384,7 +1384,7 @@ function preparerTrame(p, membre) {
   p = reseau.vueTrame(p, membre);
   return {
     rowid: p.rowid, idPaquet: p.id_paquet, de: p.de, vers: p.vers, canal: p.canal, port: p.port, nomPort: p.nom_port, portnum: p.portnum,
-    heure: p.heure, hopDepart: p.hop_depart, sauts: p.sauts, dechiffre: !!p.dechiffre, pki: !!p.pki, viaMqtt: !!p.via_mqtt, taille: p.taille,
+    heure: p.heure, hopDepart: p.hop_depart, sauts: p.sauts, dechiffre: !!p.dechiffre, pki: !!p.pki, signe: !!p.signe, viaMqtt: !!p.via_mqtt, taille: p.taille,
     resume: p.resume, texte: membre ? p.texte : undefined, nbReceptions: p.nb_receptions,
     contenu: p.contenu ? JSON.parse(p.contenu) : null,
     receptions: JSON.parse(p.receptions || '[]').sort((a, b) => a.heure - b.heure),

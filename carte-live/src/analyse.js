@@ -15,6 +15,11 @@ const PRESETS = {
   LONG_MODERATE: { sf: 11, bw: 125, cr: 8 },
   SHORT_TURBO: { sf: 7, bw: 500, cr: 5 },
   LONG_TURBO: { sf: 11, bw: 500, cr: 8 },
+  // Firmware 2.8 (valeurs de MeshRadio.h) : MEDIUM_TURBO hors EU_868 ; LITE pour EU_866, NARROW pour EU_N_868
+  MEDIUM_TURBO: { sf: 9, bw: 500, cr: 5 },
+  LITE_FAST: { sf: 9, bw: 125, cr: 5 }, LITE_SLOW: { sf: 10, bw: 125, cr: 5 },
+  NARROW_FAST: { sf: 7, bw: 62.5, cr: 6 }, NARROW_SLOW: { sf: 8, bw: 62.5, cr: 6 },
+  TINY_FAST: { sf: 7, bw: 15.6, cr: 5 }, TINY_SLOW: { sf: 8, bw: 15.6, cr: 6 },
   MESHCORE_FR: { sf: 8, bw: 62.5, cr: 8 },
 };
 // SNR minimal démodulable par facteur d'étalement (dB)

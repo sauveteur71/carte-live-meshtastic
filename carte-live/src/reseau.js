@@ -121,6 +121,7 @@ function creerReseau(stockage, config) {
         viaMqtt: evt.viaMqtt ? 1 : 0,
         contenu: evt.contenu ? JSON.stringify(evt.contenu) : null,
         pki: evt.pki ? 1 : 0,
+        signe: evt.signe ? 1 : 0,
       });
       const premiereReception = r.nb_receptions === 1;
 

@@ -20,7 +20,8 @@
     LONG_FAST: { sf: 11, bw: 250, cr: 5 }, LONG_SLOW: { sf: 12, bw: 125, cr: 8 }, VERY_LONG_SLOW: { sf: 12, bw: 62.5, cr: 8 },
     MEDIUM_SLOW: { sf: 10, bw: 250, cr: 5 }, MEDIUM_FAST: { sf: 9, bw: 250, cr: 5 }, SHORT_SLOW: { sf: 8, bw: 250, cr: 5 },
     SHORT_FAST: { sf: 7, bw: 250, cr: 5 }, LONG_MODERATE: { sf: 11, bw: 125, cr: 8 }, SHORT_TURBO: { sf: 7, bw: 500, cr: 5 },
-    LONG_TURBO: { sf: 11, bw: 500, cr: 8 },
+    LONG_TURBO: { sf: 11, bw: 500, cr: 8 }, MEDIUM_TURBO: { sf: 9, bw: 500, cr: 5 },
+    LITE_FAST: { sf: 9, bw: 125, cr: 5 }, LITE_SLOW: { sf: 10, bw: 125, cr: 5 }, NARROW_FAST: { sf: 7, bw: 62.5, cr: 6 }, NARROW_SLOW: { sf: 8, bw: 62.5, cr: 6 },
     // MeshCore (réglage français 869,618 MHz) ; « EU/UK narrow » courant ailleurs en Europe
     MESHCORE_FR: { sf: 8, bw: 62.5, cr: 8 }, MESHCORE_EU_NARROW: { sf: 8, bw: 62.5, cr: 8 }, MESHCORE_SF10: { sf: 10, bw: 62.5, cr: 5 },
   };

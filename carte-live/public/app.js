@@ -4358,7 +4358,7 @@ async function ouvrirTrames(num, filtre) {
         <td class="nowrap">${new Date(t.heure).toLocaleDateString('fr-FR')}<br>${heure(t.heure)}</td>
         <td class="nowrap">${lignesRx(t)}</td>
         <td>${t.receptions.map((x) => `<div class="rx mono petit">${esc(x.sujet || '')}</div>`).join('') || esc(t.canal || '')}</td>
-        <td><b><i class="pt" style="background:${portInfo(t.port).couleur}"></i>${esc(t.nomPort || t.port)}</b>${t.pki ? ' <span class="badge">PKI</span>' : ''}
+        <td><b><i class="pt" style="background:${portInfo(t.port).couleur}"></i>${esc(t.nomPort || t.port)}</b>${t.pki ? ' <span class="badge">PKI</span>' : ''}${t.signe ? ' <span class="badge" title="Signature de l’expéditeur vérifiée (firmware 2.8)">✍ signé</span>' : ''}
           <div class="petit">${esc(t.texte ? '💬 ' + t.texte : t.resume || '')}${t.reprises ? ' · <span class="pastille">reprise après redémarrage</span>' : ''}</div>
           ${t.contenu ? `<details><summary>JSON</summary><pre class="json">${jsonJoli(t.contenu)}</pre></details>` : ''}</td>
       </tr>`).join('') || '<tr><td colspan="8" class="vide">Aucune trame pour ce filtre.</td></tr>'}</tbody>
@@ -4392,7 +4392,7 @@ async function ouvrirTrame(rowid) {
     <h2>Trame ${t.idPaquet} <small>${esc(t.nomPort || t.port)}</small></h2>
     <div class="grille">
       ${lig('Expéditeur', lienNoeud(t.de))}${lig('Destinataire', lienNoeud(t.vers))}${lig('Date', new Date(t.heure).toLocaleString('fr-FR'))}
-      ${lig('Canal', esc(t.canal || '–'))}${lig('Sauts au départ', t.hopDepart || '–')}${lig('Chiffrement', t.pki ? 'PKI (message direct)' : t.dechiffre ? 'clé de canal, déchiffrée' : 'non déchiffrée')}
+      ${lig('Canal', esc(t.canal || '–'))}${lig('Sauts au départ', t.hopDepart || '–')}${t.signe ? lig('Signature', '✍ vérifiée par la passerelle (firmware 2.8)') : ''}${lig('Chiffrement', t.pki ? 'PKI (message direct)' : t.dechiffre ? 'clé de canal, déchiffrée' : 'non déchiffrée')}
       ${lig('Taille', t.taille != null ? t.taille + ' octets' : '–')}${lig('Réceptions', t.receptions.length)}${lig('Via MQTT', t.viaMqtt ? 'oui' : 'non')}
     </div>
     ${t.texte ? `<div class="encadre-texte">💬 ${esc(t.texte)}</div>` : `<p>${esc(t.resume || '')}</p>`}
