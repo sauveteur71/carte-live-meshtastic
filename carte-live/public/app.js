@@ -1351,6 +1351,7 @@ function noterMessageRecu(m) {
   if (local != null && m.de === local) return; // mes propres messages
   const k = cleMessage(m);
   if (k === 'direct' && !mesNums().has(m.vers >>> 0)) return; // message direct qui ne m'est pas adressé
+  noterDernierRecu(k);
   if (!(ongletMessagesVisible() && filtreVoit(k))) { nonLus[k] = (nonLus[k] || 0) + 1; ecrireLs('gaulix_non_lus', nonLus); }
   sonner(k);
   if (k === 'direct') {
@@ -1448,6 +1449,54 @@ function synchroEnvoi() {
   if (r$ && !/^Envoyé/.test(r$.textContent)) r$.textContent = note;
 }
 const memeCanal = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+// ---- Barre des canaux : chaque canal (Meshtastic et MeshCore) en pastille, ceux qui ont du nouveau en tête et en couleur ----
+const dernierRecu = lireLs('gaulix_dernier_recu', {}); // clé de non-lus -> heure du dernier message reçu
+function noterDernierRecu(k) { dernierRecu[k] = Date.now(); ecrireLs('gaulix_dernier_recu', dernierRecu); }
+const msgNouveaux = new Map(); // identifiant de message -> heure où il a été montré comme nouveau
+// Couleur stable par nom de canal (la même partout : pastille et entête des messages)
+const couleurCanal = (nom) => `hsl(${[...String(nom || '').toLowerCase()].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 11) % 360} 75% 62%)`;
+function canauxMtConnus() {
+  const l = [];
+  for (const c of [...(envoi.canaux || []).map((c) => c.nom), ...derniersMessages.filter((m) => m.vers === 0xffffffff).map((m) => m.canal)]) if (c && !l.some((x) => memeCanal(x, c))) l.push(c);
+  return l;
+}
+function barreCanauxHtml(reseau, filtre) {
+  const el = [];
+  const mt = canauxMtConnus(), mcl = typeof canauxMcConnus === 'function' && etat.config.meshcore ? canauxMcConnus() : [];
+  mt.forEach((c, i) => el.push({ k: 'c:' + c.toLowerCase(), r: 'mt', v: 'c:' + c, nom: c, ic: '📢', o: i, coul: couleurCanal(c) }));
+  el.push({ k: 'direct', r: 'mt', v: 'direct', nom: 'Directs', ic: '✉️', o: 50 });
+  mcl.forEach((c, i) => el.push({ k: 'mc:' + c.toLowerCase(), r: 'mc', v: 'c:' + c, nom: c, ic: '📢', o: 100 + i, coul: couleurCanal(c) }));
+  if (mcl.length || etat.config.meshcore) el.push({ k: 'mcdirect', r: 'mc', v: 'direct', nom: 'Directs', ic: '✉️', o: 150 });
+  // Du nouveau d'abord (le plus récent en premier), puis l'ordre habituel
+  el.sort((a, b) => (!!nonLus[b.k] - !!nonLus[a.k]) || (nonLus[a.k] ? (dernierRecu[b.k] || 0) - (dernierRecu[a.k] || 0) : a.o - b.o));
+  const tot = Object.entries(nonLus).filter(([k]) => (reseau === 'mc') === k.startsWith('mc')).reduce((a, [, n]) => a + n, 0);
+  const puce = (x) => {
+    const n = nonLus[x.k] || 0, t = dernierRecu[x.k], actif = x.r === reseau && filtre === x.v;
+    const recent = t && Date.now() - t < 20000;
+    return `<button type="button" class="puce-canal${n ? ' a-lire' : ''}${x.k.endsWith('direct') ? ' direct' : ''}${actif ? ' actif' : ''}${recent && n ? ' vient' : ''}" data-puce-r="${x.r}" data-puce-v="${esc(x.v)}" ${x.coul ? `style="--coul:${x.coul}"` : ''} aria-pressed="${actif}" title="${esc((x.r === 'mc' ? 'MeshCore' : 'Meshtastic') + ' · ' + x.nom + (n ? ` : ${n} message${n > 1 ? 's' : ''} en attente` : '') + (t ? ' · dernier reçu ' + ilYa(t) : ''))}">`
+      + `<span class="reseau ${x.r}">${x.r === 'mc' ? 'MC' : 'MT'}</span>${x.ic} ${esc(x.nom)}${n ? `<b class="nb">${n}</b>` : ''}${n && t ? `<small>${ilYa(t)}</small>` : ''}</button>`;
+  };
+  return `<div class="barre-canaux" role="toolbar" aria-label="Canaux : ceux qui ont des messages en attente sont en tête">`
+    + `<button type="button" class="puce-canal tous${!filtre ? ' actif' : ''}" data-puce-r="${reseau}" data-puce-v="">Tous${tot ? `<b class="nb">${tot}</b>` : ''}</button>${el.map(puce).join('')}</div>`;
+}
+function brancherBarreCanaux(z) {
+  z.querySelectorAll('[data-puce-r]').forEach((b) => (b.onclick = () => {
+    const r = b.dataset.puceR, v = b.dataset.puceV;
+    if (r === 'mc') { choisirFiltreMc(v); if (typeof cliquerOnglet === 'function' && !(document.querySelector('[data-vue="meshcore"]') || {}).classList?.contains('actif')) cliquerOnglet('meshcore', 'messages'); else mcRendreMessages(); }
+    else { const ici = !!document.querySelector('.onglets button[data-onglet="messages"].actif'); choisirFiltreMessages(v); if (!ici && typeof cliquerOnglet === 'function') cliquerOnglet('messages', 'messages'); }
+  }));
+}
+// Les messages arrivés depuis la dernière lecture restent surlignés quelques minutes
+function marquerNouveaux(liste, cle, idDe, estRecu, avant) {
+  const vus = {};
+  for (const m of liste) {
+    const k = cle(m); const n = avant[k] || 0;
+    if (!n || !estRecu(m)) continue;
+    vus[k] = (vus[k] || 0) + 1;
+    if (vus[k] <= n) msgNouveaux.set(idDe(m), Date.now());
+  }
+  for (const [i, t] of msgNouveaux) if (Date.now() - t > 180000) msgNouveaux.delete(i);
+}
 // ---- Positions partagées par message (« meshand: 45.04,3.88 », comme l'appli MeshAnd ; aussi « geo:… » et « 📍 … ») ----
 const RE_EPINGLE = /(?:meshand:|geo:|📍)\s*(-?\d{1,2}\.\d{3,7})\s*[,;]\s*(-?\d{1,3}\.\d{3,7})/i;
 function lireEpingle(texte) {
@@ -1983,10 +2032,13 @@ function rendreMessages() {
     if (c && !canaux.some((x) => memeCanal(x, c))) canaux.push(c);
   }
   const nb = (f) => tous.filter(f).length;
+  const avantLecture = ongletMessagesVisible() ? { ...nonLus } : {};
   marquerLus(); // le canal affiché est lu : ses compteurs repartent de zéro avant d'être dessinés
+  const local0 = etat.radio ? etat.radio.noeudLocal : null;
+  marquerNouveaux(tous.filter((m) => filtreVoit(cleMessage(m))), cleMessage, (m) => 'mt' + m.rowid, (m) => m.de !== local0, avantLecture);
   const zf = $('#filtre-messages');
   if (zf) {
-    zf.innerHTML = `<label title="Le canal choisi est celui que vous lisez et celui où vous écrivez">Canal <select id="sel-filtre-messages">
+    zf.innerHTML = barreCanauxHtml('mt', filtreMessages) + `<label title="Le canal choisi est celui que vous lisez et celui où vous écrivez">Canal <select id="sel-filtre-messages">
       <option value="">Tous les canaux${(() => { const t = Object.entries(nonLus).filter(([k]) => !k.startsWith('mc')).reduce((a, [, n]) => a + n, 0); return t ? ` · ${t} nouveau${t > 1 ? 'x' : ''}` : ''; })()}</option>
       ${canaux.map((c) => { const n = nonLus['c:' + c.toLowerCase()]; return `<option value="c:${esc(c)}" ${filtreMessages === 'c:' + c ? 'selected' : ''}>📢 ${esc(c)}${n ? ` · ${n} nouveau${n > 1 ? 'x' : ''}` : ''}</option>`; }).join('')}
       <option value="direct" ${filtreMessages === 'direct' ? 'selected' : ''}>✉️ Mes messages directs${nonLus.direct ? ` · ${nonLus.direct} nouveau${nonLus.direct > 1 ? 'x' : ''}` : ''}</option>
@@ -1994,7 +2046,7 @@ function rendreMessages() {
       ${(() => { const l = typeof canauxMcConnus === 'function' ? canauxMcConnus() : []; return l.length ? `<optgroup label="MeshCore">${l.map((c) => `<option value="mc:${esc(c)}">🟠 ${esc(c)}</option>`).join('')}</optgroup>` : ''; })()}
     </select></label>
     <button type="button" class="mini" id="btn-sons" title="Bip par canal et alerte des messages directs">🔔 Sons</button>
-    ${Object.keys(nonLus).some((k) => !k.startsWith('mc')) ? `<div class="non-lus-canaux">${Object.entries(nonLus).filter(([k]) => !k.startsWith('mc')).map(([k, n]) => `<button type="button" class="mini non-lu${k === 'direct' ? ' direct' : ''}" data-non-lu="${esc(k)}">${k === 'direct' ? '✉️ Direct' : '📢 ' + esc(canaux.find((c) => 'c:' + c.toLowerCase() === k) || k.slice(2))} <b>${n}</b></button>`).join('')}</div>` : ''}`;
+    `;
     $('#sel-filtre-messages').onchange = (e) => {
       const v = e.target.value;
       // Canal MeshCore choisi : on passe aux messages MeshCore, sur ce canal
@@ -2002,7 +2054,7 @@ function rendreMessages() {
       choisirFiltreMessages(v);
     };
     $('#btn-sons').onclick = () => reglerSons(canaux);
-    zf.querySelectorAll('[data-non-lu]').forEach((b) => (b.onclick = () => { const k = b.dataset.nonLu; choisirFiltreMessages(k === 'direct' ? 'direct' : 'c:' + (canaux.find((c) => 'c:' + c.toLowerCase() === k) || k.slice(2))); }));
+    brancherBarreCanaux(zf);
   }
   marquerLus();
   const msgs = !filtreMessages ? tous
@@ -2010,7 +2062,7 @@ function rendreMessages() {
     : filtreMessages === 'direct' ? tous.filter((m) => estMonDirect(m))
       : tous.filter((m) => m.vers === 0xffffffff && memeCanal(m.canal, filtreMessages.slice(2)));
   $('#messages').innerHTML = msgs.length
-    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${etat.admin ? ' cliquable' : ''}" data-rowid="${m.rowid}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · <b>${m.vers !== 0xffffffff ? '✉️ Direct' : esc(m.canal || '')}</b>${estRelaye(m.texte) ? ' <span class="badge-passerelle" title="Relayé par une passerelle inter-réseaux">⇄ passerelle</span>' : ''} · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${m.texte ? texteMessageHtml(m.texte, nomNoeud(m.de), m.heure) : '(non conservé)'}</div>${origineMessage(m)}${suiviMessage(m)}</div>`).join('')
+    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${msgNouveaux.has('mt' + m.rowid) ? ' nouveau' : ''}${etat.admin ? ' cliquable' : ''}" data-rowid="${m.rowid}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · ${m.vers !== 0xffffffff ? '<b class="canal-msg direct">✉️ Direct</b>' : `<b class="canal-msg" style="--coul:${couleurCanal(m.canal)}">📢 ${esc(m.canal || '?')}</b>`}${msgNouveaux.has('mt' + m.rowid) ? ' <span class="etiquette-nouveau">nouveau</span>' : ''}${estRelaye(m.texte) ? ' <span class="badge-passerelle" title="Relayé par une passerelle inter-réseaux">⇄ passerelle</span>' : ''} · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte">${m.texte ? texteMessageHtml(m.texte, nomNoeud(m.de), m.heure) : '(non conservé)'}</div>${origineMessage(m)}${suiviMessage(m)}</div>`).join('')
     : `<div class="vide">${filtreMessages === 'direct' && !mesNums().size ? 'Aucun module relié à la carte : vos messages directs sont ceux envoyés ou reçus par votre module.' : filtreMessages === 'direct' ? 'Aucun message direct envoyé ou reçu par votre module sur la période.' : filtreMessages ? 'Aucun message dans ce choix sur la période.' : 'Aucun message texte sur la période.'}</div>`;
   epinglerMessages(msgs.map((m) => ({ texte: m.texte, heure: m.heure, qui: nomNoeud(m.de) })));
   if (etat.admin) $('#messages').querySelectorAll('.message[data-de]').forEach((el) => (el.onclick = () => repondreA(el)));

@@ -1348,3 +1348,25 @@ body.theme-clair .bulle-visite { background: #fff; color: #0f172a; }
 .pp-essai, .pp-profils { margin-top: 12px; padding: 8px 10px; border: 1px solid var(--bord); border-radius: 8px; } .pp-essai summary, .pp-profils summary { cursor: pointer; font-weight: 600; }
 .sig-marqueur.sig-attente span { border-style: dashed; border-color: #f59e0b; animation: none; opacity: .85; }
 .a-propos { margin-top: 18px; text-align: center; opacity: .8; } .a-propos a { color: var(--accent); }
+/* Barre des canaux : une pastille par canal, celles qui ont des messages en attente en tête et en couleur */
+.barre-canaux { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.puce-canal { --coul: var(--doux); display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 16px; border: 1px solid rgba(255,255,255,.18); border-left: 4px solid var(--coul); background: rgba(255,255,255,.04); color: var(--texte, #e6edf3); font-size: 13px; cursor: pointer; line-height: 1.2; }
+.puce-canal:hover { background: rgba(255,255,255,.09); }
+.puce-canal .reseau { font-size: 9px; font-weight: 800; letter-spacing: .5px; padding: 1px 4px; border-radius: 4px; background: rgba(103,232,249,.18); color: #67e8f9; }
+.puce-canal .reseau.mc { background: rgba(251,146,60,.2); color: #fdba74; }
+.puce-canal.actif { outline: 2px solid var(--accent, #2dd4bf); background: rgba(45,212,191,.14); font-weight: 700; }
+.puce-canal.a-lire { background: color-mix(in srgb, var(--coul) 26%, transparent); border-color: var(--coul); font-weight: 700; box-shadow: 0 0 0 1px var(--coul) inset; }
+.puce-canal.direct { --coul: #f87171; }
+.puce-canal .nb { min-width: 20px; padding: 0 6px; border-radius: 10px; background: #facc15; color: #111; font-size: 12px; font-weight: 900; text-align: center; line-height: 20px; }
+.puce-canal.direct .nb { background: #f87171; color: #fff; }
+.puce-canal small { font-size: 11px; color: var(--doux); font-weight: 400; }
+.puce-canal.vient { animation: puce-vient 1s ease-in-out 4; }
+@keyframes puce-vient { 50% { transform: scale(1.08); box-shadow: 0 0 12px var(--coul); } }
+.puce-canal.tous .nb { background: var(--ok); color: #04121a; }
+/* Canal de chaque message, en couleur, et messages arrivés depuis la dernière lecture */
+.canal-msg { --coul: var(--doux); color: var(--coul); }
+b.canal-msg { padding: 0 6px; border-radius: 4px; background: color-mix(in srgb, var(--coul) 16%, transparent); }
+.canal-msg.direct { color: #fca5a5; }
+.message.nouveau, .message-mc.nouveau { border-left: 4px solid #facc15; background: rgba(250,204,21,.08); }
+.etiquette-nouveau { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 8px; background: #facc15; color: #111; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+@media (prefers-reduced-motion: reduce) { .puce-canal.vient { animation: none; } }

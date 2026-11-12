@@ -386,7 +386,10 @@ async function mcRendreMessages() {
   let l = [];
   try { l = await api('/api/mc/messages?limite=300'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
   if (mc.vue !== 'messages') return;
+  const avantLecture = !document.hidden && typeof nonLus !== 'undefined' ? { ...nonLus } : {};
   mcMarquerLus();
+  const cleMc = (m) => (m.genre === 'direct' ? 'mcdirect' : 'mc:' + String(m.canal || '?').toLowerCase());
+  if (typeof marquerNouveaux === 'function') marquerNouveaux(l.filter((m) => mcFiltreVoit(cleMc(m))), cleMc, (m) => 'mc' + (m.id != null ? m.id : m.heure + (m.nomDe || '')), (m) => m.sens === 'recu', avantLecture);
   const c = (mc.etat && mc.etat.companion) || {};
   const canaux = c.canaux || [];
   const peutEnvoyer = etat.admin && c.connecte;
@@ -405,7 +408,7 @@ async function mcRendreMessages() {
   for (const x of [...canaux.map((k) => k.nom), ...l.filter((m) => m.genre !== 'direct').map((m) => m.canal)]) if (x && !filtreCanaux.some((y) => memeCanalMc(x, y))) filtreCanaux.push(x);
   const vus = !mcFiltreMsg ? l : mcFiltreMsg === 'passerelle' ? l.filter((m) => estRelaye(m.texte)) : mcFiltreMsg === 'direct' ? l.filter((m) => m.genre === 'direct') : l.filter((m) => m.genre !== 'direct' && memeCanalMc(m.canal, mcFiltreMsg.slice(2)));
   z.innerHTML = `
-    <div class="filtre-messages"><label title="Le canal choisi est celui que vous lisez et celui où vous écrivez">Canal <select id="mc-filtre-msg">
+    <div class="filtre-messages">${typeof barreCanauxHtml === 'function' ? barreCanauxHtml('mc', mcFiltreMsg) : ''}<label title="Le canal choisi est celui que vous lisez et celui où vous écrivez">Canal <select id="mc-filtre-msg">
       ${(() => { const nl = (k) => (typeof nonLus !== 'undefined' && nonLus[k]) || 0, tx = (n) => (n ? ` · ${n} nouveau${n > 1 ? 'x' : ''}` : ''); const tot = typeof nonLus !== 'undefined' ? Object.entries(nonLus).filter(([k]) => k.startsWith('mc')).reduce((a, [, n]) => a + n, 0) : 0;
         return `<option value="">Tous${tx(tot)}</option>
       ${filtreCanaux.map((x) => `<option value="c:${esc(x)}" ${mcFiltreMsg === 'c:' + x ? 'selected' : ''}>📢 ${esc(x)}${tx(nl('mc:' + String(x).toLowerCase()))}</option>`).join('')}
@@ -425,6 +428,7 @@ async function mcRendreMessages() {
     </form>` : `<p class="note">${etat.admin ? 'Reliez un companion (onglet Companion) pour envoyer des messages.' : 'L’envoi est réservé aux administrateurs.'}</p>`}
     <div id="mc-messages" class="flux">${vus.length ? vus.map(mcLigneMessage).join('') : `<div class="vide">${mcFiltreMsg ? 'Aucun message dans ce choix.' : 'Aucun message pour l’instant.'}</div>`}</div>`;
   mc.canauxVus = filtreCanaux;
+  if (typeof brancherBarreCanaux === 'function') brancherBarreCanaux(z.querySelector('.filtre-messages'));
   $('#mc-filtre-msg').onchange = (e) => {
     const v = e.target.value;
     // Canal Meshtastic choisi : on passe aux messages Meshtastic, sur ce canal
@@ -481,8 +485,9 @@ function mcTagRegion(r) {
 function mcLigneMessage(m) {
   const qui = m.sens === 'envoye' ? `<b>${esc(m.nomDe || 'moi')}</b>${m.genre === 'direct' ? ` → ${esc(m.nomVers || mcNom(m.vers))}` : ''}` : `<b>${esc(m.nomDe || '?')}</b>${m.genre === 'direct' ? ' → moi' : ''}`;
   const lieu = m.genre === 'direct' ? 'Direct' : m.canal || '';
-  return `<div class="paquet mc message-mc ${m.sens}" ${m.genre === 'direct' && m.sens === 'recu' && m.de ? `data-mc-repondre="${m.de}"` : m.genre === 'canal' && m.indexCanal != null ? `data-mc-canal="${m.indexCanal}"` : ''}>
-    <div class="entete"><span class="heure">${new Date(m.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span class="tag"><i style="background:${m.genre === 'direct' ? MC_TYPES.message.hex : MC_TYPES.canal.hex}"></i>${esc(lieu)}</span>${mcTagRegion(m.region)}${estRelaye(m.texte) ? '<span class="badge-passerelle" title="Relayé par une passerelle inter-réseaux">⇄ passerelle</span>' : ''}
+  const nouv = typeof msgNouveaux !== 'undefined' && msgNouveaux.has('mc' + (m.id != null ? m.id : m.heure + (m.nomDe || '')));
+  return `<div class="paquet mc message-mc ${m.sens}${nouv ? ' nouveau' : ''}" ${m.genre === 'direct' && m.sens === 'recu' && m.de ? `data-mc-repondre="${m.de}"` : m.genre === 'canal' && m.indexCanal != null ? `data-mc-canal="${m.indexCanal}"` : ''}>
+    <div class="entete"><span class="heure">${new Date(m.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span class="tag canal-msg${m.genre === 'direct' ? ' direct' : ''}" ${m.genre !== 'direct' && typeof couleurCanal === 'function' ? `style="--coul:${couleurCanal(m.canal)}"` : ''}><i style="background:${m.genre === 'direct' ? MC_TYPES.message.hex : MC_TYPES.canal.hex}"></i>${esc(lieu)}</span>${nouv ? '<span class="etiquette-nouveau">nouveau</span>' : ''}${mcTagRegion(m.region)}${estRelaye(m.texte) ? '<span class="badge-passerelle" title="Relayé par une passerelle inter-réseaux">⇄ passerelle</span>' : ''}
     ${m.sauts != null ? `<span>${m.sauts === 0 ? 'direct' : m.sauts + ' saut' + (m.sauts > 1 ? 's' : '')}</span>` : ''}${m.sens === 'envoye' ? `<span class="statut-msg ${m.statut || ''}">${STATUTS_MSG[m.statut] || ''}${m.relais > 1 ? ' ×' + m.relais : ''}</span>` : ''}</div>
     <div class="corps">${qui} : ${texteMessageHtml(m.texte, m.sens === 'envoye' ? m.nomDe || 'moi' : m.nomDe, m.heure)}</div></div>`;
 }
@@ -1738,7 +1743,8 @@ function mcRecevoir(m) {
 function mcNoterMessageRecu(m) {
   if (typeof nonLus === 'undefined') return;
   const k = m.direct ? 'mcdirect' : 'mc:' + String(m.canal || '?').toLowerCase();
-  const vu = !document.hidden && mc.vue === 'messages' && $('[data-vue="meshcore"]') && $('[data-vue="meshcore"]').classList.contains('actif');
+  const vu = !document.hidden && mc.vue === 'messages' && $('[data-vue="meshcore"]') && $('[data-vue="meshcore"]').classList.contains('actif') && mcFiltreVoit(k);
+  if (typeof noterDernierRecu === 'function') noterDernierRecu(k);
   if (!vu) { nonLus[k] = (nonLus[k] || 0) + 1; ecrireLs('gaulix_non_lus', nonLus); }
   if (m.direct) { if (sons.direct) bip([880, 1320, 1760], 0.12); afficherAlerteDirect(`✉️ Message direct MeshCore de ${m.nomDe || 'inconnu'}`, m.texte); }
   else if (sons.canaux[String(m.canal || '').toLowerCase()]) bip([noteCanal(String(m.canal).toLowerCase())], 0.18);
@@ -1759,10 +1765,12 @@ function mcMajBadgeMessages() {
     s.textContent = n ? String(n) : ''; s.hidden = !n; s.classList.toggle('direct', !!nonLus.mcdirect);
   }
 }
+// Ce que la liste MeshCore affichée montre : tout, les directs ou un canal (« Relayés » ne vaut pas lecture)
+const mcFiltreVoit = (k) => !mcFiltreMsg || (mcFiltreMsg === 'direct' ? k === 'mcdirect' : mcFiltreMsg.startsWith('c:') && k === 'mc:' + mcFiltreMsg.slice(2).toLowerCase());
 function mcMarquerLus() {
   if (typeof nonLus === 'undefined' || document.hidden) return;
   let ch = false;
-  for (const k of Object.keys(nonLus)) if (k.startsWith('mc')) { delete nonLus[k]; ch = true; }
+  for (const k of Object.keys(nonLus)) if (k.startsWith('mc') && mcFiltreVoit(k)) { delete nonLus[k]; ch = true; }
   if (ch) { ecrireLs('gaulix_non_lus', nonLus); majBadgesMessages(); }
 }
 
