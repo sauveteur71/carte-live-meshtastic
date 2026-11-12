@@ -2,7 +2,7 @@
 
 [![Dernière version](https://img.shields.io/github/v/release/sauveteur71/carte-live-meshtastic?label=derni%C3%A8re%20version)](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest)
 
-**Version actuelle : 2.14.5** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
+**Version actuelle : 2.15.0** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
 
 Carte en temps réel, supervision et **administration à distance** d'un réseau [Meshtastic](https://meshtastic.org) — et désormais [MeshCore](https://meshcore.co.uk) — local ou départemental : elle écoute votre broker MQTT et/ou un module radio, décode les paquets, garde l'historique et permet de programmer vos nœuds par LoRa.
 
@@ -71,6 +71,7 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - **Outils du companion MeshCore** (firmware récent) : *Qui m'entend en direct ?* (découverte à 0 saut, SNR dans les deux sens, sans mot de passe, automatique toutes les 6 h), bruit de fond et temps d'antenne avec courbe sur 7 jours, télémétrie (batterie, capteurs), région d'envoi par défaut, commandes et Wi-Fi du companion
 - **Répéteurs MeshCore** : *Tracer* (aller-retour avec le SNR de chaque saut, sans mot de passe, et chaque nuit vers les répéteurs surveillés), *Télémétrie*, région d'attache lue avec la configuration ; les liaisons mesurées alimentent la carte et la topologie
 - **Capteurs MeshCore** (fiche, onglet *Capteurs*) : relevé automatique de la télémétrie à intervalle réglable (15 min à 24 h), courbes de chaque mesure sur 1 à 90 jours et **libellés personnalisés** (« Batterie », « Abri » au lieu de « tension 1 »), seuils d'alerte et export CSV
+- **Interface guidée** : 5 rubriques, accueil « Que voulez-vous faire ? », niveaux d'affichage simple / opérateur / expert, réglages regroupés, recherche unique (lieux, nœuds, fonctions), bouton ＋ sur la carte, aide intégrée « ? », visite guidée, raccourcis favoris, grand texte et navigation au clavier
 - **Signalements** (clic droit sur la carte › 🚩, membres) : route inondée, arbre sur la route… envoyé en LoRa en point de passage Meshtastic (types et canaux Fr_Balise / Alerte compatibles Bipper et GerMaCrise) et en message MeshCore ; points de passage reçus affichés sur la carte
 - **Demander sa position** à un nœud ou à toute une équipe (clic droit sur le nœud, gestionnaire)
 - **Recherche dans les réglages** (⚙️🔎 ou Ctrl+K) : trouve un réglage ou une fonction et y emmène

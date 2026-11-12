@@ -681,7 +681,7 @@ async function mcRendreGestion() {
     const params = { motDePasse: f.mdp.value || undefined, memoriser: f.memoriser.checked, insister: f.insister.checked, elements: [...f.querySelectorAll('[name=el]:checked')].map((x) => x.value) };
     const lc = [...f.querySelectorAll('[name=lc]:checked')].map((x) => x.value);
     if (type === 'lire' && lc.length) params.cles = lc;
-    if (type === 'annonce') params.inondation = confirm('Annonce relayée par tout le réseau ?\nOK = tout le réseau · Annuler = voisins directs seulement');
+    if (type === 'annonce') params.inondation = (await confirmer('Annonce relayée par tout le réseau ?\nOK = tout le réseau · Annuler = voisins directs seulement'));
     try {
       const t = await postJson('/api/mc/admin/taches', { type, cles: ordre, params });
       f.mdp.value = '';
@@ -809,7 +809,7 @@ Notez-le : sans lui, il faudra repasser par l’USB.`)) return;
       if (!confirm(`Appliquer « ${m.nom} » à ${noms.join(', ')} ?\n${Object.entries(m.valeurs).map(([k, v]) => `• ${lib(k)} = ${v}`).join('\n')}${(m.regions || []).map((a) => `\n• region ${a.op} ${a.nom}`).join('')}${m.redemarrer ? '\n• redémarrage à la fin' : ''}${m.valeurs.radio ? '\n\n⚠ Changer la radio d’un nœud distant peut le rendre injoignable.' : ''}`)) return;
       lancer('modele', { modele: m.id });
     }));
-    zone.querySelectorAll('[data-supprimer]').forEach((b) => (b.onclick = async () => { if (!confirm('Supprimer ce modèle ?')) return; await api('/api/mc/admin/modeles/' + b.dataset.supprimer, { method: 'DELETE' }); mcOutilAdmin('modeles', cles, zone, ctx); }));
+    zone.querySelectorAll('[data-supprimer]').forEach((b) => (b.onclick = async () => { if (!(await confirmer('Supprimer ce modèle ?'))) return; await api('/api/mc/admin/modeles/' + b.dataset.supprimer, { method: 'DELETE' }); mcOutilAdmin('modeles', cles, zone, ctx); }));
     const f = zone.querySelector('form');
     f.onsubmit = async (e) => {
       e.preventDefault();
@@ -859,7 +859,7 @@ async function mcAligner(t, cle, zone) {
   if (!x) return;
   const valeurs = Object.fromEntries(x.ecarts.map((e) => [e.element, e.reference]));
   const radio = valeurs.radio !== undefined;
-  if (!confirm(`Appliquer à « ${x.nom} » :\n${Object.entries(valeurs).map(([k, v]) => `• ${k} = ${v}`).join('\n')}${radio ? '\n\n⚠ Changer la radio d’un nœud distant peut le rendre injoignable s’il ne parle plus comme les autres. Un redémarrage sera nécessaire.' : ''}`)) return;
+  if (!(await confirmer(`Appliquer à « ${x.nom} » :\n${Object.entries(valeurs).map(([k, v]) => `• ${k} = ${v}`).join('\n')}${radio ? '\n\n⚠ Changer la radio d’un nœud distant peut le rendre injoignable s’il ne parle plus comme les autres. Un redémarrage sera nécessaire.' : ''}`))) return;
   try { const n = await postJson('/api/mc/admin/taches', { type: 'modifier', cles: [cle], params: { valeurs } }); mcSuivreTache(n.id, zone); } catch (e) { alert(e.message); }
 }
 
@@ -933,14 +933,14 @@ async function mcRendreAdminFiche(n, z) {
       return mcOutilAdmin(a, [n.cle], $('#mc-adm-outil'), { mdp: () => f.mdp.value, memoriser: () => f.memoriser.checked, insister: () => f.insister.checked, viderMdp: () => { f.mdp.value = ''; }, zoneTache: $('#mc-adm-tache'),
         apres: (fin) => { if (mc.selection === n.cle) mcRendreAdminFiche(n, z).then(() => { const zt = $('#mc-adm-tache'); if (zt) zt.innerHTML = mcHtmlTache(fin); }); } });
     }
-    if (a === 'redemarrer' && !confirm(`Redémarrer « ${n.nom} » à distance ?`)) return;
-    if (a === 'annonce') return lancer('annonce', { inondation: confirm('Annonce relayée par tout le réseau ?\nOK = tout le réseau · Annuler = voisins directs seulement') });
+    if (a === 'redemarrer' && !(await confirmer(`Redémarrer « ${n.nom} » à distance ?`))) return;
+    if (a === 'annonce') return lancer('annonce', { inondation: (await confirmer('Annonce relayée par tout le réseau ?\nOK = tout le réseau · Annuler = voisins directs seulement')) });
     if (a === 'cli') { const c = f.cli.value.trim(); if (c) lancer('cli', { commande: c }); return; }
     if (a === 'appliquer') {
       const valeurs = {};
       f.querySelectorAll('.reglages-mc [name]').forEach((x) => { if (x.value !== '' && x.value !== x.dataset.initial) valeurs[x.name] = x.value.trim(); });
       if (!Object.keys(valeurs).length) { $('#mc-adm-retour').textContent = 'Aucun réglage modifié.'; return; }
-      if (!confirm(`Appliquer à « ${n.nom} » :\n${Object.entries(valeurs).map(([k, x]) => `• ${k} = ${x}`).join('\n')}${valeurs.radio ? '\n\n⚠ Changer la radio d’un nœud distant peut le rendre injoignable s’il ne parle plus comme les autres. Un redémarrage sera nécessaire.' : ''}`)) return;
+      if (!(await confirmer(`Appliquer à « ${n.nom} » :\n${Object.entries(valeurs).map(([k, x]) => `• ${k} = ${x}`).join('\n')}${valeurs.radio ? '\n\n⚠ Changer la radio d’un nœud distant peut le rendre injoignable s’il ne parle plus comme les autres. Un redémarrage sera nécessaire.' : ''}`))) return;
       return lancer('modifier', { valeurs });
     }
     lancer(a);
@@ -1035,7 +1035,7 @@ function mcBrancherOutils(z) {
     ev.preventDefault();
     o.ouvert = true;
     const v = fz.zone.value.trim();
-    if (!confirm(v ? `Limiter les envois en inondation du companion à la région « ${v} » ?\nSeuls les répéteurs qui acceptent cette région relaieront ses messages.` : 'Retirer la région : les envois du companion ne seront plus limités ?')) return;
+    if (!(await confirmer(v ? `Limiter les envois en inondation du companion à la région « ${v} » ?\nSeuls les répéteurs qui acceptent cette région relaieront ses messages.` : 'Retirer la région : les envois du companion ne seront plus limités ?'))) return;
     try { o.zone = (await postJson('/api/mc/companion/zone', { zone: v })).zone; o.erreur = null; } catch (e) { o.erreur = e.message; }
     redessiner();
   };
@@ -1044,7 +1044,7 @@ function mcBrancherOutils(z) {
     ev.preventDefault();
     const ssid = fw.ssid.value.trim(), mdp = fw.mdp.value;
     if (!ssid && fw.actif.checked) { o.erreur = 'Indiquez le réseau Wi-Fi (SSID).'; return redessiner(); }
-    if (!confirm('Enregistrer ce Wi-Fi dans le companion ? Il peut redémarrer ou changer d’adresse.')) return;
+    if (!(await confirmer('Enregistrer ce Wi-Fi dans le companion ? Il peut redémarrer ou changer d’adresse.'))) return;
     if (ssid) await cliLocal('set wifi.ssid ' + ssid);
     if (mdp) await cliLocal('set wifi.pwd ' + mdp);
     await cliLocal('set wifi.enabled ' + (fw.actif.checked ? 'on' : 'off'));
@@ -1234,7 +1234,7 @@ function mcRendreCompanion() {
   $('#mc-f-reglages').onsubmit = async (ev) => {
     ev.preventDefault();
     const f = ev.target;
-    if (!confirm('Enregistrer ces réglages MeshCore ? Le service redémarre (quelques secondes).')) return;
+    if (!(await confirmer('Enregistrer ces réglages MeshCore ? Le service redémarre (quelques secondes).'))) return;
     try { await postJson('/api/mc/reglages', { iata: f.iata.value.trim(), racine: f.racine.value.trim(), republier: f.republier.checked, canaux: f.canaux.value, perimetre: f.perimetre.value, iataVoisins: f.iataVoisins.value }); attendreRedemarrage('Réglages MeshCore enregistrés'); } catch (err) { retour(err.message); }
   };
 }
@@ -1452,7 +1452,7 @@ async function mcRendreCapteurs(n, z, jours = 7) {
   z.querySelectorAll('[data-cj]').forEach((b) => (b.onclick = () => mcRendreCapteurs(n, z, Number(b.dataset.cj))));
   z.querySelectorAll('[data-cap-effacer]').forEach((b) => (b.onclick = async () => {
     const m = b.dataset.capEffacer;
-    if (!confirm(`Effacer la mesure « ${libelleCapteur(r, m)} » : tout son historique, son nom et son alerte ? Elle réapparaîtra au prochain relevé si le capteur l’envoie encore.`)) return;
+    if (!(await confirmer(`Effacer la mesure « ${libelleCapteur(r, m)} » : tout son historique, son nom et son alerte ? Elle réapparaîtra au prochain relevé si le capteur l’envoie encore.`))) return;
     try { await postJson(`/api/mc/capteurs/${n.cle}/reinitialiser`, { mesure: m }); } catch (e) { alert(e.message); return; }
     mcRendreCapteurs(n, z, jours);
   }));
@@ -1461,7 +1461,7 @@ async function mcRendreCapteurs(n, z, jours = 7) {
     const h = (z.querySelector('input[name="cap-hist"]:checked') || {}).value || null, avecReglages = $('#cap-reglages').checked;
     const avant = h === 'avant' ? new Date($('#cap-avant').value + 'T00:00:00').getTime() : null;
     if (!h && !avecReglages) return alert('Rien à remettre à zéro : cochez au moins une option.');
-    if (!confirm(`Remettre à zéro les capteurs de ${n.nom || 'ce nœud'} ?${h === 'tout' ? '\nTout l’historique sera effacé.' : h === 'avant' ? '\nLes relevés antérieurs à cette date seront effacés.' : ''}${avecReglages ? '\nLes noms des mesures, les alertes et le masquage seront effacés.' : ''}`)) return;
+    if (!(await confirmer(`Remettre à zéro les capteurs de ${n.nom || 'ce nœud'} ?${h === 'tout' ? '\nTout l’historique sera effacé.' : h === 'avant' ? '\nLes relevés antérieurs à cette date seront effacés.' : ''}${avecReglages ? '\nLes noms des mesures, les alertes et le masquage seront effacés.' : ''}`))) return;
     try { const x = await postJson(`/api/mc/capteurs/${n.cle}/reinitialiser`, { historique: h, avant, reglages: avecReglages }); alert(`${x.lignes} relevé(s) effacé(s).`); } catch (e) { alert(e.message); return; }
     mcRendreCapteurs(n, z, jours);
   };

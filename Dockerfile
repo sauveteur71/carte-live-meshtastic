@@ -25,6 +25,7 @@ RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY carte-live/protobufs ./protobufs
 COPY carte-live/src ./src
 COPY carte-live/public ./public
+COPY wiki ./wiki
 COPY carte-live/outils ./outils
 COPY carte-live/donnees-ref ./donnees-ref
 COPY --from=agents /out/ ./public/agent/

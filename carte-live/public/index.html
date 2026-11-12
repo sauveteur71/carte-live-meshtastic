@@ -105,6 +105,7 @@
         <button id="outil-partager" class="bascule" title="Carte publique à intégrer dans un site, exports GeoJSON / GPX, Grafana, Home Assistant">📤 Carte publique et exports</button>
         <div class="titre-outils">Affichage</div>
         <button id="outil-theme" class="bascule" title="Interface claire à fort contraste, lisible en plein soleil">☀️ Thème clair (plein soleil)</button>
+        <button id="outil-affichage" class="bascule" title="Niveau d’affichage (simple, opérateur, expert), grand texte, visite guidée">🎚️ Niveau d’affichage, grand texte…</button>
         <button id="outil-installer" class="bascule" hidden title="Ajouter la carte sur l'écran d'accueil (plein écran, ouverture même sans réseau)">📲 Installer l'application</button>
         <small id="note-outils" class="note"></small>
       </div>
@@ -121,7 +122,15 @@
   </div>
 
   <aside class="panneau" id="panneau">
-    <nav class="onglets">
+    <nav class="groupes" role="tablist" aria-label="Rubriques">
+      <button data-groupe="reseau" role="tab" class="actif" title="Tableau de bord, nœuds, trafic, statistiques">Réseau</button>
+      <button data-groupe="messages" role="tab" title="Lire et écrire sur les canaux Meshtastic et MeshCore">Messages</button>
+      <button data-groupe="couverture" role="tab" title="Couverture radio, sites, plans">Couverture</button>
+      <button data-groupe="gerer" role="tab" title="Gérer les nœuds à distance : programmation, équipes, clés, firmware">Gérer</button>
+      <button data-groupe="reglages" role="tab" title="Tous les réglages au même endroit">Réglages</button>
+      <button class="aide-onglet" id="btn-aide" title="Aide sur cet écran" aria-label="Aide sur cet écran">?</button>
+    </nav>
+    <nav class="onglets" aria-label="Sous-rubriques">
       <button data-onglet="reseau" class="actif">Réseau</button>
       <button data-onglet="noeuds">Nœuds</button>
       <button data-onglet="trafic">Trafic</button>
@@ -129,11 +138,15 @@
       <button data-onglet="sites" title="Couverture radio : réseau actuel, plan pour le département, meilleurs sites selon le relief">Couverture</button>
       <button data-onglet="gestion" id="onglet-gestion" hidden title="Programmer les nœuds à distance par LoRa">Programmer</button>
       <button data-onglet="messages" id="onglet-messages" hidden>Messages</button>
+      <button data-onglet="reglages" hidden>Réglages</button>
       <button data-onglet="meshcore" class="onglet-mc" hidden title="Réseau MeshCore : nœuds, paquets, companion">MeshCore</button>
       <button class="replier" id="replier" title="Replier le panneau">‹</button>
     </nav>
 
+    <section data-vue="reglages" class="vue"><div id="hub-reglages"></div></section>
+
     <section data-vue="reseau" class="vue actif">
+      <div id="accueil"></div>
       <div class="tableau" id="tableau-reseau">
       <div class="mt-seul">
         <details class="pli-alertes" data-pli="alertes-mt">
@@ -273,6 +286,7 @@
   </aside>
   <button class="deplier" id="deplier" hidden title="Afficher le panneau">›</button>
 
+  <button id="fab-plus" class="fab-plus" title="Agir sur un point de la carte : signaler, couverture, partager, profil" aria-label="Agir sur un point de la carte">＋</button>
   <aside class="fiche" id="fiche" hidden>
     <button class="fermer" id="fermer-fiche" title="Fermer">×</button>
     <div id="fiche-contenu"></div>
@@ -421,5 +435,6 @@
   <script src="/app.js"></script>
   <script src="/animations.js"></script>
   <script src="/meshcore.js"></script>
+  <script src="/ergonomie.js"></script>
 </body>
 </html>

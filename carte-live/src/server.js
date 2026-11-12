@@ -169,6 +169,15 @@ setTimeout(verifierDerniereVersion, 15000);
 setInterval(verifierDerniereVersion, 3600000).unref();
 const infosVersion = () => ({ version: VERSION, derniere: majDispo.version, url: majDispo.url || `https://github.com/${DEPOT}/releases`, majDisponible: !!(majDispo.version && comparerVersions(majDispo.version, VERSION) > 0), verifie: majDispo.verifie || null });
 app.get('/api/version', (req, res) => res.json(infosVersion()));
+// Aide intégrée : pages du wiki (texte Markdown), affichées dans la carte par le bouton « ? »
+const DOSSIER_AIDE = [path.join(__dirname, '..', 'wiki'), path.join(__dirname, '..', '..', 'wiki')].find((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } });
+app.get('/api/aide/:page', (req, res) => {
+  const nom = String(req.params.page).normalize('NFC');
+  if (!DOSSIER_AIDE || !/^[\p{L}\p{N}_-]{1,60}$/u.test(nom)) return res.status(404).json({ erreur: 'Page d’aide introuvable' });
+  const f = fs.readdirSync(DOSSIER_AIDE).find((x) => x.normalize('NFC') === nom + '.md');
+  if (!f) return res.status(404).json({ erreur: 'Page d’aide introuvable' });
+  res.set('Cache-Control', 'max-age=300').json({ page: nom, texte: fs.readFileSync(path.join(DOSSIER_AIDE, f), 'utf8') });
+});
 
 app.get('/api/config', (req, res) => {
   res.json({

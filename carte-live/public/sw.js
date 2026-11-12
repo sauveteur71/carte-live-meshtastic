@@ -1,10 +1,10 @@
 'use strict';
 // Service worker du mode terrain : l'application s'ouvre sans réseau (dernière version connue)
 // et les fonds de carte déjà vus (ou préparés) restent affichés hors connexion.
-const APPLI = 'appli-v2';
+const APPLI = 'appli-v3';
 const TUILES = 'tuiles-v1';
 const MAX_TUILES = 4000;
-const COQUILLE = ['/', '/index.html', '/style.css', '/app.js', '/meshcore.js', '/animations.js', '/vendor/leaflet/leaflet.css', '/vendor/leaflet/leaflet.js', '/manifest.webmanifest', '/icone-192.png', '/publique.html', '/publique.js'];
+const COQUILLE = ['/', '/index.html', '/style.css', '/app.js', '/meshcore.js', '/ergonomie.js', '/animations.js', '/vendor/leaflet/leaflet.css', '/vendor/leaflet/leaflet.js', '/manifest.webmanifest', '/icone-192.png', '/publique.html', '/publique.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(APPLI).then((c) => c.addAll(COQUILLE)).catch(() => {}).then(() => self.skipWaiting()));

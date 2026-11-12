@@ -478,7 +478,7 @@ async function ficheMaj() {
       <p class="note">Pour mettre à jour en un clic, ajoutez le service <b>maj</b> à votre <code>docker-compose.yml</code> (voir le wiki, page Installation), puis <code>docker compose up -d</code> une dernière fois. En attendant : <code>docker compose pull && docker compose up -d</code>.</p>`}
     <p class="erreur" id="maj-retour"></p></div>`;
   const lancer = async (forcer) => {
-    if (!confirm('Mettre la carte à jour maintenant ? Elle sera indisponible 1 à 3 minutes.')) return;
+    if (!(await confirmer('Mettre la carte à jour maintenant ? Elle sera indisponible 1 à 3 minutes.'))) return;
     try { await postJson('/api/maj', { forcer: !!forcer }); attendreMaj(r.version); } catch (e) { $('#maj-retour').textContent = e.message; }
   };
   const g = $('#maj-go'); if (g) g.onclick = () => lancer(false);
@@ -1659,7 +1659,7 @@ function popupSignalement(s) {
     ${s.actif ? `<div class="actions-prop"><button class="mini principal" data-fin title="${s.source === 'radio' ? 'Le retirer de la carte' : 'Annoncer la fin en LoRa et retirer le point des applis'}">✅ Terminé</button>${s.source === 'radio' ? '' : '<button class="mini" data-renvoi title="Renvoyer en LoRa">↻ Renvoyer</button>'}</div>` : `<div class="note">${s.fin ? 'Terminé par ' + esc(s.finPar || '?') + ' ' + ilYa(s.fin) : 'Expiré'}</div>`}`;
   const fin = d.querySelector('[data-fin]');
   if (fin) fin.onclick = async () => {
-    if (!confirm(s.source === 'radio' ? `Retirer « ${s.titre} » de la carte ?` : `Terminer « ${s.titre} » ? Un message de fin part en LoRa et le point disparaît des applis.`)) return;
+    if (!(await confirmer(s.source === 'radio' ? `Retirer « ${s.titre} » de la carte ?` : `Terminer « ${s.titre} » ? Un message de fin part en LoRa et le point disparaît des applis.`))) return;
     try { await postJson(`/api/signalements/${s.id}/terminer`, {}); carte.closePopup(); } catch (e) { alert(e.message); }
   };
   const rv = d.querySelector('[data-renvoi]');
@@ -1726,7 +1726,7 @@ async function formSignalement(lat, lon) {
   $('#sig-envoyer').onclick = async () => {
     const mt = [...z.querySelectorAll('[data-mt]:checked')].map((x) => Number(x.dataset.mt)), mc = $('#sig-mc') ? $('#sig-mc').value : '';
     const texte = $('#sig-texte') ? $('#sig-texte').checked : true;
-    if (!mt.length && mc === '' && !confirm('Aucun réseau choisi : le signalement restera seulement sur la carte. Continuer ?')) return;
+    if (!mt.length && mc === '' && !(await confirmer('Aucun réseau choisi : le signalement restera seulement sur la carte. Continuer ?'))) return;
     const b = $('#sig-envoyer'); b.disabled = true; b.textContent = 'Envoi…';
     ecrireLs('gaulix_sig', { mt, mc, cat, texte });
     try {
@@ -1812,7 +1812,7 @@ function menuNoeud(x, y, id) {
     else if (k === 'copier') { try { await navigator.clipboard.writeText(ident); } catch { /* presse-papiers indisponible */ } }
     else if (k === 'chemin') { mcOuvrirFiche(id); setTimeout(() => { const o = document.querySelector('[data-of="admin"]'); if (o) o.click(); setTimeout(() => { const c = document.getElementById('mc-chemin'); if (c) c.scrollIntoView({ block: 'center' }); }, 600); }, 500); }
     else if (k === 'supprimer') {
-      if (!confirm(`Supprimer « ${nom} » de la carte et du serveur ?\n\nSa fiche, ses positions, ses liaisons et sa télémétrie sont effacées${estMc ? ', et il est retiré des contacts du companion' : ''}. S’il émet de nouveau, il réapparaîtra.`)) return;
+      if (!(await confirmer(`Supprimer « ${nom} » de la carte et du serveur ?\n\nSa fiche, ses positions, ses liaisons et sa télémétrie sont effacées${estMc ? ', et il est retiré des contacts du companion' : ''}. S’il émet de nouveau, il réapparaîtra.`))) return;
       try {
         const r = await fetch(estMc ? `/api/mc/noeuds/${id}` : `/api/noeuds/${Number(id) >>> 0}`, { method: 'DELETE' });
         const j = await r.json(); if (!r.ok) throw new Error(j.erreur || 'suppression impossible');
@@ -2443,7 +2443,7 @@ async function chargerMaintenance(quoi) {
     z.querySelectorAll('[data-role-num]').forEach((b) => (b.onclick = async (e) => {
       e.stopPropagation();
       const num = Number(b.dataset.roleNum), role = b.dataset.roleCible;
-      if (!confirm(`Passer ${nomNoeud(num)} en ${role} ? Le nœud redémarre après le changement de rôle.`)) return;
+      if (!(await confirmer(`Passer ${nomNoeud(num)} en ${role} ? Le nœud redémarre après le changement de rôle.`))) return;
       b.disabled = true;
       try {
         await postJson('/api/admin-noeuds/taches', { type: 'config', cibles: [num], params: { section: 'device', valeurs: { role } } });
@@ -2482,7 +2482,7 @@ async function chargerHistorique() {
   $('#histo-jours').onchange = (e) => { try { localStorage.setItem('gaulix_histo_jours', e.target.value); } catch { /* ignoré */ } chargerHistorique(); };
   const bc = $('#histo-compacter');
   if (bc) bc.onclick = async () => {
-    if (!confirm('Compacter la base ? La carte ne répond plus pendant quelques minutes (selon la taille).')) return;
+    if (!(await confirmer('Compacter la base ? La carte ne répond plus pendant quelques minutes (selon la taille).'))) return;
     bc.disabled = true; bc.textContent = 'Compactage en cours…';
     try { const x = await postJson('/api/historique/compacter', {}); alert(`Base compactée : ${x.avantMo} → ${x.apresMo} Mo en ${x.dureeS} s`); } catch (err) { alert(err.message); }
     chargerHistorique();
@@ -3020,7 +3020,7 @@ function dessinerReleves() {
       const bc = el.querySelector('[data-couv-releve]');
       if (bc) bc.onclick = () => { carte.closePopup(); voirCouvertureSite({ lat: r.lat, lon: r.lon }, terrain.types[r.type] || 'Relevé', 6, { cadrer: true }); };
       const bs = el.querySelector('[data-suppr-releve]');
-      if (bs) bs.onclick = async () => { if (!confirm('Supprimer ce relevé ?')) return; await api('/api/releves/' + r.id, { method: 'DELETE' }); carte.closePopup(); chargerReleves(); };
+      if (bs) bs.onclick = async () => { if (!(await confirmer('Supprimer ce relevé ?'))) return; await api('/api/releves/' + r.id, { method: 'DELETE' }); carte.closePopup(); chargerReleves(); };
     });
     m.addTo(g);
   }
@@ -3183,7 +3183,7 @@ async function rendreFederationAdmin() {
   let l = [];
   try { l = await api('/api/federation/partenaires'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
   z.innerHTML = l.map((p) => `<div class="ligne"><span class="point ${p.erreur ? (p.relais ? 'attention' : 'alerte') : 'actif'}"></span><span class="titre">${esc(p.nom || p.url)}<small>${esc(p.url)}${p.departement ? ' · ' + esc(p.departement.code + ' ' + (p.departement.nom || '')) : ''} · ${p.relais} relais, ${p.liens} liaisons${p.heure ? ' · ' + ilYa(p.heure) : ''}${p.erreur ? ' · <b style="color:var(--attention)">' + esc(p.erreur) + '</b>' : ''}</small></span><span class="meta"><button class="mini" data-retirer-fed="${esc(p.url)}">✕</button></span></div>`).join('') || '<div class="vide">Aucune bulle voisine déclarée.</div>';
-  z.querySelectorAll('[data-retirer-fed]').forEach((b) => (b.onclick = async () => { if (!confirm('Retirer cette bulle voisine ?')) return; await api('/api/federation/partenaires?url=' + encodeURIComponent(b.dataset.retirerFed), { method: 'DELETE' }); rendreFederationAdmin(); chargerFederation(); }));
+  z.querySelectorAll('[data-retirer-fed]').forEach((b) => (b.onclick = async () => { if (!(await confirmer('Retirer cette bulle voisine ?'))) return; await api('/api/federation/partenaires?url=' + encodeURIComponent(b.dataset.retirerFed), { method: 'DELETE' }); rendreFederationAdmin(); chargerFederation(); }));
 }
 function fichePartager() {
   const base = location.origin;
@@ -4075,7 +4075,7 @@ async function rendreModules(force) {
   $('#bloc-agents').ontoggle = (ev) => { ouvertAgents = ev.target.open; };
   $('#voir-code').onclick = async () => { try { const c = await api('/api/radio/agents'); $('#code-agent').textContent = c.code; } catch (err) { retour(err.message); } };
   $('#nouveau-code').onclick = async () => {
-    if (!confirm('Créer un nouveau code ? Les agents déjà configurés devront être reconfigurés avec ce code.')) return;
+    if (!(await confirmer('Créer un nouveau code ? Les agents déjà configurés devront être reconfigurés avec ce code.'))) return;
     try { const c = await postJson('/api/radio/agents/code', {}); $('#code-agent').textContent = c.code; } catch (err) { retour(err.message); }
   };
   const retour = (t) => { const z = $('#retour-modules'); if (z) z.textContent = t; };
@@ -4144,7 +4144,7 @@ function brancherRecherche() {
       : '<li class="vide">Aucun résultat</li>';
     liste.hidden = false;
   };
-  const choisir = (i) => { const r = resultats[i]; if (!r) return; fermer(); champ.value = r.nom; placerLieu(r); };
+  const choisir = (i) => { const r = resultats[i]; if (!r) return; fermer(); if (r.go) { champ.value = ''; try { r.go(); } catch (e) { annonce('⚠ ' + e.message, 'erreur'); } return; } champ.value = r.nom; placerLieu(r); };
   async function chercher(q) {
     const n = ++demande;
     const t = q.toLowerCase();
@@ -4155,6 +4155,10 @@ function brancherRecherche() {
       if ([nd.nomLong, nd.nomCourt, nd.id].some((x) => x && x.toLowerCase().includes(t))) locaux.push({ type: 'Nœud', nom: nd.nomLong || nd.nomCourt || nd.id, detail: nd.roleFr, lat: nd.lat, lon: nd.lon, alt: nd.alt, num: nd.num, zoom: 13 });
     }
     for (const sm of etat.sommets) if (sm.nom && sm.nom.toLowerCase().includes(t)) locaux.push({ type: 'Sommet', nom: sm.nom, detail: `${sm.alt} m${sm.commune ? ' · ' + sm.commune : ''}`, lat: sm.lat, lon: sm.lon, alt: sm.alt, zoom: 14 });
+    // Réglages et fonctions de la carte (même catalogue que ⚙️🔎)
+    const fonctions = [];
+    try { for (const e of indexReglages()) { if (sansAccent(`${e.t} ${e.m}`).includes(sansAccent(q))) fonctions.push({ type: 'Fonction', nom: e.t, detail: e.ch, go: e.go }); if (fonctions.length >= 3) break; } } catch { /* catalogue indisponible */ }
+    locaux.unshift(...fonctions);
     resultats = locaux.slice(0, 6); index = -1; afficher();
     try {
       const c = carte.getCenter();
@@ -4407,7 +4411,7 @@ async function ficheFirmware() {
         act.innerHTML = `<select data-version>${versions.map(([val, lib]) => `<option value="${esc(val)}" ${!aJour && val === v(r.stable) ? 'selected' : ''}>${esc(lib)}</option>`).join('')}</select><button class="mini principal" data-maj>Mettre à jour</button>`;
         act.querySelector('[data-maj]').onclick = async () => {
           const ver = act.querySelector('[data-version]').value;
-          if (!confirm(`Mettre à jour ${i.nom || hote} en ${ver} par le Wi-Fi ? Le module sera indisponible 2 à 4 minutes.`)) return;
+          if (!(await confirmer(`Mettre à jour ${i.nom || hote} en ${ver} par le Wi-Fi ? Le module sera indisponible 2 à 4 minutes.`))) return;
           try { const t = await postJson('/api/firmware/ota', { hote, version: ver }); $('#fw-retour').textContent = `Mise à jour lancée (opération ${t.id}) : suivez-la dans Programmer › Opérations récentes.`; suivreTaches(); } catch (x) { $('#fw-retour').textContent = x.message; }
         };
       } catch (x) { e.textContent = x.message; b.disabled = false; }
@@ -4571,7 +4575,7 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
       try { apres(id, await postJson(`/api/equipes/${id}/membres`, { ajouter: nums })); } catch (e) { retour(e.message); }
     };
     bloc.querySelectorAll('[data-retirer]').forEach((b) => (b.onclick = async () => {
-      if (!confirm(`Retirer le canal « ${nom} » de ${nomNoeud(Number(b.dataset.retirer))} ?`)) return;
+      if (!(await confirmer(`Retirer le canal « ${nom} » de ${nomNoeud(Number(b.dataset.retirer))} ?`))) return;
       try { apres(id, await postJson(`/api/equipes/${id}/membres`, { retirer: [Number(b.dataset.retirer)] })); } catch (e) { retour(e.message); }
     }));
     bloc.querySelector('[data-positions]').onchange = async (ev) => { try { await postJson(`/api/equipes/${id}`, { positions: ev.target.checked }, 'PATCH'); retour('Enregistré : « Renvoyer » ou une nouvelle clé l’appliquera aux nœuds déjà membres.'); } catch (e) { retour(e.message); } };
@@ -4587,7 +4591,7 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
       try { apres(id, await postJson(`/api/equipes/${id}/nouvelle-cle`, { confirmation: c.trim().toUpperCase() })); } catch (e) { retour(e.message); }
     };
     bloc.querySelector('[data-export]').onclick = async () => {
-      if (!confirm(`Exporter la clé du canal « ${nom} » ? Toute personne qui l’obtient peut lire les messages de l’équipe. L’export est inscrit dans l’historique.`)) return;
+      if (!(await confirmer(`Exporter la clé du canal « ${nom} » ? Toute personne qui l’obtient peut lire les messages de l’équipe. L’export est inscrit dans l’historique.`))) return;
       try {
         const x = await api(`/api/equipes/${id}/export`);
         const ex = bloc.querySelector('.export-eq');
@@ -4601,7 +4605,7 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
       } catch (e) { retour(e.message); }
     };
     bloc.querySelector('[data-supprimer]').onclick = async () => {
-      if (!confirm(`Supprimer l’équipe « ${nom} » ? Le canal sera retiré de tous ses nœuds joignables.`)) return;
+      if (!(await confirmer(`Supprimer l’équipe « ${nom} » ? Le canal sera retiré de tous ses nœuds joignables.`))) return;
       try { const x = await postJson(`/api/equipes/${id}`, { retirerDesNoeuds: true }, 'DELETE'); ficheEquipes(); if (x.taches.length) suivreTaches(); } catch (e) { retour(e.message); }
     };
   });
@@ -4640,7 +4644,7 @@ async function ficheFavoris() {
     const cibles = Object.keys(plan).map(Number);
     if (!cibles.length) { $('#fav-retour').textContent = 'Cochez au moins un relais et un favori.'; return; }
     const nb = Object.values(plan).reduce((t, x) => t + x.ajouter.length, 0);
-    if (!confirm(`Poser ${nb} favori(s) sur ${cibles.length} relais ? (un relais à la fois, par LoRa)`)) return;
+    if (!(await confirmer(`Poser ${nb} favori(s) sur ${cibles.length} relais ? (un relais à la fois, par LoRa)`))) return;
     try {
       await postJson('/api/admin-noeuds/taches', { type: 'favoris', cibles, params: { plan } });
       $('#fav-retour').textContent = 'Opération lancée : suivez-la dans Programmer › Opérations récentes.';
@@ -4689,7 +4693,7 @@ async function ficheModeles(prerempli) {
     <p class="note">Export : dans l’éditeur d’un nœud (✏️ Modifier ses réglages), « ⬇ YAML » donne sa configuration au format de l’outil officiel, à appliquer en USB avec <span class="mono">meshtastic --configure fichier.yaml</span> (pratique pour préparer un relais de remplacement avant de monter au point haut).</p>`;
   z.querySelectorAll('[data-appliquer]').forEach((b) => (b.onclick = async () => {
     const m = r.modeles.find((x) => x.id === b.dataset.appliquer);
-    if (!confirm(`Appliquer « ${m.nom} » à ${sel.length} nœud(s) ?\n${resumeModele(m)}\n\nLes nœuds enregistrent puis redémarrent si besoin ; comptez 1 à 3 min par nœud.`)) return;
+    if (!(await confirmer(`Appliquer « ${m.nom} » à ${sel.length} nœud(s) ?\n${resumeModele(m)}\n\nLes nœuds enregistrent puis redémarrent si besoin ; comptez 1 à 3 min par nœud.`))) return;
     try {
       const x = await postJson(`/api/admin-noeuds/modeles/${encodeURIComponent(m.id)}/appliquer`, { cibles: sel });
       $('#mod-retour').textContent = `${x.taches.length} opération(s) lancée(s)${x.favoris ? ' + pose des favoris' : ''} : suivez-les dans Programmer › Opérations récentes.`;
@@ -4701,7 +4705,7 @@ async function ficheModeles(prerempli) {
     editerModele(m.integre ? { ...m, id: null, nom: m.nom + ' (copie)' } : m);
   }));
   z.querySelectorAll('[data-suppr-modele]').forEach((b) => (b.onclick = async () => {
-    if (!confirm('Supprimer ce modèle ?')) return;
+    if (!(await confirmer('Supprimer ce modèle ?'))) return;
     try { await api('/api/admin-noeuds/modeles/' + encodeURIComponent(b.dataset.supprModele), { method: 'DELETE' }); ficheModeles(); } catch (e) { $('#mod-retour').textContent = e.message; }
   }));
   const bn = $('#mod-nouveau');
@@ -4792,7 +4796,7 @@ async function ficheV28() {
   z.querySelectorAll('[data-editer]').forEach((b) => (b.onclick = () => editeurReglages(Number(b.dataset.editer))));
   z.querySelectorAll('[data-fusion]').forEach((b) => (b.onclick = async () => {
     const [a, n] = b.dataset.fusion.split(':').map(Number);
-    if (!confirm(`Fusionner ${nomNoeud(a)} dans ${nomNoeud(n)} ? L’historique de l’ancien numéro passe au nouveau ; c’est définitif.`)) return;
+    if (!(await confirmer(`Fusionner ${nomNoeud(a)} dans ${nomNoeud(n)} ? L’historique de l’ancien numéro passe au nouveau ; c’est définitif.`))) return;
     try {
       const h = await postJson('/api/admin-noeuds/fusion', { ancien: a, nouveau: n });
       $('#v28-retour').textContent = `Fusionné : ${Object.entries(h.lignes).map(([k, v]) => `${v} ${k}`).join(', ')}.`;
@@ -4898,7 +4902,7 @@ function rendreTaches(liste) {
 function brancherArrets() {
   $('#taches-gestion').querySelectorAll('[data-relancer-tache]').forEach((b) => (b.onclick = async () => {
     const principal = /\(principal\)/.test(b.dataset.resume || '');
-    if (principal && !confirm(`Réessayer « ${b.dataset.resume} » sur ${b.dataset.nb} nœud(s) ?\nLe canal PRINCIPAL sera réécrit (mêmes garde-fous : contrôle de fréquence et vérification).`)) return;
+    if (principal && !(await confirmer(`Réessayer « ${b.dataset.resume} » sur ${b.dataset.nb} nœud(s) ?\nLe canal PRINCIPAL sera réécrit (mêmes garde-fous : contrôle de fréquence et vérification).`))) return;
     b.disabled = true; b.textContent = '↻ …';
     try {
       const t = await postJson(`/api/admin-noeuds/taches/${b.dataset.relancerTache}/relancer`, { insister: b.dataset.insister === '1' });
@@ -5439,8 +5443,8 @@ async function editeurReglages(num) {
       p.confirmation = 'CANAL 0';
     }
     if (p.lora && (p.lora.region || p.lora.modemPreset || p.lora.channelNum != null || p.lora.overrideFrequency != null) && !local
-      && !confirm('Vous changez la radio (région, preset, slot ou fréquence) d’un nœud DISTANT : s’il ne parle plus comme les autres, vous perdrez le contact. Continuer ?')) return;
-    if (!confirm(`Appliquer à ${nomNoeud(num)} : ${chg.join(', ')} ?`)) return;
+      && !(await confirmer('Vous changez la radio (région, preset, slot ou fréquence) d’un nœud DISTANT : s’il ne parle plus comme les autres, vous perdrez le contact. Continuer ?'))) return;
+    if (!(await confirmer(`Appliquer à ${nomNoeud(num)} : ${chg.join(', ')} ?`))) return;
     try {
       // La position fixe est une opération à part (message d'administration dédié), mise en file après les réglages
       const pos = p.positionFixe; delete p.positionFixe;
@@ -5753,7 +5757,7 @@ async function ouvrirBroker() {
   };
   fo.onsubmit = async (e) => {
     e.preventDefault();
-    if (!confirm('Enregistrer ces réglages ? Le service redémarre (quelques secondes) et se reconnecte au broker.')) return;
+    if (!(await confirmer('Enregistrer ces réglages ? Le service redémarre (quelques secondes) et se reconnecte au broker.'))) return;
     const v = valeurs();
     const corps = { mqtt: { racine: v.racine, utilisateur: v.utilisateur, motDePasse: v.motDePasse, sujetsSupplementaires: v.sujetsSupplementaires } };
     if (v.url) corps.mqtt.url = v.url;
@@ -6026,7 +6030,7 @@ async function rendreSauvegardes() {
     let s;
     try { s = JSON.parse(await f.text()); } catch { $('#sv-retour').textContent = 'Fichier illisible'; return; }
     if (s.format !== 'carte-live-sauvegarde') { $('#sv-retour').textContent = 'Ce fichier n’est pas une sauvegarde de la carte'; return; }
-    if (!confirm(`Restaurer la sauvegarde du ${new Date(s.date).toLocaleString('fr-FR')} ? Les réglages et les comptes actuels seront remplacés et la carte redémarrera.`)) return;
+    if (!(await confirmer(`Restaurer la sauvegarde du ${new Date(s.date).toLocaleString('fr-FR')} ? Les réglages et les comptes actuels seront remplacés et la carte redémarrera.`))) return;
     try { await postJson('/api/sauvegardes/restaurer', s); attendreRedemarrage('Sauvegarde restaurée'); } catch (e) { $('#sv-retour').textContent = e.message; }
   };
 }
@@ -6282,7 +6286,7 @@ async function rendreReglages() {
   rendreFrance();
   optionsDepartements(z.querySelector('[name=departement]'), r.departement.code);
   z.querySelectorAll('[data-revenir-env]').forEach((b) => (b.onclick = async () => {
-    if (!confirm('Reprendre les valeurs du fichier .env pour ce réglage ? Le service redémarre.')) return;
+    if (!(await confirmer('Reprendre les valeurs du fichier .env pour ce réglage ? Le service redémarre.'))) return;
     try { const x = await postJson('/api/reglages', { revenirEnv: [b.dataset.revenirEnv] }); if (x.redemarrage) attendreRedemarrage('Réglages du .env repris ✓'); } catch (err) { alert(err.message); }
   }));
   $('#form-reglages').onsubmit = async (e) => {
@@ -6335,7 +6339,7 @@ function installerTiroir() {
   const ETATS = ['reduit', 'moitie', 'plein'];
   // Hauteur réduite : poignée + choix du réseau + onglets, sans contenu (mesurée une fois la page affichée)
   const majReduit = () => {
-    const o = p.querySelector('.onglets');
+    const o = (p.querySelector('.onglets') || {}).offsetHeight ? p.querySelector('.onglets') : p.querySelector('.groupes');
     if (mq.matches && o && o.offsetHeight) document.documentElement.style.setProperty('--h-tiroir-reduit', Math.min(220, o.offsetTop + o.offsetHeight + 4) + 'px');
   };
   setTimeout(majReduit, 400); setTimeout(majReduit, 2500);
@@ -6456,7 +6460,7 @@ async function rendrePasserelle(complet) {
       tr.querySelector('[data-actif]').onchange = (e) => maj({ actif: e.target.checked });
       tr.querySelector('[data-coal]').onchange = (e) => maj({ coalescence: e.target.checked });
       tr.querySelector('[data-filtres]').onclick = () => maj({ filtres: Object.fromEntries([...tr.querySelectorAll('[data-f]')].map((i) => [i.dataset.f, i.value])) });
-      tr.querySelector('[data-suppr]').onclick = async () => { if (!confirm('Supprimer cette liaison ?')) return; await fetch(`/api/passerelle/regles/${id}`, { method: 'DELETE' }); rendrePasserelle(true); };
+      tr.querySelector('[data-suppr]').onclick = async () => { if (!(await confirmer('Supprimer cette liaison ?'))) return; await fetch(`/api/passerelle/regles/${id}`, { method: 'DELETE' }); rendrePasserelle(true); };
     });
   } else if (pp.onglet === 'noire') {
     const connus = [...etat.noeuds.values()].filter((n) => n.nomCourt || n.nomLong).map((n) => ({ reseau: 'mt', id: String(n.num), nom: n.nomCourt || n.nomLong, lib: `${n.nomLong || n.nomCourt} (${n.id}) — Meshtastic` }))
@@ -6499,7 +6503,7 @@ async function rendrePasserelle(complet) {
     };
   }
   const activer = async (oui) => {
-    if (!oui && !confirm('Désactiver la passerelle ? Plus aucun message ne sera relayé ; les règles sont gardées.')) return;
+    if (!oui && !(await confirmer('Désactiver la passerelle ? Plus aucun message ne sera relayé ; les règles sont gardées.'))) return;
     try { await postJson('/api/passerelle/activation', { active: oui }); etat.config.passerelle = oui; } catch (e) { alert(e.message); }
     // Activée : on passe directement aux règles pour créer la liaison canal ↔ canal
     if (oui) ppOnglet('regles');
@@ -6677,6 +6681,7 @@ async function demarrer() {
   chargerActiviteInitiale();
   setInterval(rendreLegende, 60000);
   if (etat.config.installation) installation();
+  if (typeof demarrerErgonomie === 'function') { try { demarrerErgonomie(); } catch (e) { console.error('ergonomie', e); } }
   setInterval(() => { rendreNoeuds(); rendreReseau(); }, 30000);
   setInterval(() => chargerLiens().catch(() => {}), 120000);
 }
@@ -7286,7 +7291,7 @@ async function ficheTrafic(heures = 24) {
   if (bc) bc.onclick = async () => {
     const nums = [...z.querySelectorAll('[data-trafic]:checked')].map((c) => Number(c.dataset.trafic));
     if (!nums.length) return retour('Cochez au moins un nœud.');
-    if (!confirm(`Corriger ${nums.length} nœud(s) à distance ?`)) return;
+    if (!(await confirmer(`Corriger ${nums.length} nœud(s) à distance ?`))) return;
     try { const x = await postJson('/api/trafic/corriger', { nums }); retour(`${x.taches.length} programmation(s) lancée(s) (suivi dans Programmer)${x.refus.length ? ` · refusés : ${x.refus.map((y) => y.raison).join(', ')}` : ''}.`); } catch (e) { retour(e.message); }
   };
   $('#trafic-ignorer').onclick = async () => {
@@ -7294,7 +7299,7 @@ async function ficheTrafic(heures = 24) {
     if (!adm) return retour('Connexion admin requise');
     const relais = [...etat.noeuds.values()].filter((n) => ['ROUTER', 'ROUTER_LATE'].includes(n.role) && adm.administrables[String(n.num)] && adm.administrables[String(n.num)].ok);
     if (!relais.length) return retour('Aucun relais programmable à distance par la carte.');
-    if (!confirm(`Activer « Ignorer MQTT » sur ${relais.length} relais ?\n${relais.map((n) => '• ' + (n.nomLong || n.id)).join('\n')}`)) return;
+    if (!(await confirmer(`Activer « Ignorer MQTT » sur ${relais.length} relais ?\n${relais.map((n) => '• ' + (n.nomLong || n.id)).join('\n')}`))) return;
     try { const x = await postJson('/api/trafic/corriger', { nums: relais.map((n) => n.num), ignorerMqtt: true }); retour(`${x.taches.length} programmation(s) lancée(s)${x.refus.length ? ` · refusés : ${x.refus.length}` : ''}.`); } catch (e) { retour(e.message); }
   };
 }
@@ -7342,7 +7347,7 @@ async function rendreArchive() {
   f.onsubmit = async (ev) => {
     ev.preventDefault();
     const v = valeurs();
-    if (v.actif && (v.retentionJours || v.maxGo) && !confirm(`Les données plus anciennes que ${v.retentionJours ? DUREES.find((d) => d[0] === v.retentionJours)[1].toLowerCase() : '…'}${v.maxGo ? ` ou au-delà de ${v.maxGo} Go` : ''} seront supprimées de l’archive. Continuer ?`)) return;
+    if (v.actif && (v.retentionJours || v.maxGo) && !(await confirmer(`Les données plus anciennes que ${v.retentionJours ? DUREES.find((d) => d[0] === v.retentionJours)[1].toLowerCase() : '…'}${v.maxGo ? ` ou au-delà de ${v.maxGo} Go` : ''} seront supprimées de l’archive. Continuer ?`))) return;
     try { await postJson('/api/postgres', v); ret('Enregistré ✓', true); setTimeout(rendreArchive, 4000); } catch (x) { ret(x.message); }
   };
 }

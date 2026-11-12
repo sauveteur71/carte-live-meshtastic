@@ -1,5 +1,15 @@
 # La carte
 
+## S'y retrouver
+- **5 rubriques** en haut du panneau : **Réseau** (vue d'ensemble, nœuds, trafic, statistiques, MeshCore), **Messages** (Meshtastic et MeshCore), **Couverture**, **Gérer** (programmation Meshtastic et MeshCore, équipes, clés, firmware) et **Réglages**. Les sous-rubriques s'affichent juste dessous.
+- **Accueil « Que voulez-vous faire ? »** : de grandes tuiles (voir le réseau, lire et écrire, signaler, étudier la couverture, gérer mes nœuds, régler la carte). Le tableau de bord complet est replié dessous.
+- **Niveau d'affichage** (accueil, ou Réglages) : **Simple** montre l'essentiel, **Opérateur** ajoute la couverture avancée, le trafic et les outils de terrain, **Expert** montre tout. Par défaut : simple pour un visiteur ou un membre, opérateur pour un gestionnaire, expert pour un administrateur. Les droits ne changent pas : seul l'affichage est allégé.
+- **Réglages** : tout est rangé au même endroit (affichage, compte, modules et réseaux, carte, MQTT, comptes, sauvegardes, mise à jour, toute la France, passerelle, équipes).
+- **Une seule recherche** : le champ au-dessus de la carte trouve un lieu, un nœud, des coordonnées… et aussi une **fonction** ou un réglage (« mqtt », « équipes », « mise à jour »). ⚙️🔎 ou Ctrl+K ouvre la recherche des fonctions ; l'étoile ☆ d'un résultat l'ajoute à **⭐ Mes raccourcis** sur l'accueil, et les fonctions récentes sont proposées en premier.
+- **Bouton ＋** sur la carte : touchez ＋ puis un point de la carte pour signaler un événement, voir la couverture depuis ce point, le partager ou tracer un profil (sans clic droit, pratique sur téléphone).
+- **« ? »** à droite des rubriques : l'aide de l'écran affiché s'ouvre dans la carte (pages de ce wiki). **Visite guidée** à la première visite, à revoir dans Réglages.
+- **Confort et accessibilité** : confirmations et messages dans l'interface (plus de fenêtres du navigateur), option **Grand texte**, thème clair, navigation au clavier (Tab, Entrée, Échap), étiquettes pour lecteurs d'écran, boutons plus grands sur écran tactile.
+
 ## Nœuds et réseaux
 - Sélecteur **Meshtastic / MeshCore / Les deux** en haut du panneau. En changeant de réseau, les traces de l'autre réseau sont effacées.
 - **Légende et filtres** : relais, clients, clients muets, traceurs, inconnus, inactifs, passerelles MQTT en ligne, nœuds en alerte.
