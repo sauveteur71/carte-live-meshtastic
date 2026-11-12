@@ -1887,10 +1887,12 @@ async function ficheSignalements(msg) {
     <p class="note">Bouton ＋ ou clic droit sur la carte › <b>🚩 Signaler un événement ici</b>. <a href="/main-courante" target="_blank" rel="noopener">📋 Main courante imprimable</a></p>
     ${l.length ? l.map((s) => `<div class="ligne sig-ligne ${s.actif ? '' : 'passe'}" data-sig="${s.id}"><span class="sig-ic">${s.icone}</span><span class="titre">${esc(s.titre)}<small>${esc(s.details || '')} · ${esc(s.auteur)} ${ilYa(s.cree)}${s.actif ? '' : s.fin ? ' · terminé' : ' · expiré'}</small></span>
       <span class="meta">${s.source === 'radio' ? '📻' : ''}${[...(s.envois.mt || []), s.envois.mc].filter(Boolean).map((e) => e.statut === 'envoye' ? '✔' : e.statut === 'echec' ? '⚠' : '⏳').join(' ')}</span></div>`).join('') : '<div class="vide">Aucun signalement ces 7 derniers jours. <button type="button" class="mini principal" id="sig-premier">🚩 Signaler un événement</button></div>'}
+    ${blocAlertesOff()}
     ${etat.gestion ? blocAlertesBipper() : ''}</div>`;
   { const b = $('#sig-reessayer'); if (b) b.onclick = () => envoyerSigEnAttente(); }
   { const b = $('#sig-premier'); if (b) b.onclick = () => choisirPointPuis('Touchez la carte à l’endroit à signaler.', (ll) => formSignalement(ll.lat, ll.lng)); }
   brancherAlertesBipper();
+  brancherAlertesOff();
   z.querySelectorAll('[data-sig]').forEach((d) => (d.onclick = () => {
     const s = l.find((x) => x.id === d.dataset.sig);
     carte.setView([s.lat, s.lon], Math.max(carte.getZoom(), 13));
@@ -5968,6 +5970,7 @@ function connecterWs() {
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (m.genre === 'signalement') { if (etat.membre) chargerSignalements(); return; }
+    if (m.genre === 'alertes-officielles') { chargerAlertesOff(); return; }
     if (m.genre === 'position-reponse') {
       const n = etat.noeuds.get(m.num >>> 0);
       const nom = n ? n.nomLong || n.nomCourt || n.id : '!' + (m.num >>> 0).toString(16);
@@ -7590,3 +7593,78 @@ function dessinerDfci() {
     }
   }
 }
+
+// ---- Alertes officielles : vigilance Météo-France, Vigipirate, FR-Alert relayées --------------------------
+const ao = { info: null };
+async function chargerAlertesOff() {
+  try { ao.info = await api('/api/alertes-officielles'); } catch { return; }
+  majChipAlertes();
+  const f = $('#fiche-contenu');
+  if (f && !$('#fiche').hidden && f.querySelector('.alertes-off') && !f.contains(document.activeElement)) (etat.membre ? ficheSignalements() : ficheAlertesOff());
+}
+const ICONES_VIG = { jaune: '🟡', orange: '🟠', rouge: '🔴' };
+function majChipAlertes() {
+  const c = $('#chip-alertes');
+  if (!c || !ao.info) return;
+  const r = ao.info;
+  const dep = String((etat.config.departement || {}).code || '');
+  const local = (r.meteo || []).filter((a) => a.dep === dep);
+  const bouts = [];
+  const pire = local.sort((a, b) => ({ jaune: 1, orange: 2, rouge: 3 }[b.couleur] - { jaune: 1, orange: 2, rouge: 3 }[a.couleur]))[0];
+  if (pire) bouts.push(`${ICONES_VIG[pire.couleur]} ${esc(pire.phenomene)}${local.length > 1 ? ` +${local.length - 1}` : ''}`);
+  if (r.vigipirate) bouts.push(`${r.vigipirate.icone} ${r.vigipirate.niveau === 'urgence' ? 'Urgence attentat' : 'Vigipirate'}`);
+  if ((r.frAlert || []).length) bouts.push('📢 FR-Alert');
+  c.hidden = !bouts.length;
+  c.className = 'chip-alertes ' + (pire ? 'vig-' + pire.couleur : '') + (r.vigipirate && r.vigipirate.niveau === 'urgence' || (r.frAlert || []).length ? ' vig-rouge' : '');
+  c.innerHTML = bouts.join(' · ');
+  c.title = 'Alertes officielles : vigilance Météo-France, Vigipirate, FR-Alert (cliquer pour le détail)';
+  c.onclick = () => (etat.membre ? ficheSignalements() : ficheAlertesOff());
+}
+function blocAlertesOff() {
+  const r = ao.info;
+  if (!r) { chargerAlertesOff(); return '<div class="alertes-off"><h3>🌦️ Alertes officielles</h3><p class="note">Chargement…</p></div>'; }
+  const h = (t) => t ? new Date(t).toLocaleString('fr-FR', { weekday: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+  const meteo = (r.meteo || []);
+  const nv = r.niveauxVigipirate || {};
+  const rg = r.reglages || {};
+  return `<div class="alertes-off"><h3>🌦️ Alertes officielles</h3>
+    <h4>Vigilance Météo-France${rg.voisins ? ' (département et voisins)' : ''}</h4>
+    ${meteo.length ? meteo.map((a) => `<div class="vig-ligne vig-${a.couleur}"><b>${ICONES_VIG[a.couleur]} Vigilance ${a.couleur} ${esc(a.phenomene)}</b> · ${esc(a.depNom)}<small>${a.debut ? 'du ' + h(a.debut) : ''}${a.fin ? ' au ' + h(a.fin) : ''}${a.envois ? ' · diffusée en LoRa' : ''}</small></div>`).join('') : `<p class="note">${r.erreur ? '⚠ Vigilance indisponible : ' + esc(r.erreur) : 'Aucune vigilance en cours.'}</p>`}
+    <p class="note">Source : Météo-France, par le flux public MeteoAlarm (mis à jour toutes les 10 min${r.maj ? ', lu ' + ilYa(r.maj) : ''}).</p>
+    <h4>Vigipirate</h4>
+    <p>${r.vigipirate ? `<b>${r.vigipirate.icone} ${esc(r.vigipirate.nom)}</b> <small>réglé par ${esc(r.vigipirate.par || '?')} ${ilYa(r.vigipirate.depuis)}</small>` : '<span class="note">Niveau non renseigné.</span>'}</p>
+    ${etat.gestion ? `<div class="parametres compact"><label>Niveau <select id="ao-vigi"><option value="">— non renseigné —</option>${Object.entries(nv).map(([k, v]) => `<option value="${k}" ${r.vigipirate && r.vigipirate.niveau === k ? 'selected' : ''}>${v.icone} ${esc(v.nom)}</option>`).join('')}</select></label>
+      <label class="case"><input type="checkbox" id="ao-vigi-annoncer"> Annoncer en LoRa</label></div><div class="actions-prop"><button type="button" class="mini principal" id="ao-vigi-ok">Enregistrer le niveau</button></div>
+      <p class="note">Le niveau Vigipirate n’a pas de flux officiel lisible par un programme : il se règle ici (site du SGDSN ou consignes de la préfecture).</p>` : ''}
+    <h4>FR-Alert</h4>
+    ${(r.frAlert || []).map((a) => `<div class="vig-ligne vig-rouge"><b>📢 FR-Alert${a.zone ? ' · ' + esc(a.zone) : ''}</b> ${esc(a.texte)}<small>relayée par ${esc(a.par)} ${ilYa(a.date)} · ${(a.envois || []).map((e) => `${esc(e.canal)} ${e.statut === 'envoye' ? '✔' : '⚠'}`).join(' ') || 'pas diffusée'}</small>${etat.gestion ? `<button type="button" class="mini" data-ao-fin="${a.id}">✅ Terminée</button>` : ''}</div>`).join('') || '<p class="note">Aucune alerte FR-Alert relayée.</p>'}
+    ${etat.gestion ? `<div class="parametres compact"><label>Zone <input id="ao-fr-zone" maxlength="80" placeholder="ex. Vallée de la Loire, Brives-Charensac"></label>
+      <label class="large-col">Texte reçu sur le téléphone <textarea id="ao-fr-texte" rows="3" maxlength="500" placeholder="Recopiez le message FR-Alert"></textarea></label></div>
+      <div class="actions-prop"><button type="button" class="mini principal" id="ao-fr-ok">📢 Relayer en LoRa</button></div>
+      <p class="note">FR-Alert passe par les antennes des téléphones et n’a pas de flux public fiable : recopiez ici le message reçu pour le relayer sur les canaux ci-dessous, au profit des équipes sans réseau mobile.</p>` : ''}
+    ${etat.admin ? `<details class="ao-reglages"><summary>Réglages de diffusion (administrateur)</summary><div class="parametres compact">
+      <label class="case"><input type="checkbox" id="ao-diffuser" ${rg.diffuser ? 'checked' : ''}> Diffuser automatiquement les nouvelles vigilances en LoRa</label>
+      <label>À partir de <select id="ao-niveau">${['jaune', 'orange', 'rouge'].map((c) => `<option value="${c}" ${rg.niveauMin === c ? 'selected' : ''}>${ICONES_VIG[c]} ${c}</option>`).join('')}</select></label>
+      <label>Canaux (noms, séparés par des virgules) <input id="ao-canaux" value="${esc((rg.canaux || []).join(', '))}"></label>
+      <label class="case"><input type="checkbox" id="ao-voisins" ${rg.voisins ? 'checked' : ''}> Suivre aussi les départements voisins</label>
+    </div><div class="actions-prop"><button type="button" class="mini principal" id="ao-reglages-ok">Enregistrer</button></div>
+    <p class="note">Une vigilance n’est diffusée qu’une fois. Les annonces Vigipirate et FR-Alert partent sur les mêmes canaux.</p></details>` : ''}
+    <p class="erreur" id="ao-retour"></p></div>`;
+}
+function ficheAlertesOff() {
+  $('#fiche').hidden = false; etat.selection = null;
+  $('#fiche-contenu').innerHTML = `<div class="liste-signalements">${blocAlertesOff()}</div>`;
+  brancherAlertesOff();
+}
+function brancherAlertesOff() {
+  const ret = (t) => { const e = $('#ao-retour'); if (e) e.textContent = t; };
+  { const b = $('#ao-vigi-ok'); if (b) b.onclick = async () => { try { const r = await postJson('/api/vigipirate', { niveau: $('#ao-vigi').value || null, annoncer: $('#ao-vigi-annoncer').checked }); await chargerAlertesOff(); ficheSignalements(r.envois && r.envois.length ? '✔ Niveau Vigipirate enregistré et annoncé.' : '✔ Niveau Vigipirate enregistré.'); } catch (e) { ret(e.message); } }; }
+  { const b = $('#ao-fr-ok'); if (b) b.onclick = async () => {
+    if (!(await confirmer('Relayer ce message FR-Alert en LoRa sur les canaux d’alerte ?', { ok: 'Relayer' }))) return;
+    try { const a = await postJson('/api/fr-alert', { texte: $('#ao-fr-texte').value, zone: $('#ao-fr-zone').value }); await chargerAlertesOff(); const pb = (a.envois || []).filter((e) => e.statut !== 'envoye'); ficheSignalements(pb.length ? '⚠ ' + pb.map((e) => `${e.canal} : ${e.erreur}`).join(' ; ') : '✔ Alerte FR-Alert relayée.'); } catch (e) { ret(e.message); }
+  }; }
+  document.querySelectorAll('[data-ao-fin]').forEach((b) => (b.onclick = async () => { try { await postJson(`/api/fr-alert/${b.dataset.aoFin}/fin`, {}); await chargerAlertesOff(); ficheSignalements(); } catch (e) { ret(e.message); } }));
+  { const b = $('#ao-reglages-ok'); if (b) b.onclick = async () => { try { await postJson('/api/alertes-officielles/reglages', { diffuser: $('#ao-diffuser').checked, niveauMin: $('#ao-niveau').value, canaux: $('#ao-canaux').value.split(',').map((x) => x.trim()).filter(Boolean), voisins: $('#ao-voisins').checked }); await chargerAlertesOff(); ficheSignalements('✔ Réglages des alertes enregistrés.'); } catch (e) { ret(e.message); } }; }
+}
+setTimeout(chargerAlertesOff, 2500);
+setInterval(chargerAlertesOff, 5 * 60000);

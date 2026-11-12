@@ -36,3 +36,11 @@ Pas de connexion au moment de signaler (zone blanche, réseau coupé) : le signa
 
 ## Points de passage reçus
 Les points de passage captés par la carte (MQTT ou module), envoyés par un Bipper, GerMaCrise ou l'appli Meshtastic, deviennent aussi des signalements (📻 reçu par radio), avec leur auteur. Ceux sans durée restent affichés 24 h ; « Terminé » les retire seulement de la carte.
+
+## Alertes officielles
+Un bandeau en haut de la carte (🟡 / 🟠 / 🔴) signale les alertes en cours ; un clic ouvre le détail (*Outils › 🚩 Signalements*, bloc **🌦️ Alertes officielles**).
+- **Vigilance Météo-France** (orages, vent, pluie-inondation, crues, neige, canicule…) pour le département de la carte, et ses voisins si on le souhaite. Elle est lue toutes les 10 minutes dans le flux public MeteoAlarm (aucune clé à demander).
+- **Vigipirate** : le niveau (Vigilance, Sécurité renforcée – risque attentat, Urgence attentat) se règle à la main par un gestionnaire, car il n'existe pas de flux officiel lisible par un programme. Il peut être annoncé en LoRa.
+- **FR-Alert** : le message reçu sur un téléphone se recopie dans la carte pour être **relayé en LoRa** aux équipes qui n'ont pas de réseau mobile. FR-Alert n'a pas de flux public fiable.
+
+**Diffusion automatique** (administrateur, *Réglages de diffusion*) : les nouvelles vigilances à partir du niveau choisi (orange par défaut) partent en message texte sur les canaux indiqués (par défaut `Alerte`), une seule fois par vigilance : `🟠 Vigilance orange orages · Haute-Loire · du jeu. 12 16:00 au ven. 13 06:00 (Météo-France)`.

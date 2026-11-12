@@ -36,3 +36,11 @@ No connection when reporting (dead zone, network down): the report is **kept on 
 
 ## Received waypoints
 Waypoints captured by the map (MQTT or node), sent by a Bipper, GerMaCrise or the Meshtastic app, also become reports (📻 received over radio), with their author. Those without a duration stay shown for 24 h; “Done” only removes them from the map.
+
+## Official alerts
+A banner at the top of the map (🟡 / 🟠 / 🔴) shows the alerts in progress; a click opens the details (*Tools › 🚩 Reports*, **🌦️ Official alerts** block).
+- **Météo-France warnings** (thunderstorms, wind, rain-flood, floods, snow, heatwave…) for the map's department, and its neighbours if wanted. They are read every 10 minutes from the public MeteoAlarm feed (no key needed).
+- **Vigipirate**: the level (Vigilance, Heightened security – attack risk, Terrorist attack emergency) is set by hand by a manager, as there is no machine-readable official feed. It can be announced over LoRa.
+- **FR-Alert**: the message received on a phone is copied into the map to be **relayed over LoRa** to teams without mobile network. FR-Alert has no reliable public feed.
+
+**Automatic broadcast** (administrator, *Broadcast settings*): new warnings from the chosen level (orange by default) go out as a text message on the given channels (`Alerte` by default), once per warning.

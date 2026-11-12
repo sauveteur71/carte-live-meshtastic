@@ -2998,6 +2998,41 @@ const signalements = require('./signalements').creerSignalements({
   journal, diffuser,
   nomNoeud: (num) => { try { const r = reqNomSig.get(num >>> 0); return r && (r.nom_long || r.nom_court); } catch { return null; } },
 });
+// ---- Alertes officielles : vigilance Météo-France (MeteoAlarm), Vigipirate, FR-Alert relayées ----------------
+const alertesOff = require('./alertes-officielles').creerAlertesOfficielles({
+  config, journal, diffuser,
+  departementsSuivis: (voisins) => [{ code: String(config.departement.code), nom: config.departement.nom || config.zoneNom }, ...(voisins ? ((zoneVoisins() || {}).departements || []) : [])],
+  envoyer: async (nomCanal, texte) => {
+    const i = sourceRadio.infos();
+    if (!i.connecte) throw new Error('module radio non connecté');
+    const c = (i.canaux || []).find((x) => String(x.nom).toLowerCase() === String(nomCanal).toLowerCase());
+    if (!c) throw new Error(`canal « ${nomCanal} » absent du module`);
+    let b = Buffer.from(texte, 'utf8');
+    if (b.length > 200) { b = b.subarray(0, 197); texte = b.toString('utf8').replace(/\uFFFD+$/, '') + '…'; }
+    return administration.envoyerTexte({ texte, canal: c.index }, 'alertes');
+  },
+});
+app.get('/api/alertes-officielles', (req, res) => res.set('Cache-Control', 'no-store').json({ ...alertesOff.etat(), niveauxVigipirate: alertesOff.NIVEAUX_VIGIPIRATE }));
+app.post('/api/alertes-officielles/reglages', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const r = alertesOff.regler(req.body || {});
+  res.json(r);
+});
+app.post('/api/vigipirate', async (req, res) => {
+  const u = utilisateur(req);
+  if (!u || !estGestion(req)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });
+  try { const r = await alertesOff.vigipirate((req.body || {}).niveau || null, u.indicatif || u.identifiant, !!(req.body || {}).annoncer); res.json(r); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/fr-alert', async (req, res) => {
+  const u = utilisateur(req);
+  if (!u || !estGestion(req)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });
+  try { const r = await alertesOff.frAlert(req.body || {}, u.indicatif || u.identifiant); res.json(r); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/fr-alert/:id/fin', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || !estGestion(req)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });
+  try { res.json(alertesOff.finFrAlert(String(req.params.id), u.indicatif || u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 app.get('/api/signalements', (req, res) => {
   if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
   res.set('Cache-Control', 'no-store').json({ signalements: signalements.lister(), ...signalements.canaux(), alertes: signalements.listerAlertes(), genresAlerte: signalements.GENRES });
