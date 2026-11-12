@@ -14,6 +14,10 @@ function preparer(fichierArchive, dossierDonnees, nomBase) {
   const liste = spawnSync('tar', ['-tzf', fichierArchive], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   if (liste.status !== 0) throw new Error('fichier illisible : ce n’est pas une archive .tar.gz');
   const entrees = liste.stdout.split('\n').map((x) => x.trim()).filter(Boolean);
+  // Liens (symboliques ou physiques) refusés : une sauvegarde de la carte n'en contient pas, et un lien placé dans
+  // le dossier des données pourrait faire écrire ailleurs
+  const detail = spawnSync('tar', ['-tvzf', fichierArchive], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (detail.status !== 0 || detail.stdout.split('\n').some((l) => /^[lh]/.test(l))) throw new Error('archive refusée : elle contient des liens, ce n’est pas une sauvegarde complète de la carte');
   for (const e of entrees) {
     const n = path.posix.normalize(e.replace(/^\.\//, ''));
     if (e.startsWith('/') || n.startsWith('..') || n.includes('/../')) throw new Error(`chemin refusé dans l’archive : ${e}`);

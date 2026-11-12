@@ -71,7 +71,7 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
   // Coordonnées trouvées dans un texte (geo:45.04,3.88 ; 45.0451, 3.8852 ; lien de carte ?q=… ou lat=…&lon=…)
   function coordsDansTexte(t) {
     const m = /geo:\s*(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/i.exec(t) || /[?&](?:q|ll|query)=(-?\d{1,2}\.\d{3,})(?:,|%2C)(-?\d{1,3}\.\d{3,})/i.exec(t)
-      || /lat=(-?\d{1,2}\.\d{3,}).*?lon=(-?\d{1,3}\.\d{3,})/i.exec(t) || /(?:^|[\s(📍])(-?\d{1,2}\.\d{3,})\s*[,;]\s*(-?\d{1,3}\.\d{3,})(?![\d.])/.exec(t);
+      || /lat=(-?\d{1,2}\.\d{3,}).*?lon=(-?\d{1,3}\.\d{3,})/i.exec(t) || /(?:^|[\s(📍])(-?\d{1,2}\.\d{3,})\s*[,;]\s*(-?\d{1,3}\.\d{3,})(?![\d.])/u.exec(t);
     if (!m) return null;
     const lat = Number(m[1]), lon = Number(m[2]);
     return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null;

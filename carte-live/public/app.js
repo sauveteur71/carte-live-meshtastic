@@ -4321,6 +4321,15 @@ function brancherRecherche() {
       if (nd.lat == null) continue;
       if ([nd.nomLong, nd.nomCourt, nd.id].some((x) => x && x.toLowerCase().includes(t))) locaux.push({ type: 'Nœud', nom: nd.nomLong || nd.nomCourt || nd.id, detail: nd.roleFr, lat: nd.lat, lon: nd.lon, alt: nd.alt, num: nd.num, zoom: 13 });
     }
+    // Nœuds MeshCore (répéteurs, room servers, companions, capteurs) : par nom ou début de clé ; la fiche s'ouvre directement
+    if (typeof mc !== 'undefined' && mc.noeuds && etat.vueReseau !== 'meshtastic') {
+      const ROLES_MC = { repeteur: 'Répéteur', salon: 'Room server', companion: 'Companion', capteur: 'Capteur' };
+      for (const nd of mc.noeuds.values()) {
+        if (locaux.length >= 12) break;
+        if (!((nd.nom && nd.nom.toLowerCase().includes(t)) || (t.length >= 4 && String(nd.cle || '').toLowerCase().startsWith(t)))) continue;
+        locaux.push({ type: 'MeshCore', nom: nd.nom || String(nd.cle).slice(0, 8), detail: ROLES_MC[nd.role] || '', go: () => { if (nd.lat != null) carte.flyTo([nd.lat, nd.lon], Math.max(carte.getZoom(), 13), { duration: 0.6 }); if (typeof mcOuvrirFiche === 'function') mcOuvrirFiche(nd.cle); } });
+      }
+    }
     for (const sm of etat.sommets) if (sm.nom && sm.nom.toLowerCase().includes(t)) locaux.push({ type: 'Sommet', nom: sm.nom, detail: `${sm.alt} m${sm.commune ? ' · ' + sm.commune : ''}`, lat: sm.lat, lon: sm.lon, alt: sm.alt, zoom: 14 });
     // Réglages et fonctions de la carte (même catalogue que ⚙️🔎)
     const fonctions = [];

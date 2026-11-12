@@ -1884,7 +1884,11 @@ function sansValeursEnv(r) {
 }
 function enregistrerReglagesEtRedemarrer(r, qui) {
   sansValeursEnv(r);
-  fs.writeFileSync(config.fichierReglages, JSON.stringify(r, null, 1), { mode: 0o600 });
+  // Écriture sûre : fichier temporaire puis renommage (une coupure de courant ne laisse jamais un fichier tronqué),
+  // et l'ancienne version est gardée en reglages.json.bak
+  try { fs.copyFileSync(config.fichierReglages, config.fichierReglages + '.bak'); } catch { /* premiers réglages */ }
+  fs.writeFileSync(config.fichierReglages + '.tmp', JSON.stringify(r, null, 1), { mode: 0o600 });
+  fs.renameSync(config.fichierReglages + '.tmp', config.fichierReglages);
   journal(`Réglages enregistrés par ${qui}, redémarrage du service…`);
   setTimeout(() => process.exit(0), 1200); // Docker relance le conteneur (restart: unless-stopped)
 }
@@ -2456,7 +2460,7 @@ app.get('/api/sante-carte', (req, res) => {
 const serveur = http.createServer(app);
 
 // ---- WebSocket temps réel -------------------------------------------------
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 }); // les pages ne font qu'écouter : rien de gros à recevoir
 // Module branché sur le PC de l'utilisateur (Web Serial / Web Bluetooth) : la page relaie le flux Meshtastic
 const wssModule = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 // Modules reliés par une page : un « ping » toutes les 25 s garde la liaison ouverte à travers les proxys
@@ -3016,6 +3020,7 @@ app.get('/api/sauvegarde-complete', (req, res) => {
   t.stderr.on('data', (x) => journal('[Sauvegarde]', String(x).trim()));
   t.on('close', () => { try { fs.unlinkSync(copie); } catch { /* déjà */ } });
 });
+let restaurationEnCours = false;
 // Restauration d'une sauvegarde complète envoyée depuis la page (administrateur, ou pendant l'installation sur un nouveau serveur)
 app.post('/api/restauration-complete', (req, res) => {
   const enInstallation = comptes.installationRequise() && (ipPrivee(req) || (() => {
@@ -3028,6 +3033,9 @@ app.post('/api/restauration-complete', (req, res) => {
   if (!estAdmin(req) && !enInstallation) return res.status(401).json({ erreur: comptes.installationRequise() ? 'Saisissez d’abord le code d’installation' : 'Connexion admin requise' });
   if (!estAdmin(req) && limiter(req.ip)) return res.status(429).json({ erreur: 'Trop de tentatives, réessayez dans 15 minutes' });
   const d = path.dirname(config.fichierBase), f = path.join(d, 'restauration.tar.gz');
+  if (restaurationEnCours) return res.status(409).json({ erreur: 'Une restauration est déjà en cours' });
+  restaurationEnCours = true;
+  res.on('close', () => { restaurationEnCours = false; });
   const sortie = fs.createWriteStream(f + '.part');
   let taille = 0, fini = false;
   const echec = (code, m) => { if (fini) return; fini = true; try { sortie.destroy(); fs.unlinkSync(f + '.part'); } catch { /* déjà */ } res.status(code).json({ erreur: m }); };

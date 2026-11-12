@@ -15,7 +15,7 @@ function confirmer(texte, { ok = 'Confirmer', annuler = 'Annuler' } = {}) {
       d.setAttribute('aria-labelledby', 'confirmer-texte');
       document.body.appendChild(d);
     }
-    const danger = /supprim|effac|retir|désactiv|termin|forcer|interromp|remettre à zéro|nouvelle clé/i.test(texte);
+    const danger = /supprim|effac|retir|désactiv|termin|forcer|interromp|remettre à zéro|nouvelle clé|seront remplacés/i.test(texte);
     d.innerHTML = `<p id="confirmer-texte"></p><div class="actions-confirmer"><button type="button" data-r="0">${esc(annuler)}</button><button type="button" data-r="1" class="${danger ? 'danger' : 'principal'}">${esc(ok)}</button></div>`;
     d.querySelector('p').textContent = texte;
     const fin = (v) => { d.onclose = null; if (d.open) d.close(); resoudre(v); };

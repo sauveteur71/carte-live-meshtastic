@@ -200,7 +200,17 @@ function appliquerReglages(r) {
 try {
   config.reglages = JSON.parse(fs.readFileSync(config.fichierReglages, 'utf8'));
   appliquerReglages(config.reglages);
-} catch { /* pas encore de réglages */ }
+} catch (e) {
+  // Aucun fichier : première mise en route. Fichier illisible (coupure pendant une écriture, disque plein) :
+  // on le dit clairement et on reprend la copie précédente plutôt que de repartir sans rien dire sur les valeurs du .env
+  if (fs.existsSync(config.fichierReglages)) {
+    console.error(new Date().toISOString(), `[Réglages] ${config.fichierReglages} illisible (${e.message}) : reprise de la copie précédente`);
+    try {
+      config.reglages = JSON.parse(fs.readFileSync(config.fichierReglages + '.bak', 'utf8'));
+      appliquerReglages(config.reglages);
+    } catch { console.error(new Date().toISOString(), '[Réglages] aucune copie utilisable : valeurs du fichier .env'); }
+  }
+}
 config.lireCanaux = lireCanaux;
 
 module.exports = config;
