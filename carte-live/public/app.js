@@ -6378,11 +6378,14 @@ async function ouvrirPasserelle() {
   dlg.querySelectorAll('[data-pp]').forEach((b) => (b.onclick = () => { pp.onglet = b.dataset.pp; dlg.querySelectorAll('[data-pp]').forEach((x) => x.classList.toggle('actif', x === b)); rendrePasserelle(true); }));
   $('#fermer-passerelle').onclick = () => dlg.close();
   dlg.addEventListener('close', () => { clearInterval(pp.minuterie); pp.minuterie = null; }, { once: true });
+  // Aucune liaison encore : on ouvre directement l'onglet Règles
+  try { const d = await api('/api/passerelle'); if (!d.regles.length) ppOnglet('regles'); else ppOnglet(pp.onglet); } catch { /* affiché plus bas */ }
   await rendrePasserelle(true);
   clearInterval(pp.minuterie);
   pp.minuterie = setInterval(() => { if (pp.onglet === 'bord' && !document.hidden) rendrePasserelle(false); }, 3000);
 }
 const ppSens = { mt2mc: 'MT → MC', mc2mt: 'MC → MT', bi: 'MT ⇄ MC' };
+function ppOnglet(o) { pp.onglet = o; document.querySelectorAll('#dlg-passerelle [data-pp]').forEach((x) => x.classList.toggle('actif', x.dataset.pp === o)); }
 async function rendrePasserelle(complet) {
   const z = $('#pp-contenu');
   try { pp.donnees = await api('/api/passerelle'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
@@ -6399,7 +6402,7 @@ async function rendrePasserelle(complet) {
     z.innerHTML = `${entete}
       <div class="pp-grille"><div class="mesure"><span>Relayés MT → MC</span><b id="pp-c1">${d.stats.mt2mc}</b></div><div class="mesure"><span>Relayés MC → MT</span><b id="pp-c2">${d.stats.mc2mt}</b></div><div class="mesure"><span>Ignorés</span><b id="pp-c3">${rej.reduce((t, x) => t + x[1], 0)}</b></div></div>
       <p class="note">Depuis ${ilYa(d.stats.depuis).replace('il y a ', '')}${d.stats.agreges ? ` · ${d.stats.agreges} message(s) regroupé(s)` : ''}${rej.length ? ' · ignorés : ' + rej.map(([k, v]) => `${esc(k)} ${v}`).join(', ') : ''}.</p>
-      <p class="note">${d.regles.filter((x) => x.actif).length} règle(s) active(s) sur ${d.regles.length}. ${d.regles.length ? d.regles.map((x) => `<b>${esc(x.libelle)}</b>${x.actif ? '' : ' (suspendue)'}`).join(' · ') : 'Créez une liaison dans l’onglet Règles.'}</p>
+      <p class="note">${d.regles.filter((x) => x.actif).length} règle(s) active(s) sur ${d.regles.length}. ${d.regles.length ? d.regles.map((x) => `<b>${esc(x.libelle)}</b>${x.actif ? '' : ' (suspendue)'}`).join(' · ') : 'Aucune liaison : '}${'<button class="mini principal" id="pp-aller-liaisons">🔗 Choisir les canaux à relier</button>'}</p>
       <h3>Journal en direct <select id="pp-filtre" class="mini"><option value="">tout</option><option value="in">reçus</option><option value="out">relayés</option><option value="drop">ignorés</option></select></h3>
       <div class="pp-journal" id="pp-journal">${journalHtml}</div>`;
     $('#pp-filtre').value = pp.filtreJournal;
@@ -6498,9 +6501,12 @@ async function rendrePasserelle(complet) {
   const activer = async (oui) => {
     if (!oui && !confirm('Désactiver la passerelle ? Plus aucun message ne sera relayé ; les règles sont gardées.')) return;
     try { await postJson('/api/passerelle/activation', { active: oui }); etat.config.passerelle = oui; } catch (e) { alert(e.message); }
+    // Activée : on passe directement aux règles pour créer la liaison canal ↔ canal
+    if (oui) ppOnglet('regles');
     rendrePasserelle(true);
   };
   { const b = $('#pp-activer'); if (b) b.onclick = () => activer(true); }
+  { const b = $('#pp-aller-liaisons'); if (b) b.onclick = () => { ppOnglet('regles'); rendrePasserelle(true); }; }
   { const b = $('#pp-desactiver'); if (b) b.onclick = () => activer(false); }
   const bp = $('#pp-pause');
   if (bp) bp.onclick = async () => { await postJson('/api/passerelle/reglages', { pause: !g.pause }).catch((e) => alert(e.message)); rendrePasserelle(true); };

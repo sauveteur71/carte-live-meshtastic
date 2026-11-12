@@ -10,7 +10,7 @@ Dans le `.env`, facultatif : `PASSERELLE=1` l'active au premier démarrage ; `PA
 Il faut un **module Meshtastic principal** et un **companion MeshCore principal** reliés à la carte : ce sont eux qui émettent les messages relayés. Les messages entrants sont ceux que la carte décode déjà (MQTT, module, companion, observateurs).
 
 ## Règles
-Onglet **Règles** : le **canal Meshtastic** à gauche et le **canal MeshCore** à droite, où les messages seront échangés (par exemple `ADRASEC43` ⇄ `#adrasec`), le sens (MT → MC, MC → MT ou MT ⇄ MC), puis **Créer la liaison**.
+Onglet **🔗 Liaisons (canaux)** (il s’ouvre tout seul quand on active la passerelle, ou tant qu’aucune liaison n’existe) : le **canal Meshtastic** à gauche et le **canal MeshCore** à droite, où les messages seront échangés (par exemple `ADRASEC43` ⇄ `#adrasec`), le sens (MT → MC, MC → MT ou MT ⇄ MC), puis **Créer la liaison**.
 - Chaque côté liste les canaux du module (ou du companion). S'il n'est pas relié, la carte propose les canaux qu'elle connaît (réglages) ; **Autre canal** permet de taper n'importe quel nom.
 - Une liaison peut donc être préparée module débranché : elle fonctionne dès que le module et le companion ont ce canal. Le canal est retrouvé par son **nom** à chaque envoi (peu importe sa place dans la liste du module) ; s'il manque, le journal l'indique. Chaque règle se suspend d'un clic, et la passerelle entière se met en pause en haut du panneau.
 
