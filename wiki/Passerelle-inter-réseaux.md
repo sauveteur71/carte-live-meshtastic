@@ -1,6 +1,6 @@
 # Passerelle inter-réseaux Meshtastic ⇄ MeshCore
 
-Relaie les **messages texte de canal** entre un canal Meshtastic et un canal MeshCore. C'est un **outil d'appoint** (exercice, événement, panne d'un des deux réseaux), pas une passerelle permanente : elle est **désactivée par défaut**.
+Relaie les **messages texte de canal** entre un canal Meshtastic et un canal MeshCore, et, si la liaison le demande, les **positions** et les **signalements**. C'est un **outil d'appoint** (exercice, événement, panne d'un des deux réseaux), pas une passerelle permanente : elle est **désactivée par défaut**.
 
 ## Activer
 Administrateur : *Outils › ⇄ Passerelle inter-réseaux* › **⏻ Activer la passerelle** (ou ⚙️🔎 « passerelle »). Les règles peuvent être préparées avant l'activation ; **⏻ Désactiver** coupe tout en gardant les règles, **⏸ Mettre en pause** suspend le relais un moment. Le choix est gardé après un redémarrage.
@@ -17,6 +17,13 @@ Onglet **🔗 Liaisons (canaux)** (il s’ouvre tout seul quand on active la pas
 Par règle, des **filtres** : expéditeurs bloqués, mot requis, mots exclus (ex. `!pos`), longueur minimale, heures silencieuses (ex. `22-7`), et **Regrouper** : les messages reçus dans la fenêtre (10, 30 ou 60 s) partent en une seule émission (`[MC] Bob: salut / Alice: ça va ?`).
 
 Le canal principal Meshtastic (canal 0) est exclu par défaut (autorisable dans les réglages).
+
+## Positions et signalements
+Deux cases par liaison (à la création, ou colonnes 📍 et ⚠️ du tableau), désactivées par défaut. Tout part **en texte**, avec les coordonnées et le **code DFCI** du point (carroyage des pompiers), pour être lisible sur n'importe quel téléphone :
+- **📍 Positions** : côté Meshtastic, les paquets de position reçus sur le canal de la liaison ; côté MeshCore, les annonces des **companions** qui portent une position (les répéteurs, fixes, ne sont jamais relayés). Au plus **une position toutes les 15 minutes par nœud** (réglable, 5 à 240 min), et seulement s'il a **bougé de plus de 100 m** : `[MT|F4XYZ] 📍 45.04510,3.88520 · DFCI HF20B3.4 · 650 m`.
+- **⚠️ Signalements** : les points de passage reçus sur le canal Meshtastic (Bipper, GerMaCrise, appli Meshtastic) partent une seule fois vers MeshCore, puis leur fin : `[MT|BIP1] 🌊 Route inondée – D103 · 45.10000,3.95000 · DFCI HF20D6.3`. Dans les deux sens, un message qui contient des coordonnées (`geo:45.04,3.88`, `45.0451, 3.8852`, lien de carte) part complété du code DFCI.
+
+Les protections restent les mêmes : anti-écho, liste noire, expéditeurs bloqués, heures silencieuses, quotas et file d'attente.
 
 ## Essayer un message, profils
 - **🧪 Essayer un message** (onglet Liaisons) : indiquez le réseau d'arrivée, le canal, l'expéditeur et un texte. La passerelle dit ce qu'elle en ferait (relayé, vers quel canal, avec quel texte, ou refusé et pourquoi). **Rien n'est envoyé.**

@@ -1,6 +1,6 @@
 # Meshtastic ⇄ MeshCore cross-network bridge
 
-Relays **channel text messages** between a Meshtastic channel and a MeshCore channel. It is an **auxiliary tool** (exercise, event, outage of one of the two networks), not a permanent bridge: it is **off by default**.
+Relays **channel text messages** between a Meshtastic channel and a MeshCore channel and, if the link asks for it, **positions** and **reports**. It is an **auxiliary tool** (exercise, event, outage of one of the two networks), not a permanent bridge: it is **off by default**.
 
 ## Enable
 Administrator: *Tools › ⇄ Cross-network bridge* › **⏻ Enable the bridge** (or ⚙️🔎 “bridge”). Rules can be prepared before enabling; **⏻ Disable** turns everything off while keeping the rules, **⏸ Pause** suspends relaying for a while. The choice is kept after a restart.
@@ -17,6 +17,13 @@ A **main Meshtastic node** and a **main MeshCore companion** must be linked to t
 Per rule, **filters**: blocked senders, required word, excluded words (e.g. `!pos`), minimum length, quiet hours (e.g. `22-7`), and **Group**: messages received within the window (10, 30 or 60 s) go out in a single transmission (`[MC] Bob: hi / Alice: how are you?`).
 
 The Meshtastic primary channel (channel 0) is excluded by default (can be allowed in the settings).
+
+## Positions and reports
+Two boxes per link (when creating it, or the 📍 and ⚠️ columns of the table), off by default. Everything goes out **as text**, with the coordinates and the **DFCI code** of the point (French firefighters' grid), so any phone can read it:
+- **📍 Positions**: on the Meshtastic side, position packets received on the link's channel; on the MeshCore side, **companion** adverts that carry a position (repeaters, which are fixed, are never relayed). At most **one position every 15 minutes per node** (adjustable, 5 to 240 min), and only if it has **moved more than 100 m**: `[MT|F4XYZ] 📍 45.04510,3.88520 · DFCI HF20B3.4 · 650 m`.
+- **⚠️ Reports**: waypoints received on the Meshtastic channel (Bipper, GerMaCrise, Meshtastic app) go out once to MeshCore, then their end: `[MT|BIP1] 🌊 Route inondée – D103 · 45.10000,3.95000 · DFCI HF20D6.3`. In both directions, a message containing coordinates (`geo:45.04,3.88`, `45.0451, 3.8852`, a map link) goes out with the DFCI code added.
+
+The same protections apply: anti-echo, blacklist, blocked senders, quiet hours, quotas and queue.
 
 ## Try a message, profiles
 - **🧪 Try a message** (Links tab): give the destination network, channel, sender and a text. The bridge says what it would do with it (relayed, to which channel, with which text, or refused and why). **Nothing is sent.**

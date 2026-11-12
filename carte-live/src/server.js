@@ -2544,8 +2544,24 @@ function verPasserelle(m) {
   if (!passerelle || !m) return;
   try {
     if (m.genre === 'paquet' && m.premiere && m.port === 'texte' && m.texte && m.vers == null) passerelle.recevoir({ reseau: 'mt', canal: m.canal, de: m.de, nom: passerelle.nomMt(m.de), texte: m.texte });
-    else if (m.genre === 'mc-paquet' && m.premiere && m.texte && m.canal) passerelle.recevoir({ reseau: 'mc', canal: m.canal, de: null, nom: m.expediteur || null, texte: m.texte });
+    else if (m.genre === 'mc-paquet' && m.premiere && m.type === 'ADVERT' && m.de && passerelle.active()) {
+      // Annonce MeshCore d'un companion avec sa position : relayée si une liaison relaie les positions
+      const n = reseauMc.q.noeud.get(m.de);
+      if (n && n.role === 'companion' && n.lat != null) passerelle.recevoirPosition({ reseau: 'mc', de: n.cle, nom: n.nom || n.cle.slice(0, 8), lat: n.lat, lon: n.lon });
+    } else if (m.genre === 'mc-paquet' && m.premiere && m.texte && m.canal) passerelle.recevoir({ reseau: 'mc', canal: m.canal, de: null, nom: m.expediteur || null, texte: m.texte });
     else if (m.genre === 'mc-message' && m.sens === 'recu' && !m.direct && m.canal && m.texte) passerelle.recevoir({ reseau: 'mc', canal: m.canal, de: null, nom: m.nomDe || null, texte: m.texte });
+  } catch (e) { journal('[Passerelle]', e.message); }
+}
+// Paquets Meshtastic décodés (MQTT, module, agents) : positions et signalements pour la passerelle, si une liaison les relaie
+function versPasserelleRadio(evt) {
+  if (!passerelle || !evt || !passerelle.active()) return;
+  try {
+    const canal = evt.canal || evt.canalTopic, de = evt.de >>> 0;
+    if (evt.port === 'position' && evt.position && evt.position.lat != null && evt.diffusion) passerelle.recevoirPosition({ reseau: 'mt', canal, de, nom: passerelle.nomMt(de), lat: evt.position.lat, lon: evt.position.lon, alt: evt.position.alt });
+    else if (evt.port === 'waypoint' && evt.pointRepere && evt.pointRepere.lat != null) {
+      const w = evt.pointRepere;
+      passerelle.recevoirSignalement({ reseau: 'mt', canal, de, nom: passerelle.nomMt(de), idPoint: w.id, titre: String(w.nom || '').replace(/^\p{Extended_Pictographic}️?\s*/u, ''), details: w.description, icone: w.icone ? String.fromCodePoint(w.icone) : null, lat: w.lat, lon: w.lon, fin: !!(w.expire && w.expire * 1000 <= Date.now()) });
+    }
   } catch (e) { journal('[Passerelle]', e.message); }
 }
 function diffuser(message) {
@@ -2628,6 +2644,7 @@ clientMqtt.on('message', (topic, message) => {
     if (!evt) return;
     if (evt.genre === 'erreur') { compteur.erreurs++; return; }
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
+    versPasserelleRadio(evt);
     if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
@@ -2808,6 +2825,7 @@ app.post('/api/mc/maintenance/conformite', (req, res) => {
 const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   integrerEvenement: (evt) => {
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
+    versPasserelleRadio(evt);
     if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
@@ -2826,6 +2844,7 @@ const ecoutes = creerEcoutes({
   fabriquerRadio: (m) => creerSourceRadio(stockage, config, canaux, {
     integrerEvenement: (evt) => {
       if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
+    versPasserelleRadio(evt);
     if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);

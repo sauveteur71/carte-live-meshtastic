@@ -6637,12 +6637,15 @@ async function rendrePasserelle(complet) {
       <p class="note">Choisissez un canal de chaque côté (canaux du module Meshtastic principal et du companion MeshCore), le sens, puis « Créer la liaison ». Les messages relayés partent par ces deux modules.</p>
       <div class="pp-colonnes"><div><h3>Canal Meshtastic</h3>${col(m.mt.canaux, 'mt')}</div>
         <div class="pp-sens">${Object.entries(ppSens).map(([k, v]) => `<button class="mini ${pp.sens === k ? 'actif' : ''}" data-sens="${k}">${v}</button>`).join('')}
-          <label class="case"><input type="checkbox" id="pp-coal"> Regrouper (${g.coalescenceS} s)</label><button class="principal" id="pp-creer">Créer la liaison</button></div>
+          <label class="case"><input type="checkbox" id="pp-coal"> Regrouper (${g.coalescenceS} s)</label>
+          <label class="case" title="Positions des nœuds relayées en texte avec le code DFCI : Meshtastic → paquets de position du canal ; MeshCore → annonces des companions. Au plus une toutes les ${g.positionsMin} min par nœud, et seulement s’il a bougé"><input type="checkbox" id="pp-pos"> 📍 Positions</label>
+          <label class="case" title="Signalements reçus par radio (points de passage Bipper, GerMaCrise, appli Meshtastic) relayés en texte avec le code DFCI ; coordonnées d’un message complétées du code DFCI"><input type="checkbox" id="pp-sig"> ⚠️ Signalements</label>
+          <button class="principal" id="pp-creer">Créer la liaison</button></div>
         <div><h3>Canal MeshCore</h3>${col(m.mc.canaux, 'mc')}</div></div>
       ${pp.choixMt || pp.choixMc ? `<p class="note pp-resume">Liaison : <b>MT #${esc(pp.choixMt ? pp.choixMt.nom : '?')}</b> ${ppSens[pp.sens] ? esc(ppSens[pp.sens]).replace(/MT|MC/g, '') : '⇄'} <b>MC ${esc(pp.choixMc ? (pp.choixMc.nom.startsWith('#') ? pp.choixMc.nom : '#' + pp.choixMc.nom) : '?')}</b></p>` : ''}
       <p class="erreur" id="pp-retour"></p>
       <h3>Règles</h3>
-      ${d.regles.length ? `<table class="voisins"><thead><tr><th>Liaison</th><th>Regrouper</th><th>Active</th><th></th></tr></thead><tbody>${d.regles.map((x) => `<tr data-id="${x.id}"><td><b>${esc(x.libelle)}</b>${x.enAttente ? ` <small>· ${x.enAttente} en attente</small>` : ''}
+      ${d.regles.length ? `<table class="voisins"><thead><tr><th>Liaison</th><th>Regrouper</th><th title="Positions des nœuds, avec le code DFCI">📍</th><th title="Signalements (points de passage) et coordonnées, avec le code DFCI">⚠️</th><th>Active</th><th></th></tr></thead><tbody>${d.regles.map((x) => `<tr data-id="${x.id}"><td><b>${esc(x.libelle)}</b>${x.enAttente ? ` <small>· ${x.enAttente} en attente</small>` : ''}
         <details class="pp-filtres"><summary>Filtres${Object.values(x.filtres || {}).some((v) => v && v !== 2) ? ' (réglés)' : ''}</summary>
           <label>Expéditeurs bloqués <input data-f="expediteurs" value="${esc((x.filtres || {}).expediteurs || '')}" placeholder="noms ou !id, séparés par des virgules"></label>
           <label>Mot requis <input data-f="motRequis" value="${esc((x.filtres || {}).motRequis || '')}" placeholder="vide = tout"></label>
@@ -6650,7 +6653,7 @@ async function rendrePasserelle(complet) {
           <label>Longueur min. <input data-f="longueurMin" type="number" min="1" max="50" value="${(x.filtres || {}).longueurMin || 2}"></label>
           <label>Heures silencieuses <input data-f="silence" value="${esc((x.filtres || {}).silence || '')}" placeholder="ex. 22-7"></label>
           <button class="mini principal" data-filtres>Enregistrer les filtres</button></details></td>
-        <td><input type="checkbox" data-coal ${x.coalescence ? 'checked' : ''}></td><td><input type="checkbox" data-actif ${x.actif ? 'checked' : ''}></td><td><button class="mini" data-suppr>✕</button></td></tr>`).join('')}</tbody></table>` : '<div class="vide">Aucune liaison : choisissez un canal de chaque côté ci-dessus, puis « Créer la liaison ».</div>'}
+        <td><input type="checkbox" data-coal ${x.coalescence ? 'checked' : ''}></td><td><input type="checkbox" data-pos title="Relayer les positions" ${x.positions ? 'checked' : ''}></td><td><input type="checkbox" data-sig title="Relayer les signalements" ${x.signalements ? 'checked' : ''}></td><td><input type="checkbox" data-actif ${x.actif ? 'checked' : ''}></td><td><button class="mini" data-suppr>✕</button></td></tr>`).join('')}</tbody></table>` : '<div class="vide">Aucune liaison : choisissez un canal de chaque côté ci-dessus, puis « Créer la liaison ».</div>'}
       <details class="pp-essai"><summary>🧪 Essayer un message (rien n’est envoyé)</summary>
         <div class="parametres compact"><label>Arrive par <select id="pe-reseau"><option value="mt">Meshtastic</option><option value="mc">MeshCore</option></select></label>
           <label>Canal <input id="pe-canal" placeholder="ADRASEC43"></label><label>Expéditeur <input id="pe-nom" value="F4XYZ"></label><label>Texte <input id="pe-texte" value="essai de liaison"></label></div>
@@ -6681,12 +6684,14 @@ async function rendrePasserelle(complet) {
     z.querySelectorAll('[data-sens]').forEach((b) => (b.onclick = () => { pp.sens = b.dataset.sens; rendrePasserelle(true); }));
     $('#pp-creer').onclick = async () => {
       if (pp.choixMt == null || pp.choixMc == null) { $('#pp-retour').textContent = 'Choisissez un canal de chaque côté.'; return; }
-      try { await postJson('/api/passerelle/regles', { mt: pp.choixMt.index, mtNom: pp.choixMt.nom, mc: pp.choixMc.index, mcNom: pp.choixMc.nom, sens: pp.sens, coalescence: $('#pp-coal').checked }); pp.choixMt = pp.choixMc = null; rendrePasserelle(true); } catch (e) { $('#pp-retour').textContent = e.message; }
+      try { await postJson('/api/passerelle/regles', { mt: pp.choixMt.index, mtNom: pp.choixMt.nom, mc: pp.choixMc.index, mcNom: pp.choixMc.nom, sens: pp.sens, coalescence: $('#pp-coal').checked, positions: $('#pp-pos').checked, signalements: $('#pp-sig').checked }); pp.choixMt = pp.choixMc = null; rendrePasserelle(true); } catch (e) { $('#pp-retour').textContent = e.message; }
     };
     z.querySelectorAll('tr[data-id]').forEach((tr) => {
       const id = tr.dataset.id, maj = async (o) => { try { await postJson(`/api/passerelle/regles/${id}`, o); } catch (e) { alert(e.message); } rendrePasserelle(true); };
       tr.querySelector('[data-actif]').onchange = (e) => maj({ actif: e.target.checked });
       tr.querySelector('[data-coal]').onchange = (e) => maj({ coalescence: e.target.checked });
+      tr.querySelector('[data-pos]').onchange = (e) => maj({ positions: e.target.checked });
+      tr.querySelector('[data-sig]').onchange = (e) => maj({ signalements: e.target.checked });
       tr.querySelector('[data-filtres]').onclick = () => maj({ filtres: Object.fromEntries([...tr.querySelectorAll('[data-f]')].map((i) => [i.dataset.f, i.value])) });
       tr.querySelector('[data-suppr]').onclick = async () => { if (!(await confirmer('Supprimer cette liaison ?'))) return; await fetch(`/api/passerelle/regles/${id}`, { method: 'DELETE' }); rendrePasserelle(true); };
     });
@@ -6720,10 +6725,11 @@ async function rendrePasserelle(complet) {
         <label>Messages par minute, toute la passerelle <input name="quotaGlobalMin" type="number" min="1" max="120" value="${g.quotaGlobalMin}"></label>
         <label>File d’attente max. (au-delà : les plus anciens abandonnés) <input name="fileMax" type="number" min="1" max="50" value="${g.fileMax}"></label>
         <label>Écart minimal entre deux émissions sur un réseau (s) <input name="ecartEnvoiS" type="number" min="2" max="60" value="${g.ecartEnvoiS}"></label>
+        <label>Positions : une au plus par nœud toutes les (min) <input name="positionsMin" type="number" min="5" max="240" value="${g.positionsMin || 15}"></label>
         <label>Fenêtre de regroupement <select name="coalescenceS">${[10, 30, 60].map((v) => `<option value="${v}" ${g.coalescenceS === v ? 'selected' : ''}>${v} s</option>`).join('')}</select></label>
       </form>
       <div class="actions"><button class="principal" id="pp-enreg">Enregistrer</button></div><p class="erreur" id="pp-retour"></p>
-      <p class="note">Toujours actifs : un message envoyé par nos propres modules n’est jamais repris (anti-écho), un texte commençant par un préfixe de passerelle n’est jamais retransmis (anti-boucle). Messages texte de canal uniquement ; rien n’apparaît sur la carte publique.</p>`;
+      <p class="note">Toujours actifs : un message envoyé par nos propres modules n’est jamais repris (anti-écho), un texte commençant par un préfixe de passerelle n’est jamais retransmis (anti-boucle). Messages texte de canal, et selon la liaison les positions et les signalements (en texte, avec le code DFCI) ; rien n’apparaît sur la carte publique.</p>`;
     $('#pp-enreg').onclick = async () => {
       const f = $('#pp-form'), o = {};
       for (const el of f.elements) if (el.name) o[el.name] = el.type === 'checkbox' ? el.checked : el.value;

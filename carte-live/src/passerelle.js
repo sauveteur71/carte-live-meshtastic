@@ -1,5 +1,7 @@
 'use strict';
-// Passerelle inter-réseaux Meshtastic ⇄ MeshCore (messages texte de canal uniquement).
+// Passerelle inter-réseaux Meshtastic ⇄ MeshCore : messages texte de canal, et en option par liaison,
+// les positions (Meshtastic : paquets de position du canal ; MeshCore : annonces des companions) et les
+// signalements (points de passage Bipper, GerMaCrise, appli Meshtastic), relayés en texte avec le code DFCI.
 // Désactivée par défaut : un administrateur l'active depuis son panneau (Outils › Passerelle inter-réseaux) ;
 // PASSERELLE=1 dans le .env l'active au premier démarrage, PASSERELLE=0 l'interdit (bouton masqué). Outil d'appoint (exercice, événement,
 // panne d'un réseau), pas une passerelle permanente : chaque règle se coupe d'un clic, et la passerelle entière
@@ -19,12 +21,13 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const DFCI = require('../public/dfci.js');
 
 const LIMITE_MT = 200; // octets d'un texte Meshtastic
 const LIMITE_MC = 140; // octets d'un texte de canal MeshCore (le firmware y ajoute « nom: »)
 const SENS = { mt2mc: 'MT → MC', mc2mt: 'MC → MT', bi: 'MT ⇄ MC' };
-const MOTIFS = { echo: 'écho de notre module', prefixe: 'préfixe passerelle', doublon: 'doublon', quota: 'quota', file: 'file pleine', expediteur: 'expéditeur filtré', motcle: 'mot-clé', longueur: 'longueur', silence: 'heures silencieuses', listeNoire: 'liste noire', horsLigne: 'module hors ligne', pause: 'passerelle en pause', erreur: 'erreur d’envoi' };
-const DEFAUT = { prefixeMt: '[MT]', prefixeMc: '[MC]', avecExpediteur: true, ttlDoublonMin: 10, quotaRegleMin: 6, quotaGlobalMin: 60, fileMax: 10, coalescenceS: 30, ecartEnvoiS: 4, pause: false };
+const MOTIFS = { position: 'position trop rapprochée', signalementDeja: 'signalement déjà relayé', echo: 'écho de notre module', prefixe: 'préfixe passerelle', doublon: 'doublon', quota: 'quota', file: 'file pleine', expediteur: 'expéditeur filtré', motcle: 'mot-clé', longueur: 'longueur', silence: 'heures silencieuses', listeNoire: 'liste noire', horsLigne: 'module hors ligne', pause: 'passerelle en pause', erreur: 'erreur d’envoi' };
+const DEFAUT = { prefixeMt: '[MT]', prefixeMc: '[MC]', avecExpediteur: true, ttlDoublonMin: 10, quotaRegleMin: 6, quotaGlobalMin: 60, fileMax: 10, coalescenceS: 30, ecartEnvoiS: 4, pause: false, positionsMin: 15 };
 
 function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, etatMt, etatMc }) {
   const fichier = path.join(path.dirname(config.fichierBase), 'passerelle.json');
@@ -61,6 +64,79 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
   function surListeNoire(reseau, de, nom) {
     return donnees.listeNoire.some((b) => (b.reseau === reseau && (String(b.id) === String(de) || norm(b.nom) === norm(nom)))
       || (b.reciproque && b.reseau !== reseau && norm(b.nom) && norm(b.nom) === norm(nom)));
+  }
+
+  // Coordonnées en texte, avec le code DFCI (carroyage des pompiers) quand le point est en France
+  const coordsTexte = (lat, lon) => { const d = DFCI.versDfci(lat, lon); return `${lat.toFixed(5)},${lon.toFixed(5)}${d ? ' · DFCI ' + d : ''}`; };
+  // Coordonnées trouvées dans un texte (geo:45.04,3.88 ; 45.0451, 3.8852 ; lien de carte ?q=… ou lat=…&lon=…)
+  function coordsDansTexte(t) {
+    const m = /geo:\s*(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/i.exec(t) || /[?&](?:q|ll|query)=(-?\d{1,2}\.\d{3,})(?:,|%2C)(-?\d{1,3}\.\d{3,})/i.exec(t)
+      || /lat=(-?\d{1,2}\.\d{3,}).*?lon=(-?\d{1,3}\.\d{3,})/i.exec(t) || /(?:^|[\s(📍])(-?\d{1,2}\.\d{3,})\s*[,;]\s*(-?\d{1,3}\.\d{3,})(?![\d.])/.exec(t);
+    if (!m) return null;
+    const lat = Number(m[1]), lon = Number(m[2]);
+    return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null;
+  }
+  const distanceM = (a, b) => { const R = 6371000, r2 = Math.PI / 180, dl = (b.lat - a.lat) * r2, dn = (b.lon - a.lon) * r2; const x = Math.sin(dl / 2) ** 2 + Math.cos(a.lat * r2) * Math.cos(b.lat * r2) * Math.sin(dn / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(x)); };
+  // Règles qui partent d'un réseau (et d'un canal pour Meshtastic) avec l'option voulue
+  const reglesDepuis = (reseau, canal, option) => donnees.regles.filter((x) => x[option] && (reseau === 'mt' ? norm(x.mt.nom) === norm(canal) && x.sens !== 'mc2mt' : x.sens !== 'mt2mc'));
+  // Contrôles communs aux positions et signalements : écho, liste noire, expéditeurs filtrés, heures silencieuses
+  function refuseSource(reseau, de, nom, lib, texte) {
+    if (reseau === 'mt' ? etatMt().noeudLocal != null && Number(de) === Number(etatMt().noeudLocal) : norm(nom) && norm(nom) === norm(etatMc().nom)) { noter('drop', `${lib} : ${texte}`, MOTIFS.echo); return true; }
+    if (surListeNoire(reseau, de, nom)) { noter('drop', `${lib} : ${texte}`, MOTIFS.listeNoire); return true; }
+    return false;
+  }
+  function refuseRegle(regle, reseau, de, nom, texte) {
+    const f = regle.filtres || {};
+    const bloques = String(f.expediteurs || '').split(/[,;\n]/).map(norm).filter(Boolean);
+    if (bloques.some((b) => b === norm(nom) || b === norm(de) || (reseau === 'mt' && b === norm('!' + (Number(de) >>> 0).toString(16).padStart(8, '0'))))) { noter('drop', `${regle.libelle} : ${texte}`, MOTIFS.expediteur); return true; }
+    if (f.silence && heuresSilence(f.silence)) { noter('drop', `${regle.libelle} : ${texte}`, MOTIFS.silence); return true; }
+    if (!regle.actif) { noter('drop', `${regle.libelle} : ${texte}`, MOTIFS.pause); return true; }
+    return false;
+  }
+
+  // ---- Positions : au plus une toutes les N minutes par nœud, et seulement s'il a bougé de plus de 100 m ----
+  const dernieresPositions = new Map(); // `${reseau}|${id}` -> { t, lat, lon }
+  // p : { reseau: 'mt'|'mc', canal (Meshtastic), de, nom, lat, lon, alt }
+  function recevoirPosition(p) {
+    if (!donnees.activee || r().pause || !p || !Number.isFinite(p.lat) || !Number.isFinite(p.lon) || (p.lat === 0 && p.lon === 0)) return;
+    const regles = reglesDepuis(p.reseau, p.canal, 'positions');
+    if (!regles.length) return;
+    const nom = p.nom || (p.reseau === 'mt' ? '!' + (Number(p.de) >>> 0).toString(16).padStart(8, '0') : '?');
+    const texte = `📍 ${coordsTexte(p.lat, p.lon)}${Number.isFinite(p.alt) && p.alt > 0 ? ` · ${Math.round(p.alt)} m` : ''}`;
+    const lib = `${p.reseau === 'mt' ? 'MT #' + p.canal : 'MC'} position de ${nom}`;
+    const k = `${p.reseau}|${p.de || nom}`, t = Date.now(), avant = dernieresPositions.get(k);
+    if (avant && (t - avant.t < r().positionsMin * 60000 || distanceM(avant, p) < 100)) { if (t - avant.t < r().positionsMin * 60000 && distanceM(avant, p) >= 100) noter('drop', `${lib} : ${texte}`, MOTIFS.position); return; }
+    if (refuseSource(p.reseau, p.de, nom, lib, texte)) return;
+    dernieresPositions.set(k, { t, lat: p.lat, lon: p.lon });
+    if (dernieresPositions.size > 5000) dernieresPositions.delete(dernieresPositions.keys().next().value);
+    noter('in', `${lib} : ${texte}`);
+    for (const regle of regles) {
+      if (refuseRegle(regle, p.reseau, p.de, nom, texte)) continue;
+      entrer(regle, p.reseau === 'mt' ? 'mc' : 'mt', { texte, de: nom });
+    }
+  }
+
+  // ---- Signalements reçus par radio (points de passage Meshtastic) : relayés une fois, et leur fin ----
+  const signalementsRelayes = new Map(); // `${de}|${idPoint}|${fin}` -> heure
+  // s : { reseau, canal, de, nom, idPoint, titre, details, icone, lat, lon, fin }
+  function recevoirSignalement(s) {
+    if (!donnees.activee || r().pause || !s || !Number.isFinite(s.lat) || !Number.isFinite(s.lon)) return;
+    const regles = reglesDepuis(s.reseau, s.canal, 'signalements');
+    if (!regles.length) return;
+    const k = `${s.reseau}|${s.de}|${s.idPoint}|${s.fin ? 1 : 0}`, t = Date.now();
+    for (const [c, h] of signalementsRelayes) if (t - h > 12 * 3600000) signalementsRelayes.delete(c);
+    if (signalementsRelayes.has(k)) return; // les points de passage sont réémis régulièrement : une seule fois
+    const nom = s.nom || '?';
+    const titre = String(s.titre || 'Signalement').trim();
+    const texte = s.fin ? `✅ Fin : ${titre} · ${coordsTexte(s.lat, s.lon)}` : `${s.icone || '⚠️'} ${titre}${s.details ? ' – ' + String(s.details).trim() : ''} · ${coordsTexte(s.lat, s.lon)}`;
+    const lib = `${s.reseau === 'mt' ? 'MT #' + s.canal : 'MC'} signalement de ${nom}`;
+    if (refuseSource(s.reseau, s.de, nom, lib, texte)) return;
+    signalementsRelayes.set(k, t);
+    noter('in', `${lib} : ${texte}`);
+    for (const regle of regles) {
+      if (refuseRegle(regle, s.reseau, s.de, nom, texte)) continue;
+      entrer(regle, s.reseau === 'mt' ? 'mc' : 'mt', { texte, de: nom });
+    }
   }
 
   // ---- Files d'envoi (par règle et par sens), quotas, coalescence ----
@@ -165,7 +241,10 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
       if (texte.length < (Number(f.longueurMin) || 2)) { noter('drop', `${lib} : ${texte}`, MOTIFS.longueur); continue; }
       if (f.silence && heuresSilence(f.silence)) { noter('drop', `${lib} : ${texte}`, MOTIFS.silence); continue; }
       if (!moduleEnLigne(vers)) noter('drop', `${lib} : ${texte} (gardé en file jusqu’au retour du module)`, MOTIFS.horsLigne);
-      entrer(regle, vers, { texte, de: m.reseau === 'mt' ? m.nom || null : m.nom || null });
+      // Option signalements : un texte qui porte des coordonnées part avec le code DFCI du point
+      let sortie = texte;
+      if (regle.signalements && !/DFCI/i.test(texte)) { const c = coordsDansTexte(texte); const d = c && DFCI.versDfci(c.lat, c.lon); if (d) sortie = `${texte} · DFCI ${d}`; }
+      entrer(regle, vers, { texte: sortie, de: m.nom || null });
     }
   }
 
@@ -208,13 +287,13 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
     const c = l.find((x) => norm(x.nom) === norm(nom));
     return c ? { index: c.index, nom: c.nom } : { index: null, nom };
   }
-  function ajouterRegle({ mt, mc, mtNom, mcNom, sens, coalescence }, qui) {
+  function ajouterRegle({ mt, mc, mtNom, mcNom, sens, coalescence, positions, signalements }, qui) {
     const cmt = canalChoisi('mt', mt, mtNom);
     const cmc = canalChoisi('mc', mc, mcNom);
     if (donnees.regles.some((x) => norm(x.mt.nom) === norm(cmt.nom) && norm(x.mc.nom) === norm(cmc.nom))) throw new Error('Cette liaison existe déjà');
     if (cmt.index === 0 && !donnees.reglages.canalPrincipalAutorise) throw new Error('Le canal principal Meshtastic (index 0) est exclu par défaut : autorisez-le dans les réglages de la passerelle');
     if (!SENS[sens]) throw new Error('Sens invalide');
-    const regle = { id: crypto.randomBytes(4).toString('hex'), mt: { index: cmt.index, nom: cmt.nom }, mc: { index: cmc.index, nom: cmc.nom }, sens, coalescence: !!coalescence, actif: true, filtres: {}, creee: Date.now(), par: qui };
+    const regle = { id: crypto.randomBytes(4).toString('hex'), mt: { index: cmt.index, nom: cmt.nom }, mc: { index: cmc.index, nom: cmc.nom }, sens, coalescence: !!coalescence, positions: !!positions, signalements: !!signalements, actif: true, filtres: {}, creee: Date.now(), par: qui };
     regle.libelle = `MT ${diese(regle.mt.nom)} ${FLECHE[sens]} MC ${diese(regle.mc.nom)}`;
     donnees.regles.push(regle);
     sauver();
@@ -225,6 +304,8 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
     if (!regle) throw new Error('Règle inconnue');
     if (typeof champs.actif === 'boolean') regle.actif = champs.actif;
     if (typeof champs.coalescence === 'boolean') regle.coalescence = champs.coalescence;
+    if (typeof champs.positions === 'boolean') regle.positions = champs.positions;
+    if (typeof champs.signalements === 'boolean') regle.signalements = champs.signalements;
     if (champs.sens && SENS[champs.sens]) { regle.sens = champs.sens; regle.libelle = `MT ${diese(regle.mt.nom)} ${FLECHE[regle.sens]} MC ${diese(regle.mc.nom)}`; }
     if (champs.filtres && typeof champs.filtres === 'object') {
       const f = champs.filtres, s = (v, n) => String(v || '').slice(0, n);
@@ -253,6 +334,7 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
     if (o.fileMax !== undefined) g.fileMax = num(o.fileMax, 1, 50, g.fileMax);
     if (o.coalescenceS !== undefined) g.coalescenceS = [10, 30, 60].includes(Number(o.coalescenceS)) ? Number(o.coalescenceS) : g.coalescenceS;
     if (o.ecartEnvoiS !== undefined) g.ecartEnvoiS = num(o.ecartEnvoiS, 2, 60, g.ecartEnvoiS);
+    if (o.positionsMin !== undefined) g.positionsMin = num(o.positionsMin, 5, 240, g.positionsMin);
     sauver();
     return g;
   }
@@ -366,7 +448,7 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
     return vue();
   }
   if (donnees.activee) journal(`[Passerelle] activée : ${donnees.regles.length} règle(s)${donnees.reglages.pause ? ', en pause' : ''}`);
-  return { essayer, profils, enregistrerProfil, chargerProfil, supprimerProfil, activer, active: () => donnees.activee, recevoir, vue, alertes, ajouterRegle, modifierRegle, supprimerRegle, regler, bloquer, modifierBlocage, debloquer, MOTIFS, SENS, nomMt };
+  return { recevoirPosition, recevoirSignalement, essayer, profils, enregistrerProfil, chargerProfil, supprimerProfil, activer, active: () => donnees.activee, recevoir, vue, alertes, ajouterRegle, modifierRegle, supprimerRegle, regler, bloquer, modifierBlocage, debloquer, MOTIFS, SENS, nomMt };
 }
 
 module.exports = { creerPasserelle, LIMITE_MT, LIMITE_MC };
