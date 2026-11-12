@@ -2575,6 +2575,7 @@ clientMqtt.on('message', (topic, message) => {
     if (!evt) return;
     if (evt.genre === 'erreur') { compteur.erreurs++; return; }
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     if (sortie) { compteur.decodes++; diffuser(sortie); }
@@ -2588,6 +2589,7 @@ clientMqtt.on('message', (topic, message) => {
 let dernieresAlertes = [];
 function rafraichirEtat() {
   dernieresAlertes = reseau.calculerAlertes();
+  try { if (typeof equipes !== 'undefined') dernieresAlertes = [...dernieresAlertes, ...equipes.alertes((n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); })]; } catch { /* équipes pas encore prêtes */ }
   if (passerelle) { try { dernieresAlertes = [...dernieresAlertes, ...passerelle.alertes()]; } catch (e) { journal('[Passerelle]', e.message); } }
   diffuser({ genre: 'etat', stats: reseau.statistiques(), alertes: dernieresAlertes, meshmonitor: typeof sourceMM !== 'undefined' && sourceMM ? sourceMM.etat() : null, radio: typeof sourceRadio !== 'undefined' && sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
 }
@@ -2753,6 +2755,7 @@ app.post('/api/mc/maintenance/conformite', (req, res) => {
 const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   integrerEvenement: (evt) => {
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     if (sortie) { compteur.decodes++; diffuser({ ...sortie, viaRadio: true }); }
@@ -2770,6 +2773,7 @@ const ecoutes = creerEcoutes({
   fabriquerRadio: (m) => creerSourceRadio(stockage, config, canaux, {
     integrerEvenement: (evt) => {
       if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
       if (sortie) { compteur.decodes++; diffuser({ ...sortie, viaRadio: true }); }
@@ -2782,7 +2786,8 @@ const ecoutes = creerEcoutes({
 ecoutes.demarrer();
 const administration = creerAdministration(sourceRadio, stockage);
 // ---- Équipes : canal chiffré par équipe, posé ou retiré à distance (administrateur) ----
-const equipes = require('./equipes').creerEquipes({ config, administration, journal });
+const reqPosEquipe = stockage.db.prepare('SELECT lat, lon, heure_position FROM noeuds WHERE num = ?');
+const equipes = require('./equipes').creerEquipes({ config, administration, journal, positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
 const routeEquipe = (f) => (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   try { res.set('Cache-Control', 'no-store').json(f(req, req.body || {}, nomCompte(utilisateur(req)))); } catch (e) { res.status(400).json({ erreur: e.message }); }
@@ -2969,11 +2974,17 @@ const signalements = require('./signalements').creerSignalements({
 });
 app.get('/api/signalements', (req, res) => {
   if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
-  res.set('Cache-Control', 'no-store').json({ signalements: signalements.lister(), ...signalements.canaux() });
+  res.set('Cache-Control', 'no-store').json({ signalements: signalements.lister(), ...signalements.canaux(), alertes: signalements.listerAlertes(), genresAlerte: signalements.GENRES });
+});
+// Alertes Bipper / GerMaCrise (gestionnaires) : #alerte N texte #entité, puis #fin N
+app.post('/api/alertes-bipper', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || !estGestion(req)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });
+  try { res.json((req.body || {}).fin ? signalements.finAlerte(req.body.fin, u.indicatif || u.identifiant) : signalements.envoyerAlerte(req.body || {}, u.indicatif || u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 // Carte publique : signalements en cours, sans l'auteur ni l'état des envois
 app.get('/api/signalements/publics', (req, res) => {
-  res.set('Cache-Control', 'max-age=30').json(signalements.lister().filter((x) => x.actif).map((x) => ({ id: x.id, type: x.type, icone: x.icone, titre: x.titre, details: x.details, lat: x.lat, lon: x.lon, cree: x.cree, expire: x.expire })));
+  res.set('Cache-Control', 'max-age=30').json(signalements.lister().filter((x) => x.actif).map((x) => ({ forme: x.forme || 'point', trace: x.trace || null, id: x.id, type: x.type, icone: x.icone, titre: x.titre, details: x.details, lat: x.lat, lon: x.lon, cree: x.cree, expire: x.expire })));
 });
 // Main courante : signalements des 7 derniers jours, page imprimable (membres)
 app.get('/main-courante', (req, res) => {
@@ -3032,6 +3043,16 @@ app.post('/api/passerelle/activation', (req, res) => {
   const oui = !!(req.body || {}).active, qui = nomCompte(utilisateur(req));
   audit.noter(qui, req.ip, `passerelle : ${oui ? 'activée' : 'désactivée'}`, '', true);
   res.json(passerelle.activer(oui, qui));
+});
+app.post('/api/passerelle/essai', (req, res) => { if (!exigerPasserelle(req, res)) return; const b = req.body || {}; res.json(passerelle.essayer({ reseau: b.reseau === 'mc' ? 'mc' : 'mt', canal: String(b.canal || ''), nom: String(b.nom || 'Essai').slice(0, 30), de: null, texte: String(b.texte || '').slice(0, 300) })); });
+app.post('/api/passerelle/profils', (req, res) => {
+  if (!exigerPasserelle(req, res)) return;
+  const b = req.body || {}, qui = nomCompte(utilisateur(req));
+  try {
+    if (b.action === 'charger') { audit.noter(qui, req.ip, 'passerelle : profil chargé', String(b.nom), true); return res.json(passerelle.chargerProfil(b.nom, qui)); }
+    if (b.action === 'supprimer') return res.json({ profils: passerelle.supprimerProfil(b.nom) });
+    res.json({ profils: passerelle.enregistrerProfil(b.nom, qui) });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 app.get('/api/passerelle', (req, res) => { if (exigerPasserelle(req, res)) res.set('Cache-Control', 'no-store').json(passerelle.vue()); });
 app.post('/api/passerelle/regles', (req, res) => {

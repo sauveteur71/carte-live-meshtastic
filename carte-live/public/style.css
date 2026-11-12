@@ -1342,3 +1342,7 @@ body.theme-clair .bulle-visite { background: #fff; color: #0f172a; }
 .controle { display: grid; grid-template-columns: 26px 1fr; gap: 8px; padding: 8px 10px; margin: 5px 0; border-radius: 8px; border: 1px solid var(--bord); border-left: 4px solid var(--ok); background: rgba(255,255,255,.03); }
 .controle.attention { border-left-color: var(--attention); } .controle.ko { border-left-color: var(--critique); } .controle.info { border-left-color: var(--doux); }
 .controle small { display: block; margin: 3px 0; color: var(--doux); line-height: 1.4; } .controle .mini { margin-top: 4px; }
+.alerte-bipper { padding: 8px 10px; margin: 5px 0; border-radius: 8px; border: 1px solid var(--bord); border-left: 4px solid #dc2626; } .alerte-bipper.passe { opacity: .6; border-left-color: var(--doux); }
+.alerte-bipper small { display: block; color: var(--doux); margin: 3px 0; }
+.membre-eq .detail.sans-nouvelle { color: var(--critique); font-weight: 600; }
+.pp-essai, .pp-profils { margin-top: 12px; padding: 8px 10px; border: 1px solid var(--bord); border-radius: 8px; } .pp-essai summary, .pp-profils summary { cursor: pointer; font-weight: 600; }

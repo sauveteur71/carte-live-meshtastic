@@ -1652,6 +1652,7 @@ async function chargerSignalements() {
       title: s.titre, zIndexOffset: 900,
     }).addTo(sig.couche);
     m.bindPopup(() => popupSignalement(s), { maxWidth: 300 });
+    if (s.trace && s.trace.length > 1) (s.forme === 'zone' ? L.polygon(s.trace, { color: '#dc2626', weight: 3, fillOpacity: 0.18 }) : L.polyline(s.trace, { color: '#dc2626', weight: 6, opacity: 0.85 })).addTo(sig.couche).bindPopup(() => popupSignalement(s), { maxWidth: 300 });
   }
   const b = $('#outil-signalements');
   if (b) b.textContent = `🚩 Signalements${sig.liste.some((x) => x.actif) ? ` (${sig.liste.filter((x) => x.actif).length})` : ''}`;
@@ -1694,6 +1695,7 @@ async function formSignalement(lat, lon) {
     <div class="parametres">
       <label>Titre <input id="sig-titre" maxlength="60"></label>
       <label>Précisions <input id="sig-details" maxlength="140" placeholder="RD 103 entre Vorey et Retournac, 40 cm d’eau…"></label>
+      <label>Forme <select id="sig-forme"><option value="point">📍 Un point</option><option value="ligne">〰️ Un tronçon (route entre deux points ou plus)</option><option value="zone">⬠ Une zone (périmètre)</option></select></label>
       <label>Durée <select id="sig-duree">${r.durees.map((h) => `<option value="${h}" ${h === 24 ? 'selected' : ''}>${h < 24 ? h + ' h' : h / 24 + ' j'}</option>`).join('')}</select></label>
     </div>
     <h4>Meshtastic <small>point de passage (carte des applis, Bipper, GerMaCrise)</small></h4>
@@ -1701,6 +1703,7 @@ async function formSignalement(lat, lon) {
       <label class="case"><input type="checkbox" id="sig-texte" ${mem.texte === false ? '' : 'checked'}> Envoyer aussi un message texte sur ces canaux</label>` : '<p class="note">Module radio non connecté : pas d’envoi Meshtastic.</p>'}
     <h4>MeshCore</h4>
     ${optMc ? `<label>Canal <select id="sig-mc"><option value="">ne pas envoyer</option>${optMc}</select></label>` : '<p class="note">Companion non relié : pas d’envoi MeshCore.</p>'}
+    <div id="sig-trace" class="note" hidden></div>
     <div class="apercu-sig"><div class="note">Message texte :</div><div id="sig-apercu" class="mono"></div></div>
     <div class="actions-prop"><button class="principal" id="sig-envoyer">🚩 Signaler et envoyer</button></div>
     <p class="erreur" id="sig-retour"></p>
@@ -1732,19 +1735,61 @@ async function formSignalement(lat, lon) {
   $('#sig-titre').value = r.types[type].nom;
   z.querySelectorAll('input, select').forEach((e) => { if (!e.dataset.mt) e.addEventListener('input', apercu); e.addEventListener('change', apercu); });
   apercu();
+  // Tronçon ou zone : les points suivants se posent en touchant la carte ; le premier point reste celui du signalement
+  const trace = [[lat, lon]];
+  let dessin = null;
+  const finTrace = () => { carte.off('click', poser); document.body.classList.remove('choix-point'); };
+  const majTrace = () => {
+    const forme = $('#sig-forme') ? $('#sig-forme').value : 'point', zt = $('#sig-trace');
+    if (dessin) { dessin.remove(); dessin = null; }
+    if (!zt) { finTrace(); return; }
+    if (forme === 'point') { zt.hidden = true; finTrace(); return; }
+    zt.hidden = false;
+    zt.innerHTML = `<b>${trace.length} point(s)</b> : touchez la carte pour ajouter les points ${forme === 'zone' ? 'du périmètre (3 au moins)' : 'du tronçon (2 au moins)'}. <button type="button" class="mini" id="sig-trace-annuler">↩ Retirer le dernier</button>`;
+    $('#sig-trace-annuler').onclick = () => { if (trace.length > 1) trace.pop(); majTrace(); };
+    if (trace.length > 1) dessin = (forme === 'zone' ? L.polygon(trace, { color: '#f59e0b', dashArray: '6 6' }) : L.polyline(trace, { color: '#f59e0b', weight: 5, dashArray: '6 6' })).addTo(carte);
+    carte.off('click', poser); carte.on('click', poser); document.body.classList.add('choix-point');
+  };
+  function poser(ev) { if (!document.querySelector('#fiche-contenu .form-sig')) { finTrace(); if (dessin) dessin.remove(); return; } if (trace.length < 40) trace.push([ev.latlng.lat, ev.latlng.lng]); majTrace(); }
+  $('#sig-forme').onchange = majTrace;
   $('#sig-envoyer').onclick = async () => {
+    const forme = $('#sig-forme').value;
+    if (forme !== 'point' && trace.length < (forme === 'zone' ? 3 : 2)) { $('#sig-retour').textContent = forme === 'zone' ? 'Posez au moins 3 points sur la carte pour la zone.' : 'Posez au moins un deuxième point sur la carte pour le tronçon.'; return; }
     const mt = [...z.querySelectorAll('[data-mt]:checked')].map((x) => Number(x.dataset.mt)), mc = $('#sig-mc') ? $('#sig-mc').value : '';
     const texte = $('#sig-texte') ? $('#sig-texte').checked : true;
     if (!mt.length && mc === '' && !(await confirmer('Aucun réseau choisi : le signalement restera seulement sur la carte. Continuer ?'))) return;
     const b = $('#sig-envoyer'); b.disabled = true; b.textContent = 'Envoi…';
     ecrireLs('gaulix_sig', { mt, mc, cat, texte });
     try {
-      const s = await postJson('/api/signalements', { lat, lon, type, titre: $('#sig-titre').value, details: $('#sig-details').value, dureeH: Number($('#sig-duree').value), mt, mc, texte });
+      const s = await postJson('/api/signalements', { lat, lon, type, titre: $('#sig-titre').value, details: $('#sig-details').value, dureeH: Number($('#sig-duree').value), mt, mc, texte, forme, trace: forme === 'point' ? null : trace });
+      finTrace(); if (dessin) dessin.remove();
       const pb = [...(s.envois.mt || []), s.envois.mc].filter((e) => e && e.statut === 'echec').map((e) => `canal ${e.canal} : ${e.erreur}`);
       await chargerSignalements();
       ficheSignalements(pb.length ? '⚠ ' + pb.join(' ; ') : '✔ Signalement envoyé.');
     } catch (e) { $('#sig-retour').textContent = e.message; b.disabled = false; b.textContent = '🚩 Signaler et envoyer'; }
   };
+}
+// Alertes Bipper / GerMaCrise : « #alerte N texte #entité » sur le canal Alerte, accusés de lecture des pagers
+function blocAlertesBipper() {
+  const r = sig.info || {}, canaux = (r.mt && r.mt.connecte && r.mt.canaux) || [], al = r.alertes || [];
+  const lib = { alerte: '🚨 Alerte', secours: '🚑 Secours', vigilance: '⚠️ Vigilance', info: 'ℹ️ Info' };
+  return `<h3>📟 Alertes Bipper / GerMaCrise</h3>
+    ${canaux.length ? `<div class="parametres compact">
+      <label>Type <select id="ab-genre">${Object.keys(r.genresAlerte || lib).map((k) => `<option value="${k}">${lib[k] || k}</option>`).join('')}</select></label>
+      <label>Canal <select id="ab-canal">${canaux.map((c) => `<option value="${c.index}" ${/^alerte$/i.test(c.nom) ? 'selected' : ''}>${c.index} · ${esc(c.nom)}</option>`).join('')}</select></label>
+      <label>Texte <input id="ab-texte" maxlength="140" placeholder="incendie hall, rassemblement mairie…"></label>
+      <label>Entités <input id="ab-entites" placeholder="SDIS43 ADRASEC43 (vide = tous)"></label>
+    </div><div class="actions-prop"><button type="button" class="principal" id="ab-envoyer">📟 Envoyer l’alerte</button></div><p class="erreur" id="ab-retour"></p>`
+    : '<p class="note">Module radio non connecté : reliez-le pour envoyer une alerte aux pagers.</p>'}
+    ${al.map((x) => `<div class="alerte-bipper ${x.fin ? 'passe' : ''}"><b>${lib[x.genre] || x.genre} n° ${x.n}</b> ${esc(x.texte)} ${x.entites.map((e) => '#' + esc(e)).join(' ')}<small>${esc(x.auteur)} ${ilYa(x.heure)}${x.fin ? ' · clôturée ' + ilYa(x.fin) : ''} · ${x.acks.length} accusé(s) de lecture${x.acks.length ? ' : ' + x.acks.map((k) => esc(k.nom)).join(', ') : ''}</small>${x.fin ? '' : `<button type="button" class="mini" data-ab-fin="${x.n}">✅ Clôturer (#fin ${x.n})</button>`}</div>`).join('') || '<p class="note">Aucune alerte ces 7 derniers jours.</p>'}`;
+}
+function brancherAlertesBipper() {
+  const b = $('#ab-envoyer');
+  if (b) b.onclick = async () => {
+    if (!(await confirmer(`Envoyer cette alerte aux pagers ? Elle fait sonner tous les Bipper concernés.`, { ok: 'Envoyer l’alerte' }))) return;
+    try { await postJson('/api/alertes-bipper', { genre: $('#ab-genre').value, canal: Number($('#ab-canal').value), texte: $('#ab-texte').value, entites: $('#ab-entites').value }); await chargerSignalements(); ficheSignalements('✔ Alerte envoyée.'); } catch (e) { $('#ab-retour').textContent = e.message; }
+  };
+  document.querySelectorAll('[data-ab-fin]').forEach((x) => (x.onclick = async () => { try { await postJson('/api/alertes-bipper', { fin: Number(x.dataset.abFin) }); await chargerSignalements(); ficheSignalements('✔ Alerte clôturée.'); } catch (e) { annonce('⚠ ' + e.message, 'erreur'); } }));
 }
 async function ficheSignalements(msg) {
   $('#fiche').hidden = false; etat.selection = null;
@@ -1754,7 +1799,10 @@ async function ficheSignalements(msg) {
   z.innerHTML = `<div class="liste-signalements"><h2>🚩 Signalements</h2>${msg ? `<p class="note"><b>${esc(msg)}</b></p>` : ''}
     <p class="note">Bouton ＋ ou clic droit sur la carte › <b>🚩 Signaler un événement ici</b>. <a href="/main-courante" target="_blank" rel="noopener">📋 Main courante imprimable</a></p>
     ${l.length ? l.map((s) => `<div class="ligne sig-ligne ${s.actif ? '' : 'passe'}" data-sig="${s.id}"><span class="sig-ic">${s.icone}</span><span class="titre">${esc(s.titre)}<small>${esc(s.details || '')} · ${esc(s.auteur)} ${ilYa(s.cree)}${s.actif ? '' : s.fin ? ' · terminé' : ' · expiré'}</small></span>
-      <span class="meta">${s.source === 'radio' ? '📻' : ''}${[...(s.envois.mt || []), s.envois.mc].filter(Boolean).map((e) => e.statut === 'envoye' ? '✔' : e.statut === 'echec' ? '⚠' : '⏳').join(' ')}</span></div>`).join('') : '<div class="vide">Aucun signalement ces 7 derniers jours.</div>'}</div>`;
+      <span class="meta">${s.source === 'radio' ? '📻' : ''}${[...(s.envois.mt || []), s.envois.mc].filter(Boolean).map((e) => e.statut === 'envoye' ? '✔' : e.statut === 'echec' ? '⚠' : '⏳').join(' ')}</span></div>`).join('') : '<div class="vide">Aucun signalement ces 7 derniers jours. <button type="button" class="mini principal" id="sig-premier">🚩 Signaler un événement</button></div>'}
+    ${etat.gestion ? blocAlertesBipper() : ''}</div>`;
+  { const b = $('#sig-premier'); if (b) b.onclick = () => choisirPointPuis('Touchez la carte à l’endroit à signaler.', (ll) => formSignalement(ll.lat, ll.lng)); }
+  brancherAlertesBipper();
   z.querySelectorAll('[data-sig]').forEach((d) => (d.onclick = () => {
     const s = l.find((x) => x.id === d.dataset.sig);
     carte.setView([s.lat, s.lon], Math.max(carte.getZoom(), 13));
@@ -1905,10 +1953,16 @@ function rendreMessages() {
       ${canaux.map((c) => { const n = nonLus['c:' + c.toLowerCase()]; return `<option value="c:${esc(c)}" ${filtreMessages === 'c:' + c ? 'selected' : ''}>📢 ${esc(c)}${n ? ` · ${n} nouveau${n > 1 ? 'x' : ''}` : ''}</option>`; }).join('')}
       <option value="direct" ${filtreMessages === 'direct' ? 'selected' : ''}>✉️ Mes messages directs${nonLus.direct ? ` · ${nonLus.direct} nouveau${nonLus.direct > 1 ? 'x' : ''}` : ''}</option>
       ${etat.config.passerelle || tous.some((m) => estRelaye(m.texte)) ? `<option value="passerelle" ${filtreMessages === 'passerelle' ? 'selected' : ''}>⇄ Relayés par la passerelle</option>` : ''}
+      ${(() => { const l = typeof canauxMcConnus === 'function' ? canauxMcConnus() : []; return l.length ? `<optgroup label="MeshCore">${l.map((c) => `<option value="mc:${esc(c)}">🟠 ${esc(c)}</option>`).join('')}</optgroup>` : ''; })()}
     </select></label>
     <button type="button" class="mini" id="btn-sons" title="Bip par canal et alerte des messages directs">🔔 Sons</button>
     ${Object.keys(nonLus).some((k) => !k.startsWith('mc')) ? `<div class="non-lus-canaux">${Object.entries(nonLus).filter(([k]) => !k.startsWith('mc')).map(([k, n]) => `<button type="button" class="mini non-lu${k === 'direct' ? ' direct' : ''}" data-non-lu="${esc(k)}">${k === 'direct' ? '✉️ Direct' : '📢 ' + esc(canaux.find((c) => 'c:' + c.toLowerCase() === k) || k.slice(2))} <b>${n}</b></button>`).join('')}</div>` : ''}`;
-    $('#sel-filtre-messages').onchange = (e) => choisirFiltreMessages(e.target.value);
+    $('#sel-filtre-messages').onchange = (e) => {
+      const v = e.target.value;
+      // Canal MeshCore choisi : on passe aux messages MeshCore, sur ce canal
+      if (v.startsWith('mc:')) { e.target.value = filtreMessages; choisirFiltreMc('c:' + v.slice(3)); if (typeof cliquerOnglet === 'function') { ergo.groupe = 'messages'; cliquerOnglet('meshcore', 'messages'); } return; }
+      choisirFiltreMessages(v);
+    };
     $('#btn-sons').onclick = () => reglerSons(canaux);
     zf.querySelectorAll('[data-non-lu]').forEach((b) => (b.onclick = () => { const k = b.dataset.nonLu; choisirFiltreMessages(k === 'direct' ? 'direct' : 'c:' + (canaux.find((c) => 'c:' + c.toLowerCase() === k) || k.slice(2))); }));
   }
@@ -4542,8 +4596,10 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
       <div class="liste-membres">${e.membres.length ? e.membres.map((m) => { const [c, t] = etatMembre(m); return `<div class="membre-eq ${c}">
         <span class="nom">${esc(nomNoeud(m.num))} <small>${idHex(m.num)}</small></span><span class="etat">${t}</span>
         ${m.dernier && m.dernier.statut === 'echec' && m.dernier.detail ? `<small class="detail">${esc(m.dernier.detail)}</small>` : ''}
-        ${m.etat === 'membre' ? `<button class="mini" data-retirer="${m.num}" title="Retirer le canal de ce nœud">Retirer</button>` : ''}</div>`; }).join('') : '<div class="vide">Aucun nœud dans cette équipe.</div>'}</div>
+        ${m.etat === 'membre' ? `<button class="mini" data-retirer="${m.num}" title="Retirer le canal de ce nœud">Retirer</button>` : ''}
+        <small class="detail ${m.sansNouvelle ? 'sans-nouvelle' : ''}">${m.position ? `📍 position ${m.position.heure ? ilYa(m.position.heure) : 'connue'} <a href="#" data-voir-pos="${m.position.lat},${m.position.lon}">voir</a>` : '📍 position inconnue'}${m.sansNouvelle ? ' · ⚠ sans nouvelle' : ''}</small></div>`; }).join('') : '<div class="vide">Aucun nœud dans cette équipe.</div>'}</div>
       <div class="champ-ajout"><input type="text" data-saisie placeholder="!a1b2c3d4, !e5f6a7b8…" aria-label="Nœuds à ajouter"><button class="principal" data-ajouter>➕ Ajouter${sel.length ? ` (+ ${sel.length} coché${sel.length > 1 ? 's' : ''})` : ''}</button></div>
+      <label>Suivi des positions <select data-suivi>${[[0, 'à la demande'], [5, 'toutes les 5 min'], [10, 'toutes les 10 min'], [15, 'toutes les 15 min'], [30, 'toutes les 30 min'], [60, 'toutes les heures']].map(([v, t]) => `<option value="${v}" ${e.suiviMin === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <label class="case"><input type="checkbox" data-positions ${e.positions ? 'checked' : ''}> Positions des membres sur le canal d’équipe (s’applique aux prochains envois)</label>
       <div class="actions-prop">
         ${e.nbMembres ? `<button data-positions-eq title="Chaque nœud de l’équipe renvoie sa position (espacées de 3 s)">📍 Demander les positions</button>` : ''}
@@ -4587,6 +4643,8 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
       if (!(await confirmer(`Retirer le canal « ${nom} » de ${nomNoeud(Number(b.dataset.retirer))} ?`))) return;
       try { apres(id, await postJson(`/api/equipes/${id}/membres`, { retirer: [Number(b.dataset.retirer)] })); } catch (e) { retour(e.message); }
     }));
+    bloc.querySelector('[data-suivi]').onchange = async (ev) => { try { await postJson(`/api/equipes/${id}`, { suiviMin: Number(ev.target.value) }, 'PATCH'); retour(Number(ev.target.value) ? 'Suivi activé : la carte demande leur position aux membres à cet intervalle, et signale ceux qui ne répondent plus (onglet Réseau › Alertes).' : 'Suivi arrêté.'); } catch (e) { retour(e.message); } };
+    bloc.querySelectorAll('[data-voir-pos]').forEach((l) => (l.onclick = (ev) => { ev.preventDefault(); const [la, lo] = l.dataset.voirPos.split(',').map(Number); carte.setView([la, lo], Math.max(carte.getZoom(), 14)); }));
     bloc.querySelector('[data-positions]').onchange = async (ev) => { try { await postJson(`/api/equipes/${id}`, { positions: ev.target.checked }, 'PATCH'); retour('Enregistré : « Renvoyer » ou une nouvelle clé l’appliquera aux nœuds déjà membres.'); } catch (e) { retour(e.message); } };
     { const bp = bloc.querySelector('[data-positions-eq]'); if (bp) bp.onclick = async () => {
       const eq = r.equipes.find((x) => x.id === id);
@@ -6448,7 +6506,24 @@ async function rendrePasserelle(complet) {
           <label>Longueur min. <input data-f="longueurMin" type="number" min="1" max="50" value="${(x.filtres || {}).longueurMin || 2}"></label>
           <label>Heures silencieuses <input data-f="silence" value="${esc((x.filtres || {}).silence || '')}" placeholder="ex. 22-7"></label>
           <button class="mini principal" data-filtres>Enregistrer les filtres</button></details></td>
-        <td><input type="checkbox" data-coal ${x.coalescence ? 'checked' : ''}></td><td><input type="checkbox" data-actif ${x.actif ? 'checked' : ''}></td><td><button class="mini" data-suppr>✕</button></td></tr>`).join('')}</tbody></table>` : '<div class="vide">Aucune règle.</div>'}`;
+        <td><input type="checkbox" data-coal ${x.coalescence ? 'checked' : ''}></td><td><input type="checkbox" data-actif ${x.actif ? 'checked' : ''}></td><td><button class="mini" data-suppr>✕</button></td></tr>`).join('')}</tbody></table>` : '<div class="vide">Aucune liaison : choisissez un canal de chaque côté ci-dessus, puis « Créer la liaison ».</div>'}
+      <details class="pp-essai"><summary>🧪 Essayer un message (rien n’est envoyé)</summary>
+        <div class="parametres compact"><label>Arrive par <select id="pe-reseau"><option value="mt">Meshtastic</option><option value="mc">MeshCore</option></select></label>
+          <label>Canal <input id="pe-canal" placeholder="ADRASEC43"></label><label>Expéditeur <input id="pe-nom" value="F4XYZ"></label><label>Texte <input id="pe-texte" value="essai de liaison"></label></div>
+        <div class="actions-prop"><button type="button" class="mini principal" id="pe-go">Voir ce que ferait la passerelle</button></div><div id="pe-resultat" class="note"></div></details>
+      <details class="pp-profils"><summary>🗂️ Profils (${(d.profils || []).length}) : normal, crise…</summary>
+        <p class="note">Un profil garde toutes les liaisons, la liste noire et les réglages. Chargez-le d’un clic pour changer de configuration.</p>
+        ${(d.profils || []).map((p) => `<div class="ligne"><span class="titre">${esc(p.nom)}<small>${p.regles} liaison(s) · ${esc(p.par || '')} ${p.heure ? ilYa(p.heure) : ''}</small></span><span class="meta"><button class="mini principal" data-prof-charger="${esc(p.nom)}">Charger</button> <button class="mini" data-prof-suppr="${esc(p.nom)}">✕</button></span></div>`).join('')}
+        <div class="champ-ajout"><input id="pp-prof-nom" maxlength="20" placeholder="nom du profil (ex. crise)"><button type="button" class="mini principal" id="pp-prof-enr">Enregistrer la configuration actuelle</button></div></details>`;
+    { const go = $('#pe-go'); if (go) go.onclick = async () => {
+      try {
+        const x = await postJson('/api/passerelle/essai', { reseau: $('#pe-reseau').value, canal: $('#pe-canal').value, nom: $('#pe-nom').value, texte: $('#pe-texte').value });
+        $('#pe-resultat').innerHTML = `<b>${x.relaye ? '✅ Relayé' : '❌ Pas relayé'}</b>${x.motif ? ' : ' + esc(x.motif) : ''}${(x.etapes || []).map((s) => '<br>• ' + esc(s)).join('')}${(x.sorties || []).map((s) => `<br>→ ${s.vers === 'mc' ? 'MeshCore' : 'Meshtastic'} ${esc(s.canal)} : <span class="mono">${esc(s.texte)}</span>`).join('')}`;
+      } catch (e) { $('#pe-resultat').textContent = e.message; }
+    }; }
+    { const be = $('#pp-prof-enr'); if (be) be.onclick = async () => { try { await postJson('/api/passerelle/profils', { nom: $('#pp-prof-nom').value }); rendrePasserelle(true); } catch (e) { $('#pp-retour').textContent = e.message; } }; }
+    z.querySelectorAll('[data-prof-charger]').forEach((b) => (b.onclick = async () => { if (!(await confirmer(`Charger le profil « ${b.dataset.profCharger} » ? Il remplace les liaisons, la liste noire et les réglages actuels.`, { ok: 'Charger' }))) return; try { await postJson('/api/passerelle/profils', { action: 'charger', nom: b.dataset.profCharger }); rendrePasserelle(true); } catch (e) { $('#pp-retour').textContent = e.message; } }));
+    z.querySelectorAll('[data-prof-suppr]').forEach((b) => (b.onclick = async () => { await postJson('/api/passerelle/profils', { action: 'supprimer', nom: b.dataset.profSuppr }).catch(() => {}); rendrePasserelle(true); }));
     z.querySelectorAll('.pp-canal').forEach((el) => (el.onclick = () => {
       const c = { index: el.dataset.index !== undefined ? Number(el.dataset.index) : null, nom: el.dataset.nom };
       if (el.dataset.cote === 'mt') pp.choixMt = c; else pp.choixMc = c;

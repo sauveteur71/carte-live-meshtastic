@@ -18,6 +18,10 @@ Par règle, des **filtres** : expéditeurs bloqués, mot requis, mots exclus (ex
 
 Le canal principal Meshtastic (canal 0) est exclu par défaut (autorisable dans les réglages).
 
+## Essayer un message, profils
+- **🧪 Essayer un message** (onglet Liaisons) : indiquez le réseau d'arrivée, le canal, l'expéditeur et un texte. La passerelle dit ce qu'elle en ferait (relayé, vers quel canal, avec quel texte, ou refusé et pourquoi). **Rien n'est envoyé.**
+- **🗂️ Profils** : enregistrez la configuration actuelle (liaisons, liste noire, réglages) sous un nom (« normal », « crise »…) et rechargez-la d'un clic.
+
 ## Protections toujours actives
 - **Anti-écho** : ce qu'envoient nos propres modules n'est jamais repris (sinon tout serait doublé).
 - **Anti-boucle** : un texte qui commence par `[MT]` ou `[MC]` (préfixes réglables) n'est jamais retransmis.

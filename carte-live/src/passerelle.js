@@ -176,6 +176,7 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
       actif: donnees.activee,
       modules: { mt: { connecte: !!mt.connecte, nom: mt.nomLocal || null, canaux: mt.canaux || [] }, mc: { connecte: !!mc.pret, nom: mc.nom || null, canaux: mc.canaux || [] } },
       // Canaux connus de la carte (réglages), proposés quand le module ou le companion n'est pas relié
+      profils: profils(),
       canauxConnus: {
         mt: (config.canaux || []).map((c) => c.nom).filter(Boolean),
         mc: ((config.meshcore && config.meshcore.canaux) || []).map((c) => String(c).split('=')[0].trim()).filter(Boolean),
@@ -303,6 +304,59 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
     return l;
   }
 
+  // Essai à blanc : ce que la passerelle ferait d'un message, sans rien envoyer ni rien compter
+  function essayer(m) {
+    const texte = String(m.texte || '').trim(), etapes = [];
+    const refus = (motif) => ({ relaye: false, motif, etapes });
+    if (!texte || !m.canal) return refus('message ou canal vide');
+    if (!donnees.activee) return refus('passerelle désactivée');
+    const regles = donnees.regles.filter((x) => (m.reseau === 'mt' ? norm(x.mt.nom) === norm(m.canal) && x.sens !== 'mc2mt' : norm(x.mc.nom) === norm(m.canal) && x.sens !== 'mt2mc'));
+    if (!regles.length) return refus(`aucune liaison ne part du canal ${m.reseau === 'mt' ? 'Meshtastic' : 'MeshCore'} « ${m.canal} »`);
+    const pre = [r().prefixeMt, r().prefixeMc].map((p) => p.replace(/\]$/, ''));
+    if (pre.some((p) => texte.startsWith(p))) return refus(MOTIFS.prefixe);
+    if (r().pause) return refus(MOTIFS.pause);
+    if (surListeNoire(m.reseau, m.de, m.nom)) return refus(MOTIFS.listeNoire);
+    const sorties = [];
+    for (const regle of regles) {
+      const vers = m.reseau === 'mt' ? 'mc' : 'mt', f = regle.filtres || {};
+      const non = (motif) => etapes.push(`${regle.libelle} : refusé (${motif})`);
+      if (!regle.actif) { non('liaison suspendue'); continue; }
+      const bloques = String(f.expediteurs || '').split(/[,;\n]/).map(norm).filter(Boolean);
+      if (bloques.some((b) => b === norm(m.nom))) { non(MOTIFS.expediteur); continue; }
+      if (f.motRequis && !texte.toLowerCase().includes(String(f.motRequis).toLowerCase())) { non(MOTIFS.motcle); continue; }
+      if (f.motExclu && String(f.motExclu).split(/[,;]/).map((x) => x.trim().toLowerCase()).filter(Boolean).some((x) => texte.toLowerCase().includes(x))) { non(MOTIFS.motcle); continue; }
+      if (texte.length < (Number(f.longueurMin) || 2)) { non(MOTIFS.longueur); continue; }
+      if (f.silence && heuresSilence(f.silence)) { non(MOTIFS.silence); continue; }
+      const sortie = tronquer(`${prefixe(vers, m.nom || null)} ${texte}`, vers === 'mc' ? LIMITE_MC : LIMITE_MT);
+      const c = indexCanal(vers, regle[vers].nom);
+      etapes.push(`${regle.libelle} : ${c == null ? `serait relayé, mais le canal « ${regle[vers].nom} » est absent ${vers === 'mc' ? 'du module MeshCore' : 'du module Meshtastic'} (ou le module n’est pas relié)` : 'relayé'}`);
+      sorties.push({ vers, canal: regle[vers].nom, texte: sortie, pret: c != null });
+    }
+    return { relaye: sorties.length > 0, sorties, etapes, motif: sorties.length ? null : 'refusé par les filtres' };
+  }
+  // Profils : image complète (liaisons, liste noire, réglages) enregistrée sous un nom (« normal », « crise »…)
+  function profils() { return Object.entries(donnees.profils || {}).map(([nom, p]) => ({ nom, regles: (p.regles || []).length, heure: p.heure, par: p.par })); }
+  function enregistrerProfil(nom, qui) {
+    nom = String(nom || '').trim().toLowerCase();
+    if (!/^[a-z0-9_-]{1,20}$/.test(nom)) throw new Error('Nom de profil : 1 à 20 lettres, chiffres, - ou _');
+    donnees.profils = donnees.profils || {};
+    if (Object.keys(donnees.profils).length >= 12 && !donnees.profils[nom]) throw new Error('12 profils au plus');
+    donnees.profils[nom] = JSON.parse(JSON.stringify({ regles: donnees.regles, listeNoire: donnees.listeNoire, reglages: donnees.reglages, heure: Date.now(), par: qui }));
+    sauver();
+    journal(`[Passerelle] profil « ${nom} » enregistré par ${qui}`);
+    return profils();
+  }
+  function chargerProfil(nom, qui) {
+    const p = (donnees.profils || {})[String(nom || '').toLowerCase()];
+    if (!p) throw new Error('Profil inconnu');
+    donnees.regles = JSON.parse(JSON.stringify(p.regles || [])); donnees.listeNoire = JSON.parse(JSON.stringify(p.listeNoire || [])); donnees.reglages = { ...DEFAUT, ...(p.reglages || {}) };
+    files.clear();
+    sauver();
+    journal(`[Passerelle] profil « ${nom} » chargé par ${qui}`);
+    noter('drop', `profil « ${nom} » chargé par ${qui}`, null);
+    return vue();
+  }
+  function supprimerProfil(nom) { if (donnees.profils) delete donnees.profils[String(nom || '').toLowerCase()]; sauver(); return profils(); }
   function activer(oui, qui) {
     donnees.activee = !!oui;
     if (!oui) { files.clear(); }
@@ -312,7 +366,7 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
     return vue();
   }
   if (donnees.activee) journal(`[Passerelle] activée : ${donnees.regles.length} règle(s)${donnees.reglages.pause ? ', en pause' : ''}`);
-  return { activer, active: () => donnees.activee, recevoir, vue, alertes, ajouterRegle, modifierRegle, supprimerRegle, regler, bloquer, modifierBlocage, debloquer, MOTIFS, SENS, nomMt };
+  return { essayer, profils, enregistrerProfil, chargerProfil, supprimerProfil, activer, active: () => donnees.activee, recevoir, vue, alertes, ajouterRegle, modifierRegle, supprimerRegle, regler, bloquer, modifierBlocage, debloquer, MOTIFS, SENS, nomMt };
 }
 
 module.exports = { creerPasserelle, LIMITE_MT, LIMITE_MC };

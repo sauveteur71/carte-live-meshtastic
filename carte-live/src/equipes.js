@@ -15,7 +15,7 @@ const crypto = require('crypto');
 
 const NOM_VALIDE = /^[A-Za-z0-9_+\-.]{1,11}$/;
 
-function creerEquipes({ config, administration, journal }) {
+function creerEquipes({ config, administration, journal, positionDe = () => null }) {
   const { racine } = require('./decodeur');
   try { racine.lookupType('meshtastic.ChannelSet'); } catch { racine.loadSync(['meshtastic/apponly.proto']); }
   const dossier = path.dirname(config.fichierBase);
@@ -89,9 +89,13 @@ function creerEquipes({ config, administration, journal }) {
     const membres = Object.entries(e.membres).map(([num, m]) => ({
       num: Number(num), etat: m.etat, depuis: m.depuis, index: m.index ?? null,
       aJour: m.etat === 'membre' && m.version === e.version, dernier: m.dernier || null,
+      position: positionDe(Number(num)),
     }));
+    // Sans nouvelle : position plus vieille que 3 fois l'intervalle de suivi (30 min au moins)
+    const limite = e.suiviMin ? Math.max(30, 3 * e.suiviMin) * 60000 : 0;
+    for (const m of membres) m.sansNouvelle = !!(limite && m.etat === 'membre' && (!m.position || Date.now() - m.position.heure > limite));
     return {
-      id: e.id, nom: e.nom, description: e.description || '', positions: !!e.positions, version: e.version,
+      id: e.id, nom: e.nom, description: e.description || '', positions: !!e.positions, version: e.version, suiviMin: e.suiviMin || 0, dernierSuivi: e.dernierSuivi || null,
       empreinte: psk ? empreinte(psk) : null, cleLisible: !!psk, creee: e.creee, auteur: e.auteur, cleChangee: e.cleChangee || null,
       membres, nbMembres: membres.filter((m) => m.etat === 'membre').length,
       aJour: membres.filter((m) => m.aJour).length,
@@ -128,8 +132,9 @@ function creerEquipes({ config, administration, journal }) {
     return vue(e);
   }
 
-  function modifier(id, { description, positions }) {
+  function modifier(id, { description, positions, suiviMin }) {
     const e = exiger(id);
+    if (suiviMin !== undefined) { const v = Number(suiviMin); if (![0, 5, 10, 15, 30, 60].includes(v)) throw new Error('Intervalle de suivi invalide'); e.suiviMin = v; }
     if (description != null) e.description = String(description).slice(0, 120);
     if (positions != null) e.positions = !!positions;
     sauver(true);
@@ -192,7 +197,28 @@ function creerEquipes({ config, administration, journal }) {
     return { nom: e.nom, cle: psk.toString('base64'), empreinte: empreinte(psk), url: `https://meshtastic.org/e/?add=true#${b64url}` };
   }
 
+  // Suivi : demande de position aux membres à intervalle régulier (3 s entre deux nœuds), module relié
+  const minutSuivi = setInterval(() => {
+    try {
+      if (!administration.infos().connecte) return;
+      const t = Date.now();
+      for (const e of liste) {
+        if (!e.suiviMin || t - (e.dernierSuivi || 0) < e.suiviMin * 60000) continue;
+        const nums = Object.entries(e.membres).filter(([, m]) => m.etat === 'membre').map(([n]) => Number(n));
+        e.dernierSuivi = t; sauver();
+        nums.forEach((n, i) => setTimeout(() => { try { administration.demanderPosition(n, 'suivi ' + e.nom); } catch { /* module coupé */ } }, i * 3000));
+      }
+    } catch (x) { journal('[Équipes] suivi :', x.message); }
+  }, 60000);
+  minutSuivi.unref();
+  // Alertes : membre sans nouvelle
+  function alertes(nomDe = () => null) {
+    const l = [];
+    for (const e of liste.map(vue)) for (const m of e.membres) if (m.sansNouvelle) l.push({ cle: `equipe:${e.id}:${m.num}`, type: 'equipe', niveau: 'attention', noeud: m.num, depuis: m.position ? m.position.heure : Date.now(), message: `Équipe ${e.nom} : ${nomDe(m.num) || '!' + m.num.toString(16)} sans position depuis ${m.position ? Math.round((Date.now() - m.position.heure) / 60000) + ' min' : 'le début du suivi'}` });
+    return l;
+  }
   return {
+    alertes,
     liste: () => liste.map(vue),
     equipe: (id) => vue(exiger(id)),
     creer, modifier, membres, reappliquer, nouvelleCle, supprimer, exporter,

@@ -47,4 +47,6 @@ Pour en envoyer une :
 ## Choisir ce qu'on affiche
 Un **seul menu *Canal*** en haut de l'onglet sert à lire et à écrire : le canal choisi est celui dont on voit les messages et celui où part le message tapé. **✉️ Mes messages directs** affiche le choix du destinataire. **Tous les canaux** et **Relayés par la passerelle** sont en lecture seule, comme un canal que le module de la carte n'a pas. Répondre à un message choisit son canal. Même fonctionnement dans MeshCore › Messages, avec les canaux du companion.
 
+Le menu *Canal* liste aussi les canaux de l'autre réseau (groupe **MeshCore** dans les messages Meshtastic, groupe **Meshtastic** dans les messages MeshCore) : en choisir un y mène directement.
+
 Le menu *Canal* ne montre que le nombre de **nouveaux** messages de chaque canal (« · 3 nouveaux »). **✉️ Mes messages directs** ne garde que les messages directs envoyés ou reçus par vos modules (module principal et modules en écoute reliés à la carte), pas ceux échangés entre d'autres nœuds.

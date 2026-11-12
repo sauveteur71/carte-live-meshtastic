@@ -121,7 +121,8 @@ function creerSignalements({ config, radio, administration, companion, reseauMc,
   function texteAnnonce(s, fin) {
     const t = TYPES[s.type] || TYPES.autre;
     if (fin) return `✅ Fin : ${t.icone} ${s.titre || t.nom} · ${coords(s)}`;
-    return `${t.icone} ${s.titre || t.nom}${s.details ? ' : ' + s.details : ''} · ${coords(s)} · ${s.auteur}`;
+    const suite = s.trace && s.forme === 'ligne' ? ` → ${s.trace[s.trace.length - 1][0].toFixed(5)},${s.trace[s.trace.length - 1][1].toFixed(5)}` : s.forme === 'zone' ? ' (zone)' : '';
+    return `${t.icone} ${s.titre || t.nom}${s.details ? ' : ' + s.details : ''} · ${coords(s)}${suite} · ${s.auteur}`;
   }
 
   // Envoie sur les réseaux demandés ; chaque canal a son propre état (une panne n'empêche pas les autres)
@@ -164,7 +165,14 @@ function creerSignalements({ config, radio, administration, companion, reseauMc,
     const envois = {};
     if (mt.length) envois.mt = mt.map((canal) => ({ canal, statut: 'attente' }));
     if (b.mc != null && b.mc !== '') envois.mc = { canal: Number(b.mc), statut: 'attente' };
+    // Tronçon (ligne) ou zone (polygone) : liste de points ; le point de passage LoRa reste au premier point
+    let forme = 'point', trace = null;
+    if (Array.isArray(b.trace) && b.trace.length >= 2 && ['ligne', 'zone'].includes(b.forme)) {
+      trace = b.trace.slice(0, 40).map((p) => [Number(p[0]), Number(p[1])]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]) && Math.abs(p[0]) <= 90 && Math.abs(p[1]) <= 180);
+      if (trace.length >= (b.forme === 'zone' ? 3 : 2)) forme = b.forme; else trace = null;
+    }
     const s = {
+      forme, trace,
       id: crypto.randomBytes(5).toString('hex'), idPoint: crypto.randomBytes(4).readUInt32LE(0) >>> 0 || 1, source: 'carte',
       type, titre, details, lat, lon, auteur, cree: Date.now(), expire: Date.now() + heures * 3600000, fin: null, envois, texte: b.texte !== false,
     };
@@ -239,7 +247,53 @@ function creerSignalements({ config, radio, administration, companion, reseauMc,
     return liste.filter((s) => actif(s) || (s.fin || s.expire) > limite).map(vue).sort((a, b) => b.cree - a.cree);
   }
 
-  return { canaux, creer, terminer, renvoyer, recu, lister, TYPES };
+  // ---- Alertes Bipper / GerMaCrise (F4EED) : « #alerte N texte #entité », « #fin N », accusés « Pager ACK alerte #N … » ----
+  const fAlertes = path.join(path.dirname(config.fichierBase), 'alertes-bipper.json');
+  let alertes = { prochain: 1, liste: [] };
+  try { alertes = { ...alertes, ...JSON.parse(fs.readFileSync(fAlertes, 'utf8')) }; } catch { /* aucune */ }
+  const sauverAlertes = () => { try { fs.writeFileSync(fAlertes, JSON.stringify(alertes)); } catch { /* lecture seule */ } };
+  const GENRES = { alerte: '#alerte', secours: '#secours', vigilance: '#vigilance', info: '#info' };
+  function envoyerAlerte(b, auteur) {
+    const genre = GENRES[b.genre] ? b.genre : 'alerte';
+    const texte = String(b.texte || '').trim().replace(/\s+/g, ' ');
+    if (!texte) throw new Error('Texte de l’alerte vide');
+    const entites = String(b.entites || '').split(/[\s,;]+/).map((x) => x.replace(/^#/, '').trim()).filter((x) => /^[\p{L}\p{N}_-]{1,20}$/u.test(x)).slice(0, 6);
+    const canal = Number(b.canal);
+    const n = alertes.prochain;
+    const message = couper(`${GENRES[genre]} ${n} ${texte}${entites.length ? ' ' + entites.map((x) => '#' + x).join(' ') : ''}`, 200);
+    administration.envoyerTexte({ texte: message, canal }, auteur);
+    alertes.prochain = n >= 9999 ? 1 : n + 1;
+    const a = { n, genre, texte, entites, canal, message, heure: Date.now(), auteur, fin: null, acks: [] };
+    alertes.liste.push(a);
+    if (alertes.liste.length > 200) alertes.liste = alertes.liste.slice(-200);
+    sauverAlertes();
+    journal(`[Alertes] ${GENRES[genre]} ${n} envoyée par ${auteur} sur le canal ${canal}`);
+    diffuser({ genre: 'signalement', alerte: n });
+    return a;
+  }
+  function finAlerte(n, auteur) {
+    const a = alertes.liste.find((x) => x.n === Number(n) && !x.fin);
+    if (!a) throw new Error('Alerte inconnue ou déjà clôturée');
+    administration.envoyerTexte({ texte: `#fin ${a.n}${a.entites.length ? ' ' + a.entites.map((x) => '#' + x).join(' ') : ''}`, canal: a.canal }, auteur);
+    a.fin = Date.now(); a.finPar = auteur;
+    sauverAlertes();
+    diffuser({ genre: 'signalement', alerte: a.n });
+    return a;
+  }
+  // Message texte capté : accusé de lecture d'un pager (« Pager ACK alerte #42 31/07 10:35 — texte | 45.1N 4.5E »)
+  function texteRecu(evt) {
+    const m = String(evt.texte || '').match(/^Pager ACK alerte\s+#?(\d+)?/i);
+    if (!m) return;
+    const de = evt.de >>> 0;
+    const a = m[1] ? [...alertes.liste].reverse().find((x) => x.n === Number(m[1])) : [...alertes.liste].reverse().find((x) => !x.fin);
+    if (!a || a.acks.some((k) => k.de === de)) return;
+    a.acks.push({ de, nom: nomNoeud(de) || '!' + de.toString(16).padStart(8, '0'), heure: Date.now(), texte: String(evt.texte).slice(0, 160) });
+    sauverAlertes();
+    diffuser({ genre: 'signalement', alerte: a.n });
+  }
+  const listerAlertes = () => alertes.liste.filter((a) => Date.now() - a.heure < 7 * 86400000).slice().reverse();
+
+  return { canaux, creer, terminer, renvoyer, recu, lister, TYPES, envoyerAlerte, finAlerte, texteRecu, listerAlertes, GENRES };
 }
 
 module.exports = { creerSignalements, TYPES, CATEGORIES };

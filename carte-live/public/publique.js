@@ -310,6 +310,7 @@ async function rafraichirSignalements() {
   coucheSig.clearLayers();
   const e = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   for (const s of l) {
+    if (s.trace && s.trace.length > 1) (s.forme === 'zone' ? L.polygon(s.trace, { color: '#dc2626', weight: 3, fillOpacity: 0.18 }) : L.polyline(s.trace, { color: '#dc2626', weight: 6, opacity: 0.85 })).addTo(coucheSig);
     L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'sig-marqueur', html: `<span>${e(s.icone)}</span>`, iconSize: [34, 34], iconAnchor: [17, 17] }), title: s.titre, zIndexOffset: 900 })
       .bindPopup(`<b>${e(s.icone)} ${e(s.titre)}</b>${s.details ? '<br>' + e(s.details) : ''}<br><small>signalé le ${new Date(s.cree).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</small>`).addTo(coucheSig);
   }

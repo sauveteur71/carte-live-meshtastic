@@ -374,6 +374,12 @@ function mcAjouterAuFlux(p) {
 let mcFiltreMsg = (() => { try { return localStorage.getItem('mcFiltreMessages') || ''; } catch { return ''; } })();
 const memeCanalMc = (a, b) => String(a || '').replace(/^#/, '').toLowerCase() === String(b || '').replace(/^#/, '').toLowerCase();
 function choisirFiltreMc(v) { mcFiltreMsg = v || ''; try { localStorage.setItem('mcFiltreMessages', mcFiltreMsg); } catch { /* navigation privée */ } }
+// Canaux MeshCore connus (companion relié, ou canaux vus dans les messages) : proposés aussi dans le menu Meshtastic
+function canauxMcConnus() {
+  const l = [];
+  for (const x of [...(((mc.etat || {}).companion || {}).canaux || []).map((k) => k.nom), ...(mc.canauxVus || [])]) if (x && !l.some((y) => memeCanalMc(x, y))) l.push(x);
+  return l;
+}
 async function mcRendreMessages() {
   const z = $('#mc-contenu');
   if (!etat.membre) { z.innerHTML = '<div class="vide">Connectez-vous pour lire les messages MeshCore.</div>'; return; }
@@ -404,7 +410,8 @@ async function mcRendreMessages() {
         return `<option value="">Tous${tx(tot)}</option>
       ${filtreCanaux.map((x) => `<option value="c:${esc(x)}" ${mcFiltreMsg === 'c:' + x ? 'selected' : ''}>📢 ${esc(x)}${tx(nl('mc:' + String(x).toLowerCase()))}</option>`).join('')}
       <option value="direct" ${mcFiltreMsg === 'direct' ? 'selected' : ''}>✉️ Messages directs${tx(nl('mcdirect'))}</option>
-      ${etat.config.passerelle || l.some((m) => estRelaye(m.texte)) ? `<option value="passerelle" ${mcFiltreMsg === 'passerelle' ? 'selected' : ''}>⇄ Relayés par la passerelle</option>` : ''}`; })()}
+      ${etat.config.passerelle || l.some((m) => estRelaye(m.texte)) ? `<option value="passerelle" ${mcFiltreMsg === 'passerelle' ? 'selected' : ''}>⇄ Relayés par la passerelle</option>` : ''}
+      ${typeof envoi !== 'undefined' && (envoi.canaux || []).length ? `<optgroup label="Meshtastic">${envoi.canaux.map((k) => `<option value="mt:${esc(k.nom)}">📢 ${esc(k.nom)}</option>`).join('')}</optgroup>` : ''}`; })()}
     </select></label></div>
     ${peutEnvoyer ? `<form id="mc-envoi" class="envoi">
       <div class="envoi-ligne"><select id="mc-dest" aria-label="Destinataire" ${enDirect ? '' : 'hidden'}>${!dest ? '<option value="" selected disabled>— destinataire —</option>' : ''}
@@ -417,7 +424,13 @@ async function mcRendreMessages() {
       <div class="note" id="mc-retour-envoi">${esc(lectureSeule)}</div>
     </form>` : `<p class="note">${etat.admin ? 'Reliez un companion (onglet Companion) pour envoyer des messages.' : 'L’envoi est réservé aux administrateurs.'}</p>`}
     <div id="mc-messages" class="flux">${vus.length ? vus.map(mcLigneMessage).join('') : `<div class="vide">${mcFiltreMsg ? 'Aucun message dans ce choix.' : 'Aucun message pour l’instant.'}</div>`}</div>`;
-  $('#mc-filtre-msg').onchange = (e) => { choisirFiltreMc(e.target.value); mcRendreMessages(); };
+  mc.canauxVus = filtreCanaux;
+  $('#mc-filtre-msg').onchange = (e) => {
+    const v = e.target.value;
+    // Canal Meshtastic choisi : on passe aux messages Meshtastic, sur ce canal
+    if (v.startsWith('mt:')) { choisirFiltreMessages('c:' + v.slice(3)); if (typeof cliquerOnglet === 'function') { ergo.groupe = 'messages'; cliquerOnglet('messages', 'messages'); } return; }
+    choisirFiltreMc(v); mcRendreMessages();
+  };
   epinglerMessages(vus.map((m) => ({ texte: m.texte, heure: m.heure, qui: m.nomDe })));
   if (!peutEnvoyer) return;
   { const bp = $('#mc-btn-position'); if (bp) bp.onclick = () => { const c = carte.getCenter(); insererPosition($('#mc-texte'), c.lat, c.lng); }; }

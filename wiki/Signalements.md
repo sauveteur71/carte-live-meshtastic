@@ -9,6 +9,12 @@ Clic droit (ou appui long) sur la carte › **🚩 Signaler un événement ici**
 - **Meshtastic** : les canaux du module où envoyer. Par défaut **Fr_Balise** et **Alerte**, comme GerMaCrise ; la carte retient ensuite votre dernier choix ;
 - **MeshCore** : un canal du companion, si le companion est relié.
 
+## Tronçon ou zone
+**Forme** : *Un point* (par défaut), *Un tronçon* (route inondée entre deux points ou plus) ou *Une zone* (périmètre). Pour un tronçon ou une zone, touchez la carte pour poser les points suivants (« Retirer le dernier » pour corriger). Le tracé s'affiche en rouge sur la carte et sur la carte publique. En LoRa, le point de passage reste au premier point ; le message texte d'un tronçon donne aussi son point d'arrivée.
+
+## Alertes Bipper / GerMaCrise
+*Outils › 🚩 Signalements*, bloc **📟 Alertes Bipper** (gestionnaires) : type (alerte, secours, vigilance, info), canal (par défaut **Alerte**), texte et entités visées. La carte envoie `#alerte N texte #entité` avec un numéro qui s'incrémente, au format des pagers Bipper et de GerMaCrise (F4EED). Les **accusés de lecture** des pagers (`Pager ACK alerte #N …`) s'affichent sous l'alerte, avec le nom du nœud. **✅ Clôturer** envoie `#fin N`.
+
 ## Ce qui part en LoRa
 - **Meshtastic** : un **point de passage** (*waypoint*, port 8) sur chaque canal coché, 500 ms d'écart, priorité alerte, sans accusé (comme GerMaCrise). Il apparaît sur la carte des applis Meshtastic avec son icône et disparaît à la fin de la durée choisie, et sur les Bipper / GerMaCrise. En option (coché par défaut), un **message texte** sur les mêmes canaux : `🌊 Axe inondé : RD 103… · 45.07401,3.90015 · F4GLD`.
 - **MeshCore** : le même message texte sur le canal choisi (coupé à 140 octets).

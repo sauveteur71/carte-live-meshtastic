@@ -19,6 +19,9 @@ Nom du canal (11 caractères au plus, sans accent ni espace), description, et op
 ## Demander les positions
 **📍 Demander les positions** : chaque nœud de l'équipe renvoie sa position (une demande toutes les 3 s pour ne pas saturer le canal). Les réponses s'affichent en bas de l'écran ; un clic centre la carte sur le nœud. Pour un seul nœud : clic droit sur le nœud › **📍 Demander sa position** (gestionnaire), comme « Demander la position » dans l'appli. Le nœud doit avoir sa position activée et recevoir le module de la carte (canal principal en commun, ou clé publique échangée).
 
+### Suivi automatique
+**Suivi des positions** (à la demande, ou toutes les 5, 10, 15, 30 ou 60 min) : la carte demande leur position aux membres à cet intervalle. Chaque membre affiche l'âge de sa dernière position (« voir » centre la carte). Un membre **sans nouvelle** (position plus vieille que 3 intervalles, 30 min au moins) est signalé en rouge et dans les alertes du réseau. Chaque demande est un paquet radio : gardez un intervalle raisonnable.
+
 ## Nœud perdu ou volé : nouvelle clé
 Retirer un nœud n'efface le canal **que s'il est joignable**. Pour un nœud perdu, volé ou qui ne répond plus : retirez-le de l'équipe, puis **🔑 Nouvelle clé** (taper `NOUVELLE CLE`). Tous les membres reçoivent la nouvelle clé ; l'ancien nœud ne comprend plus rien. Tant qu'un membre n'a pas reçu la nouvelle clé, il ne comprend plus les autres : renvoyez-la jusqu'à ce que tous soient à jour.
 
