@@ -3,6 +3,7 @@
 // Archivé chaque lundi matin dans /data/rapports (52 gardés), consultable à tout moment pour les 7 derniers jours.
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -106,7 +107,7 @@ ${mc ? section('MeshCore', `<p>${mc.repeteurs} répéteur(s) dans la zone, dont 
   const nomFichier = (t) => `rapport-${new Date(t).toISOString().slice(0, 10)}.html`;
   function archiver() {
     const f = path.join(dossier, nomFichier(Date.now()));
-    fs.writeFileSync(f, construire());
+    ecrireSur(f, construire());
     const l = fs.readdirSync(dossier).filter((x) => /^rapport-\d{4}-\d\d-\d\d\.html$/.test(x)).sort();
     for (const x of l.slice(0, Math.max(0, l.length - 52))) { try { fs.unlinkSync(path.join(dossier, x)); } catch { /* ignoré */ } }
     journal(`[Rapport] rapport hebdomadaire archivé (${path.basename(f)})`);

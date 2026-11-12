@@ -3,6 +3,7 @@
 // (route carrossable, piste 4×4, chemin pédestre). Résultats gardés sur disque (90 jours).
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 
 const SERVEURS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
@@ -70,7 +71,7 @@ function evaluer(p, voies) {
 function creerAcces(dossier, journal, suffixe = '') {
   const fichier = path.join(dossier, `acces-sommets${suffixe}.json`);
   let cache = {};
-  try { cache = JSON.parse(fs.readFileSync(fichier, 'utf8')); } catch { /* vide */ }
+  try { cache = lireJson(fichier); } catch { /* vide */ }
   const cle = (p) => p.lat.toFixed(4) + ',' + p.lon.toFixed(4);
   let enCours = false, arrete = false;
   const etat = { total: 0, faits: 0, erreur: null };
@@ -115,7 +116,7 @@ function creerAcces(dossier, journal, suffixe = '') {
         }
         for (const p of lot) { p.acces = evaluer(p, voies); cache[cle(p)] = { date: Date.now(), acces: p.acces }; }
         etat.faits += lot.length;
-        try { fs.writeFileSync(fichier, JSON.stringify(cache)); } catch { /* lecture seule */ }
+        try { ecrireSur(fichier, JSON.stringify(cache)); } catch { /* lecture seule */ }
         if (apres) apres();
         await new Promise((r) => setTimeout(r, 4000));
       }

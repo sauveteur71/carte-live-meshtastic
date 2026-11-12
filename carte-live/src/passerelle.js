@@ -19,6 +19,7 @@
 //  - coalescence facultative par règle (EF-10e) ; journal motivé de chaque rejet (EF-10f).
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 const crypto = require('crypto');
 const DFCI = require('../public/dfci.js');
@@ -32,10 +33,10 @@ const DEFAUT = { prefixeMt: '[MT]', prefixeMc: '[MC]', avecExpediteur: true, ttl
 function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, etatMt, etatMc }) {
   const fichier = path.join(path.dirname(config.fichierBase), 'passerelle.json');
   let donnees = { regles: [], listeNoire: [], reglages: { ...DEFAUT } };
-  try { const d = JSON.parse(fs.readFileSync(fichier, 'utf8')); donnees = { ...donnees, ...d, reglages: { ...DEFAUT, ...(d.reglages || {}) } }; } catch { /* aucun */ }
+  try { const d = lireJson(fichier); donnees = { ...donnees, ...d, reglages: { ...DEFAUT, ...(d.reglages || {}) } }; } catch { /* aucun */ }
   // Activée ou non : choix de l'administrateur gardé dans passerelle.json, sinon la valeur du .env
   if (typeof donnees.activee !== 'boolean') donnees.activee = !!config.passerelle.actif;
-  const sauver = () => { try { fs.writeFileSync(fichier, JSON.stringify(donnees, null, 1), { mode: 0o600 }); } catch (e) { journal('[Passerelle] enregistrement impossible :', e.message); } };
+  const sauver = () => { try { ecrireSur(fichier, JSON.stringify(donnees, null, 1), { mode: 0o600 }); } catch (e) { journal('[Passerelle] enregistrement impossible :', e.message); } };
 
   // ---- Journal, statistiques ----
   const jrn = []; // { heure, type: in|out|drop, texte }

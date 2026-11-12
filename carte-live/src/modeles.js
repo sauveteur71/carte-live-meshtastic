@@ -4,6 +4,7 @@
 // de l'outil officiel en ligne de commande (`meshtastic --export-config` / `meshtastic --configure`).
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 const yaml = require('js-yaml');
 
@@ -120,8 +121,8 @@ function nettoyer(m, { ROLES = [], REDIFFUSIONS = [] } = {}) {
 function creerModeles(dossier, { ROLES, REDIFFUSIONS }) {
   const fichier = path.join(dossier, 'modeles-programmation.json');
   let perso = [];
-  try { perso = JSON.parse(fs.readFileSync(fichier, 'utf8')); } catch { /* aucun */ }
-  const sauver = () => { try { fs.writeFileSync(fichier, JSON.stringify(perso, null, 1)); } catch { /* lecture seule */ } };
+  try { perso = lireJson(fichier); } catch { /* aucun */ }
+  const sauver = () => { try { ecrireSur(fichier, JSON.stringify(perso, null, 1)); } catch { /* lecture seule */ } };
 
   const liste = () => [...INTEGRES, ...perso];
   const obtenir = (id) => liste().find((m) => m.id === id) || null;

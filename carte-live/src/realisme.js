@@ -5,6 +5,7 @@
 //  - habitation la plus proche (hameau, village, maison isolée) : raccordement électrique probable ou solaire.
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 
 const SERVEURS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
@@ -31,7 +32,7 @@ function dansAnneaux(p, anneaux) {
 function creerRealisme(dossier, journal, suffixe, emprise) {
   const fichier = path.join(dossier, `realisme${suffixe}.json`);
   let donnees = null; // { date, supports, zones, habitations }
-  try { donnees = JSON.parse(fs.readFileSync(fichier, 'utf8')); } catch { /* absent */ }
+  try { donnees = lireJson(fichier); } catch { /* absent */ }
   const etat = { pret: !!(donnees && donnees.supports && donnees.zones && donnees.habitations), erreur: null, date: donnees ? donnees.date : null };
   let enCours = null;
 
@@ -95,7 +96,7 @@ function creerRealisme(dossier, journal, suffixe, emprise) {
       }
       if (erreurs.length && perime) neuf.date = donnees.date; // garder l'ancienne date : on réessaiera
       donnees = neuf;
-      try { fs.writeFileSync(fichier, JSON.stringify(donnees)); } catch { /* lecture seule */ }
+      try { ecrireSur(fichier, JSON.stringify(donnees)); } catch { /* lecture seule */ }
       etat.pret = complet(); etat.date = donnees.date; etat.erreur = erreurs.length ? erreurs.join(' ; ') : null;
       journal(`[Sites] ${(donnees.supports || []).length} supports, ${(donnees.zones || []).length} zones protégées, ${(donnees.habitations || []).length} lieux habités${erreurs.length ? ' — manquent : ' + erreurs.join(' ; ') : ''}`);
       if (erreurs.length && ++essais < 5) setTimeout(() => { charger().then(() => { if (dernierePasse) completer(dernierePasse.points, dernierePasse.apres); }).catch(() => {}); }, 15 * 60000).unref();

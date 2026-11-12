@@ -10,6 +10,7 @@
 // - Retirer un nœud d'une équipe n'efface la clé que s'il est joignable : pour un nœud perdu ou volé, changer la clé.
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 const crypto = require('crypto');
 
@@ -25,7 +26,7 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
   const fichier = path.join(dossier, 'equipes.json');
   const fichierMaitre = path.join(dossier, 'cle-equipes.bin');
   let liste = [];
-  try { liste = JSON.parse(fs.readFileSync(fichier, 'utf8')).equipes || []; } catch { /* aucune */ }
+  try { liste = lireJson(fichier).equipes || []; } catch { /* aucune */ }
 
   let maitre = null;
   function cleMaitre() {
@@ -36,7 +37,7 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
       try { maitre = fs.readFileSync(fichierMaitre); } catch { /* à créer */ }
       if (!maitre || maitre.length !== 32) {
         maitre = crypto.randomBytes(32);
-        fs.writeFileSync(fichierMaitre, maitre, { mode: 0o600 });
+        ecrireSur(fichierMaitre, maitre, { mode: 0o600 });
         journal('[Équipes] clé maîtresse créée (cle-equipes.bin) : pensez à définir CLE_EQUIPES dans le .env pour pouvoir restaurer une sauvegarde');
       }
     }
@@ -59,7 +60,7 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
   let minuterie = null;
   function sauver(tout = false) {
     clearTimeout(minuterie);
-    const ecrire = () => { try { fs.writeFileSync(fichier, JSON.stringify({ equipes: liste }), { mode: 0o600 }); } catch (e) { journal('[Équipes] enregistrement impossible :', e.message); } };
+    const ecrire = () => { try { ecrireSur(fichier, JSON.stringify({ equipes: liste }), { mode: 0o600 }); } catch (e) { journal('[Équipes] enregistrement impossible :', e.message); } };
     if (tout) ecrire(); else minuterie = setTimeout(ecrire, 300);
   }
   const trouver = (id) => liste.find((e) => e.id === id);

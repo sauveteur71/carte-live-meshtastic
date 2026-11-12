@@ -2,6 +2,7 @@
 // Départements voisins du département configuré (à partir du contour des 96 départements métropolitains)
 // → zone « département + voisins » : codes, noms et rectangle englobant.
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 
 function anneaux(geom) {
@@ -18,7 +19,7 @@ function rectangle(f) {
 
 function calculerVoisins(code, zoneDep) {
   let d;
-  try { d = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'), 'utf8')); } catch { return null; }
+  try { d = lireJson(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson')); } catch { return null; }
   const feats = d.features || [];
   const dep = feats.find((f) => String(f.properties.code) === String(code));
   if (!dep) return null;
@@ -68,7 +69,7 @@ let cacheRegions = null;
 function calculerRegions() {
   if (cacheRegions) return cacheRegions;
   let d;
-  try { d = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'), 'utf8')); } catch { return []; }
+  try { d = lireJson(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson')); } catch { return []; }
   const parCode = new Map((d.features || []).map((f) => [String(f.properties.code), f]));
   cacheRegions = REGIONS.map(([code, nom, deps]) => {
     const bbox = [90, 180, -90, -180];

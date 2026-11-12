@@ -9,6 +9,7 @@
 // Deux répéteurs voisins qui commencent par le même octet rendent les chemins à 1 octet ambigus.
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('../fichiers');
 const path = require('path');
 const { decoderPaquet } = require('./paquet');
 
@@ -17,8 +18,8 @@ const RELAIS = new Set(['repeteur', 'salon']);
 function creerAuditMc({ db, config, reseauMc, journal }) {
   const fichier = path.join(path.dirname(config.fichierBase), 'meshcore-regions-declarees.json');
   let declarees = {};
-  try { declarees = JSON.parse(fs.readFileSync(fichier, 'utf8')) || {}; } catch { /* aucun */ }
-  const sauver = () => { try { fs.writeFileSync(fichier, JSON.stringify(declarees)); } catch { /* lecture seule */ } };
+  try { declarees = lireJson(fichier) || {}; } catch { /* aucun */ }
+  const sauver = () => { try { ecrireSur(fichier, JSON.stringify(declarees)); } catch { /* lecture seule */ } };
   const q = {
     paquets: db.prepare(`SELECT rowid, brut, chemin, route FROM mc_paquets WHERE heure >= ? AND route IN ('TRANSPORT_FLOOD', 'FLOOD') AND sauts > 0`),
     chemins: db.prepare('SELECT DISTINCT chemin FROM mc_receptions WHERE paquet = ? AND chemin IS NOT NULL'),

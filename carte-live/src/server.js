@@ -2,6 +2,7 @@
 // Carte live Meshtastic — serveur : MQTT -> décodage -> SQLite -> API REST + WebSocket temps réel
 
 const http = require('http');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 const net = require('net');
 const crypto = require('crypto');
@@ -332,7 +333,7 @@ const reliefsEtude = new Map();
 // pour que le premier calcul d'un département soit rapide.
 const fReliefPublic = path.join(path.dirname(config.fichierBase), 'relief-public.json');
 let reliefPublic = { couverture: 'departement' };
-try { reliefPublic = { ...reliefPublic, ...JSON.parse(fs.readFileSync(fReliefPublic, 'utf8')) }; } catch { /* défaut */ }
+try { reliefPublic = { ...reliefPublic, ...lireJson(fReliefPublic) }; } catch { /* défaut */ }
 const franceOuverte = () => reliefPublic.couverture === 'france';
 const precharge = { enCours: false, arret: false, total: 0, faits: 0, deja: 0, erreurs: [], courant: null, etape: null, aCompleter: [], instance: null, debut: null, fin: null };
 const reliefSurDisque = (code) => ['mnt-' + code + '.bin', 'sommets-osm-' + code + '.json'].every((f) => fs.existsSync(path.join(path.dirname(config.fichierBase), f)));
@@ -377,7 +378,7 @@ async function prechargerFrance() {
   if (precharge.enCours) return;
   const codes = listeDepartements.map((d) => d.code).filter((c) => c !== String(config.departement.code).toUpperCase());
   // Gardé sur disque : après un redémarrage de la carte (mise à jour), la préparation reprend où elle en était
-  reliefPublic.preparation = true; try { fs.writeFileSync(fReliefPublic, JSON.stringify(reliefPublic)); } catch { /* lecture seule */ }
+  reliefPublic.preparation = true; try { ecrireSur(fReliefPublic, JSON.stringify(reliefPublic)); } catch { /* lecture seule */ }
   Object.assign(precharge, { enCours: true, arret: false, total: codes.length, faits: 0, deja: 0, erreurs: [], courant: null, etape: null, aCompleter: [], debut: Date.now(), fin: null });
   journal(`[Relief] préparation de toute la France : ${codes.length} départements`);
   // D'abord le paquet « relief France » publié sur GitHub (un seul téléchargement), s'il manque des départements
@@ -424,12 +425,12 @@ async function prechargerFrance() {
   // « Télécharger et installer » : la carte publique passe d'elle-même en « tous les départements » une fois prête
   if (!precharge.arret && reliefPublic.activerFrance) {
     reliefPublic.couverture = 'france'; reliefPublic.activerFrance = false;
-    try { fs.writeFileSync(fReliefPublic, JSON.stringify(reliefPublic)); } catch { /* lecture seule */ }
+    try { ecrireSur(fReliefPublic, JSON.stringify(reliefPublic)); } catch { /* lecture seule */ }
     journal('[Relief] toute la France prête : la carte publique calcule maintenant dans tous les départements');
   }
   journal(`[Relief] préparation de la France ${precharge.arret ? 'arrêtée' : 'terminée'} : ${precharge.faits}/${precharge.total} (${precharge.erreurs.length} erreur(s))`);
   Object.assign(precharge, { enCours: false, courant: null, fin: Date.now() });
-  if (!redemarrageEnCours) { reliefPublic.preparation = false; try { fs.writeFileSync(fReliefPublic, JSON.stringify(reliefPublic)); } catch { /* lecture seule */ } }
+  if (!redemarrageEnCours) { reliefPublic.preparation = false; try { ecrireSur(fReliefPublic, JSON.stringify(reliefPublic)); } catch { /* lecture seule */ } }
 }
 let redemarrageEnCours = false;
 process.once('SIGTERM', () => { redemarrageEnCours = true; });
@@ -458,7 +459,7 @@ let contoursDeps = null;
 function departementDuPoint(lat, lon) {
   if (!contoursDeps) {
     try {
-      contoursDeps = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'), 'utf8')).features.map((f) => ({
+      contoursDeps = lireJson(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson')).features.map((f) => ({
         code: f.properties.code, poly: f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates,
       }));
     } catch { contoursDeps = []; }
@@ -516,11 +517,11 @@ app.post('/api/relief/france', (req, res) => {
   if (b.couverture !== undefined) {
     if (!['departement', 'france'].includes(b.couverture)) return res.status(400).json({ erreur: 'choix invalide' });
     reliefPublic.couverture = b.couverture;
-    try { fs.writeFileSync(fReliefPublic, JSON.stringify(reliefPublic)); } catch (e) { return res.status(500).json({ erreur: e.message }); }
+    try { ecrireSur(fReliefPublic, JSON.stringify(reliefPublic)); } catch (e) { return res.status(500).json({ erreur: e.message }); }
     journal(`[Relief] couverture de la carte publique : ${b.couverture === 'france' ? 'toute la France' : 'département de la carte'} (${utilisateur(req).identifiant})`);
   }
   if (b.precharger === true) {
-    if (b.activer) { reliefPublic.activerFrance = true; try { fs.writeFileSync(fReliefPublic, JSON.stringify(reliefPublic)); } catch { /* lecture seule */ } }
+    if (b.activer) { reliefPublic.activerFrance = true; try { ecrireSur(fReliefPublic, JSON.stringify(reliefPublic)); } catch { /* lecture seule */ } }
     prechargerFrance();
   }
   if (b.precharger === false && precharge.enCours) precharge.arret = true;
@@ -643,12 +644,12 @@ app.get('/api/relief/couverture-reseau', (req, res) => {
 // Principales villes d'un département (API Géo de l'État), gardées sur le disque
 async function villesDepartement(code) {
   const f = path.join(path.dirname(config.fichierBase), `villes-${code}.json`);
-  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* à télécharger */ }
+  try { return lireJson(f); } catch { /* à télécharger */ }
   const r = await fetch(`https://geo.api.gouv.fr/departements/${encodeURIComponent(code)}/communes?fields=nom,centre,population&format=json`, { signal: AbortSignal.timeout(15000) });
   if (!r.ok) throw new Error('API Géo : HTTP ' + r.status);
   const l = (await r.json()).filter((c) => c.centre && c.population).sort((a, b) => b.population - a.population).slice(0, 20)
     .map((c) => ({ nom: c.nom, lat: c.centre.coordinates[1], lon: c.centre.coordinates[0], population: c.population }));
-  fs.writeFileSync(f, JSON.stringify(l));
+  ecrireSur(f, JSON.stringify(l));
   return l;
 }
 // Déplacer des relais existants : calcul en arrière-plan (1 à 3 min), résultat gardé jusqu'au prochain classement
@@ -694,11 +695,11 @@ app.get('/api/relief/sites-routiers', async (req, res) => {
 // Toutes les communes d'un département (centre, population), pour les habitants couverts
 async function communesDepartement(code) {
   const f = path.join(path.dirname(config.fichierBase), `communes-${code}.json`);
-  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* à télécharger */ }
+  try { return lireJson(f); } catch { /* à télécharger */ }
   const r = await fetch(`https://geo.api.gouv.fr/departements/${encodeURIComponent(code)}/communes?fields=nom,centre,population&format=json`, { signal: AbortSignal.timeout(20000) });
   if (!r.ok) throw new Error('API Géo : HTTP ' + r.status);
   const l = (await r.json()).filter((c) => c.centre && c.population).map((c) => ({ nom: c.nom, lat: c.centre.coordinates[1], lon: c.centre.coordinates[0], population: c.population }));
-  fs.writeFileSync(f, JSON.stringify(l));
+  ecrireSur(f, JSON.stringify(l));
   return l;
 }
 // Plan à budget : n relais, coûts unitaires (€) facultatifs
@@ -778,7 +779,7 @@ app.get('/api/relief/couverture/:id.png', (req, res) => {
 const cacheRecherche = new Map();
 const sansAccents = (t) => String(t).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[-']/g, ' ');
 let reperes = [];
-try { reperes = JSON.parse(require('fs').readFileSync(path.join(__dirname, '..', 'donnees-ref', `reperes-${config.departement.code}.json`), 'utf8')); } catch { /* facultatif */ }
+try { reperes = lireJson(path.join(__dirname, '..', 'donnees-ref', `reperes-${config.departement.code}.json`)); } catch { /* facultatif */ }
 app.get('/api/reperes', (req, res) => res.json(reperes.map(({ alias, ...r }) => r)));
 const distKm = (a, b) => { const r = Math.PI / 180; const s = Math.sin(((b.lat - a.lat) * r) / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(((b.lon - a.lon) * r) / 2) ** 2; return 12742 * Math.asin(Math.sqrt(s)); };
 app.get('/api/recherche', async (req, res) => {
@@ -1472,7 +1473,7 @@ const fTrReglages = path.join(path.dirname(config.fichierBase), 'traceroutes-reg
 const cfgTrEnv = { cibles: [...config.radio.tracerouteCibles], intervalle: config.radio.tracerouteIntervalleMinutes };
 function appliquerReglagesTr() {
   let r = {};
-  try { r = JSON.parse(require('fs').readFileSync(fTrReglages, 'utf8')); } catch { /* aucun */ }
+  try { r = lireJson(fTrReglages); } catch { /* aucun */ }
   config.radio.tracerouteCibles = Array.isArray(r.cibles) && r.cibles.length ? r.cibles.map(String) : cfgTrEnv.cibles;
   config.radio.tracerouteHeures = r.heures === 'nuit' ? 'nuit' : 'toujours';
   if (Number.isFinite(r.intervalle)) config.radio.tracerouteIntervalleMinutes = r.intervalle;
@@ -1487,7 +1488,7 @@ app.post('/api/traceroutes/reglages', (req, res) => {
     heures: b.heures === 'nuit' ? 'nuit' : 'toujours',
     intervalle: Math.min(Math.max(Number(b.intervalle) || 180, 0), 1440),
   };
-  try { require('fs').writeFileSync(fTrReglages, JSON.stringify(r)); } catch (e) { return res.status(500).json({ erreur: e.message }); }
+  try { ecrireSur(fTrReglages, JSON.stringify(r)); } catch (e) { return res.status(500).json({ erreur: e.message }); }
   res.json(appliquerReglagesTr());
 });
 // Synthèse : pour chaque nœud tracé depuis 7 jours, dernier chemin mesuré, taux de réponse, changement de route
@@ -1813,7 +1814,7 @@ app.delete('/api/comptes/:id', (req, res) => {
 // ---- Installation et réglages ---------------------------------------------------------
 let listeDepartements = [];
 try {
-  listeDepartements = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'), 'utf8')).features
+  listeDepartements = lireJson(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson')).features
     .map((f) => ({ code: f.properties.code, nom: f.properties.nom, bbox: emprise(f.geometry) })).sort((a, b) => a.code.localeCompare(b.code));
 } catch { /* liste indisponible */ }
 app.get('/api/departements', (req, res) => res.json(listeDepartements));
@@ -1884,11 +1885,8 @@ function sansValeursEnv(r) {
 }
 function enregistrerReglagesEtRedemarrer(r, qui) {
   sansValeursEnv(r);
-  // Écriture sûre : fichier temporaire puis renommage (une coupure de courant ne laisse jamais un fichier tronqué),
-  // et l'ancienne version est gardée en reglages.json.bak
-  try { fs.copyFileSync(config.fichierReglages, config.fichierReglages + '.bak'); } catch { /* premiers réglages */ }
-  fs.writeFileSync(config.fichierReglages + '.tmp', JSON.stringify(r, null, 1), { mode: 0o600 });
-  fs.renameSync(config.fichierReglages + '.tmp', config.fichierReglages);
+  // Écriture sûre (voir fichiers.js) : l'ancienne version est gardée en reglages.json.bak
+  ecrireSur(config.fichierReglages, JSON.stringify(r, null, 1), { mode: 0o600 });
   journal(`Réglages enregistrés par ${qui}, redémarrage du service…`);
   setTimeout(() => process.exit(0), 1200); // Docker relance le conteneur (restart: unless-stopped)
 }
@@ -1903,7 +1901,7 @@ function preparerCodeInstallation() {
   if (!codeInstallationAuto) {
     const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     codeInstallationAuto = [...crypto.randomBytes(8)].map((b) => A[b % A.length]).join('').replace(/(.{4})(?=.)/, '$1-');
-    try { fs.writeFileSync(f, codeInstallationAuto, { mode: 0o600 }); } catch { /* lecture seule */ }
+    try { ecrireSur(f, codeInstallationAuto, { mode: 0o600 }); } catch { /* lecture seule */ }
   }
   journal('==================================================================');
   journal(`Installation : code d'installation ${codeInstallationAuto}`);
@@ -3010,7 +3008,7 @@ app.get('/api/sauvegarde-complete', (req, res) => {
   try { fs.unlinkSync(copie); } catch { /* absente */ }
   try { stockage.db.exec(`VACUUM INTO '${copie.replace(/'/g, "''")}'`); } catch (e) { return res.status(500).json({ erreur: 'copie de la base impossible : ' + e.message }); }
   const base = path.basename(config.fichierBase);
-  const exclus = ['mnt*.bin', 'mnt*.json', 'sommets-osm*.json', 'acces-sommets*.json', 'communes*.json', 'realisme*.json', 'firmware', 'sauvegardes', '*.part', base, base + '-wal', base + '-shm', 'maj-jeton.txt', 'restauration-en-attente', 'avant-restauration-*', 'restauration.tar.gz'];
+  const exclus = ['mnt*.bin', 'mnt*.json', 'sommets-osm*.json', 'acces-sommets*.json', 'communes*.json', 'realisme*.json', 'firmware', 'sauvegardes', '*.part', base, base + '-wal', base + '-shm', 'maj-jeton.txt', 'restauration-en-attente', 'avant-restauration-*', 'restauration.tar.gz', '*.tmp', '*.bak'];
   journal(`[Sauvegarde] sauvegarde complète téléchargée par ${utilisateur(req).identifiant}`);
   res.set('Content-Type', 'application/gzip').set('Content-Disposition', `attachment; filename="carte-live-complete-${new Date().toISOString().slice(0, 10)}.tar.gz"`);
   const { spawn } = require('child_process');
@@ -3058,13 +3056,13 @@ app.post('/api/restauration-complete', (req, res) => {
 // ---- Mise à jour automatique la nuit (option, administrateur) ----
 const fMajAuto = path.join(path.dirname(config.fichierBase), 'maj-auto.json');
 let majAuto = { actif: false, heure: 4 };
-try { majAuto = { ...majAuto, ...JSON.parse(fs.readFileSync(fMajAuto, 'utf8')) }; } catch { /* défaut */ }
+try { majAuto = { ...majAuto, ...lireJson(fMajAuto) }; } catch { /* défaut */ }
 app.get('/api/maj/auto', (req, res) => { if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); res.json(majAuto); });
 app.post('/api/maj/auto', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const b = req.body || {};
   majAuto = { actif: !!b.actif, heure: Math.min(23, Math.max(0, Number.isFinite(Number(b.heure)) ? Math.round(Number(b.heure)) : 4)) };
-  try { fs.writeFileSync(fMajAuto, JSON.stringify(majAuto)); } catch (e) { return res.status(500).json({ erreur: e.message }); }
+  try { ecrireSur(fMajAuto, JSON.stringify(majAuto)); } catch (e) { return res.status(500).json({ erreur: e.message }); }
   journal(`[Mise à jour] automatique ${majAuto.actif ? 'activée à ' + majAuto.heure + ' h' : 'désactivée'} par ${utilisateur(req).identifiant}`);
   res.json(majAuto);
 });

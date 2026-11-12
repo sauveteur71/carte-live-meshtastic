@@ -3,6 +3,7 @@
 // (mot de passe mémorisé, configuration déjà lue) et conformité automatique chaque nuit.
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('../fichiers');
 const path = require('path');
 
 const versionNum = (v) => { const m = /(\d+)\.(\d+)(?:\.(\d+))?/.exec(String(v || '')); return m ? [+m[1], +m[2], +(m[3] || 0)] : null; };
@@ -11,8 +12,8 @@ const comparer = (a, b) => (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]);
 function creerMaintenanceMc({ config, reseauMc, adminMc, companion, journal }) {
   const fConf = path.join(path.dirname(config.fichierBase), 'meshcore-conformite.json');
   let conf = { actif: false, heure: 3, reference: null, elements: null, dernier: null, tache: null, lancee: 0 };
-  try { conf = { ...conf, ...JSON.parse(fs.readFileSync(fConf, 'utf8')) }; } catch { /* aucune */ }
-  const sauver = () => { try { fs.writeFileSync(fConf, JSON.stringify(conf)); } catch { /* lecture seule */ } };
+  try { conf = { ...conf, ...lireJson(fConf) }; } catch { /* aucune */ }
+  const sauver = () => { try { ecrireSur(fConf, JSON.stringify(conf)); } catch { /* lecture seule */ } };
 
   // Dernières versions publiées (une par type de firmware : repeater, room-server, companion)
   let versions = null;

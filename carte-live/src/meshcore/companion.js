@@ -14,6 +14,7 @@
 // Les commandes sont envoyées une par une : chaque commande attend sa réponse (ou une erreur) avant la suivante.
 
 const net = require('net');
+const { ecrireSur, lireJson } = require('../fichiers');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -71,8 +72,8 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
   const ecoute = options.ecoute || null;
   const fMemo = ecoute ? null : path.join(path.dirname(config.fichierBase), 'meshcore-companion.json');
   let memo = { cible: ecoute ? ecoute.cible || null : null, connus: [] };
-  if (fMemo) try { memo = { ...memo, ...JSON.parse(fs.readFileSync(fMemo, 'utf8')) }; } catch { /* premier lancement */ }
-  const sauver = () => { if (!fMemo) return; try { fs.writeFileSync(fMemo, JSON.stringify(memo, null, 1)); } catch (e) { journal('sauvegarde impossible :', e.message); } };
+  if (fMemo) try { memo = { ...memo, ...lireJson(fMemo) }; } catch { /* premier lancement */ }
+  const sauver = () => { if (!fMemo) return; try { ecrireSur(fMemo, JSON.stringify(memo, null, 1)); } catch (e) { journal('sauvegarde impossible :', e.message); } };
 
   let flux = null; // socket TCP, socket d'agent ou flux WebSocket du navigateur
   let tampon = Buffer.alloc(0);

@@ -5,6 +5,7 @@
 // on lui envoie « OUVRIR » : il ouvre le module et relaie le flux Meshtastic tel quel.
 
 const net = require('net');
+const { ecrireSur, lireJson } = require('./fichiers');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -20,13 +21,13 @@ function creerAgents(config, { surArrivee } = {}) {
   const fCode = path.join(path.dirname(config.fichierBase), 'code-agents.txt');
   let code;
   try { code = fs.readFileSync(fCode, 'utf8').trim(); } catch { /* premier lancement */ }
-  if (!code) { code = nouveauCode(); try { fs.writeFileSync(fCode, code, { mode: 0o600 }); } catch { /* lecture seule */ } }
+  if (!code) { code = nouveauCode(); try { ecrireSur(fCode, code, { mode: 0o600 }); } catch { /* lecture seule */ } }
   const agents = new Map(); // hote (agent-xxx) -> { nom, source, socket, depuis, ip, version, occupe, relais, reseaux }
   // Modules Wi-Fi d'un autre réseau, joints par leur adresse IP à travers le relais du réseau local d'un agent (1.6+)
   const fPseudos = path.join(path.dirname(config.fichierBase), 'relais-ip.json');
   const pseudos = new Map(); // hote -> { hote, nom, adresse (ip:port), relaisDe, protocole, occupe }
-  try { for (const p of JSON.parse(fs.readFileSync(fPseudos, 'utf8'))) pseudos.set(p.hote, { ...p, occupe: false }); } catch { /* aucun */ }
-  const sauverPseudos = () => { try { fs.writeFileSync(fPseudos, JSON.stringify([...pseudos.values()].map(({ occupe, ...p }) => p))); } catch { /* lecture seule */ } };
+  try { for (const p of lireJson(fPseudos)) pseudos.set(p.hote, { ...p, occupe: false }); } catch { /* aucun */ }
+  const sauverPseudos = () => { try { ecrireSur(fPseudos, JSON.stringify([...pseudos.values()].map(({ occupe, ...p }) => p))); } catch { /* lecture seule */ } };
   const ipVersNombre = (ip) => ip.split('.').reduce((a, x) => a * 256 + Number(x), 0);
   const dansReseau = (ip, cidr) => {
     const [base, l] = cidr.split('/'); const n = Number(l);
@@ -97,7 +98,7 @@ function creerAgents(config, { surArrivee } = {}) {
     code: () => code,
     renouvelerCode() {
       code = nouveauCode();
-      try { fs.writeFileSync(fCode, code, { mode: 0o600 }); } catch { /* lecture seule */ }
+      try { ecrireSur(fCode, code, { mode: 0o600 }); } catch { /* lecture seule */ }
       for (const a of agents.values()) if (!a.occupe) a.socket.destroy();
       journal('nouveau code des agents (les agents en attente doivent être reconfigurés)');
       return code;

@@ -5,6 +5,7 @@
 // Attention : un module ESP32 n'accepte qu'un seul client TCP à la fois.
 
 const net = require('net');
+const { ecrireSur, lireJson } = require('./fichiers');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -39,10 +40,10 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
   const fModules = path.join(path.dirname(config.fichierBase), 'modules-radio.json');
   let memo;
   if (ecoute) memo = { modules: [{ hote: ecoute.hote, port: ecoute.port, nom: ecoute.nom || null }], actif: { hote: ecoute.hote, port: ecoute.port } };
-  else try { memo = JSON.parse(fs.readFileSync(fModules, 'utf8')); } catch {
+  else try { memo = lireJson(fModules); } catch {
     memo = { modules: cfg.hote ? [{ hote: cfg.hote, port: cfg.port, nom: null }] : [], actif: cfg.hote ? { hote: cfg.hote, port: cfg.port } : null };
   }
-  const sauver = () => { if (ecoute) return; try { fs.writeFileSync(fModules, JSON.stringify(memo, null, 1)); } catch (e) { journal('sauvegarde des modules impossible :', e.message); } };
+  const sauver = () => { if (ecoute) return; try { ecrireSur(fModules, JSON.stringify(memo, null, 1)); } catch (e) { journal('sauvegarde des modules impossible :', e.message); } };
   let arretVoulu = !memo.actif;
   let minuterieReconnexion = null;
   let repriseAuto = null;
@@ -298,7 +299,7 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
       enConfiguration = false;
       mettreAJourCanaux();
       // Copie de référence des canaux et du réglage LoRa du module (fichier réservé à l'administrateur du NAS)
-      if (!ecoute) try { fs.writeFileSync(path.join(path.dirname(config.fichierBase), 'config-module.json'), JSON.stringify({ heure: Date.now(), noeud: etat.noeudLocal, ...configBrute }, null, 1), { mode: 0o600 }); } catch { /* ignore */ }
+      if (!ecoute) try { ecrireSur(path.join(path.dirname(config.fichierBase), 'config-module.json'), JSON.stringify({ heure: Date.now(), noeud: etat.noeudLocal, ...configBrute }, null, 1), { mode: 0o600 }); } catch { /* ignore */ }
       try { require('./reglages-noeuds').enregistrer(etat.noeudLocal, { canaux: configBrute.canaux.filter(Boolean), lora: configBrute.lora, source: 'module' }); } catch (e) { console.error('[Radio] réglages :', e.message); }
       const local = etat.noeudLocal != null ? q.noeud.get(etat.noeudLocal) : null;
       etat.nomLocal = local ? local.nom_long || local.nom_court : null;

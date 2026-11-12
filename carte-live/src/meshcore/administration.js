@@ -6,6 +6,7 @@
 // Les opérations sont des tâches (une seule à la fois, la radio étant partagée), suivies en direct par la page.
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('../fichiers');
 const path = require('path');
 const crypto = require('crypto');
 
@@ -94,10 +95,10 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
   const dossier = path.dirname(config.fichierBase);
   const fMdp = path.join(dossier, 'meshcore-admin.json');
   const fLectures = path.join(dossier, 'meshcore-lectures.json');
-  const lire = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return {}; } };
+  const lire = (f) => { try { return lireJson(f); } catch { return {}; } };
   const motsDePasse = lire(fMdp); // clé -> mot de passe (fichier lisible seulement par le service)
   const lectures = lire(fLectures); // clé -> { heure, valeurs, infos, statut, voisins }
-  const ecrire = (f, o) => { try { fs.writeFileSync(f, JSON.stringify(o), { mode: 0o600 }); } catch (e) { journal('enregistrement impossible :', e.message); } };
+  const ecrire = (f, o) => { try { ecrireSur(f, JSON.stringify(o), { mode: 0o600 }); } catch (e) { journal('enregistrement impossible :', e.message); } };
 
   const taches = new Map();
   const file = [];
@@ -185,7 +186,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
   }
   function restaurerTaches() {
     let l = [];
-    try { l = JSON.parse(fs.readFileSync(fTaches, 'utf8')); } catch { return; }
+    try { l = lireJson(fTaches); } catch { return; }
     const aReprendre = [];
     for (const t of l) {
       t.motDePasse = null;
@@ -557,7 +558,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
   // ---- Modèles de réglages MeshCore (créés depuis un répéteur ou à la main), appliqués à plusieurs nœuds ----
   const fModeles = path.join(dossier, 'meshcore-modeles.json');
   let modeles = [];
-  try { modeles = JSON.parse(fs.readFileSync(fModeles, 'utf8')); } catch {
+  try { modeles = lireJson(fModeles); } catch {
     // Premier lancement : configuration de base d'un répéteur du réseau français (régions eu › fr › fr-ara › fr-43)
     modeles = [{
       id: 'base-repeteur-fr43', nom: 'Répéteur de base (FR-43)', description: 'Configuration de base d’un répéteur : annonces, AGC, accusés, cycle d’émission, hachages 2 octets, détection des boucles, sauts limités hors région, régions eu › fr › fr-ara › fr-43.',

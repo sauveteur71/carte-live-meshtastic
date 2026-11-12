@@ -4,6 +4,7 @@
 // des emplacements intéressants à proposer pour des relais. Cache d'une semaine dans /data/sites-routiers.json.
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 
 const SOURCE = 'https://www.inforoute43.fr/mod_turbolead/mod/inforoute/index.php?action=383';
@@ -11,7 +12,7 @@ const SOURCE = 'https://www.inforoute43.fr/mod_turbolead/mod/inforoute/index.php
 function creerSitesRoutiers(config, journal) {
   const fichier = path.join(path.dirname(config.fichierBase), 'sites-routiers.json');
   let donnees = null;
-  try { donnees = JSON.parse(fs.readFileSync(fichier, 'utf8')); } catch { /* absent */ }
+  try { donnees = lireJson(fichier); } catch { /* absent */ }
 
   async function charger() {
     if (donnees && Date.now() - donnees.date < 7 * 86400000) return donnees;
@@ -34,7 +35,7 @@ function creerSitesRoutiers(config, journal) {
         };
       });
       donnees = { date: Date.now(), source: 'inforoute43.fr', sites };
-      try { fs.writeFileSync(fichier, JSON.stringify(donnees)); } catch { /* lecture seule */ }
+      try { ecrireSur(fichier, JSON.stringify(donnees)); } catch { /* lecture seule */ }
       journal(`[Sites routiers] ${sites.length} sites chargés (inforoute43.fr)`);
     } catch (e) { journal('[Sites routiers] chargement impossible :', e.message); }
     return donnees || { date: null, sites: [] };

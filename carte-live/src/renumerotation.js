@@ -5,14 +5,15 @@
 // Deux nœuds ACTIFS en même temps avec la même clé = configuration clonée (problème de sécurité et de routage PKI).
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 
 function creerRenumerotation({ stockage, config, installations, comptes, administration, journal }) {
   const db = stockage.db;
   const fHisto = path.join(path.dirname(config.fichierBase), 'renumerotations.json');
   let histo = [];
-  try { histo = JSON.parse(fs.readFileSync(fHisto, 'utf8')); } catch { /* aucun */ }
-  const sauver = () => { try { fs.writeFileSync(fHisto, JSON.stringify(histo.slice(-200))); } catch { /* lecture seule */ } };
+  try { histo = lireJson(fHisto); } catch { /* aucun */ }
+  const sauver = () => { try { ecrireSur(fHisto, JSON.stringify(histo.slice(-200))); } catch { /* lecture seule */ } };
   const id = (num) => '!' + (num >>> 0).toString(16).padStart(8, '0');
   const nom = (n) => (n && (n.nom_long || n.nom_court)) || (n ? id(n.num) : '?');
   const q = {

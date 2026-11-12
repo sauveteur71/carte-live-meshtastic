@@ -3,14 +3,15 @@
 // et récupère celles des bulles voisines déclarées par l'admin. Les relais voisins apparaissent sur la carte
 // et comptent dans les calculs de couverture près des limites du département.
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 
 function creerFederation({ config, stockage, reseau, installations, journal, version }) {
   const fichier = path.join(path.dirname(config.fichierBase), 'federation.json');
   let donnees = { partenaires: [] };
-  try { donnees = JSON.parse(fs.readFileSync(fichier, 'utf8')); } catch { /* aucune */ }
+  try { donnees = lireJson(fichier); } catch { /* aucune */ }
   const etats = new Map(); // url → { heure, erreur, instance, relais, liens }
-  const sauver = () => { try { fs.writeFileSync(fichier, JSON.stringify(donnees, null, 1)); } catch { /* ignoré */ } };
+  const sauver = () => { try { ecrireSur(fichier, JSON.stringify(donnees, null, 1)); } catch { /* ignoré */ } };
 
   // Ce que cette carte publie : relais et passerelles positionnés, entendus depuis 3 jours, et leurs liaisons
   function publier() {

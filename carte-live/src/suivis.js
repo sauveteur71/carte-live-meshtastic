@@ -7,6 +7,7 @@
 // mémorisé), moins ceux retirés à la main.
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 
 const normaliser = (id) => {
@@ -20,8 +21,8 @@ const normaliser = (id) => {
 function creerSuivis(config, { autoAdministres }) {
   const fichier = path.join(path.dirname(config.fichierBase), 'suivis.json');
   let memo = {};
-  try { memo = JSON.parse(fs.readFileSync(fichier, 'utf8')) || {}; } catch { /* aucun */ }
-  const sauver = () => { try { fs.writeFileSync(fichier, JSON.stringify(memo)); } catch { /* lecture seule */ } };
+  try { memo = lireJson(fichier) || {}; } catch { /* aucun */ }
+  const sauver = () => { try { ecrireSur(fichier, JSON.stringify(memo)); } catch { /* lecture seule */ } };
   const de = (u) => { const k = String(u.identifiant); if (!memo[k]) memo[k] = { favoris: [], administres: [], exclus: [] }; return memo[k]; };
 
   function lire(u) {

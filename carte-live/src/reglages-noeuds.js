@@ -4,6 +4,7 @@
 // Le fichier contient les clés des canaux : réservé à l'administrateur (mode 600, API admin uniquement).
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 const QRCode = require('qrcode');
 const config = require('./config');
@@ -15,13 +16,13 @@ const ChannelSet = racine.lookupType('meshtastic.ChannelSet');
 const dossier = path.dirname(config.fichierBase);
 const fichier = path.join(dossier, 'configs-noeuds.json');
 let cache = {};
-try { cache = JSON.parse(fs.readFileSync(fichier, 'utf8')); } catch { /* premier lancement */ }
+try { cache = lireJson(fichier); } catch { /* premier lancement */ }
 
 function enregistrer(num, { canaux, lora, source }) {
   num = Number(num) >>> 0;
   if (!num || !Array.isArray(canaux) || !canaux.length) return;
   cache[num] = { heure: Date.now(), source, canaux, lora: lora || null };
-  try { fs.writeFileSync(fichier, JSON.stringify(cache), { mode: 0o600 }); } catch { /* volume en lecture seule */ }
+  try { ecrireSur(fichier, JSON.stringify(cache), { mode: 0o600 }); } catch { /* volume en lecture seule */ }
 }
 
 function obtenir(num) {
@@ -29,7 +30,7 @@ function obtenir(num) {
   let r = cache[num] || null;
   // Copie écrite par radio.js à chaque connexion du module (versions antérieures)
   try {
-    const m = JSON.parse(fs.readFileSync(path.join(dossier, 'config-module.json'), 'utf8'));
+    const m = lireJson(path.join(dossier, 'config-module.json'));
     if ((m.noeud >>> 0) === num && (!r || m.heure > r.heure)) r = { heure: m.heure, source: 'module', canaux: (m.canaux || []).filter(Boolean), lora: m.lora };
   } catch { /* absent */ }
   return r;

@@ -10,13 +10,14 @@
 // que le temps de la page.
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 
 function creerEcoutes({ config, fabriquerRadio, fabriquerCompanion, journal, surChangement }) {
   const fichier = path.join(path.dirname(config.fichierBase), 'modules-ecoute.json');
   let memo = { meshtastic: [], meshcore: [] };
-  try { memo = { ...memo, ...JSON.parse(fs.readFileSync(fichier, 'utf8')) }; } catch { /* aucun */ }
-  const sauver = () => { try { fs.writeFileSync(fichier, JSON.stringify(memo, null, 1)); } catch (e) { journal('sauvegarde des modules en écoute impossible :', e.message); } };
+  try { memo = { ...memo, ...lireJson(fichier) }; } catch { /* aucun */ }
+  const sauver = () => { try { ecrireSur(fichier, JSON.stringify(memo, null, 1)); } catch (e) { journal('sauvegarde des modules en écoute impossible :', e.message); } };
   const radios = new Map(); // "hote:port" -> { hote, port, nom, navigateur, source, instance }
   const companions = new Map(); // clé -> { cle, cible, nom, navigateur, source, instance }
   const cleRadio = (hote, port) => `${hote}:${port}`;

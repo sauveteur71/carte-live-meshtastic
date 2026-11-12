@@ -4,6 +4,7 @@
 //  - niveau Vigipirate, réglé à la main (aucun flux officiel lisible par un programme) ;
 //  - alertes FR-Alert relayées à la main (FR-Alert passe par les antennes des téléphones, sans flux public fiable).
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 
 const URL_METEOALARM = process.env.METEOALARM_URL || 'https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-france';
@@ -26,7 +27,7 @@ const balise = (bloc, nom) => { const m = new RegExp(`<${nom}[^>]*>([\\s\\S]*?)<
 function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer, envoyerMc = null, diffuser }) {
   const fichier = path.join(path.dirname(config.fichierBase), 'alertes-officielles.json');
   let d = {};
-  try { d = JSON.parse(fs.readFileSync(fichier, 'utf8')); } catch { /* premier démarrage */ }
+  try { d = lireJson(fichier); } catch { /* premier démarrage */ }
   const etat = {
     // Diffusion LoRa : désactivée par défaut ; canaux Meshtastic par nom ; niveau de vigilance minimal diffusé
     // departements : codes suivis (vide = celui de la carte) ; canalMc : canal MeshCore (vide = pas d'envoi MeshCore)
@@ -37,7 +38,7 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
     dejaDiffuse: d.dejaDiffuse || {}, // clé (département|phénomène|couleur|fin) → date
     maj: null, erreur: null,
   };
-  const sauver = () => { try { fs.writeFileSync(fichier, JSON.stringify({ reglages: etat.reglages, vigipirate: etat.vigipirate, frAlert: etat.frAlert.slice(0, 50), dejaDiffuse: etat.dejaDiffuse })); } catch (e) { journal('[Alertes] sauvegarde :', e.message); } };
+  const sauver = () => { try { ecrireSur(fichier, JSON.stringify({ reglages: etat.reglages, vigipirate: etat.vigipirate, frAlert: etat.frAlert.slice(0, 50), dejaDiffuse: etat.dejaDiffuse })); } catch (e) { journal('[Alertes] sauvegarde :', e.message); } };
 
   async function diffuserTexte(texte) {
     const envois = [];

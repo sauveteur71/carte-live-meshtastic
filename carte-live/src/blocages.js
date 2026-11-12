@@ -12,6 +12,7 @@
 // - Les blocages sont gardés sur disque (un redémarrage ne les lève pas) ; un administrateur peut débloquer.
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 
 const FENETRE = 15 * 60000;
@@ -23,10 +24,10 @@ function creerBlocages(config, journal) {
   const fichier = path.join(path.dirname(config.fichierBase), 'blocages.json');
   // ip:<adresse> ou compte:<identifiant> -> { echecs: [heures], jusqua, niveau, dernierBlocage }
   let etat = {};
-  try { etat = JSON.parse(fs.readFileSync(fichier, 'utf8')) || {}; } catch { /* aucun */ }
+  try { etat = lireJson(fichier) || {}; } catch { /* aucun */ }
   let minuterie = null;
-  const sauver = () => { clearTimeout(minuterie); minuterie = setTimeout(() => { try { fs.writeFileSync(fichier, JSON.stringify(etat), { mode: 0o600 }); } catch { /* lecture seule */ } }, 500); };
-  const ecrireTout = () => { clearTimeout(minuterie); try { fs.writeFileSync(fichier, JSON.stringify(etat), { mode: 0o600 }); } catch { /* lecture seule */ } };
+  const sauver = () => { clearTimeout(minuterie); minuterie = setTimeout(() => { try { ecrireSur(fichier, JSON.stringify(etat), { mode: 0o600 }); } catch { /* lecture seule */ } }, 500); };
+  const ecrireTout = () => { clearTimeout(minuterie); try { ecrireSur(fichier, JSON.stringify(etat), { mode: 0o600 }); } catch { /* lecture seule */ } };
   const cleIp = (ip) => 'ip:' + String(ip || '?');
   // Réseau local et Tailscale : la suspension d'un compte ne s'y applique pas (l'admin chez lui peut toujours
   // se connecter, même si quelqu'un s'acharne sur son compte depuis Internet) ; le blocage par adresse, si.

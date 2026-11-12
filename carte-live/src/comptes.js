@@ -3,6 +3,7 @@
 // Mots de passe hachés avec scrypt (sel aléatoire), sessions dans un cookie signé HMAC.
 
 const crypto = require('crypto');
+const { ecrireSur, lireJson } = require('./fichiers');
 const fs = require('fs');
 const path = require('path');
 
@@ -95,7 +96,7 @@ function creerComptes(db, config) {
   if (!secret) {
     const f = path.join(path.dirname(config.fichierBase), 'secret-session.txt');
     try { secret = fs.readFileSync(f, 'utf8').trim(); } catch { /* absent */ }
-    if (!secret) { secret = crypto.randomBytes(32).toString('hex'); try { fs.writeFileSync(f, secret, { mode: 0o600 }); } catch { /* volume en lecture seule */ } }
+    if (!secret) { secret = crypto.randomBytes(32).toString('hex'); try { ecrireSur(f, secret, { mode: 0o600 }); } catch { /* volume en lecture seule */ } }
   }
   const signer = (txt) => crypto.createHmac('sha256', secret).update(txt).digest('hex');
 

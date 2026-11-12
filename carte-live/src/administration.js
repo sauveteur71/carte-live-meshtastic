@@ -5,6 +5,7 @@
 // renvoyée par la dernière lecture (valable 300 s), comme l'appli officielle.
 
 const crypto = require('crypto');
+const { ecrireSur, lireJson } = require('./fichiers');
 const { racine, idNoeud, ERREURS_ROUTAGE } = require('./decodeur');
 
 const AdminMessage = racine.lookupType('meshtastic.AdminMessage');
@@ -34,14 +35,14 @@ function creerAdministration(radio, stockage) {
   // Nœuds qui ont déjà accepté une commande d'administration du module (donc ont sa clé dans leurs clés d'admin)
   const fAdmin = require('path').join(require('path').dirname(require('./config').fichierBase), 'noeuds-administrables.json');
   let administrables = {};
-  try { administrables = JSON.parse(require('fs').readFileSync(fAdmin, 'utf8')); } catch { /* aucun */ }
+  try { administrables = lireJson(fAdmin); } catch { /* aucun */ }
   function noterAdmin(num, ok) {
     const module = radio.infos().noeudLocal >>> 0;
     const k = String(num >>> 0);
     const e = administrables[k] || {};
     // Résultat global (dernier essai) et par module : un relais peut accepter un module et refuser l'autre
     administrables[k] = { ...e, ok, heure: Date.now(), modules: [...new Set([...(e.modules || []), module])], parModule: { ...(e.parModule || {}), [module]: { ok, heure: Date.now() } } };
-    try { require('fs').writeFileSync(fAdmin, JSON.stringify(administrables)); } catch { /* lecture seule */ }
+    try { ecrireSur(fAdmin, JSON.stringify(administrables)); } catch { /* lecture seule */ }
   }
   radio.ecouter((p) => {
     const d = p.decoded;
@@ -205,10 +206,10 @@ function creerAdministration(radio, stockage) {
   // après un échec, « Reprendre la lecture » ne redemande que ce qui manque.
   const fLectures = require('path').join(require('path').dirname(require('./config').fichierBase), 'lectures-noeuds.json');
   const lectures = new Map();
-  try { for (const [k, v] of Object.entries(JSON.parse(require('fs').readFileSync(fLectures, 'utf8')))) lectures.set(Number(k), v); } catch { /* aucune */ }
+  try { for (const [k, v] of Object.entries(lireJson(fLectures))) lectures.set(Number(k), v); } catch { /* aucune */ }
   // Les nœuds déjà lus avec succès ont forcément accepté le module : on les compte comme administrables
   for (const [num, l] of lectures) if (!administrables[num] && (l.materiel || l.lora || l.device || (l.canauxBruts || []).some(Boolean))) administrables[num] = { ok: true, heure: l.heure, modules: [] };
-  const sauverLectures = () => { try { require('fs').writeFileSync(fLectures, JSON.stringify(Object.fromEntries(lectures)), { mode: 0o600 }); } catch { /* lecture seule */ } };
+  const sauverLectures = () => { try { ecrireSur(fLectures, JSON.stringify(Object.fromEntries(lectures)), { mode: 0o600 }); } catch { /* lecture seule */ } };
   const VALIDITE_LECTURE = 7 * 86400000;
   const ETAPES_FIXES = [
     ['materiel', 'informations matérielles'], ['proprietaire', 'nom du nœud'],
@@ -794,8 +795,8 @@ function creerAdministration(radio, stockage) {
   // Le firmware ne permet pas de relire les favoris à distance : on garde ce qui a été posé (/data/favoris.json).
   const fFavoris = require('path').join(require('path').dirname(require('./config').fichierBase), 'favoris.json');
   let favoris = {};
-  try { favoris = JSON.parse(require('fs').readFileSync(fFavoris, 'utf8')); } catch { /* aucun */ }
-  const sauverFavoris = () => { try { require('fs').writeFileSync(fFavoris, JSON.stringify(favoris)); } catch { /* lecture seule */ } };
+  try { favoris = lireJson(fFavoris); } catch { /* aucun */ }
+  const sauverFavoris = () => { try { ecrireSur(fFavoris, JSON.stringify(favoris)); } catch { /* lecture seule */ } };
   async function definirFavoris(dest, p, journalTache) {
     dest = dest >>> 0;
     const plan = (p.plan || {})[dest] || (p.plan || {})[String(dest)] || {};
@@ -1020,7 +1021,7 @@ function creerAdministration(radio, stockage) {
   // ---- Clés d'administration : quels modules de la carte peuvent programmer quel relais ----------------------
   const fModules = require('path').join(require('path').dirname(require('./config').fichierBase), 'modules-cles.json');
   let modulesCles = {};
-  try { modulesCles = JSON.parse(require('fs').readFileSync(fModules, 'utf8')); } catch { /* aucun */ }
+  try { modulesCles = lireJson(fModules); } catch { /* aucun */ }
   function noterModuleLocal() {
     const i = radio.infos();
     if (!i.connecte || !i.clePublique || !i.noeudLocal) return;
@@ -1028,7 +1029,7 @@ function creerAdministration(radio, stockage) {
     const e = modulesCles[k];
     if (e && e.cle === i.clePublique && Date.now() - (e.vu || 0) < 3600000) return;
     modulesCles[k] = { cle: i.clePublique, nom: u.longName || u.nomLong || (e && e.nom) || idNoeud(i.noeudLocal), vu: Date.now() };
-    try { require('fs').writeFileSync(fModules, JSON.stringify(modulesCles)); } catch { /* lecture seule */ }
+    try { ecrireSur(fModules, JSON.stringify(modulesCles)); } catch { /* lecture seule */ }
   }
   const minuterieModules = setInterval(noterModuleLocal, 30000);
   if (minuterieModules.unref) minuterieModules.unref();
@@ -1060,8 +1061,8 @@ function creerAdministration(radio, stockage) {
   // ---- Conformité automatique : la même vérification chaque nuit (/data/conformite-auto.json) ----------------
   const fConf = require('path').join(require('path').dirname(require('./config').fichierBase), 'conformite-auto.json');
   let conf = { actif: false, heure: 2, reference: null, mode: 'admin', cibles: [], elements: ['canaux', 'precision', 'frequence', 'preset', 'rediffusion'], dernier: null, tache: null };
-  try { conf = { ...conf, ...JSON.parse(require('fs').readFileSync(fConf, 'utf8')) }; } catch { /* aucune */ }
-  const sauverConf = () => { try { require('fs').writeFileSync(fConf, JSON.stringify(conf)); } catch { /* lecture seule */ } };
+  try { conf = { ...conf, ...lireJson(fConf) }; } catch { /* aucune */ }
+  const sauverConf = () => { try { ecrireSur(fConf, JSON.stringify(conf)); } catch { /* lecture seule */ } };
   function ciblesConf() {
     const l = conf.mode === 'liste' ? conf.cibles : Object.entries(administrables).filter(([, v]) => v.ok).map(([k]) => Number(k));
     return l.filter((k) => k && k !== (conf.reference >>> 0) && k !== (radio.infos().noeudLocal >>> 0));
@@ -1105,13 +1106,13 @@ function creerAdministration(radio, stockage) {
     minuterieSauvegarde = setTimeout(() => {
       try {
         const l = [...taches.values()].map(({ arret, ...t }) => ({ ...t, noeuds: t.noeuds.map(({ etapes, ...n }) => n) }));
-        require('fs').writeFileSync(fTaches, JSON.stringify(l), { mode: 0o600 });
+        ecrireSur(fTaches, JSON.stringify(l), { mode: 0o600 });
       } catch { /* lecture seule */ }
     }, 500);
   }
   // Au démarrage : les opérations interrompues (moins de 6 h) reprennent dès que le module radio est connecté
   try {
-    const l = JSON.parse(require('fs').readFileSync(fTaches, 'utf8'));
+    const l = lireJson(fTaches);
     const aReprendre = [];
     for (const t of l) {
       if (!OPERATIONS[t.type]) continue;
@@ -1194,11 +1195,11 @@ function creerAdministration(radio, stockage) {
   // Accusés des messages envoyés depuis la carte, gardés dans /data/envois.json (affichés dans la liste des messages)
   const fEnvois = require('path').join(require('path').dirname(require('./config').fichierBase), 'envois.json');
   const envois = new Map(); // id -> { statut, dest, heure, de, detail, heureAccuse }
-  try { for (const [k, v] of JSON.parse(require('fs').readFileSync(fEnvois, 'utf8'))) envois.set(Number(k), v); } catch { /* aucun */ }
+  try { for (const [k, v] of lireJson(fEnvois)) envois.set(Number(k), v); } catch { /* aucun */ }
   let minuterieEnvois = null;
   const sauverEnvois = () => {
     clearTimeout(minuterieEnvois);
-    minuterieEnvois = setTimeout(() => { try { require('fs').writeFileSync(fEnvois, JSON.stringify([...envois].slice(-500))); } catch { /* lecture seule */ } }, 1000);
+    minuterieEnvois = setTimeout(() => { try { ecrireSur(fEnvois, JSON.stringify([...envois].slice(-500))); } catch { /* lecture seule */ } }, 1000);
   };
   radio.ecouter((p) => {
     const d = p.decoded;
@@ -1259,7 +1260,7 @@ function creerAdministration(radio, stockage) {
     // Nœud renuméroté (2.8) : son état d'administration, sa dernière lecture et ses favoris suivent le nouveau numéro
     renumeroter(ancien, nouveau) {
       const a = String(ancien >>> 0), n = String(nouveau >>> 0);
-      if (administrables[a] && !administrables[n]) { administrables[n] = administrables[a]; delete administrables[a]; try { require('fs').writeFileSync(fAdmin, JSON.stringify(administrables)); } catch { /* lecture seule */ } }
+      if (administrables[a] && !administrables[n]) { administrables[n] = administrables[a]; delete administrables[a]; try { ecrireSur(fAdmin, JSON.stringify(administrables)); } catch { /* lecture seule */ } }
       if (lectures.has(ancien >>> 0) && !lectures.has(nouveau >>> 0)) { lectures.set(nouveau >>> 0, lectures.get(ancien >>> 0)); lectures.delete(ancien >>> 0); sauverLectures(); }
       if (favoris[a] && !favoris[n]) { favoris[n] = favoris[a]; delete favoris[a]; }
       for (const f of Object.values(favoris)) if (f[a]) { f[n] = f[a]; delete f[a]; }

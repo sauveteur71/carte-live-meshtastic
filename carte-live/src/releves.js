@@ -4,6 +4,7 @@
 // Stockage : /data/releves/releves.json + une photo JPEG par relevé.
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 
 const TYPES = { site: 'Site relais possible', point_haut: 'Point haut', test: 'Test de couverture', probleme: 'Problème / panne', installation: 'Installation réalisée', autre: 'Autre' };
@@ -14,8 +15,8 @@ function creerReleves(dossierDonnees, journal = () => {}) {
   const fichier = path.join(dossier, 'releves.json');
   try { fs.mkdirSync(dossier, { recursive: true }); } catch { /* lecture seule */ }
   let liste = [];
-  try { liste = JSON.parse(fs.readFileSync(fichier, 'utf8')); } catch { /* aucun */ }
-  const ecrire = () => { const tmp = fichier + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(liste)); fs.renameSync(tmp, fichier); };
+  try { liste = lireJson(fichier); } catch { /* aucun */ }
+  const ecrire = () => { const tmp = fichier + '.tmp'; ecrireSur(tmp, JSON.stringify(liste)); fs.renameSync(tmp, fichier); };
   const num = (v, min, max) => { const n = Number(v); return Number.isFinite(n) && n >= min && n <= max ? n : null; };
   const fichierPhoto = (id) => path.join(dossier, id + '.jpg');
 

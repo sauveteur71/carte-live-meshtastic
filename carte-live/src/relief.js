@@ -4,6 +4,7 @@
 // classement des meilleurs sites et propositions de sites pour couvrir un point.
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 const zlib = require('zlib');
 
@@ -65,11 +66,11 @@ function png(largeur, hauteur, rgba) {
 function contourDepartement(code) {
   const ref = path.join(__dirname, '..', 'donnees-ref');
   try {
-    const g = JSON.parse(fs.readFileSync(path.join(ref, `departement-${code}.geojson`), 'utf8'));
+    const g = lireJson(path.join(ref, `departement-${code}.geojson`));
     return g.geometry || g.features[0].geometry;
   } catch { /* pas de fichier détaillé */ }
   try {
-    const g = JSON.parse(fs.readFileSync(path.join(ref, 'departements.geojson'), 'utf8'));
+    const g = lireJson(path.join(ref, 'departements.geojson'));
     const f = g.features.find((x) => x.properties.code === code);
     return f ? f.geometry : null;
   } catch { return null; }
@@ -89,14 +90,14 @@ function rectangleDepartement(code) {
 }
 function nomDepartement(code) {
   try {
-    const g = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'), 'utf8'));
+    const g = lireJson(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'));
     const f = g.features.find((x) => x.properties.code === code);
     return f ? f.properties.nom : null;
   } catch { return null; }
 }
 function listeDepartements() {
   try {
-    const g = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'), 'utf8'));
+    const g = lireJson(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'));
     return g.features.map((f) => ({ code: f.properties.code, nom: f.properties.nom })).sort((a, b) => a.code.localeCompare(b.code));
   } catch { return []; }
 }
@@ -221,14 +222,14 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       }
     }
     for (let k = 0; k < total; k++) if (Number.isNaN(z[k])) z[k] = 0;
-    fs.writeFileSync(fMnt, Buffer.from(z.buffer));
-    fs.writeFileSync(fMntInfo, JSON.stringify({ emprise, pasLat, pasLon, nLat, nLon, source: 'IGN RGE ALTI', date: Date.now() }));
+    ecrireSur(fMnt, Buffer.from(z.buffer));
+    ecrireSur(fMntInfo, JSON.stringify({ emprise, pasLat, pasLon, nLat, nLon, source: 'IGN RGE ALTI', date: Date.now() }));
     return z;
   }
 
   async function chargerMnt() {
     try {
-      const info = JSON.parse(fs.readFileSync(fMntInfo, 'utf8'));
+      const info = lireJson(fMntInfo);
       if (info.nLat === nLat && info.nLon === nLon && Math.abs(info.emprise.sud - emprise.sud) < 1e-6 && Math.abs(info.emprise.ouest - emprise.ouest) < 1e-6) {
         const b = fs.readFileSync(fMnt);
         Z = new Float32Array(b.buffer, b.byteOffset, b.length / 4);
@@ -276,7 +277,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
           if (!r.ok) throw new Error('HTTP ' + r.status);
           const j = await r.json();
           const liste = j.elements.map((e) => ({ lat: e.lat, lon: e.lon, nom: e.tags && e.tags.name ? e.tags.name : null, ele: e.tags && e.tags.ele ? parseFloat(String(e.tags.ele).replace(',', '.')) : null }));
-          fs.writeFileSync(fSommets, JSON.stringify({ date: Date.now(), liste }));
+          ecrireSur(fSommets, JSON.stringify({ date: Date.now(), liste }));
           etat.sommetsOsm = 'ok';
           return liste;
         } catch (e) { derniere = e; }
@@ -286,14 +287,14 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       await new Promise((r) => setTimeout(r, 20000));
     }
     journal('[Relief] sommets OSM indisponibles (' + (derniere ? derniere.message : 'arrêt') + '), utilisation du cache');
-    try { const l = JSON.parse(fs.readFileSync(fSommets, 'utf8')).liste; etat.sommetsOsm = 'cache'; return l; } catch { etat.sommetsOsm = 'absent'; return []; }
+    try { const l = lireJson(fSommets).liste; etat.sommetsOsm = 'cache'; return l; } catch { etat.sommetsOsm = 'absent'; return []; }
   }
 
   // Commune de chaque point haut (API Géo de l'État), mise en cache sur disque
   const fCommunes = path.join(dossier, 'communes-sommets.json');
   async function nommerCommunes(liste) {
     let cache = {};
-    try { cache = JSON.parse(fs.readFileSync(fCommunes, 'utf8')); } catch { /* vide */ }
+    try { cache = lireJson(fCommunes); } catch { /* vide */ }
     let nouveaux = 0;
     for (const s of liste) {
       const cle = s.lat.toFixed(3) + ',' + s.lon.toFixed(3);
@@ -308,7 +309,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       }
       s.commune = cache[cle] || null;
     }
-    if (nouveaux) { try { fs.writeFileSync(fCommunes, JSON.stringify(cache)); } catch { /* ignore */ } journal(`[Relief] communes des points hauts : ${nouveaux} recherchées`); }
+    if (nouveaux) { try { ecrireSur(fCommunes, JSON.stringify(cache)); } catch { /* ignore */ } journal(`[Relief] communes des points hauts : ${nouveaux} recherchées`); }
   }
 
   function dominance(i, j, rayon) {

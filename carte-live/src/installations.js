@@ -2,6 +2,7 @@
 // Fiche d'installation des relais : antenne, hauteur, gain, câble, alimentation, site.
 // Stockée dans /data/installations.json ; les valeurs techniques servent aux calculs de couverture.
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 
 const CHAMPS_TECHNIQUES = {
@@ -19,8 +20,8 @@ const PRIVES = ['proprietaire', 'contact'];
 function creerInstallations(dossier) {
   const fichier = path.join(dossier, 'installations.json');
   let donnees = {};
-  try { donnees = JSON.parse(fs.readFileSync(fichier, 'utf8')); } catch { /* vide */ }
-  const sauver = () => { try { fs.writeFileSync(fichier, JSON.stringify(donnees, null, 1)); } catch { /* disque plein */ } };
+  try { donnees = lireJson(fichier); } catch { /* vide */ }
+  const sauver = () => { try { ecrireSur(fichier, JSON.stringify(donnees, null, 1)); } catch { /* disque plein */ } };
 
   function nettoyer(entree) {
     const r = {};

@@ -1,5 +1,6 @@
 'use strict';
 const { versDfci } = require('../public/dfci.js');
+const { ecrireSur, lireJson } = require('./fichiers');
 // Signalements : un événement posé sur la carte (route inondée, arbre tombé…) et diffusé en LoRa.
 // - Meshtastic : point de passage (WAYPOINT_APP, visible sur la carte des applis et des Bipper / GerMaCrise), sur un ou
 //   plusieurs canaux du module (Fr_Balise puis Alerte, comme GerMaCrise), et en option un message texte ;
@@ -77,9 +78,9 @@ const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 function creerSignalements({ config, radio, administration, companion, reseauMc, racine, journal, diffuser, nomNoeud = () => null }) {
   const fichier = path.join(path.dirname(config.fichierBase), 'signalements.json');
   let liste = [];
-  try { liste = JSON.parse(fs.readFileSync(fichier, 'utf8')).signalements || []; } catch { /* aucun */ }
+  try { liste = lireJson(fichier).signalements || []; } catch { /* aucun */ }
   let minuterie = null;
-  const sauver = () => { clearTimeout(minuterie); minuterie = setTimeout(() => { try { fs.writeFileSync(fichier, JSON.stringify({ signalements: liste })); } catch (e) { journal('[Signalements] enregistrement impossible :', e.message); } }, 300); };
+  const sauver = () => { clearTimeout(minuterie); minuterie = setTimeout(() => { try { ecrireSur(fichier, JSON.stringify({ signalements: liste })); } catch (e) { journal('[Signalements] enregistrement impossible :', e.message); } }, 300); };
   const Waypoint = racine.lookupType('meshtastic.Waypoint');
 
   // Coupe une chaîne à n octets UTF-8 sans casser un caractère
@@ -252,8 +253,8 @@ function creerSignalements({ config, radio, administration, companion, reseauMc,
   // ---- Alertes Bipper / GerMaCrise (F4EED) : « #alerte N texte #entité », « #fin N », accusés « Pager ACK alerte #N … » ----
   const fAlertes = path.join(path.dirname(config.fichierBase), 'alertes-bipper.json');
   let alertes = { prochain: 1, liste: [] };
-  try { alertes = { ...alertes, ...JSON.parse(fs.readFileSync(fAlertes, 'utf8')) }; } catch { /* aucune */ }
-  const sauverAlertes = () => { try { fs.writeFileSync(fAlertes, JSON.stringify(alertes)); } catch { /* lecture seule */ } };
+  try { alertes = { ...alertes, ...lireJson(fAlertes) }; } catch { /* aucune */ }
+  const sauverAlertes = () => { try { ecrireSur(fAlertes, JSON.stringify(alertes)); } catch { /* lecture seule */ } };
   const GENRES = { alerte: '#alerte', secours: '#secours', vigilance: '#vigilance', info: '#info' };
   function envoyerAlerte(b, auteur) {
     const genre = GENRES[b.genre] ? b.genre : 'alerte';

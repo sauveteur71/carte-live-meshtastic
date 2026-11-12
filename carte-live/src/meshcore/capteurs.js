@@ -5,6 +5,7 @@
 // - libellé personnalisable de chaque mesure (« Batterie », « Abri », au lieu de « tension 1 »).
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('../fichiers');
 const path = require('path');
 
 const INTERVALLES = [0, 15, 30, 60, 180, 360, 720, 1440]; // minutes, 0 = jamais
@@ -25,8 +26,8 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
   };
   const fichier = path.join(path.dirname(config.fichierBase), 'meshcore-capteurs.json');
   let reglages = {}; // cle -> { intervalleMin, libelles: { 'temperature:2': 'Abri' }, seuils: { 'tension:1': { min: 3.4 } }, dernier, nom }
-  try { reglages = JSON.parse(fs.readFileSync(fichier, 'utf8')) || {}; } catch { /* aucun */ }
-  const sauver = () => { try { fs.writeFileSync(fichier, JSON.stringify(reglages)); } catch { /* lecture seule */ } };
+  try { reglages = lireJson(fichier) || {}; } catch { /* aucun */ }
+  const sauver = () => { try { ecrireSur(fichier, JSON.stringify(reglages)); } catch { /* lecture seule */ } };
 
   // Une mesure LPP = type + canal ; seules les valeurs numériques font une courbe (GPS, accéléromètre : ignorés)
   function noter(cle, mesures) {

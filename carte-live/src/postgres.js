@@ -7,6 +7,7 @@
 // sont recopiées à chaque tour (mises à jour tardives : nombre de réceptions, texte déchiffré…).
 
 const fs = require('fs');
+const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 
 // table SQLite -> colonne de temps ; cle : clé primaire (sinon le rowid SQLite, colonne _rowid)
@@ -48,9 +49,9 @@ function creerArchivePostgres(config, stockage, journal) {
   let reglages = { actif: false, hote: '', port: 5432, base: 'carte', utilisateur: '', motDePasse: '', ssl: false, retentionJours: 0, maxGo: 0 };
   const env = process.env.POSTGRES_URL ? lireUrl(process.env.POSTGRES_URL) : null;
   if (env) reglages = { ...reglages, ...env, actif: true };
-  try { reglages = { ...reglages, ...JSON.parse(fs.readFileSync(fReglages, 'utf8')) }; } catch { /* aucun */ }
+  try { reglages = { ...reglages, ...lireJson(fReglages) }; } catch { /* aucun */ }
   let curseurs = {};
-  try { curseurs = JSON.parse(fs.readFileSync(fCurseurs, 'utf8')); } catch { /* premier lancement */ }
+  try { curseurs = lireJson(fCurseurs); } catch { /* premier lancement */ }
   let pool = null;
   const etat = { connecte: false, erreur: null, dernierTour: null, copies: {}, total: 0, tailleOctets: null, derniereMaintenance: null, supprimees: 0 };
   let schemas = new Map(); // table -> { colonnes, cle, existe }
@@ -129,7 +130,7 @@ function creerArchivePostgres(config, stockage, journal) {
         const n = await copierTable(def);
         if (n) { etat.copies[def.t] = (etat.copies[def.t] || 0) + n; etat.total += n; }
       }
-      fs.writeFileSync(fCurseurs, JSON.stringify(curseurs));
+      ecrireSur(fCurseurs, JSON.stringify(curseurs));
       if (!etat.connecte) journal('[PostgreSQL] archive active');
       etat.connecte = true; etat.erreur = null; etat.dernierTour = Date.now();
     } catch (e) {
@@ -203,7 +204,7 @@ function creerArchivePostgres(config, stockage, journal) {
       if (c.maxGo !== undefined) { const g = Number(c.maxGo); if (!(g >= 0 && g <= 100000)) throw new Error('Taille invalide'); n.maxGo = g; }
       if (n.actif && !n.hote) throw new Error('Indiquez l’adresse du serveur PostgreSQL');
       reglages = n;
-      fs.writeFileSync(fReglages, JSON.stringify(reglages), { mode: 0o600 });
+      ecrireSur(fReglages, JSON.stringify(reglages), { mode: 0o600 });
       ouvrir();
       setTimeout(maintenance, 30000);
       return masquer();
