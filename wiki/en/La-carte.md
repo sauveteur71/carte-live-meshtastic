@@ -11,6 +11,8 @@
 - **“?”** to the right of the sections: help for the current screen opens in the map (pages of this wiki). **Guided tour** on the first visit, to take again from Settings.
 - **Comfort and accessibility**: confirmations and messages inside the interface (no more browser pop-ups), **Large text** option, light theme, keyboard navigation (Tab, Enter, Esc), labels for screen readers, larger buttons on touch screens.
 
+![Overview](https://raw.githubusercontent.com/sauveteur71/carte-live-meshtastic/main/docs/captures/en-carte.jpg)
+
 ## Nodes and networks
 - **Meshtastic / MeshCore / Both** selector at the top of the panel. When switching network, the other network's traces are cleared.
 - **Legend and filters**: relays, clients, mute clients, trackers, unknown, inactive, MQTT gateways online, nodes in alert.
@@ -42,6 +44,9 @@ In *Messages*, clicking a message's origin (📡 / 🌐) shows its **route**:
 *Tools › Field mode*: GPS surveys with radio measurement and photo, even without network. The map installs like an app (“Add to home screen”, HTTPS required).
 
 ## Public page
+
+![The public map](https://raw.githubusercontent.com/sauveteur71/carte-live-meshtastic/main/docs/captures/en-publique.jpg)
+
 A public page (no messages or exact positions of private individuals) can be shared: *Tools › Share*. It is for viewing the network, without being able to change anything.
 - Each visitor chooses the **area** shown: the map's department, with its neighbours, a region, any department or the whole of France. Nodes, links, figures and animations follow. By default, coverage computations (coverage, where to place relays, point coverage) stay on the map's department: elsewhere, the public map is a light network map. The administrator can open them to **all departments** (*Manage › Settings › Public map and terrain*): a department's terrain is then loaded at the first computation, or in advance with **Tools › 🗺️ Whole of France › ⬇ Download and install** (can be stopped at any time, ≈ 250 MB on disk). Preparation first installs the “France terrain” package published on GitHub (`relief-france` release, ≈ 110 MB), then completes department by department. **📦 Build the package** produces this file from a map that has prepared everything. Sources: IGN RGE ALTI terrain (Licence Ouverte Etalab), high points, access and sites © OpenStreetMap contributors (ODbL).
 - The title follows the chosen network and area. The link to the full map only appears to logged-in administrators.
@@ -81,6 +86,9 @@ Right-clicking elsewhere on the map keeps its usual menu: coverage, profile, sha
 The Meshtastic list, like the MeshCore one, can be sorted **by type** (▦ By type): relays, clients, mute clients, trackers, unknown, each group folding in one click. The state is kept in the browser.
 
 ## On phones and tablets
+
+![On a phone](https://raw.githubusercontent.com/sauveteur71/carte-live-meshtastic/main/docs/captures/en-telephone.jpg)
+
 - **Drawer panel** (phone, tablet upright): handle to pull or tap, three heights (tabs only, half, full). In landscape, the panel moves to the side.
 - **Node sheet as a drawer**: tap the handle to enlarge it, swipe it down to close it.
 - **◎ My position** (top right of the map): blue dot and precision, followed while the button is on (the map must be on HTTPS).
@@ -92,4 +100,7 @@ The Meshtastic list, like the MeshCore one, can be sorted **by type** (▦ By ty
 - **Saving**: animations off by default on mobile and in data-saving mode; live feed paused after 2 min in the background, resumed on return; lines drawn on canvas.
 
 ## Searching for a setting
+
+![Searching for a setting (Ctrl+K)](https://raw.githubusercontent.com/sauveteur71/carte-live-meshtastic/main/docs/captures/en-recherche.jpg)
+
 The **⚙️🔎** button at the top (or **Ctrl+K**) opens a search through the map's settings and features: type “MQTT”, “password”, “IATA”, “teams”, “firmware”… then Enter. The map opens the right tab or window and highlights the setting. Only the settings allowed for your account are offered.

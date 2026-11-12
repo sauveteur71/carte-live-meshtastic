@@ -12,6 +12,14 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 
 > 🇬🇧 *English summary at the end of this page.*
 
+![La carte live](docs/captures/fr-carte.jpg)
+
+| Couverture calculée sur le relief | Graphe des liaisons |
+|---|---|
+| ![Couverture](docs/captures/fr-couverture.jpg) | ![Topologie](docs/captures/fr-topologie.jpg) |
+| **Carte publique** | **Aide intégrée** |
+| ![Carte publique](docs/captures/fr-publique.jpg) | ![Aide](docs/captures/fr-aide.jpg) |
+
 ---
 
 

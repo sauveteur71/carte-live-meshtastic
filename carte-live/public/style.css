@@ -1370,3 +1370,6 @@ b.canal-msg { padding: 0 6px; border-radius: 4px; background: color-mix(in srgb,
 .message.nouveau, .message-mc.nouveau { border-left: 4px solid #facc15; background: rgba(250,204,21,.08); }
 .etiquette-nouveau { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 8px; background: #facc15; color: #111; font-size: 10px; font-weight: 900; text-transform: uppercase; }
 @media (prefers-reduced-motion: reduce) { .puce-canal.vient { animation: none; } }
+
+/* Captures d'écran dans l'aide */
+.capture-aide { display: block; max-width: 100%; height: auto; margin: 6px 0; border-radius: 8px; border: 1px solid rgba(255,255,255,.15); }

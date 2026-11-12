@@ -2,6 +2,8 @@
 
 **Coverage** tab and **Radio coverage** menu. Computations use the **IGN RGE ALTI** terrain model (France), calibrated on actually measured links.
 
+![Current network coverage, computed from terrain](https://raw.githubusercontent.com/sauveteur71/carte-live-meshtastic/main/docs/captures/en-couverture.jpg)
+
 - **Current network coverage**: area served by the detected relays, share of the department, what each relay alone covers.
 - **Point coverage**: click on the map or on a node; adjustable antenna height. Points near another department automatically use its terrain.
 - **Cover one or more points**: sites able to serve a place, or 2 to 5 places with a single relay.

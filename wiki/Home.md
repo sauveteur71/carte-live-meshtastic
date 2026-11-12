@@ -2,6 +2,8 @@
 
 Carte en temps réel, supervision et **administration à distance** d'un réseau [Meshtastic](https://meshtastic.org) et [MeshCore](https://meshcore.co.uk), départemental ou local. Née pour le réseau **Gaulix** en Haute-Loire, elle s'installe pour n'importe quel département.
 
+![La carte live : nœuds Meshtastic et MeshCore, liaisons mesurées](https://raw.githubusercontent.com/sauveteur71/carte-live-meshtastic/main/docs/captures/fr-carte.jpg)
+
 ## Par où commencer
 1. [[Installation]] : Docker, `.env`, assistant d'installation.
 2. [[Brancher le réseau]] : broker MQTT, canaux.
@@ -24,6 +26,9 @@ Carte en temps réel, supervision et **administration à distance** d'un réseau
 - [[Archive PostgreSQL]] : historique complet, conservation, taille maximale.
 
 ## Aide
+
+![L’aide s’ouvre dans la carte](https://raw.githubusercontent.com/sauveteur71/carte-live-meshtastic/main/docs/captures/fr-aide.jpg)
+
 - [[Dépannage]] : les problèmes les plus fréquents et leur solution.
 - [Dernière version](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [Signaler un problème](https://github.com/sauveteur71/carte-live-meshtastic/issues)
 

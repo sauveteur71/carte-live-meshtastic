@@ -2,6 +2,8 @@
 
 Onglet **Couverture** et menu **Couverture radio**. Les calculs utilisent le modèle de terrain **IGN RGE ALTI**, calibré sur les liaisons réellement mesurées.
 
+![Couverture actuelle du réseau, calculée sur le relief](https://raw.githubusercontent.com/sauveteur71/carte-live-meshtastic/main/docs/captures/fr-couverture.jpg)
+
 - **Couverture actuelle du réseau** : zone desservie par les relais détectés, part du département, ce que chaque relais est seul à couvrir.
 - **Couverture d'un point** : clic sur la carte ou sur un nœud ; hauteur d'antenne réglable. Les points proches d'un autre département utilisent automatiquement son relief.
 - **Couvrir un ou plusieurs points** : sites capables de desservir un lieu, ou 2 à 5 lieux avec un seul relais.

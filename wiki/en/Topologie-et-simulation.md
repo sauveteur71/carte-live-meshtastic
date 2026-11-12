@@ -2,6 +2,8 @@
 
 *Tools › 🕸️ Topology and simulation* (Meshtastic) and *MeshCore topology and simulation*.
 
+![Link graph and analysis](https://raw.githubusercontent.com/sauveteur71/carte-live-meshtastic/main/docs/captures/en-topologie.jpg)
+
 ## Analysis
 - Graph of **measured** links: free, ring or geographic layout; relays only or all nodes.
 - **Breaking points**: relays whose failure would cut nodes off from any gateway.
