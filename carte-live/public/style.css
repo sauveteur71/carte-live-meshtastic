@@ -1392,3 +1392,14 @@ body.theme-clair .etiquette-dfci span { background: rgba(255,255,255,.85); color
 body.theme-clair .chip-alertes { color: #713f12; }
 body.theme-clair .chip-alertes.vig-orange { color: #7c2d12; }
 body.theme-clair .chip-alertes.vig-rouge { color: #7f1d1d; }
+
+/* Statistiques d'un nœud */
+.stats-noeud h4 { margin: 12px 0 6px; font-size: 13px; }
+.chaleur { display: grid; grid-template-columns: 54px repeat(24, 1fr); gap: 2px; align-items: center; font-size: 10px; color: var(--doux); }
+.chaleur i { display: block; height: 14px; border-radius: 2px; background: var(--accent, #2dd4bf); }
+.chaleur .j { white-space: nowrap; overflow: hidden; }
+.chaleur .h { text-align: center; }
+.barre-stat { display: grid; grid-template-columns: minmax(90px, 40%) 1fr 42px; gap: 6px; align-items: center; font-size: 12px; margin: 3px 0; }
+.barre-stat span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barre-stat i { display: block; height: 10px; border-radius: 3px; min-width: 2px; }
+.barre-stat b { text-align: right; }

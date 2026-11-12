@@ -1427,6 +1427,28 @@ app.get('/api/signal', (req, res) => {
   res.json({ de, passerelle: gw, points });
 });
 // Passerelles qui ont entendu un nœud (pour le menu « Comparer les signaux »)
+// Statistiques d'un nœud : activité heure par heure (7 jours), types de paquets, SNR reçus en direct, sauts, récepteurs
+app.get('/api/noeuds/:num/statistiques', (req, res) => {
+  const n = Number(req.params.num) >>> 0;
+  const jours = Math.min(Math.max(Number(req.query.jours) || 7, 1), config.retentionJours || 7);
+  const d = Date.now() - jours * 86400000;
+  const db = stockage.db;
+  const fmtHeure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: 'numeric', hourCycle: 'h23' });
+  const tz = (h) => { const x = new Date(h); return { j: Math.floor((Date.now() - h) / 86400000), h: Number(fmtHeure.formatToParts(x).find((q) => q.type === 'hour').value) % 24, js: x.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', weekday: 'short', day: '2-digit' }) }; };
+  // Carte de chaleur : ligne = jour (0 = aujourd'hui), colonne = heure locale
+  const chaleur = Array.from({ length: jours }, () => new Array(24).fill(0)), libJours = new Array(jours).fill('');
+  for (const r of db.prepare('SELECT heure FROM paquets WHERE de = ? AND heure >= ?').iterate(n, d)) {
+    const t = tz(r.heure); if (t.j < jours) { chaleur[t.j][t.h]++; libJours[t.j] = t.js; }
+  }
+  for (let j = 0; j < jours; j++) if (!libJours[j]) libJours[j] = new Date(Date.now() - j * 86400000).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', weekday: 'short', day: '2-digit' });
+  const types = db.prepare('SELECT COALESCE(nom_port, port, \'?\') AS type, COUNT(*) AS nb FROM paquets WHERE de = ? AND heure >= ? GROUP BY 1 ORDER BY nb DESC').all(n, d);
+  const sauts = db.prepare('SELECT sauts, COUNT(*) AS nb FROM paquets WHERE de = ? AND heure >= ? AND sauts IS NOT NULL GROUP BY sauts ORDER BY sauts').all(n, d);
+  // SNR des réceptions directes (0 saut) par tranches de 2,5 dB
+  const snr = db.prepare('SELECT CAST(FLOOR(r.snr / 2.5) * 2.5 AS REAL) AS tranche, COUNT(*) AS nb FROM receptions r JOIN paquets p ON p.rowid = r.paquet WHERE p.de = ? AND r.heure >= ? AND r.sauts = 0 AND r.snr IS NOT NULL AND r.passerelle != ? GROUP BY tranche ORDER BY tranche').all(n, d, n);
+  const recepteurs = db.prepare('SELECT r.passerelle AS num, COUNT(*) AS nb, ROUND(AVG(r.snr), 1) AS snr, MIN(r.sauts) AS sautsMin FROM receptions r JOIN paquets p ON p.rowid = r.paquet WHERE p.de = ? AND r.heure >= ? AND r.passerelle != ? GROUP BY r.passerelle ORDER BY nb DESC LIMIT 12').all(n, d, n);
+  const total = types.reduce((a, t) => a + t.nb, 0);
+  res.set('Cache-Control', 'no-store').json({ jours, total, chaleur, libJours, types, sauts, snr, recepteurs });
+});
 app.get('/api/noeuds/:num/entendu-par', (req, res) => {
   const n = Number(req.params.num) >>> 0;
   const depuis = Date.now() - config.retentionJours * 86400000;

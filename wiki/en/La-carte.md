@@ -17,7 +17,7 @@
 - **Meshtastic / MeshCore / Both** selector at the top of the panel. When switching network, the other network's traces are cleared.
 - **Legend and filters**: relays, clients, mute clients, trackers, unknown, inactive, MQTT gateways online, nodes in alert.
 - Area shown (menu at the top): the department, the department and its neighbours, a **French region** or the whole of France. The choice is kept between visits. You only see what the map receives: your MQTT broker's reach and, for MeshCore, the “Packets kept” setting (department, neighbours or national).
-- Click on a node: **detailed sheet** (info, telemetry, neighbours, “heard by”, frames, inferred configuration, range test).
+- Click on a node: **detailed sheet** (info, telemetry, neighbours, “heard by”, frames, inferred configuration, range test) and a **Statistics** tab: activity hour by hour over 1 to 30 days, packet types, SNR received directly, hop count to arrive, receivers that hear it most.
 
 ## Links
 - **Measured**: SNR received by gateways, neighbor info (NeighborInfo), traceroutes. Colour by SNR, adjustable period (*Links 24 h*).

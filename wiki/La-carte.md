@@ -16,7 +16,7 @@
 - Sélecteur **Meshtastic / MeshCore / Les deux** en haut du panneau. En changeant de réseau, les traces de l'autre réseau sont effacées.
 - **Légende et filtres** : relais, clients, clients muets, traceurs, inconnus, inactifs, passerelles MQTT en ligne, nœuds en alerte.
 - Secteur affiché (menu en haut) : le département, le département et ses voisins, une **région de France** ou toute la France. Le choix est gardé d’une visite à l’autre. On ne voit que ce que la carte reçoit : la portée de votre broker MQTT et, pour MeshCore, le réglage « Paquets conservés » (département, voisins ou national).
-- Clic sur un nœud : **fiche détaillée** (informations, télémétrie, voisins, « entendu par », trames, configuration déduite, test de portée).
+- Clic sur un nœud : **fiche détaillée** (informations, télémétrie, voisins, « entendu par », trames, configuration déduite, test de portée) et onglet **Statistiques** : activité heure par heure sur 1 à 30 jours, types de paquets, SNR reçu en direct, nombre de sauts pour arriver, récepteurs qui l’entendent le plus.
 
 ## Liaisons
 - **Mesurées** : SNR reçu par les passerelles, voisinage (NeighborInfo), traceroutes. Couleur selon le SNR, période réglable (*Liens 24 h*).

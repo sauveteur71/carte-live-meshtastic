@@ -2227,8 +2227,9 @@ async function ouvrirFiche(num) {
       ${n.materiel ? `<span class="badge">${esc(n.materiel)}</span>` : ''}
     </div>
     <nav class="onglets-fiche">
-      <button data-of="infos" class="actif">Informations</button><button data-of="telem">Télémétries</button><button data-of="voisins">Voisins</button><button data-of="config">Configuration</button>${etat.membre ? `<button data-of="install">Installation${d.installation ? ' ✓' : ''}</button>` : ''}<button data-of="trames">Trames</button>
+      <button data-of="infos" class="actif">Informations</button><button data-of="telem">Télémétries</button><button data-of="voisins">Voisins</button><button data-of="config">Configuration</button>${etat.membre ? `<button data-of="install">Installation${d.installation ? ' ✓' : ''}</button>` : ''}<button data-of="stats">Statistiques</button><button data-of="trames">Trames</button>
     </nav>
+    <div data-pf="stats" hidden><div id="stats-noeud" class="vide">Chargement…</div></div>
     <div data-pf="infos">
     ${alertesNoeud.map((a) => `<div class="liste-alertes"><div class="alerte ${a.niveau}">${esc(a.message)}</div></div>`).join('')}
     <div class="grille">${mesures.map(([l, v]) => `<div class="mesure"><span>${l}</span><b>${esc(v)}</b></div>`).join('')}</div>
@@ -2282,6 +2283,7 @@ async function ouvrirFiche(num) {
   $('#fiche-contenu').querySelectorAll('[data-of]').forEach((b) => (b.onclick = () => {
     $('#fiche-contenu').querySelectorAll('[data-of]').forEach((x) => x.classList.toggle('actif', x === b));
     $('#fiche-contenu').querySelectorAll('[data-pf]').forEach((x) => (x.hidden = x.dataset.pf !== b.dataset.of));
+    if (b.dataset.of === 'stats') statistiquesNoeud(n.num);
   }));
   $('#toutes-trames').onclick = () => ouvrirTrames(n.num);
   brancherInstallation(n, d.installation);
@@ -7668,3 +7670,25 @@ function brancherAlertesOff() {
 }
 setTimeout(chargerAlertesOff, 2500);
 setInterval(chargerAlertesOff, 5 * 60000);
+
+// ---- Statistiques d'un nœud (onglet de la fiche) ----------------------------------------------------------
+async function statistiquesNoeud(num, jours = 7) {
+  const z = $('#stats-noeud');
+  if (!z) return;
+  let r;
+  try { r = await api(`/api/noeuds/${num}/statistiques?jours=${jours}`); } catch (e) { z.className = 'vide'; z.textContent = e.message; return; }
+  z.className = 'stats-noeud';
+  if (!r.total) { z.innerHTML = `<div class="vide">Aucun paquet émis par ce nœud sur ${r.jours} jour(s).</div>`; return; }
+  const max = Math.max(1, ...r.chaleur.flat());
+  const barres = (lignes, lib, val, coul) => { const m = Math.max(1, ...lignes.map(val)); return lignes.map((l) => `<div class="barre-stat"><span>${lib(l)}</span><i style="width:${Math.round((val(l) / m) * 100)}%;background:${coul(l)}"></i><b>${val(l)}</b></div>`).join(''); };
+  const couleurSnr = (t) => (t >= 5 ? '#2dd4bf' : t >= 0 ? '#a3e635' : t >= -7.5 ? '#facc15' : t >= -12.5 ? '#fb923c' : '#f87171');
+  z.innerHTML = `<p class="note">${r.total} paquet(s) émis sur ${r.jours} jours. <select id="stats-jours">${[1, 3, 7, 14, 30].filter((j) => j <= Math.max(7, r.jours) || j <= (etat.config.retentionJours || 7)).map((j) => `<option value="${j}" ${j === r.jours ? 'selected' : ''}>${j} jour${j > 1 ? 's' : ''}</option>`).join('')}</select></p>
+    <h4>Activité heure par heure</h4>
+    <div class="chaleur" style="--n:${r.chaleur.length}"><span></span>${Array.from({ length: 24 }, (_, h) => `<span class="h">${h % 3 ? '' : h}</span>`).join('')}
+      ${r.chaleur.map((ligne, j) => `<span class="j">${esc(r.libJours[j])}</span>${ligne.map((v, h) => `<i title="${esc(r.libJours[j])} ${h} h : ${v} paquet(s)" style="opacity:${v ? 0.18 + 0.82 * (v / max) : 0.06}"></i>`).join('')}`).join('')}</div>
+    <h4>Types de paquets</h4>${barres(r.types.slice(0, 8), (t) => esc(t.type), (t) => t.nb, () => 'var(--accent, #2dd4bf)')}
+    ${r.snr.length ? `<h4>SNR reçu en direct (0 saut)</h4>${barres(r.snr, (t) => `${t.tranche} à ${t.tranche + 2.5} dB`, (t) => t.nb, (t) => couleurSnr(t.tranche))}` : ''}
+    ${r.sauts.length ? `<h4>Sauts pour arriver</h4>${barres(r.sauts, (t) => (t.sauts === 0 ? 'direct' : `${t.sauts} saut${t.sauts > 1 ? 's' : ''}`), (t) => t.nb, (t) => (t.sauts === 0 ? '#2dd4bf' : t.sauts <= 2 ? '#facc15' : '#fb923c'))}` : ''}
+    ${r.recepteurs.length ? `<h4>Qui le reçoit le plus</h4>${barres(r.recepteurs, (t) => esc(nomNoeud(t.num)) + (t.sautsMin === 0 ? ' · direct' : ''), (t) => t.nb, (t) => (t.snr != null ? couleurSnr(t.snr) : '#94a3b8'))}` : ''}`;
+  const s = $('#stats-jours'); if (s) s.onchange = () => statistiquesNoeud(num, Number(s.value));
+}
