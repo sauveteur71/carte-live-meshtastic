@@ -58,6 +58,7 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
     if (intervalleMin !== undefined) {
       const v = Number(intervalleMin);
       if (!INTERVALLES.includes(v)) throw new Error('intervalle invalide');
+      if (v > 0 && !(r.intervalleMin > 0)) r.debutAuto = Date.now(); // point de départ pour l'alerte de retard
       r.intervalleMin = v;
     }
     if (libelles && typeof libelles === 'object') {
@@ -152,6 +153,20 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
   const LIB = { tension: 'tension', temperature: 'température', humidite: 'humidité', pression: 'pression', courant: 'courant', pourcentage: 'charge', luminosite: 'luminosité' };
   function alertes(nomDe = () => null) {
     const l = [];
+    // Relevés automatiques en retard : rien de reçu depuis 3 intervalles (2 h au moins). Signale toutes les causes
+    // (companion déconnecté, mot de passe refusé, nœud hors de portée ou disparu) au lieu de les laisser au seul journal
+    const t = Date.now();
+    for (const [cle, r] of Object.entries(reglages)) {
+      if (!(r.intervalleMin > 0)) continue;
+      const attendu = Math.max(3 * r.intervalleMin, 120) * 60000;
+      const depuis = r.dernier || r.debutAuto || 0;
+      if (!depuis || t - depuis < attendu) continue;
+      const nom = nomDe(cle) || r.nom || cle.slice(0, 8);
+      const h = new Date(depuis).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      l.push({ cle: `mc-capteur-retard:${cle}`, noeud: cle, type: 'releve', niveau: 'attention', nom, depuis: depuis + attendu,
+        message: r.absent ? `${nom} : relevés automatiques suspendus, le nœud n’est plus sur la carte (purgé ?)`
+          : `${nom} : aucun relevé automatique reçu depuis le ${h} (prévu toutes les ${r.intervalleMin >= 60 ? r.intervalleMin / 60 + ' h' : r.intervalleMin + ' min'}) — companion, mot de passe ou portée ?` });
+    }
     for (const [cle, r] of Object.entries(reglages)) {
       if (!r.seuils || !Object.keys(r.seuils).length) continue;
       for (const d of q.derniers.all(cle)) {

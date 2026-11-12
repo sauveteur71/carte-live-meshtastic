@@ -1656,7 +1656,7 @@ app.get('/api/paquets', (req, res) => {
 });
 
 app.get('/api/etat', (req, res) => {
-  res.json({ stats: reseau.statistiques(), alertes: dernieresAlertes, meshmonitor: sourceMM ? sourceMM.etat() : null, radio: sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
+  res.json({ stats: reseau.statistiques(), alertes: estAdmin(req) ? dernieresAlertes : alertesPubliques(dernieresAlertes), meshmonitor: sourceMM ? sourceMM.etat() : null, radio: sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
 });
 
 app.get('/api/messages', (req, res) => {
@@ -2569,7 +2569,8 @@ function versPasserelleRadio(evt) {
 function diffuser(message) {
   verPasserelle(message);
   // Vue publique : sans texte, positions des nœuds de particuliers arrondies
-  const pub = JSON.stringify(reseau.vueTrame(message.texte !== undefined ? { ...message, texte: undefined } : message, false));
+  const vue = message.genre === 'etat' && message.alertes ? { ...message, alertes: alertesPubliques(message.alertes) } : message;
+  const pub = JSON.stringify(reseau.vueTrame(vue.texte !== undefined ? { ...vue, texte: undefined } : vue, false));
   const adm = JSON.stringify(message);
   for (const ws of wss.clients) if (ws.readyState === 1) ws.send(ws.admin ? adm : pub);
 }
@@ -2659,10 +2660,37 @@ clientMqtt.on('message', (topic, message) => {
 
 // ---- Tâches périodiques ---------------------------------------------------
 let dernieresAlertes = [];
+// Alertes des services internes (adresses, messages d'erreur) réservées aux administrateurs
+function alertesPubliques(l) { return l.filter((a) => a.type !== 'service'); }
+// Services de fond en échec prolongé : visibles dans les alertes de la carte, pas seulement dans le journal du serveur
+const enEchecDepuis = {};
+function alertesServices() {
+  const l = [], t = Date.now();
+  const suivre = (cle, enEchec, delaiMin, message) => {
+    if (!enEchec) { delete enEchecDepuis[cle]; return; }
+    if (!enEchecDepuis[cle]) enEchecDepuis[cle] = t;
+    if (t - enEchecDepuis[cle] >= delaiMin * 60000) l.push({ cle: 'service:' + cle, type: 'service', niveau: 'attention', depuis: enEchecDepuis[cle], message });
+  };
+  if (typeof alertesOff !== 'undefined') {
+    const a = alertesOff.etat();
+    suivre('meteo', !!a.erreur, 60, `Vigilance Météo-France illisible : ${a.erreur} (alertes et diffusions LoRa en attente)`);
+  }
+  if (typeof archivePg !== 'undefined' && archivePg && archivePg.etat) {
+    const p = archivePg.etat();
+    suivre('postgres', !!(p && p.reglages && p.reglages.actif && p.erreur), 30, `Archive PostgreSQL : ${p && p.erreur}`);
+  }
+  if (typeof sourceMM !== 'undefined' && sourceMM && sourceMM.etat) {
+    const m = sourceMM.etat();
+    suivre('meshmonitor', !!(m && m.erreur), 30, `Source MeshMonitor injoignable : ${m && m.erreur}`);
+  }
+  // MQTT : déjà signalé par la pastille « En direct » du bandeau (et absent volontairement sur les cartes reliées à un module seul)
+  return l;
+}
 function rafraichirEtat() {
   dernieresAlertes = reseau.calculerAlertes();
   try { if (typeof equipes !== 'undefined') dernieresAlertes = [...dernieresAlertes, ...equipes.alertes((n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); })]; } catch { /* équipes pas encore prêtes */ }
   if (passerelle) { try { dernieresAlertes = [...dernieresAlertes, ...passerelle.alertes()]; } catch (e) { journal('[Passerelle]', e.message); } }
+  try { dernieresAlertes = [...dernieresAlertes, ...alertesServices()]; } catch (e) { journal('alertes des services :', e.message); }
   diffuser({ genre: 'etat', stats: reseau.statistiques(), alertes: dernieresAlertes, meshmonitor: typeof sourceMM !== 'undefined' && sourceMM ? sourceMM.etat() : null, radio: typeof sourceRadio !== 'undefined' && sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
 }
 setInterval(rafraichirEtat, 30000);
