@@ -594,6 +594,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     supprimerModele(id) { modeles = modeles.filter((x) => x.id !== id); ecrire(fModeles, modeles); },
     supervision: () => ({ derniere: derniereSupervision || null, intervalleHeures: config.meshcore.supervisionHeures }),
     lancer,
+    existe: (cle) => !!reseauMc.q.noeud.get(String(cle).toUpperCase()),
     tache: (id) => { const t = taches.get(id); return t ? vue(t) : null; },
     taches: () => [...taches.values()].reverse().slice(0, 30).map((t) => vue(t, false)),
     arreter(id) { const t = taches.get(id); if (!t) throw new Error('tâche inconnue'); t.arret = true; if (t.statut === 'en_attente' || t.statut === 'reprise') { t.statut = 'annule'; t.prochainEssai = null; t.motDePasse = null; t.secrets = {}; sauverTaches(); } },

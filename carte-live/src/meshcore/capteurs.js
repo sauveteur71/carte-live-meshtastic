@@ -127,7 +127,21 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
       if (!dus.length) return;
       for (const cle of dus) reglages[cle].essai = maintenant; // pas de nouvelle demande avant l'intervalle, même en cas d'échec
       sauver();
-      adminMc.lancer('telemetrie', dus.slice(0, 10), {}, 'capteurs (relevé automatique)');
+      // Un nœud disparu de la base (purgé après des jours sans être entendu) ne doit pas bloquer les relevés des autres :
+      // il est mis de côté (signalé une fois au journal) et repris tout seul s'il réapparaît
+      const connus = [];
+      for (const cle of dus) {
+        if (!adminMc.existe || adminMc.existe(cle)) { connus.push(cle); if (reglages[cle].absent) { delete reglages[cle].absent; sauver(); } }
+        else if (!reglages[cle].absent) { reglages[cle].absent = maintenant; sauver(); journal(`relevé des capteurs : nœud ${reglages[cle].nom || cle.slice(0, 8)} absent de la carte (purgé ?), relevé suspendu jusqu’à sa réapparition`); }
+      }
+      for (let k = 0; k < connus.length; k += 10) {
+        const lot = connus.slice(k, k + 10);
+        try { adminMc.lancer('telemetrie', lot, {}, 'capteurs (relevé automatique)'); } catch (e) {
+          // Lot refusé : chaque nœud est tenté seul, pour qu'un nœud en défaut ne prive pas les autres de relevé
+          journal('relevé des capteurs :', e.message, '— nœuds relancés un par un');
+          for (const cle of lot) { try { adminMc.lancer('telemetrie', [cle], {}, 'capteurs (relevé automatique)'); } catch (e2) { journal(`relevé des capteurs ${cle.slice(0, 8)} :`, e2.message); } }
+        }
+      }
     } catch (e) { journal('relevé des capteurs :', e.message); }
   }, 60000);
   // Historique gardé 90 jours
