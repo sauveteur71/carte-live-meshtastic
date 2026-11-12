@@ -1347,3 +1347,4 @@ body.theme-clair .bulle-visite { background: #fff; color: #0f172a; }
 .membre-eq .detail.sans-nouvelle { color: var(--critique); font-weight: 600; }
 .pp-essai, .pp-profils { margin-top: 12px; padding: 8px 10px; border: 1px solid var(--bord); border-radius: 8px; } .pp-essai summary, .pp-profils summary { cursor: pointer; font-weight: 600; }
 .sig-marqueur.sig-attente span { border-style: dashed; border-color: #f59e0b; animation: none; opacity: .85; }
+.a-propos { margin-top: 18px; text-align: center; opacity: .8; } .a-propos a { color: var(--accent); }

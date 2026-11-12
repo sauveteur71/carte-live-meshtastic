@@ -26,3 +26,6 @@ Carte en temps réel, supervision et **administration à distance** d'un réseau
 ## Aide
 - [[Dépannage]] : les problèmes les plus fréquents et leur solution.
 - [Dernière version](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [Signaler un problème](https://github.com/sauveteur71/carte-live-meshtastic/issues)
+
+---
+*Carte live créée par F4GLD · [♥ Soutenir le projet](https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2) (Radio-club du Velay)*

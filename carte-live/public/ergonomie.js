@@ -249,7 +249,8 @@ function rendreHubReglages() {
       <label class="case"><input type="checkbox" id="hub-clair" ${document.body.classList.contains('theme-clair') ? 'checked' : ''}> Thème clair (plein soleil)</label>
       <div class="actions-prop"><button type="button" class="mini" id="hub-visite">🧭 Revoir la visite guidée</button><button type="button" class="mini" id="hub-aide">❓ Aide</button></div>
     </div>
-    ${bloc('Compte', compte)}${bloc('Modules et réseaux', modules)}${bloc('La carte (administrateur)', carteL)}</div>`;
+    ${bloc('Compte', compte)}${bloc('Modules et réseaux', modules)}${bloc('La carte (administrateur)', carteL)}
+    <p class="note a-propos">Carte live Meshtastic / MeshCore v${esc((etat.config.version && etat.config.version.version) || '')} · créée par F4GLD · <a href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener">♥ Soutenir le projet</a> (Radio-club du Velay) · <a href="https://github.com/sauveteur71/carte-live-meshtastic" target="_blank" rel="noopener">code source</a></p></div>`;
   z.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => { try { actions[b.dataset.go](); } catch (e) { annonce('⚠ ' + e.message, 'erreur'); } }));
   $('#hub-chercher').onclick = () => ouvrirRechercheReglages();
   $('#hub-niveau').onchange = (e) => appliquerNiveau(e.target.value, true);

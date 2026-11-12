@@ -71,6 +71,7 @@ async function demarrer() {
   // Lien vers la carte complète : seulement pour un administrateur connecté (la carte publique sert à consulter)
   fetch('/api/compte').then((r) => r.json()).then((u) => { if (u && u.role === 'admin') document.getElementById('lien-complet').hidden = false; }).catch(() => {});
   carte = L.map('carte', { zoomControl: false, attributionControl: true }).setView(config.centre, config.zoom);
+  carte.attributionControl.setPrefix('Carte live par F4GLD · <a href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener" title="Soutenir le projet (don au Radio-club du Velay)">♥ soutenir</a> · <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
   L.control.zoom({ position: 'topright' }).addTo(carte);
   carte.createPane('couverture').style.zIndex = 405;
   carte.createPane('liens').style.zIndex = 410;
