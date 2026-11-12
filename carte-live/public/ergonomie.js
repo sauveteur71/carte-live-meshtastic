@@ -192,11 +192,12 @@ function rendreAccueil() {
   z.innerHTML = `<h2 class="titre-accueil">Que voulez-vous faire ?</h2>
     <div class="tuiles-accueil">${tuiles.map((x, i) => `<button type="button" class="tuile-accueil" data-i="${i}"><span class="ic" aria-hidden="true">${x.ic}</span><b>${esc(x.nom)}</b><small>${esc(x.aide)}</small></button>`).join('')}</div>
     ${favoris.length ? `<div class="raccourcis"><span class="note">⭐ Mes raccourcis</span>${favoris.map((e) => `<button type="button" class="mini" data-fav="${esc(e.t)}">${esc(e.t)}</button>`).join('')}</div>` : ''}
-    <div class="pied-accueil"><button type="button" class="mini" id="acc-chercher">🔎 Chercher une fonction</button><label class="note">Affichage <select id="acc-niveau" aria-label="Niveau d’affichage">${Object.entries(NIVEAUX).map(([k, v]) => `<option value="${k}" ${k === ergo.niveau ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>`;
+    <div class="pied-accueil"><button type="button" class="mini" id="acc-chercher">🔎 Chercher une fonction</button><label class="note">Affichage <select id="acc-niveau" aria-label="Niveau d’affichage">${Object.entries(NIVEAUX).map(([k, v]) => `<option value="${k}" ${k === ergo.niveau ? 'selected' : ''}>${v}</option>`).join('')}</select></label><label class="note" translate="no">🌐 Langue · Language <select id="acc-langue" aria-label="Langue · Language"><option value="fr" ${window.LANGUE !== 'en' ? 'selected' : ''}>Français</option><option value="en" ${window.LANGUE === 'en' ? 'selected' : ''}>English</option></select></label></div>`;
   z.querySelectorAll('[data-i]').forEach((b) => (b.onclick = () => tuiles[Number(b.dataset.i)].go()));
   z.querySelectorAll('[data-fav]').forEach((b) => (b.onclick = () => { const e = index.find((x) => x.t === b.dataset.fav); if (e) e.go(); }));
   $('#acc-chercher').onclick = () => ouvrirRechercheReglages();
   $('#acc-niveau').onchange = (e) => appliquerNiveau(e.target.value, true);
+  $('#acc-langue').onchange = (e) => choisirLangue(e.target.value);
 }
 // Le tableau de bord d'origine devient repliable sous l'accueil (ouvert par défaut hors niveau simple)
 function installerPliTableau() {
@@ -247,6 +248,7 @@ function rendreHubReglages() {
       <small class="note">Simple : l’essentiel. Opérateur : couverture avancée, trafic, outils de terrain. Expert : tout.</small>
       <label class="case"><input type="checkbox" id="hub-grand" ${document.body.classList.contains('grand-texte') ? 'checked' : ''}> Grand texte</label>
       <label class="case"><input type="checkbox" id="hub-clair" ${document.body.classList.contains('theme-clair') ? 'checked' : ''}> Thème clair (plein soleil)</label>
+      <label translate="no">🌐 Langue · Language <select id="hub-langue" aria-label="Langue · Language"><option value="fr" ${window.LANGUE !== 'en' ? 'selected' : ''}>Français</option><option value="en" ${window.LANGUE === 'en' ? 'selected' : ''}>English</option></select></label>
       <div class="actions-prop"><button type="button" class="mini" id="hub-visite">🧭 Revoir la visite guidée</button><button type="button" class="mini" id="hub-aide">❓ Aide</button></div>
     </div>
     ${bloc('Compte', compte)}${bloc('Modules et réseaux', modules)}${bloc('La carte (administrateur)', carteL)}
@@ -256,6 +258,7 @@ function rendreHubReglages() {
   $('#hub-niveau').onchange = (e) => appliquerNiveau(e.target.value, true);
   $('#hub-grand').onchange = (e) => { document.body.classList.toggle('grand-texte', e.target.checked); ecrireLs('gaulix_grand_texte', e.target.checked); };
   $('#hub-clair').onchange = (e) => appliquerTheme(e.target.checked);
+  $('#hub-langue').onchange = (e) => choisirLangue(e.target.value);
   $('#hub-visite').onclick = () => visiteGuidee(true);
   $('#hub-aide').onclick = () => ouvrirAide('Home');
 }
@@ -315,8 +318,8 @@ async function ouvrirAide(page) {
   const z = $('#fiche-contenu');
   z.innerHTML = '<div class="vide">Chargement de l’aide…</div>';
   let r;
-  try { r = await api('/api/aide/' + encodeURIComponent(page)); } catch (e) { z.innerHTML = `<div class="vide">Aide indisponible sur ce serveur (${esc(e.message)}).</div>`; return; }
-  z.innerHTML = `<div class="aide"><div class="actions-prop"><button type="button" class="mini" data-aide="Home">📚 Sommaire</button><button type="button" class="mini" id="aide-chercher">🔎 Chercher une fonction</button></div>${markdownSimple(r.texte)}</div>`;
+  try { r = await api('/api/aide/' + encodeURIComponent(page) + (window.LANGUE === 'en' ? '?langue=en' : '')); } catch (e) { z.innerHTML = `<div class="vide">Aide indisponible sur ce serveur (${esc(e.message)}).</div>`; return; }
+  z.innerHTML = `<div class="aide"><div class="actions-prop"><button type="button" class="mini" data-aide="Home">📚 Sommaire</button><button type="button" class="mini" id="aide-chercher">🔎 Chercher une fonction</button></div><div ${r.langue === window.LANGUE ? '' : 'translate="no"'}>${markdownSimple(r.texte)}</div></div>`;
   z.scrollTop = 0;
   z.querySelectorAll('[data-aide]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); ouvrirAide(a.dataset.aide); }));
   $('#aide-chercher').onclick = () => ouvrirRechercheReglages();

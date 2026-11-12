@@ -190,7 +190,10 @@ app.get('/api/aide/:page', (req, res) => {
   if (!DOSSIER_AIDE || !/^[\p{L}\p{N}_-]{1,60}$/u.test(nom)) return res.status(404).json({ erreur: 'Page d’aide introuvable' });
   const f = fs.readdirSync(DOSSIER_AIDE).find((x) => x.normalize('NFC') === nom + '.md');
   if (!f) return res.status(404).json({ erreur: 'Page d’aide introuvable' });
-  res.set('Cache-Control', 'max-age=300').json({ page: nom, texte: fs.readFileSync(path.join(DOSSIER_AIDE, f), 'utf8') });
+  // Version anglaise (wiki/en/<même nom>.md) quand elle existe
+  const en = req.query.langue === 'en' ? path.join(DOSSIER_AIDE, 'en', f) : null;
+  if (en && fs.existsSync(en)) return res.set('Cache-Control', 'max-age=300').json({ page: nom, langue: 'en', texte: fs.readFileSync(en, 'utf8') });
+  res.set('Cache-Control', 'max-age=300').json({ page: nom, langue: 'fr', texte: fs.readFileSync(path.join(DOSSIER_AIDE, f), 'utf8') });
 });
 
 app.get('/api/config', (req, res) => {
