@@ -1405,3 +1405,6 @@ body.theme-clair .chip-alertes.vig-rouge { color: #7f1d1d; }
 .barre-stat b { text-align: right; }
 .ao-deps { margin: 8px 0; } .ao-deps label.case { display: inline-flex; margin-right: 10px; }
 .parametres .ligne-entiere { grid-column: 1 / -1; display: block; }
+/* Assistant d'installation : reprise d'une sauvegarde complète */
+.encart-restauration { border: 1px solid rgba(120, 160, 190, .55); border-radius: 8px; padding: 10px 12px; margin: 8px 0 14px; font-size: 13px; line-height: 1.45; }
+.encart-restauration > div { margin-top: 8px; }

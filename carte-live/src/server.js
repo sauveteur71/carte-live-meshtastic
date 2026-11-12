@@ -9,6 +9,11 @@ const express = require('express');
 const mqtt = require('mqtt');
 const { WebSocketServer } = require('ws');
 
+// Restauration d'une sauvegarde complète préparée avant le redémarrage : appliquée avant de lire les réglages et la base
+{
+  const fb = (process.env.FICHIER_BASE || '/data/carte-live.db').trim();
+  try { require('./restauration').appliquerSiPrete(path.dirname(fb), path.basename(fb), (...a) => console.log(new Date().toISOString(), ...a)); } catch (e) { console.log(new Date().toISOString(), '[Restauration] impossible :', e.message); }
+}
 const config = require('./config');
 const VERSION = require('../package.json').version;
 const { calculerVoisins, calculerRegions } = require('./voisins');
@@ -2982,7 +2987,7 @@ app.get('/api/sauvegarde-complete', (req, res) => {
   try { fs.unlinkSync(copie); } catch { /* absente */ }
   try { stockage.db.exec(`VACUUM INTO '${copie.replace(/'/g, "''")}'`); } catch (e) { return res.status(500).json({ erreur: 'copie de la base impossible : ' + e.message }); }
   const base = path.basename(config.fichierBase);
-  const exclus = ['mnt*.bin', 'mnt*.json', 'sommets-osm*.json', 'acces-sommets*.json', 'communes*.json', 'realisme*.json', 'firmware', 'sauvegardes', '*.part', base, base + '-wal', base + '-shm', 'maj-jeton.txt'];
+  const exclus = ['mnt*.bin', 'mnt*.json', 'sommets-osm*.json', 'acces-sommets*.json', 'communes*.json', 'realisme*.json', 'firmware', 'sauvegardes', '*.part', base, base + '-wal', base + '-shm', 'maj-jeton.txt', 'restauration-en-attente', 'avant-restauration-*', 'restauration.tar.gz'];
   journal(`[Sauvegarde] sauvegarde complète téléchargée par ${utilisateur(req).identifiant}`);
   res.set('Content-Type', 'application/gzip').set('Content-Disposition', `attachment; filename="carte-live-complete-${new Date().toISOString().slice(0, 10)}.tar.gz"`);
   const { spawn } = require('child_process');
@@ -2991,6 +2996,37 @@ app.get('/api/sauvegarde-complete', (req, res) => {
   t.stdout.pipe(res);
   t.stderr.on('data', (x) => journal('[Sauvegarde]', String(x).trim()));
   t.on('close', () => { try { fs.unlinkSync(copie); } catch { /* déjà */ } });
+});
+// Restauration d'une sauvegarde complète envoyée depuis la page (administrateur, ou pendant l'installation sur un nouveau serveur)
+app.post('/api/restauration-complete', (req, res) => {
+  const enInstallation = comptes.installationRequise() && (ipPrivee(req) || (() => {
+    const code = String(req.query.code || '');
+    const attendu = config.admin.motDePasse || codeInstallationAuto;
+    if (!code || !attendu) return false;
+    const a = crypto.createHash('sha256').update(config.admin.motDePasse ? code : code.replace(/[\s-]/g, '').toUpperCase()).digest(), c = crypto.createHash('sha256').update(String(attendu)).digest();
+    return crypto.timingSafeEqual(a, c);
+  })());
+  if (!estAdmin(req) && !enInstallation) return res.status(401).json({ erreur: comptes.installationRequise() ? 'Saisissez d’abord le code d’installation' : 'Connexion admin requise' });
+  if (!estAdmin(req) && limiter(req.ip)) return res.status(429).json({ erreur: 'Trop de tentatives, réessayez dans 15 minutes' });
+  const d = path.dirname(config.fichierBase), f = path.join(d, 'restauration.tar.gz');
+  const sortie = fs.createWriteStream(f + '.part');
+  let taille = 0, fini = false;
+  const echec = (code, m) => { if (fini) return; fini = true; try { sortie.destroy(); fs.unlinkSync(f + '.part'); } catch { /* déjà */ } res.status(code).json({ erreur: m }); };
+  req.on('data', (b) => { taille += b.length; if (taille > 8 * 1024 ** 3) { req.destroy(); echec(413, 'fichier trop gros (8 Go au plus)'); } });
+  req.pipe(sortie);
+  req.on('error', () => echec(400, 'envoi interrompu'));
+  sortie.on('finish', () => {
+    if (fini) return;
+    fini = true;
+    try {
+      fs.renameSync(f + '.part', f);
+      const r = require('./restauration').preparer(f, d, path.basename(config.fichierBase));
+      fs.unlinkSync(f);
+      journal(`[Restauration] sauvegarde complète reçue (${Math.round(taille / 1048576)} Mo, ${r.fichiers} fichiers) par ${estAdmin(req) ? utilisateur(req).identifiant : 'l’installation'} : redémarrage`);
+      res.json({ ok: true, fichiers: r.fichiers, redemarrage: true });
+      setTimeout(() => process.exit(0), 1500); // Docker relance le conteneur, qui applique la restauration
+    } catch (e) { try { fs.unlinkSync(f); } catch { /* déjà */ } res.status(400).json({ erreur: e.message }); }
+  });
 });
 // ---- Mise à jour automatique la nuit (option, administrateur) ----
 const fMajAuto = path.join(path.dirname(config.fichierBase), 'maj-auto.json');

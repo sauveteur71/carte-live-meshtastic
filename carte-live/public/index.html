@@ -410,6 +410,10 @@
   <dialog id="dlg-installation" class="large">
     <h2>Bienvenue : installation de la carte</h2>
     <p class="note">Première mise en route. Créez le compte administrateur, puis indiquez votre zone et votre serveur MQTT. Tout reste modifiable ensuite dans <b>Réglages</b>.</p>
+    <div class="encart-restauration">
+      <b>♻️ Vous changez de serveur ?</b> Reprenez tout d'un coup (base, réglages, comptes) depuis le fichier <span class="mono">carte-live-complete-….tar.gz</span> de l'ancien serveur (Réglages › 📦 Sauvegarde complète).
+      <div><button type="button" id="inst-restaurer">♻️ Restaurer une sauvegarde complète…</button> <span id="inst-restauration" class="note"></span></div>
+    </div>
     <form id="form-installation">
       <h3>1. Compte administrateur</h3>
       <div class="grille-form">

@@ -26,3 +26,26 @@ jobs:
       - name: Agent
         working-directory: agent
         run: go vet ./... && go build ./...
+
+  interface:
+    # Tests de l'interface dans un vrai navigateur : carte, rubriques, aide, recherche, DFCI, anglais, pages publiques
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: carte-live/package-lock.json
+      - name: Dépendances
+        working-directory: carte-live
+        run: npm ci --omit=dev && npm i --no-save playwright && npx playwright install --with-deps chromium
+      - name: Tests de l'interface
+        working-directory: carte-live
+        run: node tests/interface.js
+      - name: Captures et journal en cas d'échec
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultats-interface
+          path: carte-live/tests/resultats/

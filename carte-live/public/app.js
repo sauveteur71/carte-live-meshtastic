@@ -1623,6 +1623,7 @@ const CATALOGUE_REGLAGES = [
   ['Passerelle Meshtastic ⇄ MeshCore', 'Outils', 'passerelle relais canal adrasec meshpass activer règle', 'admin', () => ouvrirPasserelle()],
   ['Diagnostic : pourquoi ça ne marche pas ?', 'Réglages', 'diagnostic problème panne vérifier mqtt messages ne remontent pas', 'admin', () => ficheDiagnostic()],
   ['Sauvegarde complète (changer de serveur)', 'Réglages', 'sauvegarde complète export base migration déménager serveur', 'admin', () => { location.href = '/api/sauvegarde-complete'; }],
+  ['Restaurer une sauvegarde complète', 'Réglages', 'restaurer sauvegarde complète import base migration nouveau serveur', 'admin', () => choisirEtRestaurer()],
   ['Main courante (signalements imprimables)', 'Outils', 'main courante journal intervention pdf imprimer', 'membre', () => window.open('/main-courante', '_blank')],
   ['Mettre à jour la carte', 'Version', 'mise à jour version upgrade docker image nouvelle', 'admin', () => ficheMaj()],
   ['Signalements (route inondée…)', 'Outils', 'signaler événement inondation alerte waypoint bipper germacrise', 'membre', () => ficheSignalements()],
@@ -6807,6 +6808,35 @@ function appliquerTheme(clair) {
 let invitationInstall = null;
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); invitationInstall = e; const b = $('#outil-installer'); if (b) b.hidden = false; });
 
+// Restauration d'une sauvegarde complète (.tar.gz) : envoi avec avancement, puis redémarrage de la carte
+function choisirEtRestaurer({ code = '', zone = null } = {}) {
+  const champ = document.createElement('input');
+  champ.type = 'file'; champ.accept = '.gz,.tgz,application/gzip';
+  champ.onchange = async () => {
+    const fichier = champ.files[0];
+    if (!fichier) return;
+    const mo = (fichier.size / 1048576).toFixed(fichier.size > 10485760 ? 0 : 1);
+    if (!(await confirmer(`Restaurer « ${fichier.name} » (${mo} Mo) ? La base, les réglages et les comptes actuels seront remplacés par ceux de la sauvegarde (l'état actuel est gardé à part, dans le dossier des données « avant-restauration-… »), puis la carte redémarrera.`, { ok: 'Restaurer' }))) return;
+    const montrer = (t) => { if (zone) zone.textContent = t; else annonce(t); };
+    montrer('⏳ Envoi : 0 %');
+    try {
+      const r = await new Promise((ok, ko) => {
+        const x = new XMLHttpRequest();
+        x.open('POST', '/api/restauration-complete' + (code ? '?code=' + encodeURIComponent(code) : ''));
+        x.setRequestHeader('Content-Type', 'application/octet-stream');
+        x.upload.onprogress = (e) => { if (e.lengthComputable) montrer(`⏳ Envoi : ${Math.round((100 * e.loaded) / e.total)} %${e.loaded === e.total ? ' · vérification de l’archive…' : ''}`); };
+        x.onload = () => { let j = {}; try { j = JSON.parse(x.responseText); } catch { /* réponse vide */ } if (x.status >= 200 && x.status < 300) ok(j); else ko(new Error(j.erreur || 'HTTP ' + x.status)); };
+        x.onerror = () => ko(new Error('envoi interrompu'));
+        x.send(fichier);
+      });
+      montrer(`✅ Sauvegarde reçue (${r.fichiers} fichiers)`);
+      document.querySelectorAll('dialog[open]').forEach((d) => d.close());
+      attendreRedemarrage('Restauration en cours ✓');
+    } catch (e) { montrer('❌ ' + e.message); }
+  };
+  champ.click();
+}
+
 async function installation() {
   const info = await api('/api/installation');
   if (!info.requise) return false;
@@ -6847,6 +6877,7 @@ async function installation() {
     } catch (e) { z.textContent = '❌ ' + e.message; }
     bt.disabled = false;
   }; }
+  { const bt = $('#inst-restaurer'); if (bt) bt.onclick = () => choisirEtRestaurer({ code: f.code.value, zone: $('#inst-restauration') }); }
   dlg.addEventListener('cancel', (e) => e.preventDefault()); // non refermable tant que l'installation n'est pas faite
   dlg.showModal();
   return true;
