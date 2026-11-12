@@ -6405,13 +6405,23 @@ async function rendrePasserelle(complet) {
     $('#pp-filtre').value = pp.filtreJournal;
     $('#pp-filtre').onchange = (e) => { pp.filtreJournal = e.target.value; rendrePasserelle(true); };
   } else if (pp.onglet === 'regles') {
-    const col = (liste, choix, cote) => liste.length ? liste.map((c) => `<div class="pp-canal ${choix === c.index ? 'sel' : ''}" data-cote="${cote}" data-index="${c.index}"><span>#${esc(c.nom)}</span><small>${cote === 'mt' ? (c.index === 0 ? 'canal 0 · principal' : 'canal ' + c.index) : 'canal ' + c.index}</small></div>`).join('') : `<div class="vide">${cote === 'mt' ? 'Module Meshtastic principal non relié : ses canaux s’affichent quand il est connecté.' : 'Companion MeshCore non relié.'}</div>`;
+    // Chaque côté : canaux du module (ou, s'il n'est pas relié, canaux connus de la carte) + saisie libre d'un nom
+    const col = (liste, cote) => {
+      const choix = cote === 'mt' ? pp.choixMt : pp.choixMc;
+      const connus = (d.canauxConnus || {})[cote] || [];
+      const lignes = liste.length
+        ? liste.map((c) => `<div class="pp-canal ${choix && choix.nom === c.nom ? 'sel' : ''}" data-cote="${cote}" data-index="${c.index}" data-nom="${esc(c.nom)}"><span>#${esc(c.nom)}</span><small>${cote === 'mt' ? (c.index === 0 ? 'canal 0 · principal' : 'canal ' + c.index) : 'canal ' + c.index}</small></div>`).join('')
+        : `<div class="note">${cote === 'mt' ? 'Module Meshtastic principal non relié' : 'Companion MeshCore non relié'} : choisissez un canal connu de la carte ou tapez son nom. La liaison fonctionnera dès que ${cote === 'mt' ? 'le module' : 'le companion'} aura ce canal.</div>`
+          + connus.map((nom) => `<div class="pp-canal ${choix && choix.nom === nom ? 'sel' : ''}" data-cote="${cote}" data-nom="${esc(nom)}"><span>#${esc(nom.replace(/^#/, ''))}</span><small>connu de la carte</small></div>`).join('');
+      return lignes + `<label class="pp-saisie">Autre canal <input data-saisie-canal="${cote}" placeholder="${cote === 'mt' ? 'ex. ADRASEC43' : 'ex. #adrasec'}" value="${choix && choix.saisi ? esc(choix.nom) : ''}"></label>`;
+    };
     z.innerHTML = `${entete}
       <p class="note">Choisissez un canal de chaque côté (canaux du module Meshtastic principal et du companion MeshCore), le sens, puis « Créer la liaison ». Les messages relayés partent par ces deux modules.</p>
-      <div class="pp-colonnes"><div><h3>Canaux Meshtastic</h3>${col(m.mt.canaux, pp.choixMt, 'mt')}</div>
+      <div class="pp-colonnes"><div><h3>Canal Meshtastic</h3>${col(m.mt.canaux, 'mt')}</div>
         <div class="pp-sens">${Object.entries(ppSens).map(([k, v]) => `<button class="mini ${pp.sens === k ? 'actif' : ''}" data-sens="${k}">${v}</button>`).join('')}
           <label class="case"><input type="checkbox" id="pp-coal"> Regrouper (${g.coalescenceS} s)</label><button class="principal" id="pp-creer">Créer la liaison</button></div>
-        <div><h3>Canaux MeshCore</h3>${col(m.mc.canaux, pp.choixMc, 'mc')}</div></div>
+        <div><h3>Canal MeshCore</h3>${col(m.mc.canaux, 'mc')}</div></div>
+      ${pp.choixMt || pp.choixMc ? `<p class="note pp-resume">Liaison : <b>MT #${esc(pp.choixMt ? pp.choixMt.nom : '?')}</b> ${ppSens[pp.sens] ? esc(ppSens[pp.sens]).replace(/MT|MC/g, '') : '⇄'} <b>MC ${esc(pp.choixMc ? (pp.choixMc.nom.startsWith('#') ? pp.choixMc.nom : '#' + pp.choixMc.nom) : '?')}</b></p>` : ''}
       <p class="erreur" id="pp-retour"></p>
       <h3>Règles</h3>
       ${d.regles.length ? `<table class="voisins"><thead><tr><th>Liaison</th><th>Regrouper</th><th>Active</th><th></th></tr></thead><tbody>${d.regles.map((x) => `<tr data-id="${x.id}"><td><b>${esc(x.libelle)}</b>${x.enAttente ? ` <small>· ${x.enAttente} en attente</small>` : ''}
@@ -6423,11 +6433,20 @@ async function rendrePasserelle(complet) {
           <label>Heures silencieuses <input data-f="silence" value="${esc((x.filtres || {}).silence || '')}" placeholder="ex. 22-7"></label>
           <button class="mini principal" data-filtres>Enregistrer les filtres</button></details></td>
         <td><input type="checkbox" data-coal ${x.coalescence ? 'checked' : ''}></td><td><input type="checkbox" data-actif ${x.actif ? 'checked' : ''}></td><td><button class="mini" data-suppr>✕</button></td></tr>`).join('')}</tbody></table>` : '<div class="vide">Aucune règle.</div>'}`;
-    z.querySelectorAll('.pp-canal').forEach((el) => (el.onclick = () => { if (el.dataset.cote === 'mt') pp.choixMt = Number(el.dataset.index); else pp.choixMc = Number(el.dataset.index); rendrePasserelle(true); }));
+    z.querySelectorAll('.pp-canal').forEach((el) => (el.onclick = () => {
+      const c = { index: el.dataset.index !== undefined ? Number(el.dataset.index) : null, nom: el.dataset.nom };
+      if (el.dataset.cote === 'mt') pp.choixMt = c; else pp.choixMc = c;
+      rendrePasserelle(true);
+    }));
+    z.querySelectorAll('[data-saisie-canal]').forEach((i) => (i.onchange = () => {
+      const v = i.value.trim(), c = v ? { index: null, nom: v, saisi: true } : null;
+      if (i.dataset.saisieCanal === 'mt') pp.choixMt = c; else pp.choixMc = c;
+      rendrePasserelle(true);
+    }));
     z.querySelectorAll('[data-sens]').forEach((b) => (b.onclick = () => { pp.sens = b.dataset.sens; rendrePasserelle(true); }));
     $('#pp-creer').onclick = async () => {
       if (pp.choixMt == null || pp.choixMc == null) { $('#pp-retour').textContent = 'Choisissez un canal de chaque côté.'; return; }
-      try { await postJson('/api/passerelle/regles', { mt: pp.choixMt, mc: pp.choixMc, sens: pp.sens, coalescence: $('#pp-coal').checked }); pp.choixMt = pp.choixMc = null; rendrePasserelle(true); } catch (e) { $('#pp-retour').textContent = e.message; }
+      try { await postJson('/api/passerelle/regles', { mt: pp.choixMt.index, mtNom: pp.choixMt.nom, mc: pp.choixMc.index, mcNom: pp.choixMc.nom, sens: pp.sens, coalescence: $('#pp-coal').checked }); pp.choixMt = pp.choixMc = null; rendrePasserelle(true); } catch (e) { $('#pp-retour').textContent = e.message; }
     };
     z.querySelectorAll('tr[data-id]').forEach((tr) => {
       const id = tr.dataset.id, maj = async (o) => { try { await postJson(`/api/passerelle/regles/${id}`, o); } catch (e) { alert(e.message); } rendrePasserelle(true); };

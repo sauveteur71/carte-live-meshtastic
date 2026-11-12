@@ -1278,3 +1278,5 @@ code.coupe { word-break: break-all; }
 .flash-recherche { outline: 3px solid #fbbf24 !important; outline-offset: 2px; box-shadow: 0 0 0 6px rgba(251,191,36,.35) !important; transition: outline .2s; }
 .dlg-chercher { position: relative; } .dlg-chercher .fermer { position: absolute; top: 6px; right: 8px; }
 .dlg-chercher #chercher-reglage { width: calc(100% - 36px); }
+.pp-saisie { display: block; margin-top: 6px; font-size: 12px; } .pp-saisie input { width: 100%; box-sizing: border-box; margin-top: 2px; }
+.pp-resume { font-size: 14px; }

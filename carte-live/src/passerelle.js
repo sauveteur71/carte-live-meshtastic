@@ -44,6 +44,8 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
   }
 
   // ---- Outils ----
+  const FLECHE = { mt2mc: '→', mc2mt: '←', bi: '⇄' };
+  const diese = (n) => (String(n || '').startsWith('#') ? n : '#' + n);
   const norm = (s) => String(s || '').trim().toLowerCase().replace(/^#/, '');
   const octets = (s) => Buffer.byteLength(s, 'utf8');
   const tronquer = (s, max) => { if (octets(s) <= max) return s; let t = s; while (octets(t + '…') > max) t = t.slice(0, -1); return t + '…'; };
@@ -116,10 +118,14 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
       f.ouverture = Date.now();
       rec.push(t); envoisRecents.regle.set(k, rec); envoisRecents.global.push(t); envoisRecents.dernier[vers] = t;
       try {
-        if (vers === 'mc') await envoyerMc(regle.mc.index, texte); else await envoyerMt(regle.mt.index, texte);
+        // Le canal est retrouvé par son nom au moment d'envoyer (la règle a pu être créée module débranché,
+        // ou les canaux du module ont été réordonnés depuis)
+        const c = indexCanal(vers, regle[vers].nom);
+        if (c == null) throw new Error(`canal « ${regle[vers].nom} » absent ${vers === 'mc' ? 'du companion' : 'du module Meshtastic'}`);
+        if (vers === 'mc') await envoyerMc(c, texte); else await envoyerMt(c, texte);
         stats[vers === 'mc' ? 'mt2mc' : 'mc2mt'] += 1;
         if (nb > 1) stats.agreges += nb - 1;
-        noter('out', `${vers === 'mc' ? 'MC #' + regle.mc.nom : 'MT #' + regle.mt.nom} → ${texte}${nb > 1 ? ` (${nb} messages regroupés)` : ''}`);
+        noter('out', `${vers === 'mc' ? 'MC ' + diese(regle.mc.nom) : 'MT ' + diese(regle.mt.nom)} → ${texte}${nb > 1 ? ` (${nb} messages regroupés)` : ''}`);
       } catch (e) { for (const x of partis) noter('drop', `${regle.libelle} : ${x.texte}`, MOTIFS.erreur + ' : ' + e.message); }
     }
   }
@@ -169,6 +175,11 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
     return {
       actif: donnees.activee,
       modules: { mt: { connecte: !!mt.connecte, nom: mt.nomLocal || null, canaux: mt.canaux || [] }, mc: { connecte: !!mc.pret, nom: mc.nom || null, canaux: mc.canaux || [] } },
+      // Canaux connus de la carte (réglages), proposés quand le module ou le companion n'est pas relié
+      canauxConnus: {
+        mt: (config.canaux || []).map((c) => c.nom).filter(Boolean),
+        mc: ((config.meshcore && config.meshcore.canaux) || []).map((c) => String(c).split('=')[0].trim()).filter(Boolean),
+      },
       regles: donnees.regles.map((x) => ({ ...x, enAttente: (files.get(`${x.id}|mc`) || { messages: [] }).messages.length + (files.get(`${x.id}|mt`) || { messages: [] }).messages.length })),
       listeNoire: donnees.listeNoire,
       reglages: donnees.reglages,
@@ -178,15 +189,32 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
       sens: SENS,
     };
   }
-  function ajouterRegle({ mt, mc, sens, coalescence }, qui) {
-    const cmt = (etatMt().canaux || []).find((c) => c.index === Number(mt));
-    const cmc = (etatMc().canaux || []).find((c) => c.index === Number(mc));
-    if (!cmt) throw new Error('Canal Meshtastic inconnu du module principal');
-    if (!cmc) throw new Error('Canal MeshCore inconnu du companion');
+  // Index actuel d'un canal d'après son nom (null si le module ne l'a pas, ou est débranché)
+  function indexCanal(cote, nom) {
+    const l = (cote === 'mc' ? etatMc().canaux : etatMt().canaux) || [];
+    const c = l.find((x) => norm(x.nom) === norm(nom));
+    return c ? c.index : null;
+  }
+  // Canal choisi : par son index dans la liste du module, ou par son nom (saisi, ou canal connu de la carte)
+  function canalChoisi(cote, index, nom) {
+    const l = (cote === 'mc' ? etatMc().canaux : etatMt().canaux) || [];
+    if (index !== undefined && index !== null && index !== '') {
+      const c = l.find((x) => x.index === Number(index));
+      if (c) return { index: c.index, nom: c.nom };
+    }
+    nom = String(nom || '').trim().replace(/^#(?=[^#])/, cote === 'mc' ? '#' : '');
+    if (!nom || nom.length > 32) throw new Error(`Choisissez ou tapez le canal ${cote === 'mc' ? 'MeshCore' : 'Meshtastic'}`);
+    const c = l.find((x) => norm(x.nom) === norm(nom));
+    return c ? { index: c.index, nom: c.nom } : { index: null, nom };
+  }
+  function ajouterRegle({ mt, mc, mtNom, mcNom, sens, coalescence }, qui) {
+    const cmt = canalChoisi('mt', mt, mtNom);
+    const cmc = canalChoisi('mc', mc, mcNom);
+    if (donnees.regles.some((x) => norm(x.mt.nom) === norm(cmt.nom) && norm(x.mc.nom) === norm(cmc.nom))) throw new Error('Cette liaison existe déjà');
     if (cmt.index === 0 && !donnees.reglages.canalPrincipalAutorise) throw new Error('Le canal principal Meshtastic (index 0) est exclu par défaut : autorisez-le dans les réglages de la passerelle');
     if (!SENS[sens]) throw new Error('Sens invalide');
     const regle = { id: crypto.randomBytes(4).toString('hex'), mt: { index: cmt.index, nom: cmt.nom }, mc: { index: cmc.index, nom: cmc.nom }, sens, coalescence: !!coalescence, actif: true, filtres: {}, creee: Date.now(), par: qui };
-    regle.libelle = `MT #${regle.mt.nom} ${SENS[sens]} MC #${regle.mc.nom}`;
+    regle.libelle = `MT ${diese(regle.mt.nom)} ${FLECHE[sens]} MC ${diese(regle.mc.nom)}`;
     donnees.regles.push(regle);
     sauver();
     return regle;
@@ -196,7 +224,7 @@ function creerPasserelle({ config, journal, audit, nomMt, envoyerMt, envoyerMc, 
     if (!regle) throw new Error('Règle inconnue');
     if (typeof champs.actif === 'boolean') regle.actif = champs.actif;
     if (typeof champs.coalescence === 'boolean') regle.coalescence = champs.coalescence;
-    if (champs.sens && SENS[champs.sens]) { regle.sens = champs.sens; regle.libelle = `MT #${regle.mt.nom} ${SENS[regle.sens]} MC #${regle.mc.nom}`; }
+    if (champs.sens && SENS[champs.sens]) { regle.sens = champs.sens; regle.libelle = `MT ${diese(regle.mt.nom)} ${FLECHE[regle.sens]} MC ${diese(regle.mc.nom)}`; }
     if (champs.filtres && typeof champs.filtres === 'object') {
       const f = champs.filtres, s = (v, n) => String(v || '').slice(0, n);
       regle.filtres = { expediteurs: s(f.expediteurs, 400), motRequis: s(f.motRequis, 40), motExclu: s(f.motExclu, 120), longueurMin: Math.min(50, Math.max(1, Number(f.longueurMin) || 2)), silence: s(f.silence, 20) };
