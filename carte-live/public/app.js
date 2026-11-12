@@ -476,7 +476,13 @@ async function ficheMaj() {
       <p class="note">La carte télécharge la nouvelle image, puis redémarre avec les mêmes réglages et les mêmes données (1 à 3 minutes, la page se recharge toute seule). Si la nouvelle version ne démarre pas, l’ancienne est remise en route.</p>`
     : `<div class="alerte attention">Le service de mise à jour n’est pas installé sur ce serveur (${esc(r.raison || '')}).</div>
       <p class="note">Pour mettre à jour en un clic, ajoutez le service <b>maj</b> à votre <code>docker-compose.yml</code> (voir le wiki, page Installation), puis <code>docker compose up -d</code> une dernière fois. En attendant : <code>docker compose pull && docker compose up -d</code>.</p>`}
+    ${r.installe ? '<label class="case"><input type="checkbox" id="maj-auto"> Mettre à jour automatiquement la nuit, à <select id="maj-auto-h">' + [2, 3, 4, 5].map((h) => `<option value="${h}">${h} h</option>`).join('') + '</select></label><p class="note">Seulement si une nouvelle version est publiée et qu’aucune programmation à distance n’est en cours. En cas d’échec, l’ancienne version repart.</p>' : ''}
     <p class="erreur" id="maj-retour"></p></div>`;
+  if (r.installe) api('/api/maj/auto').then((a) => {
+    const c = $('#maj-auto'), h = $('#maj-auto-h'); if (!c) return;
+    c.checked = !!a.actif; h.value = String(a.heure);
+    c.onchange = h.onchange = async () => { try { await postJson('/api/maj/auto', { actif: c.checked, heure: Number(h.value) }); annonce(c.checked ? `✔ Mise à jour automatique à ${h.value} h` : 'Mise à jour automatique désactivée', 'ok'); } catch (x) { annonce('⚠ ' + x.message, 'erreur'); } };
+  }).catch(() => {});
   const lancer = async (forcer) => {
     if (!(await confirmer('Mettre la carte à jour maintenant ? Elle sera indisponible 1 à 3 minutes.'))) return;
     try { await postJson('/api/maj', { forcer: !!forcer }); attendreMaj(r.version); } catch (e) { $('#maj-retour').textContent = e.message; }
@@ -715,7 +721,7 @@ function porteeRecevoir(m) {
 }
 async function testPortee(num) {
   if (num == null) {
-    const t = prompt('Identifiant du nœud à écouter (!xxxxxxxx, ou son nom) :');
+    const t = (await saisir('Identifiant du nœud à écouter (!xxxxxxxx, ou son nom) :'));
     if (!t) return;
     const s = t.trim().toLowerCase();
     const n = [...etat.noeuds.values()].find((x) => x.id.toLowerCase() === (s.startsWith('!') ? s : '!' + s) || (x.nomLong || '').toLowerCase().includes(s) || (x.nomCourt || '').toLowerCase() === s);
@@ -1559,6 +1565,9 @@ const CATALOGUE_REGLAGES = [
   ['Hauteur d’antenne des sites (zone dessinée)', 'Couverture', 'antenne hauteur mât sol', 'membre', () => { ouvrirOnglet('sites'); attendreEl('#plan-hs').then(surligner); }],
   ['Accès aux sites (voiture, 4×4, à pied)', 'Couverture', 'accès voiture 4x4 pied piste', 'membre', () => { ouvrirOnglet('sites'); attendreEl('#plan-acces').then(surligner); }],
   ['Passerelle Meshtastic ⇄ MeshCore', 'Outils', 'passerelle relais canal adrasec meshpass activer règle', 'admin', () => ouvrirPasserelle()],
+  ['Diagnostic : pourquoi ça ne marche pas ?', 'Réglages', 'diagnostic problème panne vérifier mqtt messages ne remontent pas', 'admin', () => ficheDiagnostic()],
+  ['Sauvegarde complète (changer de serveur)', 'Réglages', 'sauvegarde complète export base migration déménager serveur', 'admin', () => { location.href = '/api/sauvegarde-complete'; }],
+  ['Main courante (signalements imprimables)', 'Outils', 'main courante journal intervention pdf imprimer', 'membre', () => window.open('/main-courante', '_blank')],
   ['Mettre à jour la carte', 'Version', 'mise à jour version upgrade docker image nouvelle', 'admin', () => ficheMaj()],
   ['Signalements (route inondée…)', 'Outils', 'signaler événement inondation alerte waypoint bipper germacrise', 'membre', () => ficheSignalements()],
 ];
@@ -1743,7 +1752,7 @@ async function ficheSignalements(msg) {
   if (!sig.info) await chargerSignalements();
   const l = sig.liste;
   z.innerHTML = `<div class="liste-signalements"><h2>🚩 Signalements</h2>${msg ? `<p class="note"><b>${esc(msg)}</b></p>` : ''}
-    <p class="note">Clic droit (ou appui long) sur la carte › <b>🚩 Signaler un événement ici</b>.</p>
+    <p class="note">Bouton ＋ ou clic droit sur la carte › <b>🚩 Signaler un événement ici</b>. <a href="/main-courante" target="_blank" rel="noopener">📋 Main courante imprimable</a></p>
     ${l.length ? l.map((s) => `<div class="ligne sig-ligne ${s.actif ? '' : 'passe'}" data-sig="${s.id}"><span class="sig-ic">${s.icone}</span><span class="titre">${esc(s.titre)}<small>${esc(s.details || '')} · ${esc(s.auteur)} ${ilYa(s.cree)}${s.actif ? '' : s.fin ? ' · terminé' : ' · expiré'}</small></span>
       <span class="meta">${s.source === 'radio' ? '📻' : ''}${[...(s.envois.mt || []), s.envois.mc].filter(Boolean).map((e) => e.statut === 'envoye' ? '✔' : e.statut === 'echec' ? '⚠' : '⏳').join(' ')}</span></div>`).join('') : '<div class="vide">Aucun signalement ces 7 derniers jours.</div>'}</div>`;
   z.querySelectorAll('[data-sig]').forEach((d) => (d.onclick = () => {
@@ -3700,7 +3709,7 @@ async function rendreSites() {
   }
   { const bz = $('#zone-dessiner'); if (bz) bz.onclick = () => commencerZone(); }
   { const zm = $('#zone-memo'); if (zm) zm.onchange = () => { const z = lireLs('gaulix_zones', [])[Number(zm.value)]; if (z) planZoneDessinee(z.polygones || z.polygone, z.nom); }; }
-  { const zs = $('#zone-suppr'); if (zs) zs.onclick = () => { const zm = $('#zone-memo'); const l = lireLs('gaulix_zones', []); const k = Number(zm.value); if (zm.value === '' || !l[k]) return; if (!confirm(`Oublier la zone « ${l[k].nom} » ?`)) return; l.splice(k, 1); ecrireLs('gaulix_zones', l); zm.innerHTML = '<option value="">Zones enregistrées…</option>' + l.map((z, i) => `<option value="${i}">${esc(z.nom)}</option>`).join(''); }; }
+  { const zs = $('#zone-suppr'); if (zs) zs.onclick = async () => { const zm = $('#zone-memo'); const l = lireLs('gaulix_zones', []); const k = Number(zm.value); if (zm.value === '' || !l[k]) return; if (!(await confirmer(`Oublier la zone « ${l[k].nom} » ?`))) return; l.splice(k, 1); ecrireLs('gaulix_zones', l); zm.innerHTML = '<option value="">Zones enregistrées…</option>' + l.map((z, i) => `<option value="${i}">${esc(z.nom)}</option>`).join(''); }; }
   const pc = $('#plan-calculer');
   if (pc) {
     try { const v = localStorage.getItem('gaulix_plan'); if (v) { const o = JSON.parse(v); $('#plan-objectif').value = o.objectif; $('#plan-max').value = o.max; $('#plan-acces').value = o.acces; $('#plan-reseau').checked = o.reseau; if (o.hs && $('#plan-hs')) $('#plan-hs').value = o.hs; } } catch { /* ignoré */ }
@@ -4586,7 +4595,7 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
     }; }
     bloc.querySelector('[data-reappliquer]').onclick = async () => { try { apres(id, await postJson(`/api/equipes/${id}/reappliquer`, {})); } catch (e) { retour(e.message); } };
     bloc.querySelector('[data-cle]').onclick = async () => {
-      const c = prompt(`Nouvelle clé pour « ${nom} » : elle sera envoyée à tous les membres ; tant qu’un nœud ne l’a pas reçue, il ne comprend plus les autres.\nTapez NOUVELLE CLE pour confirmer.`);
+      const c = (await saisir(`Nouvelle clé pour « ${nom} » : elle sera envoyée à tous les membres ; tant qu’un nœud ne l’a pas reçue, il ne comprend plus les autres.\nTapez NOUVELLE CLE pour confirmer.`));
       if (c == null) return;
       try { apres(id, await postJson(`/api/equipes/${id}/nouvelle-cle`, { confirmation: c.trim().toUpperCase() })); } catch (e) { retour(e.message); }
     };
@@ -5045,7 +5054,7 @@ async function formulaireAction(act) {
       $('#suppr-canal').hidden = p;
     };
     fo.index.onchange = majPrincipal;
-    fo.onsubmit = (e) => {
+    fo.onsubmit = async (e) => {
       e.preventDefault();
       let psk = 'AQ==';
       if (fo.typeCle.value === 'aleatoire') { const b = new Uint8Array(32); crypto.getRandomValues(b); psk = btoa(String.fromCharCode(...b)); }
@@ -5055,12 +5064,12 @@ async function formulaireAction(act) {
       const index = Number(fo.index.value);
       if (index === 0) {
         if (fo.confirmation.value.trim().toUpperCase() !== 'CANAL 0') { $('#retour-action').textContent = 'Tapez « CANAL 0 » pour confirmer le changement du canal principal'; fo.confirmation.focus(); return; }
-        if (!confirm(`Changer le canal PRINCIPAL en « ${fo.nom.value} » sur ${gestion.selection.size} nœud(s) ?`)) return;
+        if (!(await confirmer(`Changer le canal PRINCIPAL en « ${fo.nom.value} » sur ${gestion.selection.size} nœud(s) ?`))) return;
       }
       lancerTache('canal', { index, nom: fo.nom.value, psk, precision: Number(fo.precision.value), montant: fo.montant.checked, descendant: fo.descendant.checked, role: index === 0 ? 'PRIMARY' : 'SECONDARY', confirmation: index === 0 ? 'CANAL 0' : undefined });
       if (index === 0) fo.confirmation.value = '';
     };
-    $('#suppr-canal').onclick = () => { if (confirm(`Supprimer le canal ${fo.index.value} sur ${gestion.selection.size} nœud(s) ?`)) lancerTache('canal', { index: Number(fo.index.value), role: 'DISABLED' }); };
+    $('#suppr-canal').onclick = async () => { if ((await confirmer(`Supprimer le canal ${fo.index.value} sur ${gestion.selection.size} nœud(s) ?`))) lancerTache('canal', { index: Number(fo.index.value), role: 'DISABLED' }); };
     return;
   }
   if (act === 'config') {
@@ -5122,13 +5131,13 @@ async function formulaireAction(act) {
         marquer();
       });
     };
-    fo.onsubmit = (e) => {
+    fo.onsubmit = async (e) => {
       e.preventDefault();
       const lat = Number(String(fo.lat.value).replace(',', '.')), lon = Number(String(fo.lon.value).replace(',', '.'));
-      if (!confirm(`Définir la position fixe de ${n ? n.nomLong || n.id : 'ce nœud'} à ${lat.toFixed(5)}, ${lon.toFixed(5)} ?`)) return;
+      if (!(await confirmer(`Définir la position fixe de ${n ? n.nomLong || n.id : 'ce nœud'} à ${lat.toFixed(5)}, ${lon.toFixed(5)} ?`))) return;
       lancerTache('position', { lat, lon, alt: fo.alt.value });
     };
-    $('#retirer-pos').onclick = () => { if (confirm('Retirer la position fixe (le nœud reprendra son GPS) ?')) lancerTache('position', { retirer: true }); };
+    $('#retirer-pos').onclick = async () => { if ((await confirmer('Retirer la position fixe (le nœud reprendra son GPS) ?'))) lancerTache('position', { retirer: true }); };
     marquer();
   }
 }
@@ -5438,7 +5447,7 @@ async function editeurReglages(num) {
     if (chg.includes('position invalide')) { $('#ed-retour').textContent = 'Coordonnées de position invalides'; return; }
     if (p.canaux.some((c) => c.psk && !/^[A-Za-z0-9+/=]{2,64}$/.test(c.psk))) { $('#ed-retour').textContent = 'Clé invalide (base64)'; return; }
     if (p.canaux.some((c) => c.index === 0)) {
-      const t = prompt(`Le canal PRINCIPAL (0) va changer${local ? '' : ' sur un nœud distant'}.\nTapez CANAL 0 pour confirmer :`);
+      const t = (await saisir(`Le canal PRINCIPAL (0) va changer${local ? '' : ' sur un nœud distant'}.\nTapez CANAL 0 pour confirmer :`));
       if ((t || '').trim().toUpperCase() !== 'CANAL 0') return;
       p.confirmation = 'CANAL 0';
     }
@@ -6239,9 +6248,9 @@ async function rendreComptes() {
     tr.querySelector('[data-role]').onchange = (e) => action(() => postJson(`/api/comptes/${id}`, { role: e.target.value }));
     const bs = tr.querySelector('[data-statut]');
     if (bs) bs.onclick = () => action(() => postJson(`/api/comptes/${id}`, { statut: bs.dataset.statut }));
-    tr.querySelector('[data-suppr]').onclick = () => { if (confirm('Supprimer ce compte ?')) action(() => postJson(`/api/comptes/${id}`, {}, 'DELETE')); };
+    tr.querySelector('[data-suppr]').onclick = async () => { if ((await confirmer('Supprimer ce compte ?'))) action(() => postJson(`/api/comptes/${id}`, {}, 'DELETE')); };
     const b2f = tr.querySelector('[data-retirer-2fa]');
-    if (b2f) b2f.onclick = () => { if (confirm('Retirer la double authentification de ce compte ?')) action(() => postJson(`/api/comptes/${id}`, { retirerDeuxFacteurs: true })); };
+    if (b2f) b2f.onclick = async () => { if ((await confirmer('Retirer la double authentification de ce compte ?'))) action(() => postJson(`/api/comptes/${id}`, { retirerDeuxFacteurs: true })); };
     tr.querySelector('[data-deco]').onclick = () => action(() => postJson(`/api/comptes/${id}`, { deconnecter: true }));
     const bsec = tr.querySelector('[data-secteur]');
     if (bsec) bsec.onclick = () => editerSecteur(liste.find((c) => String(c.id) === id), () => rendreComptes());

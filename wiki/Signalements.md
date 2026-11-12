@@ -21,5 +21,9 @@ Les signalements actifs ont un marqueur rouge avec leur icône. Un clic : détai
 
 *Outils › 🚩 Signalements* liste les signalements actifs et ceux des 7 derniers jours.
 
+## Carte publique et main courante
+- Les signalements **en cours** s'affichent aussi sur la **carte publique** (`/publique`), en lecture seule : type, titre, précisions et heure, sans l'auteur.
+- **📋 Main courante** (*Outils › Signalements*) : page imprimable (PDF) des signalements des 7 derniers jours, avec heure, position, auteur, diffusion et fin.
+
 ## Points de passage reçus
 Les points de passage captés par la carte (MQTT ou module), envoyés par un Bipper, GerMaCrise ou l'appli Meshtastic, deviennent aussi des signalements (📻 reçu par radio), avec leur auteur. Ceux sans durée restent affichés 24 h ; « Terminé » les retire seulement de la carte.

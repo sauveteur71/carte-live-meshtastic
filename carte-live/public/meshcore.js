@@ -426,9 +426,9 @@ async function mcRendreMessages() {
   const compter = () => { const n = new TextEncoder().encode(ta.value).length; $('#mc-compteur').textContent = `${n}/140`; $('#mc-compteur').classList.toggle('trop', n > 140); };
   ta.oninput = compter; compter();
   ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#mc-envoi').requestSubmit(); } };
-  $('#mc-dest').onchange = (e) => {
+  $('#mc-dest').onchange = async (e) => {
     if (e.target.value === 'choisir') {
-      const q = prompt('Nom (ou début) du destinataire MeshCore :');
+      const q = (await saisir('Nom (ou début) du destinataire MeshCore :'));
       const n = q && [...mc.noeuds.values()].find((x) => (x.nom || '').toLowerCase().includes(q.toLowerCase().trim()));
       if (q && !n) alert('Aucun nœud MeshCore de ce nom sur la carte.');
       if (n) mc.destMessage = 'direct:' + n.cle;
@@ -727,11 +727,11 @@ async function mcOutilAdmin(type, cles, zone, ctx) {
       </div>
       <div class="actions-prop"><button class="principal">Changer</button><button type="button" data-fermer>Annuler</button></div>${pied}</form>`;
     const f = zone.querySelector('form');
-    f.onsubmit = (e) => {
+    f.onsubmit = async (e) => {
       e.preventDefault();
       if (f.admin.value !== f.admin2.value) { f.querySelector('.erreur').textContent = 'Les deux mots de passe admin sont différents.'; return; }
-      if (f.admin.value && !confirm(`Changer le mot de passe admin de ${noms.length} nœud(s) ?
-Notez-le : sans lui, il faudra repasser par l’USB.`)) return;
+      if (f.admin.value && !(await confirmer(`Changer le mot de passe admin de ${noms.length} nœud(s) ?
+Notez-le : sans lui, il faudra repasser par l’USB.`))) return;
       lancer('motdepasse', { admin: f.admin.value || undefined, invite: f.invite.value || undefined, inviteVide: f.inviteVide.checked && !f.invite.value });
     };
   } else if (type === 'regions') {
@@ -750,11 +750,11 @@ Notez-le : sans lui, il faudra repasser par l’USB.`)) return;
     const f = zone.querySelector('form');
     const actions = () => mcLireActionsRegions(f.actions.value);
     f.querySelector('[data-lire]').onclick = () => lancer('regions', { actions: [] });
-    f.onsubmit = (e) => {
+    f.onsubmit = async (e) => {
       e.preventDefault();
       const a = actions();
       if (!a.length) return lancer('regions', { actions: [] });
-      if (!confirm(`Appliquer à ${noms.length} nœud(s) :\n${a.map((x) => `• region ${x.op} ${x.nom}${x.parent ? ' ' + x.parent : ''}`).join('\n')}\n\nUne région bloquée (denyf) ne sera plus relayée par ces répéteurs.`)) return;
+      if (!(await confirmer(`Appliquer à ${noms.length} nœud(s) :\n${a.map((x) => `• region ${x.op} ${x.nom}${x.parent ? ' ' + x.parent : ''}`).join('\n')}\n\nUne région bloquée (denyf) ne sera plus relayée par ces répéteurs.`))) return;
       lancer('regions', { actions: a });
     };
   } else if (type === 'service') {
@@ -777,12 +777,12 @@ Notez-le : sans lui, il faudra repasser par l’USB.`)) return;
       </div>
       <div class="actions-prop"><button class="principal">Mettre en service</button><button type="button" data-fermer>Annuler</button></div>${pied}</form>`;
     const f = zone.querySelector('form');
-    f.onsubmit = (e) => {
+    f.onsubmit = async (e) => {
       e.preventDefault();
       if (f.admin.value !== f.admin2.value) { f.querySelector('.erreur').textContent = 'Les deux mots de passe sont différents.'; return; }
       const m = l.find((x) => x.id === f.modele.value);
       const identite = { name: f.name.value.trim(), lat: f.lat.value.trim(), lon: f.lon.value.trim(), 'owner.info': f.owner.value.trim() };
-      if (!confirm(`Mettre en service « ${noms[0]} » ?${m ? `\n• modèle « ${m.nom} »${m.redemarrer ? ' (redémarrage à la fin)' : ''}` : ''}\n• nom ${identite.name || 'inchangé'}, position ${identite.lat && identite.lon ? identite.lat + ', ' + identite.lon : 'inchangée'}${f.admin.value ? '\n• nouveau mot de passe admin : notez-le' : ''}`)) return;
+      if (!(await confirmer(`Mettre en service « ${noms[0]} » ?${m ? `\n• modèle « ${m.nom} »${m.redemarrer ? ' (redémarrage à la fin)' : ''}` : ''}\n• nom ${identite.name || 'inchangé'}, position ${identite.lat && identite.lon ? identite.lat + ', ' + identite.lon : 'inchangée'}${f.admin.value ? '\n• nouveau mot de passe admin : notez-le' : ''}`))) return;
       lancer('miseEnService', { modele: f.modele.value || undefined, identite, admin: f.admin.value || undefined });
     };
   } else if (type === 'modeles') {
@@ -804,9 +804,9 @@ Notez-le : sans lui, il faudra repasser par l’USB.`)) return;
         <label class="case"><input type="checkbox" name="redemarrer"> Redémarrer à la fin (nécessaire pour certains réglages)</label>
         <p class="note">Laissez vide ce qui ne doit pas être changé. Nom, position, infos propriétaire et mot de passe ne font jamais partie d’un modèle : ils se règlent avec « Mise en service ».</p>
         <div class="actions-prop"><button class="principal">Enregistrer le modèle</button><button type="button" data-fermer>Fermer</button></div>${pied}</form></div>`;
-    zone.querySelectorAll('[data-appliquer]').forEach((b) => (b.onclick = () => {
+    zone.querySelectorAll('[data-appliquer]').forEach((b) => (b.onclick = async () => {
       const m = l.find((x) => x.id === b.dataset.appliquer);
-      if (!confirm(`Appliquer « ${m.nom} » à ${noms.join(', ')} ?\n${Object.entries(m.valeurs).map(([k, v]) => `• ${lib(k)} = ${v}`).join('\n')}${(m.regions || []).map((a) => `\n• region ${a.op} ${a.nom}`).join('')}${m.redemarrer ? '\n• redémarrage à la fin' : ''}${m.valeurs.radio ? '\n\n⚠ Changer la radio d’un nœud distant peut le rendre injoignable.' : ''}`)) return;
+      if (!(await confirmer(`Appliquer « ${m.nom} » à ${noms.join(', ')} ?\n${Object.entries(m.valeurs).map(([k, v]) => `• ${lib(k)} = ${v}`).join('\n')}${(m.regions || []).map((a) => `\n• region ${a.op} ${a.nom}`).join('')}${m.redemarrer ? '\n• redémarrage à la fin' : ''}${m.valeurs.radio ? '\n\n⚠ Changer la radio d’un nœud distant peut le rendre injoignable.' : ''}`))) return;
       lancer('modele', { modele: m.id });
     }));
     zone.querySelectorAll('[data-supprimer]').forEach((b) => (b.onclick = async () => { if (!(await confirmer('Supprimer ce modèle ?'))) return; await api('/api/mc/admin/modeles/' + b.dataset.supprimer, { method: 'DELETE' }); mcOutilAdmin('modeles', cles, zone, ctx); }));
@@ -1474,7 +1474,7 @@ async function mcRendreCapteurs(n, z, jours = 7) {
     setTimeout(() => mcRendreCapteurs(n, z, jours), 25000);
   };
   const masquer = async (m, v) => { try { await postJson(`/api/mc/capteurs/${n.cle}`, { masquees: { [m]: v } }); } catch (e) { alert(e.message); return; } mcRendreCapteurs(n, z, jours); };
-  z.querySelectorAll('[data-cap-masquer]').forEach((b) => (b.onclick = () => masquer(b.dataset.capMasquer, true)));
+  z.querySelectorAll('[data-cap-masquer]').forEach((b) => (b.onclick = async () => { const m = b.dataset.capMasquer; await masquer(m, true); if (typeof annonceAnnulable === 'function') annonceAnnulable('Mesure masquée.', () => masquer(m, false)); }));
   z.querySelectorAll('[data-cap-afficher]').forEach((b) => (b.onclick = () => masquer(b.dataset.capAfficher, false)));
   z.querySelectorAll('[data-cap-seuil]').forEach((l) => (l.querySelector('[data-s-ok]').onclick = async () => {
     const v = (k) => l.querySelector(`[data-s="${k}"]`).value.replace(',', '.');
@@ -1484,7 +1484,7 @@ async function mcRendreCapteurs(n, z, jours = 7) {
   }));
   z.querySelectorAll('[data-cap-lib]').forEach((b) => (b.onclick = async () => {
     const m = b.dataset.capLib;
-    const v = prompt(`Nom de la mesure « ${m.replace(':', ' · canal ')} » (vide = nom par défaut) :`, (r.libelles || {})[m] || '');
+    const v = (await saisir(`Nom de la mesure « ${m.replace(':', ' · canal ')} » (vide = nom par défaut) :`, (r.libelles || {})[m] || ''));
     if (v === null) return;
     try { await postJson(`/api/mc/capteurs/${n.cle}`, { libelles: { [m]: v } }); } catch (e) { alert(e.message); return; }
     mcRendreCapteurs(n, z, jours);

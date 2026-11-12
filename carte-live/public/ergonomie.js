@@ -26,6 +26,36 @@ function confirmer(texte, { ok = 'Confirmer', annuler = 'Annuler' } = {}) {
     d.querySelector('[data-r="1"]').focus();
   });
 }
+// Saisie dans l'interface (remplace prompt() du navigateur) : renvoie le texte, ou null si annulé
+function saisir(texte, defaut = '') {
+  return new Promise((resoudre) => {
+    let d = document.getElementById('dlg-saisir');
+    if (!d) { d = document.createElement('dialog'); d.id = 'dlg-saisir'; d.className = 'dlg-confirmer'; d.setAttribute('aria-labelledby', 'saisir-texte'); document.body.appendChild(d); }
+    d.innerHTML = '<form method="dialog"><p id="saisir-texte"></p><input id="saisir-champ" autocomplete="off"><div class="actions-confirmer"><button type="button" data-r="0">Annuler</button><button type="submit" class="principal">Valider</button></div></form>';
+    d.querySelector('p').textContent = texte;
+    const champ = d.querySelector('input');
+    champ.value = defaut == null ? '' : String(defaut);
+    let rendu = false;
+    const fin = (v) => { if (rendu) return; rendu = true; d.onclose = null; if (d.open) d.close(); resoudre(v); };
+    d.querySelector('[data-r="0"]').onclick = () => fin(null);
+    d.querySelector('form').onsubmit = (e) => { e.preventDefault(); fin(champ.value); };
+    d.onclose = () => fin(null);
+    d.showModal();
+    champ.focus(); champ.select();
+  });
+}
+// Annonce avec un bouton « Annuler » pendant 6 secondes (actions réversibles)
+function annonceAnnulable(texte, annuler) {
+  let z = document.getElementById('annonces');
+  if (!z) { annonce(texte); z = document.getElementById('annonces'); z.lastChild.remove(); }
+  const d = document.createElement('div');
+  d.className = 'annonce ok';
+  d.innerHTML = `<span></span> <button type="button" class="mini">↩ Annuler</button>`;
+  d.querySelector('span').textContent = texte;
+  d.querySelector('button').onclick = async () => { d.remove(); try { await annuler(); } catch (e) { annonce('⚠ ' + e.message, 'erreur'); } };
+  z.appendChild(d);
+  setTimeout(() => d.remove(), 6000);
+}
 // Les messages d'erreur ou d'information passent par les annonces en bas de l'écran
 window.alert = (t) => { try { annonce(String(t), /^\d+ |✔|envoy|enregistr|copi/i.test(String(t)) ? 'ok' : 'erreur'); } catch { console.warn(t); } };
 
@@ -196,7 +226,9 @@ function rendreHubReglages() {
     ['🗺️', 'Carte et réseau', 'Nom, département, canaux Meshtastic à déchiffrer, conservation', () => ouvrirDlg('reglages', '[name=titre]')],
     ['📶', 'Serveur MQTT', 'Adresse, identifiants, sujets', () => ouvrirDlg('reglages', '[name=mqttUrl]')],
     ['👥', 'Comptes des utilisateurs', 'Créer, valider, rôles, secteurs', () => ouvrirDlg('comptes')],
-    ['💾', 'Sauvegardes', 'Sauvegarder ou restaurer les réglages', () => ouvrirDlg('sauvegardes')],
+    ['🩺', 'Diagnostic', 'Pourquoi ça ne marche pas ? Vérifie MQTT, canaux, modules, MeshCore, passerelle', () => ficheDiagnostic()],
+    ['💾', 'Sauvegardes des réglages', 'Sauvegarder ou restaurer les réglages et les comptes', () => ouvrirDlg('sauvegardes')],
+    ['📦', 'Sauvegarde complète', 'Tout télécharger en un fichier (base, réglages, comptes) pour changer de serveur', async () => { if (await confirmer('Télécharger la sauvegarde complète ? Le fichier contient les comptes et les clés des canaux : gardez-le en lieu sûr.', { ok: 'Télécharger' })) location.href = '/api/sauvegarde-complete'; }],
     ['📜', 'Journal du serveur', 'Ce que fait la carte, erreurs', () => ouvrirDlg('journal')],
     ['⬆️', 'Mise à jour de la carte', 'Version installée, nouvelle version, mise à jour en un clic', () => ficheMaj()],
     ['🇫🇷', 'Toute la France', 'Télécharger et installer le relief de tous les départements', () => ficheFrance()],
@@ -225,6 +257,28 @@ function rendreHubReglages() {
   $('#hub-clair').onchange = (e) => appliquerTheme(e.target.checked);
   $('#hub-visite').onclick = () => visiteGuidee(true);
   $('#hub-aide').onclick = () => ouvrirAide('Home');
+}
+
+// ---- Diagnostic « Pourquoi ça ne marche pas ? » ----------------------------------------------------------------
+async function ficheDiagnostic() {
+  $('#fiche').hidden = false; etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.innerHTML = '<div class="vide">Vérifications en cours…</div>';
+  let r;
+  try { r = await api('/api/diagnostic'); } catch (x) { z.innerHTML = `<div class="vide">${esc(x.message)}</div>`; return; }
+  const ACTIONS = {
+    mqtt: ['Régler le serveur MQTT', () => ouvrirDlg('reglages', '[name=mqttUrl]')], canaux: ['Régler les canaux', () => ouvrirDlg('reglages', '[name=canaux]')],
+    module: ['Connecter un module', () => { const b = $('#outil-connecter'); if (b) b.click(); }], companion: ['Relier le module MeshCore', () => ouvrirMcVue('companion', '#mc-f-wifi')],
+    meshcore: ['Régler MeshCore', () => ouvrirMcVue('companion', '#mc-f-reglages [name=iata]')], passerelle: ['Ouvrir la passerelle', () => ouvrirPasserelle()], maj: ['Mise à jour', () => ficheMaj()],
+  };
+  const IC = { ok: '✅', attention: '⚠️', ko: '❌', info: 'ℹ️' };
+  const pb = r.controles.filter((c) => c.etat === 'ko' || c.etat === 'attention').length;
+  const groupes = [...new Set(r.controles.map((c) => c.groupe))];
+  z.innerHTML = `<div class="diagnostic"><h2>🩺 Diagnostic</h2>
+    <p class="note"><b>${pb ? pb + ' point(s) à regarder' : 'Tout va bien'}</b> · vérifié à ${new Date(r.heure).toLocaleTimeString('fr-FR')} <button type="button" class="mini" id="diag-relancer">↻ Revérifier</button></p>
+    ${groupes.map((g) => `<h3>${esc(g)}</h3>${r.controles.filter((c) => c.groupe === g).map((c) => `<div class="controle ${c.etat}"><span class="ic" aria-hidden="true">${IC[c.etat]}</span><div><b>${esc(c.titre)}</b>${c.detail ? `<small>${esc(c.detail)}</small>` : ''}${c.action && ACTIONS[c.action] && c.etat !== 'ok' ? `<button type="button" class="mini principal" data-diag="${c.action}">${esc(ACTIONS[c.action][0])} ›</button>` : ''}</div></div>`).join('')}`).join('')}</div>`;
+  $('#diag-relancer').onclick = ficheDiagnostic;
+  z.querySelectorAll('[data-diag]').forEach((b) => (b.onclick = () => ACTIONS[b.dataset.diag][1]()));
 }
 
 // ---- Aide intégrée (pages du wiki) ---------------------------------------------------------------------------

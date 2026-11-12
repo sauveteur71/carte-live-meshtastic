@@ -46,7 +46,7 @@ jobs:
           done
           docker logs essai 2>&1 | tail -40
           [ "$ok" = 1 ] || { echo "Le service ne répond pas"; exit 1; }
-          for p in / /publique /api/config /api/noeuds /api/mc/noeuds /api/departements /app.js /publique.js /meshcore.js; do
+          for p in / /publique /api/config /api/noeuds /api/mc/noeuds /api/departements /app.js /publique.js /meshcore.js /ergonomie.js /api/aide/Home /api/signalements/publics /api/version; do
             code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8095$p")
             echo "$p → $code"
             [ "$code" = 200 ] || { echo "Page $p en erreur ($code)"; exit 1; }

@@ -52,7 +52,7 @@
       <div class="menu">
       <button class="bascule actif" data-couche="rf" title="Liens radio directs entendus par les passerelles">Radio</button>
       <button class="bascule actif" data-couche="voisinage" title="Liens déclarés par le module Voisinage (NeighborInfo)">Voisinage</button>
-      <button class="bascule actif" data-couche="traceroute" title="Liens issus des traceroutes">Traceroute</button>
+      <button class="bascule actif" data-couche="traceroute" title="Liens issus des traceroutes (chemins mesurés)">Chemins mesurés</button>
       <button class="bascule" data-couche="inactifs" title="Afficher les nœuds non entendus depuis longtemps">Inactifs</button>
       <button class="bascule actif" data-couche="animations" title="Animer les paquets en direct">Animations</button>
       <button class="bascule actif" data-couche="sommets" title="Points hauts du relief et meilleurs sites radio">Points hauts</button>
@@ -279,7 +279,7 @@
     </section>
     <section data-vue="meshcore" class="vue">
       <nav class="sous-onglets-mc">
-        <button data-mc-vue="noeuds">Nœuds</button><button data-mc-vue="paquets">Paquets</button><button data-mc-vue="analyse">Analyse</button><button data-mc-vue="messages">Messages</button><button data-mc-vue="gestion" hidden title="Administrer les répéteurs et room servers MeshCore : réglages, statut, voisins, CLI">Programmer</button><button data-mc-vue="companion">Companion</button>
+        <button data-mc-vue="noeuds">Nœuds</button><button data-mc-vue="paquets">Paquets</button><button data-mc-vue="analyse">Analyse</button><button data-mc-vue="messages">Messages</button><button data-mc-vue="gestion" hidden title="Administrer les répéteurs et room servers MeshCore : réglages, statut, voisins, CLI">Programmer</button><button data-mc-vue="companion" title="Companion MeshCore relié à la carte, réglages MeshCore">Module MeshCore</button>
       </nav>
       <div id="mc-contenu"></div>
     </section>

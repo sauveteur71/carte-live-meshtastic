@@ -40,6 +40,9 @@ Un autre appareil (souvent l'appli du téléphone en Wi-Fi) s'est connecté au m
 ### Les liaisons de l'autre réseau restent affichées
 Mettez la carte à jour (2.0.0) : la bascule Meshtastic ↔ MeshCore efface désormais les traces de l'autre réseau.
 
+## Diagnostic intégré
+*Réglages › 🩺 Diagnostic* (administrateur, ou ⚙️🔎 « diagnostic ») vérifie en une fois : serveur MQTT, arrivée des messages, part de paquets déchiffrés, module Meshtastic, module MeshCore, paquets MeshCore ignorés (code de zone, périmètre), liaisons de la passerelle, mise à jour, taille de la base et place sur le disque. Chaque point à regarder explique quoi faire et propose le bouton qui mène au bon réglage.
+
 ## Masquer les points hauts et les sites proposés
 *Couches ▾ › Points hauts* : un clic les masque, un autre les réaffiche. Le choix est gardé pour la prochaine visite. Pour les masquer par défaut sur toute la carte : `CARTE_COUCHES_MASQUEES=sommets` dans le `.env`.
 

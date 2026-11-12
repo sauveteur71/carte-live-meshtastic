@@ -91,12 +91,17 @@ Il faut pour cela le petit service **`maj`** du `docker-compose.yml` (présent d
 
 Sécurité : ce service a accès au moteur Docker (comme Watchtower ou Portainer) mais **ne publie aucun port** ; il ne sait faire qu'une chose, mettre à jour le conteneur de la carte, et n'obéit qu'à la carte, avec un jeton créé dans le dossier de données (`maj-jeton.txt`). Si vous ne voulez pas lui donner cet accès, supprimez le bloc et mettez à jour à la main.
 
+### Automatique la nuit (option)
+Dans la fenêtre « Mise à jour de la carte » : cochez **Mettre à jour automatiquement la nuit** et choisissez l'heure. La carte ne se met à jour que si une nouvelle version est publiée et qu'aucune programmation à distance n'est en cours.
+
 ### À la main
 ```bash
 docker compose pull && docker compose up -d
 ```
 
-Les données (base, comptes, réglages, cache du relief) sont dans le volume `donnees` : sauvegardez-le. La carte sauvegarde aussi ses réglages chaque nuit (*Gestion › Sauvegardes*).
+Les données (base, comptes, réglages, cache du relief) sont dans le volume `donnees` : sauvegardez-le.
+
+**Sauvegarde complète** (*Réglages › 📦 Sauvegarde complète*, administrateur) : un seul fichier `carte-live-complete-DATE.tar.gz` avec la base, les réglages, les comptes, les équipes et les signalements (le relief n'y est pas : il se retélécharge). Pour changer de serveur : installez la carte sur le nouveau, arrêtez-la (`docker compose stop carte-live`), décompressez le fichier dans son dossier de données (`tar -xzf carte-live-complete-DATE.tar.gz -C /chemin/du/volume`), puis relancez (`docker compose up -d`). Le fichier contient les comptes et les clés des canaux : gardez-le en lieu sûr. La carte sauvegarde aussi ses réglages chaque nuit (*Gestion › Sauvegardes*).
 
 Évitez de mettre à jour pendant une programmation à distance en cours : elle reprend après le redémarrage, mais la demande en cours repart de zéro.
 

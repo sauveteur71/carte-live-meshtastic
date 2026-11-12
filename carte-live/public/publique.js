@@ -94,6 +94,7 @@ async function demarrer() {
 
   await Promise.all([rafraichirMt(), config.meshcore ? rafraichirMc() : null]);
   setInterval(rafraichirMt, 60000);
+  rafraichirSignalements(); setInterval(rafraichirSignalements, 60000);
   if (config.meshcore) setInterval(rafraichirMc, 90000);
   connecterWs();
   installerCouverture();
@@ -297,6 +298,21 @@ function changerVue(v, sansCharger) {
   document.body.className = 'vue-' + v;
   document.querySelectorAll('#reseaux [data-vue]').forEach((b) => b.classList.toggle('actif', b.dataset.vue === v));
   if (!sansCharger) { dessinerMt(); dessinerMc(); }
+}
+
+// ---- Signalements en cours (route inondée, arbre…) : lecture seule ---------------------------------
+let coucheSig = null;
+async function rafraichirSignalements() {
+  let l;
+  try { l = await fetch('/api/signalements/publics').then((r) => r.json()); } catch { return; }
+  if (!Array.isArray(l)) return;
+  if (!coucheSig) coucheSig = L.layerGroup().addTo(carte);
+  coucheSig.clearLayers();
+  const e = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  for (const s of l) {
+    L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'sig-marqueur', html: `<span>${e(s.icone)}</span>`, iconSize: [34, 34], iconAnchor: [17, 17] }), title: s.titre, zIndexOffset: 900 })
+      .bindPopup(`<b>${e(s.icone)} ${e(s.titre)}</b>${s.details ? '<br>' + e(s.details) : ''}<br><small>signalé le ${new Date(s.cree).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</small>`).addTo(coucheSig);
+  }
 }
 
 // ---- Meshtastic ----------------------------------------------------------------------------------

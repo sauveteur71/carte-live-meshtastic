@@ -1337,3 +1337,8 @@ body.grand-texte .panneau, body.grand-texte .fiche, body.grand-texte dialog, bod
 }
 body.theme-clair .groupes button[data-groupe].actif { color: var(--accent); }
 body.theme-clair .bulle-visite { background: #fff; color: #0f172a; }
+#dlg-saisir input { width: 100%; box-sizing: border-box; font-size: 16px; padding: 9px 10px; margin-bottom: 14px; border-radius: 8px; border: 2px solid var(--accent); background: rgba(0,0,0,.3); color: var(--texte); }
+.annonce button.mini { margin-left: 8px; }
+.controle { display: grid; grid-template-columns: 26px 1fr; gap: 8px; padding: 8px 10px; margin: 5px 0; border-radius: 8px; border: 1px solid var(--bord); border-left: 4px solid var(--ok); background: rgba(255,255,255,.03); }
+.controle.attention { border-left-color: var(--attention); } .controle.ko { border-left-color: var(--critique); } .controle.info { border-left-color: var(--doux); }
+.controle small { display: block; margin: 3px 0; color: var(--doux); line-height: 1.4; } .controle .mini { margin-top: 4px; }

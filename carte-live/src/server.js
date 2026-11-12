@@ -2857,6 +2857,110 @@ app.post('/api/maj', async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
+// ---- Diagnostic « Pourquoi ça ne marche pas ? » (administrateur) : contrôles en clair, avec la marche à suivre ----
+app.get('/api/diagnostic', async (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const l = [];
+  const ajouter = (groupe, etat, titre, detail, action) => l.push({ groupe, etat, titre, detail: detail || '', action: action || null });
+  const t = Date.now();
+  // MQTT
+  const mqttOk = !!statsMqtt.depuis;
+  if (!config.mqtt.url) ajouter('MQTT', 'info', 'Aucun serveur MQTT réglé', 'La carte ne reçoit que ce que captent ses modules.', 'mqtt');
+  else if (!mqttOk) ajouter('MQTT', 'ko', 'Serveur MQTT non connecté', statsMqtt.derniereErreur ? 'Dernière erreur : ' + statsMqtt.derniereErreur.message : 'Vérifiez l’adresse, l’identifiant et le mot de passe.', 'mqtt');
+  else {
+    ajouter('MQTT', 'ok', 'Serveur MQTT connecté', `depuis ${Math.round((t - statsMqtt.depuis) / 60000)} min`);
+    const age = statsMqtt.dernierMessage ? t - statsMqtt.dernierMessage : null;
+    if (age == null || age > 15 * 60000) ajouter('MQTT', 'attention', 'Aucun message Meshtastic reçu depuis 15 min', `La carte écoute ${config.mqtt.racine}/#. Vérifiez le sujet racine, et que des passerelles publient sur ce serveur (uplink activé sur leurs canaux).`, 'mqtt');
+    else ajouter('MQTT', 'ok', 'Des messages Meshtastic arrivent', `dernier il y a ${Math.round(age / 1000)} s`);
+  }
+  // Canaux Meshtastic : part de paquets non déchiffrés sur 1 h
+  try {
+    const r = stockage.db.prepare('SELECT COUNT(*) n, SUM(CASE WHEN dechiffre = 0 THEN 1 ELSE 0 END) c FROM paquets WHERE heure >= ?').get(t - 3600000);
+    if (r.n >= 20) {
+      const pct = Math.round((r.c || 0) / r.n * 100);
+      if (pct >= 50) ajouter('Canaux Meshtastic', 'attention', `${pct} % des paquets ne sont pas déchiffrés`, `La carte connaît ${config.canaux.map((c) => c.nom).join(', ')}. Ajoutez les canaux manquants avec leur clé (même nom et même clé que sur les nœuds). Les messages directs restent toujours illisibles.`, 'canaux');
+      else ajouter('Canaux Meshtastic', 'ok', `${100 - pct} % des paquets sont déchiffrés`, `canaux : ${config.canaux.map((c) => c.nom).join(', ')}`);
+    }
+  } catch { /* table absente */ }
+  // Module Meshtastic
+  const ri = sourceRadio.infos(), re = sourceRadio.etat();
+  if (ri.connecte) ajouter('Module Meshtastic', 'ok', `Module relié : ${re.nomLocal || ''}`, `canaux ${(ri.canaux || []).map((c) => c.nom || c.index).join(', ')}`);
+  else ajouter('Module Meshtastic', 'info', 'Aucun module Meshtastic relié', 'Sans module : pas d’envoi de message, de signalement ni de programmation à distance. La lecture par MQTT fonctionne quand même.', 'module');
+  // MeshCore
+  if (config.meshcore.actif) {
+    const c = companion.etat();
+    if (c.pret) ajouter('MeshCore', 'ok', `Module MeshCore relié : ${c.nom || ''}`, `canaux ${(companion.canaux() || []).map((x) => x.nom).join(', ') || 'aucun'}`);
+    else ajouter('MeshCore', 'info', 'Aucun module MeshCore (companion) relié', 'Sans lui : pas d’envoi MeshCore ni de passerelle. La lecture par les observateurs MQTT fonctionne quand même.', 'companion');
+    const recus = compteurMc.recusMqtt || 0, hors = compteurMc.horsPerimetre || 0;
+    if (mqttOk && !recus) ajouter('MeshCore', 'attention', 'Aucun paquet MeshCore reçu par MQTT', `La carte écoute ${config.meshcore.racine}/# sur le même serveur MQTT. Vérifiez que des observateurs MeshCore y publient, et la racine des sujets.`, 'meshcore');
+    else if (recus && hors > 0.8 * recus) ajouter('MeshCore', 'ko', `${hors} paquets MeshCore sur ${recus} sont ignorés (hors périmètre)`, `Code de zone de la carte : ${config.meshcore.iata}. Mettez le code qu’utilisent vos observateurs, ajoutez les codes voisins, ou élargissez le périmètre.`, 'meshcore');
+    else if (recus) ajouter('MeshCore', 'ok', `${compteurMc.observations || 0} paquets MeshCore gardés`, `${hors} ignorés hors périmètre · canaux déchiffrés : ${config.meshcore.canaux.join(', ')}`);
+  }
+  // Passerelle
+  if (passerelle) {
+    const v = passerelle.vue();
+    if (!v.actif) ajouter('Passerelle', 'info', 'Passerelle Meshtastic ⇄ MeshCore désactivée', v.regles.length ? `${v.regles.length} liaison(s) prête(s)` : '', 'passerelle');
+    else if (!v.regles.some((x) => x.actif)) ajouter('Passerelle', 'attention', 'Passerelle activée mais aucune liaison active', 'Choisissez un canal Meshtastic et un canal MeshCore à relier.', 'passerelle');
+    else {
+      for (const x of v.regles.filter((y) => y.actif)) {
+        const mt = (v.modules.mt.canaux || []).some((k) => String(k.nom).toLowerCase() === String(x.mt.nom).toLowerCase()), mcok = (v.modules.mc.canaux || []).some((k) => String(k.nom).toLowerCase().replace(/^#/, '') === String(x.mc.nom).toLowerCase().replace(/^#/, ''));
+        const lit = config.meshcore.canaux.some((k) => String(k).split('=')[0].trim().toLowerCase().replace(/^#/, '') === String(x.mc.nom).toLowerCase().replace(/^#/, ''));
+        const pb = [!v.modules.mt.connecte ? 'module Meshtastic non relié' : !mt ? `le module n’a pas le canal ${x.mt.nom}` : '', !v.modules.mc.connecte ? 'module MeshCore non relié' : !mcok ? `le module MeshCore n’a pas le canal ${x.mc.nom}` : ''].filter(Boolean);
+        ajouter('Passerelle', pb.length ? 'ko' : 'ok', x.libelle, pb.length ? pb.join(' ; ') : `${v.stats.mt2mc} relayés MT→MC, ${v.stats.mc2mt} MC→MT${lit ? '' : ' · le canal MeshCore n’est pas dans les canaux déchiffrés de la carte'}`, 'passerelle');
+      }
+    }
+  }
+  // Mise à jour
+  const iv = infosVersion();
+  if (iv.majDisponible) ajouter('Mise à jour', 'attention', `Version ${iv.derniere} disponible (installée : ${iv.version})`, '', 'maj'); else ajouter('Mise à jour', 'ok', `Version ${iv.version}${iv.derniere ? ', à jour' : ''}`, majDispo.erreur ? 'GitHub injoignable : ' + majDispo.erreur : '');
+  try { await appelMaj('GET', '/etat'); ajouter('Mise à jour', 'ok', 'Mise à jour en un clic disponible', ''); } catch (e) { ajouter('Mise à jour', 'info', 'Mise à jour en un clic non installée', 'Ajoutez le service « maj » au docker-compose (wiki, page Installation).', 'maj'); }
+  // Données
+  try { const st = fs.statSync(config.fichierBase); ajouter('Données', 'ok', `Base : ${Math.round(st.size / 1048576)} Mo`, `conservation ${config.retentionJours} jours`); } catch { /* ignoré */ }
+  try { const d = fs.statfsSync(path.dirname(config.fichierBase)); const libre = d.bavail * d.bsize / 1073741824; ajouter('Données', libre < 1 ? 'ko' : libre < 3 ? 'attention' : 'ok', `Disque : ${libre.toFixed(1)} Go libres`, libre < 3 ? 'Libérez de la place : la carte s’arrête si le disque est plein.' : ''); } catch { /* ignoré */ }
+  res.set('Cache-Control', 'no-store').json({ controles: l, heure: t });
+});
+// ---- Sauvegarde complète (administrateur) : tout le dossier de données en un fichier tar.gz ----
+// Base copiée proprement (VACUUM INTO), relief et fonds de carte exclus (ils se retéléchargent tout seuls).
+app.get('/api/sauvegarde-complete', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const d = path.dirname(config.fichierBase), copie = path.join(d, 'carte-live.sauvegarde.db');
+  try { fs.unlinkSync(copie); } catch { /* absente */ }
+  try { stockage.db.exec(`VACUUM INTO '${copie.replace(/'/g, "''")}'`); } catch (e) { return res.status(500).json({ erreur: 'copie de la base impossible : ' + e.message }); }
+  const base = path.basename(config.fichierBase);
+  const exclus = ['mnt*.bin', 'mnt*.json', 'sommets-osm*.json', 'acces-sommets*.json', 'communes*.json', 'realisme*.json', 'firmware', 'sauvegardes', '*.part', base, base + '-wal', base + '-shm', 'maj-jeton.txt'];
+  journal(`[Sauvegarde] sauvegarde complète téléchargée par ${utilisateur(req).identifiant}`);
+  res.set('Content-Type', 'application/gzip').set('Content-Disposition', `attachment; filename="carte-live-complete-${new Date().toISOString().slice(0, 10)}.tar.gz"`);
+  const { spawn } = require('child_process');
+  // La copie de la base reprend son nom d'origine dans l'archive
+  const t = spawn('tar', ['-czf', '-', '-C', d, ...exclus.map((x) => '--exclude=./' + x), '--transform', `s|^\\./carte-live\\.sauvegarde\\.db$|./${base}|`, '.']);
+  t.stdout.pipe(res);
+  t.stderr.on('data', (x) => journal('[Sauvegarde]', String(x).trim()));
+  t.on('close', () => { try { fs.unlinkSync(copie); } catch { /* déjà */ } });
+});
+// ---- Mise à jour automatique la nuit (option, administrateur) ----
+const fMajAuto = path.join(path.dirname(config.fichierBase), 'maj-auto.json');
+let majAuto = { actif: false, heure: 4 };
+try { majAuto = { ...majAuto, ...JSON.parse(fs.readFileSync(fMajAuto, 'utf8')) }; } catch { /* défaut */ }
+app.get('/api/maj/auto', (req, res) => { if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); res.json(majAuto); });
+app.post('/api/maj/auto', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const b = req.body || {};
+  majAuto = { actif: !!b.actif, heure: Math.min(23, Math.max(0, Number.isFinite(Number(b.heure)) ? Math.round(Number(b.heure)) : 4)) };
+  try { fs.writeFileSync(fMajAuto, JSON.stringify(majAuto)); } catch (e) { return res.status(500).json({ erreur: e.message }); }
+  journal(`[Mise à jour] automatique ${majAuto.actif ? 'activée à ' + majAuto.heure + ' h' : 'désactivée'} par ${utilisateur(req).identifiant}`);
+  res.json(majAuto);
+});
+let dernierEssaiMajAuto = 0;
+setInterval(async () => {
+  if (!majAuto.actif || Date.now() - dernierEssaiMajAuto < 20 * 3600000) return;
+  const h = Number(new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false }));
+  if (h !== majAuto.heure) return;
+  await verifierDerniereVersion();
+  if (!infosVersion().majDisponible) return;
+  if (tachesEnCours()) { journal('[Mise à jour] automatique reportée : programmation à distance en cours'); return; }
+  dernierEssaiMajAuto = Date.now();
+  try { await appelMaj('POST', '/mettre-a-jour'); journal(`[Mise à jour] automatique lancée (v${VERSION} → ${majDispo.version})`); } catch (e) { journal('[Mise à jour] automatique impossible :', e.message); }
+}, 10 * 60000).unref();
 // ---- Signalements : événement posé sur la carte (route inondée…) et diffusé en LoRa (membres) ----
 const signalements = require('./signalements').creerSignalements({
   config, radio: sourceRadio, administration, companion, reseauMc, racine: require('./decodeur').racine,
@@ -2866,6 +2970,26 @@ const signalements = require('./signalements').creerSignalements({
 app.get('/api/signalements', (req, res) => {
   if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
   res.set('Cache-Control', 'no-store').json({ signalements: signalements.lister(), ...signalements.canaux() });
+});
+// Carte publique : signalements en cours, sans l'auteur ni l'état des envois
+app.get('/api/signalements/publics', (req, res) => {
+  res.set('Cache-Control', 'max-age=30').json(signalements.lister().filter((x) => x.actif).map((x) => ({ id: x.id, type: x.type, icone: x.icone, titre: x.titre, details: x.details, lat: x.lat, lon: x.lon, cree: x.cree, expire: x.expire })));
+});
+// Main courante : signalements des 7 derniers jours, page imprimable (membres)
+app.get('/main-courante', (req, res) => {
+  if (!estMembre(req)) return res.status(401).send('Connexion requise');
+  const e = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const h = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const lignes = [];
+  for (const x of signalements.lister()) {
+    lignes.push([x.cree, `${x.icone} ${e(x.titre)}`, e(x.details), `${x.lat.toFixed(5)}, ${x.lon.toFixed(5)}`, e(x.auteur) + (x.source === 'radio' ? ' (reçu par radio)' : ''), [...(x.envois.mt || []).map((v) => `Meshtastic canal ${v.canal} : ${v.statut === 'envoye' ? 'envoyé' : 'échec'}`), x.envois.mc ? `MeshCore : ${x.envois.mc.statut === 'envoye' ? 'envoyé' : 'échec'}` : ''].filter(Boolean).join(' · ')]);
+    if (x.fin) lignes.push([x.fin, `✅ Fin : ${e(x.titre)}`, '', `${x.lat.toFixed(5)}, ${x.lon.toFixed(5)}`, e(x.finPar || ''), '']);
+  }
+  lignes.sort((a, b) => a[0] - b[0]);
+  res.set('Cache-Control', 'no-store').send(`<!doctype html><html lang="fr"><meta charset="utf-8"><title>Main courante · ${e(config.carte.titre)}</title>
+<style>body{font:14px system-ui,sans-serif;margin:24px;color:#111}h1{font-size:20px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:6px 8px;text-align:left;vertical-align:top}th{background:#eee}@media print{button{display:none}}</style>
+<h1>Main courante · ${e(config.carte.titre)}</h1><p>Signalements des 7 derniers jours, édité le ${h(Date.now())}. <button onclick="print()">Imprimer / PDF</button></p>
+<table><tr><th>Heure</th><th>Événement</th><th>Précisions</th><th>Position</th><th>Par</th><th>Diffusion</th></tr>${lignes.map((l) => `<tr><td>${h(l[0])}</td><td>${l[1]}</td><td>${l[2]}</td><td>${l[3]}</td><td>${l[4]}</td><td>${l[5]}</td></tr>`).join('') || '<tr><td colspan="6">Aucun signalement.</td></tr>'}</table></html>`);
 });
 app.post('/api/signalements', async (req, res) => {
   const u = utilisateur(req);
