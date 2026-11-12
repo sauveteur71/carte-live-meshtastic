@@ -1,7 +1,7 @@
 'use strict';
 // Service worker du mode terrain : l'application s'ouvre sans réseau (dernière version connue)
 // et les fonds de carte déjà vus (ou préparés) restent affichés hors connexion.
-const APPLI = 'appli-v3';
+const APPLI = 'appli-v4';
 const TUILES = 'tuiles-v1';
 const MAX_TUILES = 4000;
 const COQUILLE = ['/', '/index.html', '/style.css', '/app.js', '/meshcore.js', '/ergonomie.js', '/animations.js', '/vendor/leaflet/leaflet.css', '/vendor/leaflet/leaflet.js', '/manifest.webmanifest', '/icone-192.png', '/publique.html', '/publique.js'];
@@ -48,7 +48,7 @@ self.addEventListener('fetch', (e) => {
   if (u.pathname.startsWith('/ws')) return;
   // Application : réseau d'abord (toujours la dernière version), cache si pas de réseau
   e.respondWith(fetch(r).then((rep) => { if (rep.ok && rep.type === 'basic') { const cl = rep.clone(); caches.open(APPLI).then((c) => c.put(r, cl)); } return rep; })
-    .catch(() => caches.match(r, { ignoreSearch: u.pathname === '/' }).then((m) => m || caches.match('/'))));
+    .catch(() => caches.match(r, { ignoreSearch: true }).then((m) => m || caches.match('/'))));
 });
 
 // Préparation hors connexion : la page envoie la liste des tuiles de la zone à garder

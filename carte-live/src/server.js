@@ -147,7 +147,21 @@ app.use((req, res, next) => {
   next();
 });
 app.use('/vendor/leaflet', express.static(path.join(path.dirname(require.resolve('leaflet/package.json')), 'dist'), { maxAge: '7d' }));
-app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '5m' }));
+// Pages : jamais gardées en cache, et leurs feuilles de style et scripts portent le numéro de version
+// (après une mise à jour, le navigateur charge forcément les nouveaux fichiers, sans Ctrl+F5)
+const pagesVersionnees = new Map();
+function pageVersionnee(fichier) {
+  if (!pagesVersionnees.has(fichier)) {
+    const html = fs.readFileSync(path.join(__dirname, '..', 'public', fichier), 'utf8')
+      .replace(/((?:href|src)="\/(?!vendor\/)[\w.-]+\.(?:css|js))"/g, `$1?v=${VERSION}"`);
+    pagesVersionnees.set(fichier, html);
+  }
+  return pagesVersionnees.get(fichier);
+}
+const envoyerPage = (fichier) => (req, res) => res.set('Cache-Control', 'no-cache').type('html').send(pageVersionnee(fichier));
+app.get(['/', '/index.html'], envoyerPage('index.html'));
+app.get('/publique.html', envoyerPage('publique.html'));
+app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '5m', index: false }));
 
 // Version installée et dernière version publiée sur GitHub (vérifiée toutes les heures, et à l'ouverture de la mise à jour)
 const DEPOT = process.env.DEPOT_GITHUB || 'sauveteur71/carte-live-meshtastic';
@@ -3195,7 +3209,7 @@ const exporter = (f, type) => (req, res) => {
 app.get('/api/export/noeuds.geojson', exporter(() => exportsCarte.noeudsGeoJSON(), 'application/geo+json'));
 app.get('/api/export/liens.geojson', exporter((req) => exportsCarte.liensGeoJSON(Math.min(Math.max(Number(req.query.heures) || 24, 1), 168)), 'application/geo+json'));
 app.get('/api/export/resume.json', exporter(() => exportsCarte.resume(), 'application/json'));
-app.get('/publique', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'publique.html')));
+app.get('/publique', envoyerPage('publique.html'));
 app.get('/metrics', exporter(() => exportsCarte.metriques(), 'text'));
 app.get('/api/export/relais.gpx', exporter(() => exportsCarte.relaisGpx(), 'application/gpx+xml'));
 
