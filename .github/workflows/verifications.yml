@@ -40,6 +40,9 @@ jobs:
       - name: Dépendances
         working-directory: carte-live
         run: npm ci --omit=dev && npm i --no-save playwright && npx playwright install --with-deps chromium
+      - name: Tests du décodage radio (Meshtastic, MeshCore, DFCI, passerelle)
+        working-directory: carte-live
+        run: node --test tests/radio.js
       - name: Tests de l'interface
         working-directory: carte-live
         run: node tests/interface.js
