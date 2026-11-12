@@ -21,7 +21,9 @@ Sous **chaque** message : **📡 Entendu par N récepteurs**, avec pour chacun l
 **Limites** : un nœud sans passerelle MQTT qui reçoit votre message ne laisse aucune trace. Sur les canaux privés, seules les passerelles qui ont l'envoi vers MQTT activé sur ce canal le remontent. Un message de canal n'a pas d'accusé de lecture : pour vérifier qu'un correspondant précis vous entend, envoyez-lui un **message direct**.
 
 ## Non lus, sons et alertes
-- **Compteur** sur l'onglet *Messages* (rouge s'il y a un message direct) et sur l'onglet *MeshCore*, plus le nombre de nouveaux messages par canal dans la liste et des boutons pour y aller.
+- **Compteur** sur l'onglet *Messages* (rouge s'il y a un message direct) et sur l'onglet *MeshCore*.
+- **Barre des canaux** en haut des messages : une pastille par canal, marquée **MT** (Meshtastic) ou **MC** (MeshCore). Un canal qui a reçu des messages passe **en tête**, en couleur, avec le **nombre en attente** (en jaune) et l'heure du dernier message ; il clignote quelques secondes à l'arrivée. Les messages directs sont en rouge. Un clic sur une pastille ouvre ce canal, même s'il est de l'autre réseau.
+- Dans la liste, chaque message porte le **nom de son canal en couleur** (la même couleur que sa pastille), et les messages arrivés depuis la dernière lecture sont **surlignés** avec l'étiquette « NOUVEAU » pendant 3 minutes.
 - **🔔 Sons** : cochez les canaux à faire sonner, chacun avec sa propre note (bouton ▶ pour écouter).
 - **Message direct reçu** par le module de la carte : trois notes, un encadré « Lire / OK » et une **notification** Windows ou téléphone quand l'onglet est en arrière-plan (à autoriser une fois).
 

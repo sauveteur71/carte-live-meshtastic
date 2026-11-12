@@ -24,3 +24,6 @@
 **Aide**
 - [[Dépannage]]
 - [[Versions et compatibilité]]
+
+**🇬🇧 English**
+- [[English documentation|English-Home]]

@@ -24,7 +24,12 @@ jobs:
             echo "::error::Wiki introuvable : créez d'abord une première page (onglet Wiki › Create the first page › Save), puis relancez ce workflow."
             exit 1
           }
-          rsync -a --delete --exclude .git wiki/ depot-wiki/
+          rsync -a --delete --exclude .git --exclude en wiki/ depot-wiki/
+          # Pages anglaises : English-<page>.md, liens vers les pages anglaises
+          for f in wiki/en/*.md; do
+            n=$(basename "$f" .md)
+            sed -E 's/\[\[([^]|]+)\|([^]]+)\]\]/[[\1|English-\2]]/g; s/\[\[([^]|]+)\]\]/[[\1|English-\1]]/g' "$f" > "depot-wiki/English-$n.md"
+          done
           cd depot-wiki
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
