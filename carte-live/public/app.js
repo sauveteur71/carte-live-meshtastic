@@ -187,6 +187,29 @@ function initCarte() {
         .addTo(surcouches['Points de repère']);
     }
   }).catch(() => {});
+  // Étiquettes des repères sans chevauchement : après chaque déplacement, un nom qui couvrirait un nœud ou un autre
+  // nom est masqué (les repères arrivent du plus au moins important) ; il réapparaît en zoomant
+  let minuterieEtiquettes = null;
+  const desencombrer = () => {
+    clearTimeout(minuterieEtiquettes);
+    minuterieEtiquettes = setTimeout(() => {
+      const cont = carte.getContainer(), occupes = [], marge = 3;
+      const boite = cont.getBoundingClientRect();
+      for (const el of cont.querySelectorAll('.leaflet-marker-pane .leaflet-marker-icon, .leaflet-marker-pane .leaflet-tooltip, .leaflet-tooltip-pane .leaflet-tooltip')) {
+        const r = el.getBoundingClientRect();
+        if (r.width && r.right > boite.left && r.left < boite.right && r.bottom > boite.top && r.top < boite.bottom) occupes.push(r);
+      }
+      const touche = (r) => occupes.some((o) => r.left < o.right + marge && r.right > o.left - marge && r.top < o.bottom + marge && r.bottom > o.top - marge);
+      for (const sp of cont.querySelectorAll('.repere span')) {
+        sp.style.visibility = '';
+        const r = sp.getBoundingClientRect();
+        if (!r.width) continue;
+        if (touche(r)) sp.style.visibility = 'hidden'; else occupes.push(r);
+      }
+    }, 120);
+  };
+  carte.on('zoomend moveend overlayadd', desencombrer);
+  window.desencombrerEtiquettes = desencombrer;
   let surcouchesMemo = null;
   try { surcouchesMemo = JSON.parse(localStorage.getItem('gaulix_surcouches') || 'null'); } catch { /* idem */ }
   if (!surcouchesMemo) surcouches['Points de repère'].addTo(carte);
@@ -307,6 +330,7 @@ function regrouper(liste, couche, cle) {
   return seuls;
 }
 function dessinerNoeuds() {
+  if (window.desencombrerEtiquettes) setTimeout(window.desencombrerEtiquettes, 0);
   const alertes = numAlerte();
   if (!etat.coucheGroupes) etat.coucheGroupes = L.layerGroup().addTo(carte);
   const regroupables = [...etat.noeuds.values()].filter((n) => visible(n) && !n.infrastructure && !n.passerelle && !(etat.selection === n.num));

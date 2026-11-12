@@ -122,6 +122,7 @@ function mcIcone(n) {
   });
 }
 function mcDessinerNoeuds() {
+  if (window.desencombrerEtiquettes) setTimeout(window.desencombrerEtiquettes, 0);
   if (!mc.couche) return;
   // Companions et nœuds proches regroupés aux faibles zooms (répéteurs et room servers toujours visibles)
   if (!mc.coucheGroupes) mc.coucheGroupes = L.layerGroup().addTo(mc.couche);
