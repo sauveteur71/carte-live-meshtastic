@@ -7868,13 +7868,17 @@ function blocAlertesOff() {
   const h = (t) => t ? new Date(t).toLocaleString('fr-FR', { weekday: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
   const meteo = (r.meteo || []);
   const feuxZone = masquee('feux') ? [] : (etat.alertes || []).filter((a) => a.type === 'feu');
+  // Canaux d'envoi à la demande : dernier choix mémorisé dans ce navigateur, sinon ceux de la diffusion automatique
+  const choixEnv = lireLs('gaulix_canaux_envoi', null);
+  const mcChoisi = choixEnv && (r.envoi && r.envoi.canauxMc || []).includes(choixEnv.mc) ? choixEnv.mc : choixEnv && choixEnv.mc === '' ? '' : (rg.canalMc || (r.envoi && r.envoi.canauxMc[0]));
+  const mtCoche = (c) => (choixEnv ? (choixEnv.mt || []).some((x) => x.toLowerCase() === c.toLowerCase()) : (rg.canaux || []).some((x) => x.toLowerCase() === c.toLowerCase()) && !r.envoi.canauxMc.length);
   const nv = r.niveauxVigipirate || {};
   const rg = r.reglages || {};
   return `<div class="alertes-off"><h3>🌦️ Alertes officielles</h3>
     <h4>Vigilance Météo-France${(rg.departements || []).length > 1 ? ` (${rg.departements.length} départements)` : ''}</h4>
     ${(meteo.length || feuxZone.length) && etat.gestion && r.envoi && (r.envoi.canauxMc.length || r.envoi.canauxMt.length) ? `<div class="ao-envoi"><b>📡 Envoyer une vigilance par radio</b> — canaux :
-      ${r.envoi.canauxMc.length ? `<label>MeshCore <select id="ao-env-mc"><option value="">— aucun —</option>${r.envoi.canauxMc.map((c) => `<option ${(rg.canalMc || r.envoi.canauxMc[0]) === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>` : ''}
-      ${r.envoi.canauxMt.length ? `<span class="ao-env-mt">Meshtastic ${r.envoi.canauxMt.map((c) => `<label class="case"><input type="checkbox" value="${esc(c)}" ${(rg.canaux || []).some((x) => x.toLowerCase() === c.toLowerCase()) && !r.envoi.canauxMc.length ? 'checked' : ''}> ${esc(c)}</label>`).join('')}</span>` : ''}
+      ${r.envoi.canauxMc.length ? `<label>MeshCore <select id="ao-env-mc"><option value="">— aucun —</option>${r.envoi.canauxMc.map((c) => `<option ${mcChoisi === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>` : ''}
+      ${r.envoi.canauxMt.length ? `<span class="ao-env-mt">Meshtastic ${r.envoi.canauxMt.map((c) => `<label class="case"><input type="checkbox" value="${esc(c)}" ${mtCoche(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('')}</span>` : ''}
       <small class="note">puis le bouton 📡 de la vigilance ou du foyer voulu.</small></div>` : ''}
     ${meteo.length ? meteo.map((a) => `<div class="vig-ligne vig-${a.couleur}">${etat.gestion && r.envoi && (r.envoi.canauxMc.length || r.envoi.canauxMt.length) ? `<button type="button" class="mini ao-env-btn" data-ao-env="${esc(a.dep)}|${esc(a.phenomene)}" title="Envoyer maintenant cette vigilance sur les canaux choisis">📡 Envoyer</button>` : ''}<b>${ICONES_VIG[a.couleur]} Vigilance ${a.couleur} ${esc(a.phenomene)}</b> · ${esc(a.depNom)}<small>${a.debut ? 'du ' + h(a.debut) : ''}${a.fin ? ' au ' + h(a.fin) : ''}${a.envois ? ' · diffusée en LoRa' : ''}</small></div>`).join('') : `<p class="note">${r.erreur ? '⚠ Vigilance indisponible : ' + esc(r.erreur) : 'Aucune vigilance en cours.'}</p>`}
     <p class="note">Source : Météo-France, par le flux public MeteoAlarm (mis à jour toutes les 10 min${r.maj ? ', lu ' + ilYa(r.maj) : ''}).</p>
@@ -7927,6 +7931,10 @@ function brancherAlertesOff() {
     } catch (e) { ret(e.message); }
     b.disabled = false; b.textContent = '📡 Envoyer';
   }));
+  // Mémoriser le choix des canaux d'envoi (ce navigateur)
+  const memoCanaux = () => ecrireLs('gaulix_canaux_envoi', { mc: $('#ao-env-mc') ? $('#ao-env-mc').value : '', mt: [...document.querySelectorAll('.ao-env-mt input:checked')].map((x) => x.value) });
+  if ($('#ao-env-mc')) $('#ao-env-mc').onchange = memoCanaux;
+  document.querySelectorAll('.ao-env-mt input').forEach((x) => (x.onchange = memoCanaux));
   document.querySelectorAll('[data-feu-env]').forEach((b) => (b.onclick = async () => {
     const canalMc = $('#ao-env-mc') ? $('#ao-env-mc').value : '';
     const canaux = [...document.querySelectorAll('.ao-env-mt input:checked')].map((x) => x.value);
