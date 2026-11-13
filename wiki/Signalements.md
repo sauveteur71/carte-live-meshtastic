@@ -57,4 +57,8 @@ La carte lit toutes les 30 min les foyers de feu détectés par les satellites *
 - **alerte** dans l'onglet Réseau pour tout foyer des 12 dernières heures dans la zone de la carte (hors confiance faible), regroupé par carreau DFCI de 2 km ; un clic centre la carte dessus ;
 - **📡 Envoyer** (gestionnaire) dans les alertes officielles, rubrique *🔥 Feux actifs*, sur les mêmes canaux Meshtastic et MeshCore que la vigilance météo.
 
+**Meteosat** (facultatif) : le satellite géostationnaire voit l'Europe toutes les 15 min, donc un départ de feu bien plus tôt que FIRMS, mais avec un pixel d'environ 4 km. Ces foyers sont dessinés en **cercle pointillé de 2 km** (position approchée). Il faut un compte gratuit LSA SAF (EUMETSAT) : inscription sur https://mokey.lsasvcs.ipma.pt/auth/signup, puis `LSASAF_UTILISATEUR` et `LSASAF_MOT_DE_PASSE` dans le `.env`. Le *Diagnostic* indique si la lecture fonctionne.
+
+**Vent** : la fiche d'un foyer donne le vent à 10 m sur place (Open-Meteo, modèles Météo-France) : force, rafales, d'où il vient et **vers où il pousse le feu**.
+
 Un foyer satellite **n'est pas une alerte officielle** : il arrive avec 1 à 3 h de retard et peut être une fausse détection (brûlage agricole, torchère, toiture chaude). Masquable dans *Réglages › 👁️ Fonctions affichées*.

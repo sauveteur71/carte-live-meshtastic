@@ -12,12 +12,14 @@
     "better-sqlite3": "^11.10.0",
     "compression": "^1.8.1",
     "express": "^4.21.2",
+    "h5wasm": "^0.10.3",
     "js-yaml": "^4.1.0",
     "leaflet": "1.9.4",
     "mqtt": "^5.10.4",
     "pg": "^8.23.1",
     "protobufjs": "^7.4.0",
     "qrcode": "^1.5.4",
+    "seek-bzip": "^2.0.0",
     "ws": "^8.18.0"
   }
 }

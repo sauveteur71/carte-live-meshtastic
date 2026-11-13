@@ -3105,6 +3105,15 @@ app.get('/api/diagnostic', async (req, res) => {
       }
     }
   }
+  // Feux actifs : NASA FIRMS (sans compte) et Meteosat (compte LSA SAF gratuit)
+  if (!fonctionMasquee('feux')) {
+    const fe = feux.etat(1);
+    if (fe.erreur && !fe.maj) ajouter('Feux actifs', 'attention', 'NASA FIRMS illisible', fe.erreur);
+    else ajouter('Feux actifs', 'ok', 'NASA FIRMS lu', fe.maj ? new Date(fe.maj).toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' }) : 'première lecture en cours');
+    if (!fe.meteosat.actif) ajouter('Feux actifs', 'info', 'Meteosat non configuré', 'Détection toutes les 15 min : créez un compte gratuit sur mokey.lsasvcs.ipma.pt (LSA SAF, EUMETSAT), puis mettez LSASAF_UTILISATEUR et LSASAF_MOT_DE_PASSE dans le .env.');
+    else if (fe.meteosat.erreur) ajouter('Feux actifs', 'attention', 'Meteosat illisible', fe.meteosat.erreur);
+    else ajouter('Feux actifs', 'ok', 'Meteosat lu', fe.meteosat.dernierFichier ? `dernière image ${fe.meteosat.dernierFichier.slice(8, 10)}:${fe.meteosat.dernierFichier.slice(10, 12)} UTC` : 'première lecture en cours');
+  }
   // Mise à jour
   const iv = infosVersion();
   if (iv.majDisponible) ajouter('Mise à jour', 'attention', `Version ${iv.derniere} disponible (installée : ${iv.version})`, '', 'maj'); else ajouter('Mise à jour', 'ok', `Version ${iv.version}${iv.derniere ? ', à jour' : ''}`, majDispo.erreur ? 'GitHub injoignable : ' + majDispo.erreur : '');

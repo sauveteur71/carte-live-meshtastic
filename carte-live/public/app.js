@@ -7950,7 +7950,7 @@ function blocAlertesOff() {
     <p class="note">Source : Météo-France, par le flux public MeteoAlarm (mis à jour toutes les 10 min${r.maj ? ', lu ' + ilYa(r.maj) : ''}).</p>
     ${masquee('feux') ? '' : `<h4>🔥 Feux actifs (satellite)</h4>
     ${feuxZone.length ? feuxZone.map((a) => `<div class="vig-ligne vig-${a.niveau === 'critique' ? 'rouge' : 'orange'}">${etat.gestion && r.envoi && (r.envoi.canauxMc.length || r.envoi.canauxMt.length) ? `<button type="button" class="mini ao-env-btn" data-feu-env="${esc(a.cle)}" title="Envoyer maintenant ce foyer sur les canaux choisis">📡 Envoyer</button>` : ''}<a href="#" data-feu-voir="${a.lat},${a.lon}">${esc(a.message)}</a></div>`).join('') : '<p class="note">Aucun foyer détecté dans la zone de la carte ces 12 dernières heures.</p>'}
-    <p class="note">Source : NASA FIRMS (satellites VIIRS et MODIS), lu toutes les 30 min. Un foyer satellite n’est pas une alerte officielle : 1 à 3 h de retard, fausses détections possibles (brûlage agricole, torchère, toiture chaude). Couche « Feux actifs » dans Couches.</p>`}
+    <p class="note">Source : NASA FIRMS (satellites VIIRS et MODIS), lu toutes les 30 min, et Meteosat toutes les 15 min si un compte LSA SAF est renseigné (voir le Diagnostic). Un foyer satellite n’est pas une alerte officielle : 1 à 3 h de retard, fausses détections possibles (brûlage agricole, torchère, toiture chaude). Couche « Feux actifs » dans Couches.</p>`}
     ${masquee('vigipirate') ? '' : `<h4>Vigipirate</h4>
     <p>${r.vigipirate ? `<b>${r.vigipirate.icone} ${esc(r.vigipirate.nom)}</b> <small>réglé par ${esc(r.vigipirate.par || '?')} ${ilYa(r.vigipirate.depuis)}</small>` : '<span class="note">Niveau non renseigné.</span>'}</p>
     ${etat.gestion ? `<div class="parametres compact"><label>Niveau <select id="ao-vigi"><option value="">— non renseigné —</option>${Object.entries(nv).map(([k, v]) => `<option value="${k}" ${r.vigipirate && r.vigipirate.niveau === k ? 'selected' : ''}>${v.icone} ${esc(v.nom)}</option>`).join('')}</select></label>
@@ -8072,9 +8072,11 @@ async function dessinerFeux() {
       const age = (t - f.heure) / 3600000;
       const couleur = age < 3 ? '#ff1f1f' : age < 12 ? '#ff8a00' : '#a0522d';
       const rayon = Math.min(14, 5 + Math.sqrt(Math.max(0, f.frp || 0)));
-      L.circleMarker([f.lat, f.lon], { radius: rayon, color: '#000', weight: 1, fillColor: couleur, fillOpacity: f.confiance === 'faible' ? 0.35 : 0.85, pane: 'traces' })
-        .bindPopup(`<b>🔥 Foyer satellite</b> <small>(non confirmé)</small><br>${new Date(f.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} · ${ilYa(f.heure)}<br>${esc(f.source)} · confiance ${esc(f.confiance)}${f.frp ? ` · ${String(f.frp).replace('.', ',')} MW` : ''}${f.nuit ? ' · de nuit' : ''}<br>${f.lat.toFixed(4)}, ${f.lon.toFixed(4)}${f.dfci ? `<br>DFCI <b>${esc(f.dfci)}</b>` : ''}`)
-        .addTo(g);
+      const pop = `<b>🔥 Foyer ${f.geo ? 'Meteosat' : 'satellite'}</b> <small>(non confirmé)</small><br>${new Date(f.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} · ${ilYa(f.heure)}<br>${esc(f.source)} · confiance ${esc(f.confiance)}${f.frp ? ` · ${String(f.frp).replace('.', ',')} MW` : ''}${f.nuit ? ' · de nuit' : ''}<br>${f.lat.toFixed(4)}, ${f.lon.toFixed(4)}${f.geo ? ' <small>(pixel d’environ 4 km : position approchée)</small>' : ''}${f.dfci ? `<br>DFCI <b>${esc(f.dfci)}</b>` : ''}<div class="vent-feu">💨 Vent…</div>`;
+      const m = f.geo
+        ? L.circle([f.lat, f.lon], { radius: 2000, color: couleur, weight: 2, dashArray: '5 4', fillColor: couleur, fillOpacity: 0.15, pane: 'traces' })
+        : L.circleMarker([f.lat, f.lon], { radius: rayon, color: '#000', weight: 1, fillColor: couleur, fillOpacity: f.confiance === 'faible' ? 0.35 : 0.85, pane: 'traces' });
+      m.bindPopup(pop).on('popupopen', (ev) => ventFoyer(f, ev.popup)).addTo(g);
     }
     g.addTo(carte);
     if (coucheFeux) coucheFeux.remove();
@@ -8090,6 +8092,25 @@ document.addEventListener('click', (e) => {
   if (!etat.couches.feux) { etat.couches.feux = true; const b = document.querySelector('.bascule[data-couche="feux"]'); if (b) b.classList.add('actif'); dessinerFeux(); }
   carte.setView([lat, lon], Math.max(carte.getZoom(), 12));
 });
+
+// Vent à 10 m au foyer (Open-Meteo, modèles Météo-France, gratuit et sans clé) : d'où il vient et où il pousse le feu
+const cacheVent = new Map();
+async function ventFoyer(f, popup) {
+  const el = popup.getElement() && popup.getElement().querySelector('.vent-feu');
+  if (!el) return;
+  const k = f.lat.toFixed(2) + ',' + f.lon.toFixed(2);
+  try {
+    let v = cacheVent.get(k);
+    if (!v || Date.now() - v.t > 15 * 60000) {
+      const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${f.lat.toFixed(3)}&longitude=${f.lon.toFixed(3)}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kmh&models=meteofrance_seamless`).then((x) => x.json());
+      if (!r.current) throw new Error(r.reason || 'pas de données');
+      v = { t: Date.now(), ...r.current }; cacheVent.set(k, v);
+    }
+    const de = v.wind_direction_10m, vers = (de + 180) % 360;
+    const pts = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'], card = (a) => pts[Math.round(a / 45) % 8];
+    el.innerHTML = `💨 Vent ${Math.round(v.wind_speed_10m)} km/h${v.wind_gusts_10m ? `, rafales ${Math.round(v.wind_gusts_10m)}` : ''} · venant du <b>${card(de)}</b> <span class="fleche-vent" style="display:inline-block;transform:rotate(${vers}deg)" title="le feu est poussé vers le ${card(vers)}">⬆</span> pousse vers le <b>${card(vers)}</b>`;
+  } catch (e) { el.textContent = '💨 Vent indisponible'; }
+}
 
 // ---- Radar de pluie (RainViewer, gratuit, sans clé) : dernière image, mise à jour toutes les 10 min ----
 let coucheRadar = null, minuteurRadar = null;

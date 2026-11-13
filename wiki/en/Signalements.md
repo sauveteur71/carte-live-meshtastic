@@ -57,4 +57,8 @@ Every 30 min the map reads the fire hotspots detected by **NASA FIRMS** satellit
 - **alert** in the Network tab for any hotspot from the last 12 hours in the map's zone (except low confidence), grouped by 2 km DFCI square; a click centres the map on it;
 - **📡 Send** (manager) in the official alerts, *🔥 Active fires* section, on the same Meshtastic and MeshCore channels as weather warnings.
 
+**Meteosat** (optional): the geostationary satellite sees Europe every 15 min, so a fire start much earlier than FIRMS, but with a pixel of about 4 km. These hotspots are drawn as a **2 km dashed circle** (approximate position). A free LSA SAF (EUMETSAT) account is needed: sign up at https://mokey.lsasvcs.ipma.pt/auth/signup, then `LSASAF_UTILISATEUR` and `LSASAF_MOT_DE_PASSE` in the `.env`. *Diagnostic* shows whether reading works.
+
+**Wind**: a hotspot's card gives the 10 m wind on site (Open-Meteo, Météo-France models): speed, gusts, where it comes from and **where it pushes the fire**.
+
 A satellite hotspot **is not an official alert**: it arrives 1 to 3 h late and can be a false detection (agricultural burning, flare, hot roof). Can be hidden in *Settings › 👁️ Displayed features*.
