@@ -6,7 +6,7 @@ The map shows MeshCore **alone or overlaid** on Meshtastic: repeaters, room serv
 **MeshCore › Companion** tab (administrator). The companion acts as an **observer**: it passes every packet it hears to the map, with the SNR. To link it, see [[Connect a node|Connecter un module]]: Wi-Fi (port 5000), USB or Bluetooth. The companion only serves one client at a time.
 
 ### Companion tools
-- **📡 Who hears me directly?**: 0-hop call; every repeater that hears it answers. Table with the SNR at which **it hears you**, the one at which **you hear it**, and the distance. No password, automatic every 6 h.
+- **📡 Who hears me directly?**: 0-hop call; every repeater that hears it answers. Table with the SNR at which **it hears you**, the one at which **you hear it**, and the distance. No password, automatic every 6 h. Right after, the map asks each repeater heard for its regions and its **owner info** (👤 under its name, if the repeater has it set).
 - **📊 Noise and statistics**: noise floor, last SNR and RSSI, transmit and receive time, errors, with a **7-day noise curve**. Above −100 dBm, a nearby source hampers reception (cell tower, power supply…).
 - **🌡️ Telemetry**: battery and sensors.
 - **Default region**: the companion's flood sends are only relayed by repeaters accepting this region.
@@ -17,7 +17,8 @@ The map shows MeshCore **alone or overlaid** on Meshtastic: repeaters, room serv
 ## Repeaters
 **MeshCore › Program** tab and a repeater's sheet:
 - login with the **admin password** (can be remembered);
-- read and change settings, status (battery, noise, transmit), neighbours, set the clock, advert, restart, console;
+- read and change settings, status (battery, noise, transmit), neighbours, set the clock, advert, restart, console (↑ ↓ arrows recall commands already sent; those containing a password are never kept);
+- on failure, the message gives the **repeater's name and the start of its key**;
 - **Trace**: round trip along the path with the **SNR of each hop**, no password; also done every night around 3 am for monitored repeaters;
 - **Telemetry** of repeaters and sensors;
 - **home region** and sending region read with the configuration;

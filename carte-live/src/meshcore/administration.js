@@ -462,8 +462,11 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
         }
         t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), ok: true, heure: Date.now() };
       } catch (e) {
-        etape(t, n.cle, e.message, false);
-        t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), ok: false, erreur: e.message, heure: Date.now(), definitif: /refusé|inconnu|invalide|mot de passe|non géré/i.test(e.message), echecs: ((t.resultats[n.cle] || {}).echecs || 0) + 1 };
+        // Le nom et le début de la clé dans le message : on sait tout de suite quel répéteur ne répond pas
+        const qui = `${n.nom || 'nœud'} [${n.cle.slice(0, 4).toUpperCase()}]`;
+        const msg = e.message.includes(n.cle.slice(0, 4).toUpperCase()) ? e.message : `${qui} : ${e.message}`;
+        etape(t, n.cle, msg, false);
+        t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), ok: false, erreur: msg, heure: Date.now(), definitif: /refusé|inconnu|invalide|mot de passe|non géré/i.test(e.message), echecs: ((t.resultats[n.cle] || {}).echecs || 0) + 1 };
         // Vérification : sans la référence, inutile de continuer
         if (t.type === 'verifier' && cle === t.cles[0]) { t.arret = true; etape(t, null, 'référence illisible : vérification arrêtée', false); }
       }

@@ -2220,6 +2220,11 @@ app.delete('/api/mc/companion', (req, res) => {
 // ---- Outils du companion (firmware MeshCore récent) ---------------------------------------------------
 // Découverte des répéteurs entendus en direct : liaison mesurée dans les deux sens, sans mot de passe
 let decouverteMc = null; // { heure, liste }
+// Nom et infos des propriétaires (requête anonyme, demandée avec les régions aux répéteurs entendus en direct)
+const fProprietairesMc = path.join(path.dirname(config.fichierBase), 'meshcore-proprietaires.json');
+let proprietairesMc = {};
+try { proprietairesMc = lireJson(fProprietairesMc) || {}; } catch { /* aucun */ }
+const avecProprietaires = (d) => (d && d.liste ? { ...d, liste: d.liste.map((v) => (proprietairesMc[v.cle] ? { ...v, proprietaire: proprietairesMc[v.cle] } : v)) } : d);
 async function decouvrirMc() {
   const moi = companion.etat();
   const liste = await companion.decouvrirVoisins(15000);
@@ -2241,9 +2246,13 @@ async function decouvrirMc() {
 }
 app.post('/api/mc/companion/decouvrir', async (req, res) => {
   if (!exigerAdmin(req, res) || !exigerMc(res)) return;
-  try { res.json(await decouvrirMc()); } catch (e) { res.status(409).json({ erreur: e.message }); }
+  try {
+    const d = await decouvrirMc();
+    res.json(avecProprietaires(d));
+    if (!interrogationMc.enCours) interrogerRegionsMc().catch(() => {}); // régions et propriétaires, en arrière-plan
+  } catch (e) { res.status(409).json({ erreur: e.message }); }
 });
-app.get('/api/mc/companion/decouverte', (req, res) => { if (!exigerAdmin(req, res)) return; res.json(decouverteMc || { liste: null }); });
+app.get('/api/mc/companion/decouverte', (req, res) => { if (!exigerAdmin(req, res)) return; res.json(avecProprietaires(decouverteMc) || { liste: null }); });
 // Statistiques radio du companion (bruit, temps d'antenne) : relevées toutes les 15 min pour la courbe
 async function statsCompanionMc() {
   const s = await companion.statistiques();
@@ -2308,6 +2317,12 @@ async function interrogerRegionsMc(cles) {
       const r = await companion.regionsDeclarees({ cle: n.cle, nom: n.nom, role: n.role, lat: n.lat, lon: n.lon, horodatageAnnonce: n.horodatage_annonce });
       auditMc.noterDeclarees(k, r);
       interrogationMc.resultats.push({ cle: k, nom: n.nom, ok: true, ...r });
+      await new Promise((ok) => setTimeout(ok, 2000));
+      try {
+        const pr = await companion.proprietaire({ cle: n.cle, nom: n.nom, role: n.role, lat: n.lat, lon: n.lon, horodatageAnnonce: n.horodatage_annonce });
+        proprietairesMc[k] = { nom: pr.nom, infos: pr.infos, heure: Date.now() };
+        ecrireSur(fProprietairesMc, JSON.stringify(proprietairesMc));
+      } catch { /* firmware ancien ou pas de réponse : sans gravité */ }
     } catch (e) { interrogationMc.resultats.push({ cle: k, nom: n.nom, ok: false, erreur: e.message }); }
     interrogationMc.faits++;
     await new Promise((ok) => setTimeout(ok, 3000)); // laisser respirer le canal

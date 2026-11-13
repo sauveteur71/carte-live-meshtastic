@@ -56,6 +56,7 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
 
   // Colonnes ajoutées après coup
   if (!db.prepare('PRAGMA table_info(mc_messages)').all().some((c) => c.name === 'region')) db.exec('ALTER TABLE mc_messages ADD COLUMN region TEXT');
+  if (!db.prepare('PRAGMA table_info(mc_messages)').all().some((c) => c.name === 'taille_hachage')) db.exec('ALTER TABLE mc_messages ADD COLUMN taille_hachage INTEGER');
   const q = {
     noeud: db.prepare('SELECT * FROM mc_noeuds WHERE cle = ?'),
     noeuds: db.prepare('SELECT * FROM mc_noeuds ORDER BY dernier_vu DESC'),
@@ -105,6 +106,7 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     msgAck: db.prepare(`UPDATE mc_messages SET statut = 'confirme' WHERE ack = ? AND sens = 'envoye' AND heure >= ?`),
     msgStatut: db.prepare('UPDATE mc_messages SET statut = ? WHERE id = ?'),
     msgHachage: db.prepare('SELECT id FROM mc_messages WHERE hachage = ?'),
+    msgTailleHachage: db.prepare('UPDATE mc_messages SET taille_hachage = ? WHERE hachage = ? AND taille_hachage IS NULL'),
     telInserer: db.prepare('INSERT INTO mc_telemetrie (cle, heure, batterie_mv, bruit, emission_pct, recus, emis, allume_s, snr, file) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
     telNoeud: db.prepare('SELECT heure, batterie_mv, bruit, emission_pct, recus, emis, allume_s, snr FROM mc_telemetrie WHERE cle = ? AND heure >= ? ORDER BY heure'),
     telDernier: db.prepare('SELECT t.* FROM mc_telemetrie t JOIN (SELECT cle, MAX(heure) AS h FROM mc_telemetrie GROUP BY cle) d ON d.cle = t.cle AND d.h = t.heure'),
@@ -232,6 +234,7 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
         const echo = c.expediteur && moi && c.expediteur === moi.nom ? q.msgEcho.get(c.canal, c.texte, heure - 5 * 60000) : null;
         if (echo) { q.msgRelais.run('relaye', echo.id); if (p.region) q.msgRegion.run(p.region, echo.id); } // région réellement portée par notre message
         else if (!q.msgHachage.get(p.hachage)) q.msgInserer.run({ heure, sens: 'recu', genre: 'canal', canal: c.canal, indexCanal: null, de: null, nomDe: c.expediteur || null, vers: null, nomVers: null, texte: c.texte, sauts, snr: sauts === 0 ? obs.snr ?? null : null, statut: null, ack: null, auteur: null, hachage: p.hachage, region: p.region || null });
+        if (!echo && sauts) q.msgTailleHachage.run(p.tailleHachage, p.hachage); // aussi pour un message déjà reçu par le companion
       }
 
       // Liens radio : uniquement pour l'inondation (le chemin y liste les relais déjà traversés)
@@ -401,7 +404,7 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
   function messages(limite) {
     return q.msgListe.all(limite).map((m) => ({
       id: m.id, heure: m.heure, sens: m.sens, genre: m.genre, canal: m.canal, indexCanal: m.index_canal, de: m.de, nomDe: m.nom_de || (m.de ? (q.noeud.get(m.de) || {}).nom : null),
-      vers: m.vers, nomVers: m.nom_vers, texte: m.texte, sauts: m.sauts, snr: m.snr, statut: m.statut, relais: m.relais, auteur: m.auteur, region: m.region,
+      vers: m.vers, nomVers: m.nom_vers, texte: m.texte, sauts: m.sauts, snr: m.snr, statut: m.statut, relais: m.relais, auteur: m.auteur, region: m.region, tailleHachage: m.taille_hachage ?? null,
     }));
   }
   function noterMessage(m) {

@@ -22,6 +22,8 @@ Under each message sent from the map:
 
 Under **every** message: **📡 Heard by N receivers**, with for each one the gateway, direct or the hop count, the SNR and the last relay. A click opens the route on the map.
 
+Under a relayed MeshCore channel message, the hop count is followed by the path's **hash size** (“2 sauts · 2 o”, i.e. 2 bytes).
+
 **Limits**: a node without an MQTT gateway that receives your message leaves no trace. On private channels, only gateways with uplink to MQTT on that channel report it. A channel message has no read receipt: to check that a specific contact hears you, send them a **direct message**.
 
 ## Unread, sounds and alerts

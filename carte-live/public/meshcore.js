@@ -495,7 +495,7 @@ function mcLigneMessage(m) {
   const nouv = typeof msgNouveaux !== 'undefined' && msgNouveaux.has('mc' + (m.id != null ? m.id : m.heure + (m.nomDe || '')));
   return `<div class="paquet mc message-mc ${m.sens}${nouv ? ' nouveau' : ''}" ${m.genre === 'direct' && m.sens === 'recu' && m.de ? `data-mc-repondre="${m.de}"` : m.genre === 'canal' && m.indexCanal != null ? `data-mc-canal="${m.indexCanal}"` : ''}>
     <div class="entete"><span class="heure">${new Date(m.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span class="tag canal-msg${m.genre === 'direct' ? ' direct' : ''}" ${m.genre !== 'direct' && typeof couleurCanal === 'function' ? `style="--coul:${couleurCanal(m.canal)}"` : ''}><i style="background:${m.genre === 'direct' ? MC_TYPES.message.hex : MC_TYPES.canal.hex}"></i>${esc(lieu)}</span>${nouv ? '<span class="etiquette-nouveau">nouveau</span>' : ''}${mcTagRegion(m.region)}${estRelaye(m.texte) ? '<span class="badge-passerelle" title="Relayé par une passerelle inter-réseaux">⇄ passerelle</span>' : ''}
-    ${m.sauts != null ? `<span>${m.sauts === 0 ? 'direct' : m.sauts + ' saut' + (m.sauts > 1 ? 's' : '')}</span>` : ''}${m.sens === 'envoye' ? `<span class="statut-msg ${m.statut || ''}">${STATUTS_MSG[m.statut] || ''}${m.relais > 1 ? ' ×' + m.relais : ''}</span>` : ''}</div>
+    ${m.sauts != null ? `<span>${m.sauts === 0 ? 'direct' : m.sauts + ' saut' + (m.sauts > 1 ? 's' : '')}${m.sauts > 0 && m.tailleHachage ? ` · ${m.tailleHachage} o` : ''}</span>` : ''}${m.sens === 'envoye' ? `<span class="statut-msg ${m.statut || ''}">${STATUTS_MSG[m.statut] || ''}${m.relais > 1 ? ' ×' + m.relais : ''}</span>` : ''}</div>
     <div class="corps">${qui} : <span translate="no">${texteMessageHtml(m.texte, m.sens === 'envoye' ? m.nomDe || 'moi' : m.nomDe, m.heure)}</span></div></div>`;
 }
 
@@ -892,6 +892,33 @@ async function mcAligner(t, cle, zone) {
 }
 
 // Panneau d'administration dans la fiche d'un répéteur / room server
+// Historique des commandes CLI (flèches ↑ ↓ et liste de suggestions), propre à ce navigateur.
+// Les commandes qui portent un mot de passe ne sont jamais gardées.
+const CLI_HISTO = 'gaulix_cli_historique';
+function cliHisto() { try { const l = JSON.parse(localStorage.getItem(CLI_HISTO) || '[]'); return Array.isArray(l) ? l : []; } catch { return []; } }
+function cliMemoriser(c) {
+  if (!c || /pass|pwd|mdp/i.test(c)) return;
+  try { localStorage.setItem(CLI_HISTO, JSON.stringify([c, ...cliHisto().filter((x) => x !== c)].slice(0, 30))); } catch { /* stockage indisponible */ }
+}
+function cliHistorique(inp) {
+  if (!inp || inp.dataset.histo) return;
+  inp.dataset.histo = '1';
+  const id = 'dl-cli-' + Math.random().toString(36).slice(2, 8);
+  const dl = document.createElement('datalist'); dl.id = id;
+  dl.innerHTML = cliHisto().map((c) => `<option value="${esc(c)}">`).join('');
+  inp.after(dl); inp.setAttribute('list', id);
+  inp.title = 'Flèches ↑ ↓ : commandes déjà envoyées';
+  let i = -1;
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { i = -1; return; }
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    const l = cliHisto(); if (!l.length) return;
+    e.preventDefault();
+    i = e.key === 'ArrowUp' ? Math.min(i + 1, l.length - 1) : Math.max(i - 1, -1);
+    inp.value = i < 0 ? '' : l[i];
+  });
+}
+
 async function mcRendreAdminFiche(n, z) {
   let l;
   try { l = await api('/api/mc/admin/lecture/' + n.cle); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
@@ -964,7 +991,7 @@ async function mcRendreAdminFiche(n, z) {
     }
     if (a === 'redemarrer' && !(await confirmer(`Redémarrer « ${n.nom} » à distance ?`))) return;
     if (a === 'annonce') return lancer('annonce', { inondation: (await confirmer('Annonce relayée par tout le réseau ?\nOK = tout le réseau · Annuler = voisins directs seulement')) });
-    if (a === 'cli') { const c = f.cli.value.trim(); if (c) lancer('cli', { commande: c }); return; }
+    if (a === 'cli') { const c = f.cli.value.trim(); if (c) { cliMemoriser(c); lancer('cli', { commande: c }); } return; }
     if (a === 'appliquer') {
       const valeurs = {};
       f.querySelectorAll('.reglages-mc [name]').forEach((x) => { if (x.value !== '' && x.value !== x.dataset.initial) valeurs[x.name] = x.value.trim(); });
@@ -974,6 +1001,7 @@ async function mcRendreAdminFiche(n, z) {
     }
     lancer(a);
   }));
+  cliHistorique(f.cli);
   f.cli.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); f.querySelector('[data-a="cli"]').click(); } };
   z.querySelectorAll('tr[data-mc]').forEach((tr) => (tr.onclick = () => mcOuvrirFiche(tr.dataset.mc)));
 }
@@ -993,7 +1021,7 @@ function mcHtmlOutils() {
     ${o.erreur ? `<p class="erreur">${esc(o.erreur)}</p>` : ''}
     ${d && d.liste ? `<div class="note">Découverte ${ilYa(d.heure)} : ${d.liste.length} nœud(s) entendu(s) en direct${d.liste.length ? '' : ' (aucun répéteur à portée directe, ou répéteurs masqués / firmware ancien)'}</div>
       ${d.liste.length ? `<table class="voisins petit"><thead><tr><th>Nœud</th><th class="num" title="SNR auquel le nœud entend le companion">Il m’entend</th><th class="num" title="SNR auquel le companion entend le nœud">Je l’entends</th><th class="num">km</th></tr></thead><tbody>
-        ${d.liste.map((x) => `<tr ${x.nom ? `data-mc="${x.cle}"` : ''}><td>${esc(x.nom || x.cle.slice(0, 8) + '…')}<small> ${esc({ repeteur: 'répéteur', salon: 'room server', capteur: 'capteur' }[x.role] || '')}</small></td><td class="num" style="color:${couleurSnr(x.snrAller)}">${fmt(x.snrAller, 1, ' dB')}</td><td class="num" style="color:${couleurSnr(x.snrRetour)}">${fmt(x.snrRetour, 1, ' dB')}</td><td class="num">${x.distanceKm != null ? fmt(x.distanceKm, 1) : '–'}</td></tr>`).join('')}</tbody></table>` : ''}` : ''}
+        ${d.liste.map((x) => `<tr ${x.nom ? `data-mc="${x.cle}"` : ''}><td>${esc(x.nom || x.cle.slice(0, 8) + '…')}<small> ${esc({ repeteur: 'répéteur', salon: 'room server', capteur: 'capteur' }[x.role] || '')}</small>${x.proprietaire && x.proprietaire.infos ? `<small class="proprietaire-mc" title="Infos propriétaire déclarées par le répéteur">👤 ${esc(x.proprietaire.infos)}</small>` : ''}</td><td class="num" style="color:${couleurSnr(x.snrAller)}">${fmt(x.snrAller, 1, ' dB')}</td><td class="num" style="color:${couleurSnr(x.snrRetour)}">${fmt(x.snrRetour, 1, ' dB')}</td><td class="num">${x.distanceKm != null ? fmt(x.distanceKm, 1) : '–'}</td></tr>`).join('')}</tbody></table>` : ''}` : ''}
     ${st ? `<div class="grille">
         <div class="mesure"><span>Bruit de fond</span><b style="color:${st.bruitDbm > -100 ? 'var(--attention)' : 'inherit'}">${val(st.bruitDbm, 0, ' dBm')}</b></div>
         <div class="mesure"><span>Dernier SNR · RSSI</span><b>${val(st.dernierSnr, 1)} · ${val(st.dernierRssi, 0)}</b></div>
@@ -1040,6 +1068,7 @@ function mcBrancherOutils(z) {
   if (det) det.ontoggle = () => { o.ouvert = det.open; };
   const cliLocal = async (c) => {
     o.ouvert = true;
+    cliMemoriser(c);
     try { const r = await postJson('/api/mc/companion/cli', { commande: c }); o.cli = [...(o.cli || []), { c: /^set wifi\.pwd/i.test(c) ? 'set wifi.pwd ••••' : c, r: r.reponse }].slice(-12); o.erreur = null; } catch (e) { o.erreur = e.message; }
     redessiner();
   };
@@ -1048,7 +1077,10 @@ function mcBrancherOutils(z) {
     const a = b.dataset.mcOutil;
     o.erreur = null;
     try {
-      if (a === 'decouvrir') { o.enCours = 'decouvrir'; redessiner(); o.decouverte = await postJson('/api/mc/companion/decouvrir'); }
+      if (a === 'decouvrir') { o.enCours = 'decouvrir'; redessiner(); o.decouverte = await postJson('/api/mc/companion/decouvrir');
+        // Les infos propriétaire arrivent ensuite (un répéteur toutes les quelques secondes) : on relit la liste
+        for (const s of [30, 90]) setTimeout(async () => { try { const d = await api('/api/mc/companion/decouverte'); if (d && d.liste) { o.decouverte = d; redessiner(); } } catch { /* ignoré */ } }, s * 1000);
+      }
       else if (a === 'stats') o.stats = await api('/api/mc/companion/stats');
       else if (a === 'telemetrie') o.telemetrie = (await api('/api/mc/companion/telemetrie')).mesures;
       else if (a === 'zone-lire') { o.ouvert = true; o.zone = (await api('/api/mc/companion/zone')).zone; }
@@ -1058,7 +1090,7 @@ function mcBrancherOutils(z) {
     redessiner();
   }));
   z.querySelectorAll('[data-mc-cli]').forEach((b) => (b.onclick = () => cliLocal(b.dataset.mcCli)));
-  const ci = $('#mc-cli-local'); if (ci) ci.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); if (ci.value.trim()) cliLocal(ci.value.trim()); } };
+  const ci = $('#mc-cli-local'); cliHistorique(ci); if (ci) ci.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); if (ci.value.trim()) cliLocal(ci.value.trim()); } };
   const fz = $('#mc-f-zone');
   if (fz) fz.onsubmit = async (ev) => {
     ev.preventDefault();

@@ -1440,3 +1440,4 @@ body.theme-clair .leaflet-control-attribution a[href*="helloasso"] { color: #c01
 .mentions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .mentions button { font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--bord); background: var(--surface); color: var(--texte); cursor: pointer; }
 .msg-rapides { max-width: 170px; }
+.proprietaire-mc { display: block; color: var(--doux, inherit); white-space: normal; }
