@@ -1441,3 +1441,4 @@ body.theme-clair .leaflet-control-attribution a[href*="helloasso"] { color: #c01
 .mentions button { font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--bord); background: var(--surface); color: var(--texte); cursor: pointer; }
 .msg-rapides { max-width: 170px; }
 .proprietaire-mc { display: block; color: var(--doux, inherit); white-space: normal; }
+.responsable-noeud { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 6px 0 10px; padding: 6px 10px; border: 1px solid var(--bord, #2a3b37); border-radius: 8px; }

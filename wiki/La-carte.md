@@ -39,6 +39,11 @@ Dans *Messages*, un clic sur l'origine d'un message (📡 / 🌐) affiche son **
 - **Historique** sur plus d'un an, **rejeu** des 24 dernières heures, **rapport hebdomadaire** (*Outils*).
 - **Santé de la carte** (*Réseau*) : processeur, mémoire, disque, base, MQTT.
 
+## Pour le joindre et responsable d'un nœud
+Fiche d'un nœud, onglet **Voisins**, rubrique **Pour le joindre** : par quelle station de la carte l'atteindre (module relié, modules en écoute, puis passerelles MQTT qui l'ont entendu) et dans quel état est la liaison : *direct, aller-retour prouvé*, *direct, sens retour non prouvé*, *N sauts* ou *hors de portée*. Entendre un nœud ne prouve pas qu'il nous entend : le retour est prouvé quand il nous liste dans son voisinage, qu'une traceroute revient ou qu'une liaison est mesurée dans l'autre sens. Une passerelle MQTT ne fait qu'écouter.
+
+Fiche d'un nœud, onglet **Informations** : **👤 Responsable**, la personne qui répond du nœud (un compte de la carte ou un nom libre, avec un contact). Visible des membres connectés seulement, le contact des gestionnaires seulement ; modifiable par qui peut gérer le nœud. Un administrateur peut en même temps donner au compte le droit de régler ce nœud (il entre dans son secteur). Le responsable s'affiche aussi dans la liste des membres de chaque équipe.
+
 ## Mode terrain et application
 *Outils › Mode terrain* : relevés GPS avec mesure radio et photo, même sans réseau. La carte s'installe comme une application (« Ajouter à l'écran d'accueil », HTTPS requis).
 

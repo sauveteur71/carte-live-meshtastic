@@ -40,6 +40,11 @@ In *Messages*, clicking a message's origin (📡 / 🌐) shows its **route**:
 - **History** over more than a year, **replay** of the last 24 hours, **weekly report** (*Tools*).
 - **Map health** (*Network*): processor, memory, disk, database, MQTT.
 
+## How to reach it and person in charge of a node
+Node card, **Neighbours** tab, **How to reach it** section: through which station of the map to reach it (linked module, listening modules, then MQTT gateways that heard it) and the state of the link: *direct, both ways proven*, *direct, return path not proven*, *N hops* or *out of range*. Hearing a node does not prove it hears us: the return path is proven when it lists us as a neighbour, a traceroute comes back or a link is measured the other way. An MQTT gateway only listens.
+
+Node card, **Information** tab: **👤 Person in charge**, the person responsible for the node (a map account or a free name, with a contact). Visible to signed-in members only, the contact to managers only; editable by whoever can manage the node. An administrator can at the same time give the account the right to configure this node (it joins their sector). The person in charge is also shown in each team's member list.
+
 ## Field mode and app
 *Tools › Field mode*: GPS surveys with radio measurement and photo, even without network. The map installs like an app (“Add to home screen”, HTTPS required).
 

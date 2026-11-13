@@ -2311,6 +2311,50 @@ function brancherInstallation(n) {
     catch (err) { $('#install-retour').textContent = err.message; }
   };
 }
+// ---- Responsable d'un nœud : la personne qui en répond (membres connectés seulement) ----
+async function chargerResponsables() {
+  try { etat.responsables = await api('/api/responsables'); } catch { etat.responsables = {}; return; }
+  const z = $('#bloc-responsable');
+  if (z && z.dataset.num) z.outerHTML = blocResponsable(Number(z.dataset.num));
+}
+function blocResponsable(num) {
+  if (!etat.membre) return '';
+  const r = (etat.responsables || {})[String(num >>> 0)];
+  const peut = gerable(num);
+  if (!r && !peut) return '';
+  return `<div class="responsable-noeud" id="bloc-responsable" data-num="${num >>> 0}">👤 ${r ? `Responsable : <b>${esc(r.personne || r.compte || '?')}</b>${r.compte && r.personne && r.personne !== r.compte ? ` <small>compte ${esc(r.compte)}</small>` : ''}${r.contact ? ` · <span>${esc(r.contact)}</span>` : ''}` : '<span class="note">Aucun responsable désigné</span>'}
+    ${peut ? `<button type="button" class="mini" data-resp="${num >>> 0}">${r ? '✏️ Modifier' : 'Désigner'}</button>` : ''}</div>`;
+}
+async function dlgResponsable(num) {
+  const r = (etat.responsables || {})[String(num >>> 0)] || {};
+  let cpt = [];
+  try { cpt = await api('/api/responsables/comptes'); } catch { /* liste indisponible */ }
+  let d = document.getElementById('dlg-responsable');
+  if (!d) { d = document.createElement('dialog'); d.id = 'dlg-responsable'; document.body.appendChild(d); }
+  const n = etat.noeuds.get(num >>> 0) || {};
+  d.innerHTML = `<button class="fermer" type="button" data-fermer title="Fermer">×</button><h3>👤 Responsable de ${esc(n.nomLong || n.nomCourt || '!' + (num >>> 0).toString(16))}</h3>
+    <p class="note">La personne qui répond de ce nœud : à qui s’adresser s’il tombe en panne, s’il faut le régler ou s’il émet mal. Visible des seuls membres connectés ; le contact, des seuls gestionnaires.</p>
+    <div class="parametres">
+      <label>Compte de la carte <select name="compte"><option value="">— aucun —</option>${cpt.map((c) => `<option value="${c.id}" data-role="${esc(c.role)}" ${r.compteId === c.id ? 'selected' : ''}>${esc(c.nom)}</option>`).join('')}</select></label>
+      <label>Nom ou indicatif <input name="personne" maxlength="60" value="${esc(r.personne || '')}" placeholder="si la personne n’a pas de compte"></label>
+      <label class="ligne-entiere">Contact <input name="contact" maxlength="120" value="${esc(r.contact || '')}" placeholder="téléphone, adresse, consignes d’accès…"></label>
+      ${etat.admin ? '<label class="case ligne-entiere"><input type="checkbox" name="droit"> Donner à ce compte le droit de régler ce nœud (il entre dans son secteur)</label>' : ''}
+    </div>
+    <div class="actions-prop"><button type="button" class="principal" data-ok>Enregistrer</button>${r.personne || r.compteId ? '<button type="button" data-retirer>Retirer le responsable</button>' : ''}</div><p class="erreur" data-retour></p>`;
+  const envoyer = async (corps) => {
+    try { await postJson(`/api/noeuds/${num >>> 0}/responsable`, corps); d.close(); await chargerResponsables(); annonce('✔ Responsable enregistré'); } catch (e) { d.querySelector('[data-retour]').textContent = e.message; }
+  };
+  d.querySelector('[data-fermer]').onclick = () => d.close();
+  d.querySelector('[data-ok]').onclick = () => {
+    const q = (k) => d.querySelector(`[name=${k}]`);
+    if (!q('compte').value && !q('personne').value.trim()) { d.querySelector('[data-retour]').textContent = 'Choisissez un compte ou indiquez un nom.'; return; }
+    envoyer({ compteId: q('compte').value ? Number(q('compte').value) : null, personne: q('personne').value, contact: q('contact').value, droit: !!(q('droit') && q('droit').checked) });
+  };
+  const ret = d.querySelector('[data-retirer]'); if (ret) ret.onclick = () => envoyer({ personne: '', compteId: null });
+  d.showModal();
+}
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-resp]'); if (b) { e.preventDefault(); dlgResponsable(Number(b.dataset.resp)); } });
+
 async function ouvrirFiche(num) {
   etat.selection = num;
   const fiche = $('#fiche');
@@ -2367,6 +2411,7 @@ async function ouvrirFiche(num) {
     </nav>
     <div data-pf="stats" hidden><div id="stats-noeud" class="vide">Chargement…</div></div>
     <div data-pf="infos">
+    ${blocResponsable(n.num)}
     ${alertesNoeud.map((a) => `<div class="liste-alertes"><div class="alerte ${a.niveau}">${esc(a.message)}</div></div>`).join('')}
     <div class="grille">${mesures.map(([l, v]) => `<div class="mesure"><span>${l}</span><b>${esc(v)}</b></div>`).join('')}</div>
     <div class="boutons">
@@ -2393,6 +2438,8 @@ async function ouvrirFiche(num) {
     ${d.telemetrie.length < 2 ? '<div class="vide">Pas encore assez de télémétrie.</div>' : ''}
     </div>
     <div data-pf="voisins" hidden>
+    <h4>Pour le joindre</h4>
+    <div id="pour-joindre"><div class="vide">Chargement…</div></div>
     <h4>Entendu par</h4>
     <div id="entendu-par"><div class="vide">Chargement…</div></div>
     <h4>Voisins radio (${d.voisins.length})</h4>
@@ -4667,7 +4714,23 @@ function graphiqueSignal(pts) {
     <text x="${m.g}" y="${m.h - 2}" class="t-snr">SNR (dB)</text><text x="${W - m.d}" y="${m.h - 2}" class="t-rssi" text-anchor="end">RSSI (dBm)</text>
   </svg>`;
 }
+// « Pour le joindre » : stations de la carte capables de l'atteindre, et sens de liaison prouvé
+async function chargerPourJoindre(n) {
+  const z = $('#pour-joindre');
+  if (!z) return;
+  let r;
+  try { r = await api(`/api/noeuds/${n.num}/joindre`); } catch { z.innerHTML = '<div class="vide">Indisponible.</div>'; return; }
+  const l = r.lignes || [];
+  const nos = l.filter((x) => x.emetteur);
+  const meilleur = nos.find((x) => x.direct || x.sautsMin != null);
+  z.innerHTML = `${meilleur ? `<p class="note">Pour lui écrire : par <b>${esc(meilleur.nom)}</b> (${esc(meilleur.via)}), ${esc(meilleur.verdict)}.</p>` : nos.length ? '<p class="note">Aucun module de la carte ne l’a entendu sur 7 jours : un message partira en inondation, sans garantie.</p>' : '<p class="note">Aucun module radio relié à la carte : elle ne peut pas lui écrire elle-même.</p>'}
+    ${l.length ? `<table class="voisins"><thead><tr><th>Station</th><th>Liaison</th><th>Retour</th><th>Dernière</th></tr></thead><tbody>
+    ${l.map((x) => `<tr><td>${lienNoeud(x.station)}<small> ${esc(x.via)}</small></td><td class="${x.direct ? '' : 'note'}">${esc(x.verdict)}${x.snrEntendu != null ? ` <small style="color:${couleurSnr(x.snrEntendu)}">${fmt(x.snrEntendu, 1, ' dB')}</small>` : ''}</td>
+      <td>${x.retourProuve ? `✔ <small>${esc(x.preuveRetour || '')}</small>` : '<span class="note">non prouvé</span>'}</td><td class="nowrap">${x.dernier ? ilYa(x.dernier) : '–'}</td></tr>`).join('')}</tbody></table>
+    <p class="note">Entendre un nœud ne prouve pas qu’il nous entend. Le retour est prouvé quand il nous liste dans son voisinage, qu’une traceroute revient ou qu’une liaison est mesurée dans l’autre sens. Une passerelle MQTT ne fait qu’écouter : lui écrire par elle suppose qu’elle redescende les messages, réglage que la carte ne connaît pas.</p>` : ''}`;
+}
 async function chargerEntenduPar(n) {
+  chargerPourJoindre(n);
   const z = $('#entendu-par');
   if (!z) return;
   let l;
@@ -4842,7 +4905,8 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
       ${e.description ? `<div class="meta-longue">${esc(e.description)}</div>` : ''}
       ${!e.cleLisible ? '<div class="alerte attention">La clé de cette équipe ne se déchiffre plus (clé maîtresse ou CLE_EQUIPES changée) : créez une nouvelle clé.</div>' : ''}
       <div class="liste-membres">${e.membres.length ? e.membres.map((m) => { const [c, t] = etatMembre(m); return `<div class="membre-eq ${c}">
-        <span class="nom">${esc(nomNoeud(m.num))} <small>${idHex(m.num)}</small></span><span class="etat">${t}</span>
+        <span class="nom">${esc(nomNoeud(m.num))} <small>${idHex(m.num)}</small>${(() => { const rp = (etat.responsables || {})[String(m.num >>> 0)]; return rp ? ` <small title="Responsable">👤 ${esc(rp.personne || rp.compte || '')}</small>` : ''; })()}</span><span class="etat">${t}</span>
+        <button class="mini" data-resp="${m.num}" title="Désigner la personne qui répond de ce nœud">👤</button>
         ${m.dernier && m.dernier.statut === 'echec' && m.dernier.detail ? `<small class="detail">${esc(m.dernier.detail)}</small>` : ''}
         ${m.etat === 'membre' ? `<button class="mini" data-retirer="${m.num}" title="Retirer le canal de ce nœud">Retirer</button>` : ''}
         <small class="detail ${m.sansNouvelle ? 'sans-nouvelle' : ''}">${m.position ? `📍 position ${m.position.heure ? ilYa(m.position.heure) : 'connue'} <a href="#" data-voir-pos="${m.position.lat},${m.position.lon}">voir</a>` : '📍 position inconnue'}${m.sansNouvelle ? ' · ⚠ sans nouvelle' : ''}</small></div>`; }).join('') : '<div class="vide">Aucun nœud dans cette équipe.</div>'}</div>
@@ -6141,6 +6205,7 @@ function connecterWs() {
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (m.genre === 'signalement') { if (etat.membre) chargerSignalements(); return; }
+    if (m.genre === 'responsables') { if (etat.membre) chargerResponsables(); return; }
     if (m.genre === 'alertes-officielles') { chargerAlertesOff(); return; }
     if (m.genre === 'feux') { if (etat.couches.feux) dessinerFeux(); return; }
     if (m.genre === 'fonctions-masquees') {
@@ -7103,6 +7168,7 @@ async function demarrer() {
   chargerFederation(); setInterval(chargerFederation, 600000);
   demarrerTerrain();
   if (etat.membre) chargerSignalements();
+  if (etat.membre) chargerResponsables();
   chargerActiviteInitiale();
   setInterval(rendreLegende, 60000);
   if (etat.config.installation) installation();

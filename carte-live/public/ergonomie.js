@@ -275,7 +275,7 @@ async function ficheDiagnostic() {
   const z = $('#fiche-contenu');
   z.innerHTML = '<div class="vide">Vérifications en cours…</div>';
   let r;
-  try { r = await api('/api/diagnostic'); } catch (x) { z.innerHTML = `<div class="vide">${esc(x.message)}</div>`; return; }
+  try { r = await api('/api/diagnostic?reseau=' + encodeURIComponent(etat.vueReseau || 'les-deux')); } catch (x) { z.innerHTML = `<div class="vide">${esc(x.message)}</div>`; return; }
   const ACTIONS = {
     mqtt: ['Régler le serveur MQTT', () => ouvrirDlg('reglages', '[name=mqttUrl]')], canaux: ['Régler les canaux', () => ouvrirDlg('reglages', '[name=canaux]')],
     module: ['Connecter un module', () => { const b = $('#outil-connecter'); if (b) b.click(); }], companion: ['Relier le module MeshCore', () => ouvrirMcVue('companion', '#mc-f-wifi')],

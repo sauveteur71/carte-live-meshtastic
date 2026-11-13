@@ -1465,6 +1465,69 @@ app.get('/api/noeuds/:num/entendu-par', (req, res) => {
       FROM receptions r JOIN paquets p ON p.rowid = r.paquet WHERE p.de = @n AND r.heure >= @d AND r.passerelle != @n GROUP BY r.passerelle ORDER BY dernier DESC`).all({ n, d: depuis }));
 });
 
+// ---- Responsable de chaque nœud (membres : nom ; gestionnaires : contact ; modification : qui peut gérer le nœud) ----
+const responsables = require('./responsables').creerResponsables({ config, comptes, journal });
+app.get('/api/responsables', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  res.set('Cache-Control', 'no-store').json(responsables.liste({ avecContact: estGestion(req) }));
+});
+// Comptes proposables comme responsables (sans adresse mail)
+app.get('/api/responsables/comptes', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });
+  res.json(comptes.lister().filter((c) => c.statut === 'actif').map((c) => ({ id: c.id, nom: c.indicatif ? `${c.identifiant} (${c.indicatif})` : c.identifiant, role: c.role })));
+});
+app.post('/api/noeuds/:num/responsable', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || !estGestion(req)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });
+  if (!peutGerer(req, req.params.num)) return refuserSecteur(res);
+  try {
+    const r = responsables.definir(req.params.num, req.body || {}, { auteur: nomCompte(u), admin: u.role === 'admin' });
+    diffuser({ genre: 'responsables' });
+    res.json({ ok: true, responsable: r });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+
+// « Pour le joindre » : par quelle station la carte peut atteindre ce nœud, et dans quel sens la liaison est prouvée.
+// Une liaison a → b signifie « b a entendu a ». Entendre un nœud ne prouve pas qu'il nous entend : le retour n'est
+// prouvé que par son voisinage (il nous liste), une traceroute qui revient, ou une liaison mesurée dans l'autre sens.
+app.get('/api/noeuds/:num/joindre', (req, res) => {
+  const n = Number(req.params.num) >>> 0;
+  const depuis = Date.now() - 7 * 86400000;
+  const db = stockage.db;
+  const lien = db.prepare('SELECT source, snr, dernier_vu AS dernier FROM liens WHERE a = ? AND b = ? AND dernier_vu >= ? ORDER BY dernier_vu DESC');
+  const nomDe = (x) => { const r = stockage.q.noeud.get(x >>> 0); return r ? r.nom_long || r.nom_court || r.id : '!' + (x >>> 0).toString(16).padStart(8, '0'); };
+  const recep = db.prepare(`SELECT MIN(r.sauts) AS sautsMin, MAX(r.heure) AS dernier, COUNT(*) AS nb FROM receptions r JOIN paquets p ON p.rowid = r.paquet
+      WHERE p.de = ? AND r.passerelle = ? AND r.heure >= ?`);
+  const trOk = db.prepare("SELECT heure FROM traceroutes WHERE origine = ? AND cible = ? AND statut = 'repondu' AND heure >= ? ORDER BY heure DESC LIMIT 1");
+  // Stations : nos modules radio (ceux qui peuvent émettre) puis les passerelles MQTT qui l'ont entendu
+  const nos = new Map();
+  try { const i = sourceRadio.infos(); if (i.noeudLocal) nos.set(i.noeudLocal >>> 0, { connecte: !!i.connecte, via: 'module de la carte' }); } catch { /* pas de module */ }
+  try { for (const e of (ecoutes.liste().meshtastic || [])) if (e.noeud && !nos.has(e.noeud >>> 0)) nos.set(e.noeud >>> 0, { connecte: !!e.connecte, via: 'module en écoute' }); } catch { /* aucune écoute */ }
+  const passerelles = db.prepare(`SELECT DISTINCT r.passerelle AS gw FROM receptions r JOIN paquets p ON p.rowid = r.paquet WHERE p.de = ? AND r.heure >= ? AND r.passerelle != ?`).all(n, depuis, n).map((x) => x.gw >>> 0);
+  const stations = [...nos.keys(), ...passerelles.filter((g) => !nos.has(g))];
+  const lignes = stations.filter((s) => s !== n).map((s) => {
+    const entend = lien.all(n, s, depuis), retour = lien.all(s, n, depuis); // s entend n ; n entend s
+    const r = recep.get(n, s, depuis) || {};
+    const tr = nos.has(s) ? trOk.get(s, n, depuis) : null;
+    const direct = entend.length > 0 || r.sautsMin === 0;
+    const retourProuve = retour.length > 0 || !!tr;
+    const preuveRetour = retour.length ? `${retour[0].source === 'voisinage' ? 'il nous liste dans son voisinage' : retour[0].source === 'traceroute' ? 'traceroute' : 'liaison mesurée'}${retour[0].snr != null ? ` (${retour[0].snr} dB)` : ''}` : tr ? 'traceroute revenue' : null;
+    let verdict;
+    if (direct && retourProuve) verdict = 'direct, aller-retour prouvé';
+    else if (direct) verdict = 'direct, sens retour non prouvé';
+    else if (r.sautsMin != null) verdict = `${r.sautsMin} saut${r.sautsMin > 1 ? 's' : ''}${retourProuve ? '' : ', sens retour non prouvé'}`;
+    else if (retourProuve) verdict = 'il nous entend, mais nous ne l’entendons pas';
+    else verdict = 'hors de portée';
+    return {
+      station: s, nom: nomDe(s), emetteur: nos.has(s), via: nos.has(s) ? nos.get(s).via : 'passerelle MQTT', connecte: nos.has(s) ? nos.get(s).connecte : null,
+      verdict, direct, retourProuve, preuveRetour, sautsMin: r.sautsMin ?? null, snrEntendu: entend.length ? entend[0].snr : null, dernier: Math.max(r.dernier || 0, entend.length ? entend[0].dernier : 0) || null,
+    };
+  });
+  const rang = (x) => (x.emetteur ? 0 : 10) + (x.direct && x.retourProuve ? 0 : x.direct ? 1 : x.sautsMin != null ? 2 + x.sautsMin : 9);
+  lignes.sort((a, b) => rang(a) - rang(b) || (b.dernier || 0) - (a.dernier || 0));
+  res.set('Cache-Control', 'no-store').json({ num: n, lignes: lignes.slice(0, 15) });
+});
+
 app.get('/api/traceroutes', (req, res) => {
   res.json(stockage.q.trRecents.all(Math.min(Number(req.query.limite) || 50, 500)));
 });
@@ -2991,6 +3054,9 @@ app.get('/api/diagnostic', async (req, res) => {
   const l = [];
   const ajouter = (groupe, etat, titre, detail, action) => l.push({ groupe, etat, titre, detail: detail || '', action: action || null });
   const t = Date.now();
+  // Carte MeshCore seule : vue MeshCore choisie, ou aucun paquet Meshtastic depuis 7 jours et aucun module Meshtastic
+  let mtAbsent = req.query.reseau === 'meshcore';
+  if (!mtAbsent) { try { mtAbsent = !sourceRadio.infos().connecte && !stockage.db.prepare('SELECT 1 FROM paquets WHERE heure >= ? LIMIT 1').get(t - 7 * 86400000); } catch { /* table absente */ } }
   // MQTT
   const mqttOk = !!statsMqtt.depuis;
   if (!config.mqtt.url) ajouter('MQTT', 'info', 'Aucun serveur MQTT réglé', 'La carte ne reçoit que ce que captent ses modules.', 'mqtt');
@@ -2998,7 +3064,8 @@ app.get('/api/diagnostic', async (req, res) => {
   else {
     ajouter('MQTT', 'ok', 'Serveur MQTT connecté', `depuis ${Math.round((t - statsMqtt.depuis) / 60000)} min`);
     const age = statsMqtt.dernierMessage ? t - statsMqtt.dernierMessage : null;
-    if (age == null || age > 15 * 60000) ajouter('MQTT', 'attention', 'Aucun message Meshtastic reçu depuis 15 min', `La carte écoute ${config.mqtt.racine}/#. Vérifiez le sujet racine, et que des passerelles publient sur ce serveur (uplink activé sur leurs canaux).`, 'mqtt');
+    if ((age == null || age > 15 * 60000) && mtAbsent) ajouter('MQTT', 'info', 'Pas de trafic Meshtastic', 'Normal si cette carte ne suit que MeshCore.');
+    else if (age == null || age > 15 * 60000) ajouter('MQTT', 'attention', 'Aucun message Meshtastic reçu depuis 15 min', `La carte écoute ${config.mqtt.racine}/#. Vérifiez le sujet racine, et que des passerelles publient sur ce serveur (uplink activé sur leurs canaux).`, 'mqtt');
     else ajouter('MQTT', 'ok', 'Des messages Meshtastic arrivent', `dernier il y a ${Math.round(age / 1000)} s`);
   }
   // Canaux Meshtastic : part de paquets non déchiffrés sur 1 h
@@ -3012,7 +3079,7 @@ app.get('/api/diagnostic', async (req, res) => {
   } catch { /* table absente */ }
   // Module Meshtastic
   const ri = sourceRadio.infos(), re = sourceRadio.etat();
-  if (ri.connecte) ajouter('Module Meshtastic', 'ok', `Module relié : ${re.nomLocal || ''}`, `canaux ${(ri.canaux || []).map((c) => c.nom || c.index).join(', ')}`);
+  if (mtAbsent && !ri.connecte) { /* carte MeshCore seule : rien à signaler côté Meshtastic */ } else if (ri.connecte) ajouter('Module Meshtastic', 'ok', `Module relié : ${re.nomLocal || ''}`, `canaux ${(ri.canaux || []).map((c) => c.nom || c.index).join(', ')}`);
   else ajouter('Module Meshtastic', 'info', 'Aucun module Meshtastic relié', 'Sans module : pas d’envoi de message, de signalement ni de programmation à distance. La lecture par MQTT fonctionne quand même.', 'module');
   // MeshCore
   if (config.meshcore.actif) {

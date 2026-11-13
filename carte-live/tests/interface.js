@@ -134,6 +134,15 @@ async function essaiCarteFrancais(contexte) {
   const nf = await page.locator('#carte path[fill="#ff1f1f"], #carte path[fill="#a0522d"]').count();
   if (nf >= 2) ok(`feux actifs : couche affichée (${nf} foyers)`); else ko('feux actifs : ' + nf + ' foyer(s) dessiné(s)');
   await page.evaluate(() => { const b = document.querySelector('.bascule[data-couche="feux"]'); if (b) b.click(); });
+  // Responsable d'un nœud et « pour le joindre »
+  const rp = await page.evaluate(async () => {
+    const post = await fetch('/api/noeuds/305419896/responsable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ personne: 'F4XYZ Essai', contact: '06 00 00 00 00' }) }).then((x) => x.json());
+    const l = await fetch('/api/responsables').then((x) => x.json());
+    const j = await fetch('/api/noeuds/305419896/joindre').then((x) => x.json());
+    return { post, l: l['305419896'], j };
+  }).catch((e) => ({ erreur: e.message }));
+  if (rp.l && rp.l.personne === 'F4XYZ Essai' && rp.l.contact) ok('responsable d’un nœud enregistré'); else ko('responsable : ' + JSON.stringify(rp).slice(0, 200));
+  if (rp.j && Array.isArray(rp.j.lignes)) ok('pour le joindre : réponse valide'); else ko('pour le joindre : ' + JSON.stringify(rp.j).slice(0, 200));
   await capture(page, 'carte-fr');
   bilanErreurs(erreurs, 'carte en français');
   await page.close();
