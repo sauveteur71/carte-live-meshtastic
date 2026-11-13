@@ -36,7 +36,7 @@ const etat = {
   coucheLiens: null,
   alertes: [],
   stats: null,
-  couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true, federation: true, releves: true, routiers: false, dfci: false, radar: false },
+  couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true, federation: true, releves: true, routiers: false, dfci: false, radar: false, feux: false },
   filtresPorts: new Set(Object.keys(PORTS)),
   selection: null,
   trajet: null,
@@ -893,7 +893,7 @@ function rendreReseau() {
   $('#resume-alertes').textContent = resumeAlertes(a);
   const tagR = (x) => deux ? `<span class="tag-reseau ${x.reseau}">${x.reseau === 'mc' ? 'MC' : 'MT'}</span>` : '';
   $('#alertes').innerHTML = a.length
-    ? a.map((x) => `<div class="alerte ${x.niveau}" ${x.reseau === 'mc' ? `data-mc-alerte="${esc(x.noeud || '')}"` : `data-num="${x.num}"`}>${tagR(x)}${esc(x.message)}<small>${x.niveau === 'critique' ? 'Critique' : 'Attention'} · depuis ${ilYa(x.depuis).replace('il y a ', '')}</small></div>`).join('')
+    ? a.map((x) => `<div class="alerte ${x.niveau}" ${x.type === 'feu' ? `data-feu-voir="${x.lat},${x.lon}"` : x.reseau === 'mc' ? `data-mc-alerte="${esc(x.noeud || '')}"` : `data-num="${x.num}"`}>${tagR(x)}${esc(x.message)}<small>${x.niveau === 'critique' ? 'Critique' : 'Attention'} · depuis ${ilYa(x.depuis).replace('il y a ', '')}</small></div>`).join('')
     : '<div class="vide">Aucune alerte, le réseau est en bonne santé.</div>';
   const za = $('#alertes');
   if (!za.dataset.brancheMc) { za.dataset.brancheMc = '1'; za.addEventListener('click', (e) => { const el = e.target.closest('[data-mc-alerte]'); if (el && el.dataset.mcAlerte && typeof mcOuvrirFiche === 'function') mcOuvrirFiche(el.dataset.mcAlerte); }); }
@@ -6142,6 +6142,7 @@ function connecterWs() {
     const m = JSON.parse(ev.data);
     if (m.genre === 'signalement') { if (etat.membre) chargerSignalements(); return; }
     if (m.genre === 'alertes-officielles') { chargerAlertesOff(); return; }
+    if (m.genre === 'feux') { if (etat.couches.feux) dessinerFeux(); return; }
     if (m.genre === 'fonctions-masquees') {
       etat.config.fonctionsMasquees = m.masquees || [];
       appliquerFonctionsMasquees();
@@ -6255,7 +6256,7 @@ function brancherInterface() {
     etat.couches[c] = !etat.couches[c];
     b.classList.toggle('actif', etat.couches[c]);
     if (c) ecrireLs('gaulix_couches', etat.couches); // choix gardé pour la prochaine visite
-    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'dfci') dessinerDfci(); else if (c === 'radar') dessinerRadar(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
+    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'dfci') dessinerDfci(); else if (c === 'radar') dessinerRadar(); else if (c === 'feux') dessinerFeux(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
   }));
   $('#filtres').onclick = (e) => {
     const b = e.target.closest('button[data-port]');
@@ -7054,6 +7055,8 @@ async function demarrer() {
   if (!choixCouches && ((window.matchMedia && matchMedia('(pointer: coarse)').matches) || economie)) etat.couches.animations = false;
   Object.assign(etat.couches, Object.fromEntries(Object.entries(choixCouches || {}).filter(([k, v]) => k in etat.couches && typeof v === 'boolean')));
   document.querySelectorAll('.bascule[data-couche]').forEach((b) => b.classList.toggle('actif', !!etat.couches[b.dataset.couche]));
+  if (etat.couches.radar) dessinerRadar();
+  if (etat.couches.feux) dessinerFeux();
   // Liens vers le client et le flasheur officiels (Web Serial / Web Bluetooth : HTTPS et Chrome ou Edge obligatoires)
   {
     const o = etat.config.outils || {}, https = location.protocol === 'https:';
@@ -7837,6 +7840,7 @@ function appliquerFonctionsMasquees() {
   const b = $('#outil-signalements');
   if (b) { b.textContent = masquee('signalements') ? '🌦️ Alertes météo' : '🚩 Signalements'; b.title = masquee('signalements') ? 'Vigilance Météo-France' : 'Événements signalés sur la carte et diffusés en LoRa'; }
   if (sig.couche) { if (masquee('signalements')) sig.couche.remove(); else if (!carte.hasLayer(sig.couche)) sig.couche.addTo(carte); }
+  { const bf = document.querySelector('.bascule[data-couche="feux"]'); if (bf) bf.hidden = masquee('feux'); if (masquee('feux') && coucheFeux) { coucheFeux.remove(); coucheFeux = null; } }
   majChipAlertes();
   if (typeof rendreAccueil === 'function') { try { rendreAccueil(); } catch { /* panneau absent */ } }
 }
@@ -7863,16 +7867,20 @@ function blocAlertesOff() {
   if (!r) { chargerAlertesOff(); return '<div class="alertes-off"><h3>🌦️ Alertes officielles</h3><p class="note">Chargement…</p></div>'; }
   const h = (t) => t ? new Date(t).toLocaleString('fr-FR', { weekday: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
   const meteo = (r.meteo || []);
+  const feuxZone = masquee('feux') ? [] : (etat.alertes || []).filter((a) => a.type === 'feu');
   const nv = r.niveauxVigipirate || {};
   const rg = r.reglages || {};
   return `<div class="alertes-off"><h3>🌦️ Alertes officielles</h3>
     <h4>Vigilance Météo-France${(rg.departements || []).length > 1 ? ` (${rg.departements.length} départements)` : ''}</h4>
-    ${meteo.length && etat.gestion && r.envoi && (r.envoi.canauxMc.length || r.envoi.canauxMt.length) ? `<div class="ao-envoi"><b>📡 Envoyer une vigilance par radio</b> — canaux :
+    ${(meteo.length || feuxZone.length) && etat.gestion && r.envoi && (r.envoi.canauxMc.length || r.envoi.canauxMt.length) ? `<div class="ao-envoi"><b>📡 Envoyer une vigilance par radio</b> — canaux :
       ${r.envoi.canauxMc.length ? `<label>MeshCore <select id="ao-env-mc"><option value="">— aucun —</option>${r.envoi.canauxMc.map((c) => `<option ${(rg.canalMc || r.envoi.canauxMc[0]) === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>` : ''}
       ${r.envoi.canauxMt.length ? `<span class="ao-env-mt">Meshtastic ${r.envoi.canauxMt.map((c) => `<label class="case"><input type="checkbox" value="${esc(c)}" ${(rg.canaux || []).some((x) => x.toLowerCase() === c.toLowerCase()) && !r.envoi.canauxMc.length ? 'checked' : ''}> ${esc(c)}</label>`).join('')}</span>` : ''}
-      <small class="note">puis le bouton 📡 de la vigilance voulue.</small></div>` : ''}
+      <small class="note">puis le bouton 📡 de la vigilance ou du foyer voulu.</small></div>` : ''}
     ${meteo.length ? meteo.map((a) => `<div class="vig-ligne vig-${a.couleur}">${etat.gestion && r.envoi && (r.envoi.canauxMc.length || r.envoi.canauxMt.length) ? `<button type="button" class="mini ao-env-btn" data-ao-env="${esc(a.dep)}|${esc(a.phenomene)}" title="Envoyer maintenant cette vigilance sur les canaux choisis">📡 Envoyer</button>` : ''}<b>${ICONES_VIG[a.couleur]} Vigilance ${a.couleur} ${esc(a.phenomene)}</b> · ${esc(a.depNom)}<small>${a.debut ? 'du ' + h(a.debut) : ''}${a.fin ? ' au ' + h(a.fin) : ''}${a.envois ? ' · diffusée en LoRa' : ''}</small></div>`).join('') : `<p class="note">${r.erreur ? '⚠ Vigilance indisponible : ' + esc(r.erreur) : 'Aucune vigilance en cours.'}</p>`}
     <p class="note">Source : Météo-France, par le flux public MeteoAlarm (mis à jour toutes les 10 min${r.maj ? ', lu ' + ilYa(r.maj) : ''}).</p>
+    ${masquee('feux') ? '' : `<h4>🔥 Feux actifs (satellite)</h4>
+    ${feuxZone.length ? feuxZone.map((a) => `<div class="vig-ligne vig-${a.niveau === 'critique' ? 'rouge' : 'orange'}">${etat.gestion && r.envoi && (r.envoi.canauxMc.length || r.envoi.canauxMt.length) ? `<button type="button" class="mini ao-env-btn" data-feu-env="${esc(a.cle)}" title="Envoyer maintenant ce foyer sur les canaux choisis">📡 Envoyer</button>` : ''}<a href="#" data-feu-voir="${a.lat},${a.lon}">${esc(a.message)}</a></div>`).join('') : '<p class="note">Aucun foyer détecté dans la zone de la carte ces 12 dernières heures.</p>'}
+    <p class="note">Source : NASA FIRMS (satellites VIIRS et MODIS), lu toutes les 30 min. Un foyer satellite n’est pas une alerte officielle : 1 à 3 h de retard, fausses détections possibles (brûlage agricole, torchère, toiture chaude). Couche « Feux actifs » dans Couches.</p>`}
     ${masquee('vigipirate') ? '' : `<h4>Vigipirate</h4>
     <p>${r.vigipirate ? `<b>${r.vigipirate.icone} ${esc(r.vigipirate.nom)}</b> <small>réglé par ${esc(r.vigipirate.par || '?')} ${ilYa(r.vigipirate.depuis)}</small>` : '<span class="note">Niveau non renseigné.</span>'}</p>
     ${etat.gestion ? `<div class="parametres compact"><label>Niveau <select id="ao-vigi"><option value="">— non renseigné —</option>${Object.entries(nv).map(([k, v]) => `<option value="${k}" ${r.vigipirate && r.vigipirate.niveau === k ? 'selected' : ''}>${v.icone} ${esc(v.nom)}</option>`).join('')}</select></label>
@@ -7919,6 +7927,20 @@ function brancherAlertesOff() {
     } catch (e) { ret(e.message); }
     b.disabled = false; b.textContent = '📡 Envoyer';
   }));
+  document.querySelectorAll('[data-feu-env]').forEach((b) => (b.onclick = async () => {
+    const canalMc = $('#ao-env-mc') ? $('#ao-env-mc').value : '';
+    const canaux = [...document.querySelectorAll('.ao-env-mt input:checked')].map((x) => x.value);
+    if (!canalMc && !canaux.length) { ret('Choisissez au moins un canal (MeshCore ou Meshtastic) au-dessus de la liste.'); return; }
+    const vers = [canalMc && 'MeshCore ' + canalMc, ...canaux.map((c) => 'Meshtastic ' + c)].filter(Boolean).join(', ');
+    if (!(await confirmer(`Envoyer ce foyer satellite maintenant sur ${vers} ?`, { ok: 'Envoyer' }))) return;
+    b.disabled = true; b.textContent = '⏳';
+    try {
+      const r = await postJson('/api/feux/envoyer', { cle: b.dataset.feuEnv, canalMc, canaux });
+      const pb = r.envois.filter((e) => e.statut !== 'envoye');
+      annonce(pb.length ? `⚠ ${pb.map((e) => `${e.canal} : ${e.erreur}`).join(' ; ')}` : `✔ Foyer envoyé sur ${vers}`, pb.length ? 'erreur' : 'info');
+    } catch (e) { ret(e.message); }
+    b.disabled = false; b.textContent = '📡 Envoyer';
+  }));
   { const b = $('#ao-vigi-ok'); if (b) b.onclick = async () => { try { const r = await postJson('/api/vigipirate', { niveau: $('#ao-vigi').value || null, annoncer: $('#ao-vigi-annoncer').checked }); await chargerAlertesOff(); ficheSignalements(r.envois && r.envois.length ? '✔ Niveau Vigipirate enregistré et annoncé.' : '✔ Niveau Vigipirate enregistré.'); } catch (e) { ret(e.message); } }; }
   { const b = $('#ao-fr-ok'); if (b) b.onclick = async () => {
     if (!(await confirmer('Relayer ce message FR-Alert en LoRa sur les canaux d’alerte ?', { ok: 'Relayer' }))) return;
@@ -7961,6 +7983,39 @@ function montrerZoneEquipe(z, nom, cadrer) {
   coucheZoneEquipe.bindTooltip(`Zone de sécurité · ${nom || ''}`, { permanent: false });
   if (cadrer) carte.fitBounds(coucheZoneEquipe.getBounds(), { padding: [30, 30] });
 }
+
+// ---- Feux actifs vus par satellite (NASA FIRMS, lu par le serveur toutes les 30 min) ----
+let coucheFeux = null, minuteurFeux = null;
+async function dessinerFeux() {
+  clearTimeout(minuteurFeux);
+  if (!etat.couches.feux || masquee('feux')) { if (coucheFeux) { coucheFeux.remove(); coucheFeux = null; } return; }
+  try {
+    const r = await api('/api/feux?heures=24');
+    if (!etat.couches.feux) return;
+    const g = L.layerGroup();
+    const t = Date.now();
+    for (const f of r.foyers || []) {
+      const age = (t - f.heure) / 3600000;
+      const couleur = age < 3 ? '#ff1f1f' : age < 12 ? '#ff8a00' : '#a0522d';
+      const rayon = Math.min(14, 5 + Math.sqrt(Math.max(0, f.frp || 0)));
+      L.circleMarker([f.lat, f.lon], { radius: rayon, color: '#000', weight: 1, fillColor: couleur, fillOpacity: f.confiance === 'faible' ? 0.35 : 0.85, pane: 'traces' })
+        .bindPopup(`<b>🔥 Foyer satellite</b> <small>(non confirmé)</small><br>${new Date(f.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} · ${ilYa(f.heure)}<br>${esc(f.source)} · confiance ${esc(f.confiance)}${f.frp ? ` · ${String(f.frp).replace('.', ',')} MW` : ''}${f.nuit ? ' · de nuit' : ''}<br>${f.lat.toFixed(4)}, ${f.lon.toFixed(4)}${f.dfci ? `<br>DFCI <b>${esc(f.dfci)}</b>` : ''}`)
+        .addTo(g);
+    }
+    g.addTo(carte);
+    if (coucheFeux) coucheFeux.remove();
+    coucheFeux = g;
+    if (!(r.foyers || []).length) annonce(`🔥 Aucun foyer satellite en France ces dernières 24 h${r.maj ? ` (lu ${ilYa(r.maj)})` : ''}`);
+  } catch (e) { annonce('⚠ Feux actifs indisponibles : ' + e.message, 'erreur'); }
+  minuteurFeux = setTimeout(dessinerFeux, 10 * 60000);
+}
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-feu-voir]'); if (!el) return;
+  e.preventDefault();
+  const [lat, lon] = el.dataset.feuVoir.split(',').map(Number);
+  if (!etat.couches.feux) { etat.couches.feux = true; const b = document.querySelector('.bascule[data-couche="feux"]'); if (b) b.classList.add('actif'); dessinerFeux(); }
+  carte.setView([lat, lon], Math.max(carte.getZoom(), 12));
+});
 
 // ---- Radar de pluie (RainViewer, gratuit, sans clé) : dernière image, mise à jour toutes les 10 min ----
 let coucheRadar = null, minuteurRadar = null;

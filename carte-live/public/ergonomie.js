@@ -446,6 +446,7 @@ function dlgFonctionsMasquees() {
     ['fr-alert', '📢 FR-Alert', 'relais manuel des alertes reçues sur les téléphones'],
     ['main-courante', '📋 Main courante', 'page imprimable des signalements'],
     ['bipper', '📟 Alertes Bipper / GerMaCrise', 'envoi d’alertes aux pagers'],
+    ['feux', '🔥 Feux actifs (satellite)', 'couche des foyers NASA FIRMS, alertes sur la zone et envoi radio'],
   ];
   let d = document.getElementById('dlg-fonctions');
   if (!d) { d = document.createElement('dialog'); d.id = 'dlg-fonctions'; document.body.appendChild(d); }

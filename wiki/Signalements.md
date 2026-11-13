@@ -49,4 +49,12 @@ Un bandeau en haut de la carte (🟡 / 🟠 / 🔴) signale les alertes en cours
 Un gestionnaire peut envoyer tout de suite une vigilance en cours par radio, même sans diffusion automatique : dans *🌦️ Alertes officielles*, choisir le canal **MeshCore** (canaux du companion) et/ou les canaux **Meshtastic** (canaux du module), puis le bouton **📡 Envoyer** de la vigilance voulue. Le texte part tel qu'il est diffusé automatiquement, par exemple « 🟠 Vigilance orange vent violent · Haute-Loire · du jeu. 12 18:00 au ven. 13 23:00 (Météo-France) ».
 
 ## Fonctions affichées
-L'administrateur peut masquer, pour tous les utilisateurs de la carte, les **signalements** (avec leur couche et « Signaler un événement ici »), **Vigipirate**, **FR-Alert**, la **main courante** et les **alertes Bipper / GerMaCrise** : *Réglages › 👁️ Fonctions affichées*. La vigilance Météo-France reste toujours affichée ; le bouton 🚩 Signalements devient alors 🌦️ Alertes météo. Valeur de départ possible dans le `.env` : `FONCTIONS_MASQUEES=signalements,vigipirate,fr-alert,main-courante,bipper`.
+L'administrateur peut masquer, pour tous les utilisateurs de la carte, les **signalements** (avec leur couche et « Signaler un événement ici »), **Vigipirate**, **FR-Alert**, la **main courante** les **alertes Bipper / GerMaCrise** et les **feux actifs** : *Réglages › 👁️ Fonctions affichées*. La vigilance Météo-France reste toujours affichée ; le bouton 🚩 Signalements devient alors 🌦️ Alertes météo. Valeur de départ possible dans le `.env` : `FONCTIONS_MASQUEES=signalements,vigipirate,fr-alert,main-courante,bipper` (ajoutez `feux` pour masquer aussi les feux actifs).
+
+## Feux actifs (satellite)
+La carte lit toutes les 30 min les foyers de feu détectés par les satellites **NASA FIRMS** (VIIRS et MODIS), sans clé ni inscription, sur la France métropolitaine et la Corse :
+- **Couches › Feux actifs** : les foyers des dernières 24 h, rouges s'ils ont moins de 3 h, orange moins de 12 h, bruns au-delà ; la taille suit la puissance du feu. Un clic donne l'heure, le satellite, la confiance, la puissance et le **carreau DFCI** ;
+- **alerte** dans l'onglet Réseau pour tout foyer des 12 dernières heures dans la zone de la carte (hors confiance faible), regroupé par carreau DFCI de 2 km ; un clic centre la carte dessus ;
+- **📡 Envoyer** (gestionnaire) dans les alertes officielles, rubrique *🔥 Feux actifs*, sur les mêmes canaux Meshtastic et MeshCore que la vigilance météo.
+
+Un foyer satellite **n'est pas une alerte officielle** : il arrive avec 1 à 3 h de retard et peut être une fausse détection (brûlage agricole, torchère, toiture chaude). Masquable dans *Réglages › 👁️ Fonctions affichées*.

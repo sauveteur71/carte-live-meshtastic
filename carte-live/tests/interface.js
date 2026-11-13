@@ -22,6 +22,11 @@ let serveur, navigateur, echecs = 0;
 const ok = (m) => console.log('  ✓ ' + m);
 const ko = (m) => { echecs++; console.log('  ✗ ' + m); };
 
+// Foyers satellites de démonstration (la carte ne lit pas NASA FIRMS pendant l'essai)
+fs.writeFileSync(path.join(donnees, 'feux.json'), JSON.stringify({ maj: Date.now(), foyers: [
+  { lat: 45.05, lon: 3.9, heure: Date.now() - 3600000, source: 'VIIRS NOAA-20', confiance: 'haute', frp: 9.5, nuit: false },
+  { lat: 43.5, lon: 5.2, heure: Date.now() - 20 * 3600000, source: 'MODIS', confiance: 'normale', frp: 3, nuit: true },
+] }));
 function demarrerServeur() {
   serveur = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
     env: { ...process.env, PORT: String(PORT), FICHIER_BASE: path.join(donnees, 'carte-live.db'), MQTT_URL: 'mqtt://127.0.0.1:1', DEPARTEMENT: '43', MESHCORE: 'oui', ADMIN_MOT_DE_PASSE: '' },
@@ -121,6 +126,14 @@ async function essaiCarteFrancais(contexte) {
     const poly = await page.locator('#carte path[stroke="#ff5a1f"]').count();
     if (poly) ok('recherche DFCI : carreau tracé'); else ko('recherche DFCI : aucun contour sur la carte');
   } else ko('recherche DFCI : pas de résultat « DFCI » (obtenu : ' + JSON.stringify(r) + ')');
+  // Couche des feux actifs
+  const f = await page.evaluate(() => fetch('/api/feux').then((x) => x.json())).catch(() => ({}));
+  if ((f.foyers || []).some((x) => x.lat === 45.05 && x.dfci)) ok(`feux actifs : ${f.foyers.length} foyer(s) servi(s), avec code DFCI`); else ko('feux actifs : ' + JSON.stringify(f).slice(0, 200));
+  await page.evaluate(() => { const b = document.querySelector('.bascule[data-couche="feux"]'); if (b) b.click(); });
+  await page.waitForTimeout(800);
+  const nf = await page.locator('#carte path[fill="#ff1f1f"], #carte path[fill="#a0522d"]').count();
+  if (nf >= 2) ok(`feux actifs : couche affichée (${nf} foyers)`); else ko('feux actifs : ' + nf + ' foyer(s) dessiné(s)');
+  await page.evaluate(() => { const b = document.querySelector('.bascule[data-couche="feux"]'); if (b) b.click(); });
   await capture(page, 'carte-fr');
   bilanErreurs(erreurs, 'carte en français');
   await page.close();

@@ -60,7 +60,15 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
   async function envoyerVigilance({ dep, phenomene, canaux = [], canalMc = '' }, par) {
     const a = etat.meteo.find((x) => x.dep === dep && x.phenomene === phenomene);
     if (!a) throw new Error('Vigilance terminée ou inconnue : rechargez la liste');
-    const texte = texteVigilance(a), envois = [];
+    const r = await envoyerTexte(texteVigilance(a), { canaux, canalMc }, par);
+    a.envois = [...(a.envois || []), ...r.envois];
+    diffuser({ genre: 'alertes-officielles' });
+    return r;
+  }
+
+  // Envoi d'un texte d'alerte sur les canaux Meshtastic (4 au plus) et un canal MeshCore choisis
+  async function envoyerTexte(texte, { canaux = [], canalMc = '' }, par) {
+    const envois = [];
     for (const [k, canal] of canaux.map((c) => String(c).trim()).filter(Boolean).slice(0, 4).entries()) {
       if (k) await new Promise((r) => setTimeout(r, 600));
       try { await envoyer(canal, texte); envois.push({ canal, statut: 'envoye' }); } catch (e) { envois.push({ canal, statut: 'echec', erreur: e.message }); }
@@ -70,9 +78,7 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
       else { try { await envoyerMc(String(canalMc), texte); envois.push({ canal: 'MeshCore ' + canalMc, statut: 'envoye' }); } catch (e) { envois.push({ canal: 'MeshCore ' + canalMc, statut: 'echec', erreur: e.message }); } }
     }
     if (!envois.length) throw new Error('Choisissez au moins un canal');
-    a.envois = [...(a.envois || []), ...envois];
     journal(`[Alertes] envoyé à la demande par ${par} : ${texte} → ${envois.map((e) => `${e.canal} ${e.statut === 'envoye' ? '✓' : '✗ ' + e.erreur}`).join(', ')}`);
-    diffuser({ genre: 'alertes-officielles' });
     return { texte, envois };
   }
 
@@ -130,6 +136,7 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
   return {
     NIVEAUX_VIGIPIRATE,
     envoyerVigilance,
+    envoyerTexte,
     etat: () => ({ meteo: etat.meteo, vigipirate: etat.vigipirate && { ...etat.vigipirate, ...NIVEAUX_VIGIPIRATE[etat.vigipirate.niveau] }, frAlert: etat.frAlert.filter((x) => !x.fin && Date.now() - x.date < 3 * 86400000), reglages: etat.reglages, maj: etat.maj, erreur: etat.erreur }),
     regler(r) {
       if (typeof r.diffuser === 'boolean') etat.reglages.diffuser = r.diffuser;

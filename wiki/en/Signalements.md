@@ -49,4 +49,12 @@ A banner at the top of the map (🟡 / 🟠 / 🔴) shows the alerts in progress
 A manager can send a current warning over the air right away, even without automatic broadcasting: in *🌦️ Official alerts*, pick the **MeshCore** channel (the companion's channels) and/or the **Meshtastic** channels (the node's channels), then the **📡 Send** button of the warning. The text is the same as the automatic broadcast, e.g. “🟠 Vigilance orange vent violent · Haute-Loire · du jeu. 12 18:00 au ven. 13 23:00 (Météo-France)”.
 
 ## Displayed features
-The administrator can hide, for every user of the map, **reports** (with their layer and “Report an event here”), **Vigipirate**, **FR-Alert**, the **incident log** and **Bipper / GerMaCrise alerts**: *Settings › 👁️ Displayed features*. Météo-France warnings always stay visible; the 🚩 Reports button then becomes 🌦️ Weather warnings. Starting value possible in the `.env`: `FONCTIONS_MASQUEES=signalements,vigipirate,fr-alert,main-courante,bipper`.
+The administrator can hide, for every user of the map, **reports** (with their layer and “Report an event here”), **Vigipirate**, **FR-Alert**, the **incident log** **Bipper / GerMaCrise alerts** and **active fires**: *Settings › 👁️ Displayed features*. Météo-France warnings always stay visible; the 🚩 Reports button then becomes 🌦️ Weather warnings. Starting value possible in the `.env`: `FONCTIONS_MASQUEES=signalements,vigipirate,fr-alert,main-courante,bipper` (add `feux` to hide active fires too).
+
+## Active fires (satellite)
+Every 30 min the map reads the fire hotspots detected by **NASA FIRMS** satellites (VIIRS and MODIS), with no key or sign-up, over mainland France and Corsica:
+- **Layers › Active fires**: hotspots from the last 24 h, red under 3 h, orange under 12 h, brown beyond; size follows fire power. A click gives the time, satellite, confidence, power and **DFCI square**;
+- **alert** in the Network tab for any hotspot from the last 12 hours in the map's zone (except low confidence), grouped by 2 km DFCI square; a click centres the map on it;
+- **📡 Send** (manager) in the official alerts, *🔥 Active fires* section, on the same Meshtastic and MeshCore channels as weather warnings.
+
+A satellite hotspot **is not an official alert**: it arrives 1 to 3 h late and can be a false detection (agricultural burning, flare, hot roof). Can be hidden in *Settings › 👁️ Displayed features*.

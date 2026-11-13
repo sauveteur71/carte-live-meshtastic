@@ -2708,6 +2708,7 @@ function rafraichirEtat() {
   try { if (typeof equipes !== 'undefined') dernieresAlertes = [...dernieresAlertes, ...equipes.alertes((n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); })]; } catch { /* équipes pas encore prêtes */ }
   if (passerelle) { try { dernieresAlertes = [...dernieresAlertes, ...passerelle.alertes()]; } catch (e) { journal('[Passerelle]', e.message); } }
   try { dernieresAlertes = [...dernieresAlertes, ...alertesServices()]; } catch (e) { journal('alertes des services :', e.message); }
+  try { if (!fonctionMasquee('feux')) dernieresAlertes = [...dernieresAlertes, ...feux.alertes()]; } catch (e) { if (!(e instanceof ReferenceError)) journal('[Feux]', e.message); } // pas encore créé au démarrage
   diffuser({ genre: 'etat', stats: reseau.statistiques(), alertes: dernieresAlertes, meshmonitor: typeof sourceMM !== 'undefined' && sourceMM ? sourceMM.etat() : null, radio: typeof sourceRadio !== 'undefined' && sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
 }
 setInterval(rafraichirEtat, 30000);
@@ -3132,7 +3133,7 @@ const signalements = require('./signalements').creerSignalements({
 // ---- Alertes officielles : vigilance Météo-France (MeteoAlarm), Vigipirate, FR-Alert relayées ----------------
 // Fonctions masquées (ne garder par exemple que la vigilance météo) : FONCTIONS_MASQUEES dans le .env donne la valeur
 // de départ, l'administrateur la change ensuite dans Réglages (fichier fonctions-masquees.json, sans redémarrage)
-const FONCTIONS_MASQUABLES = ['signalements', 'vigipirate', 'fr-alert', 'main-courante', 'bipper'];
+const FONCTIONS_MASQUABLES = ['signalements', 'vigipirate', 'fr-alert', 'main-courante', 'bipper', 'feux'];
 const fFonctionsMasquees = path.join(path.dirname(config.fichierBase), 'fonctions-masquees.json');
 let fonctionsMasquees = new Set(String(process.env.FONCTIONS_MASQUEES || '').split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter((x) => FONCTIONS_MASQUABLES.includes(x)));
 try { fonctionsMasquees = new Set(lireJson(fFonctionsMasquees).filter((x) => FONCTIONS_MASQUABLES.includes(x))); } catch { /* valeur du .env */ }
@@ -3177,6 +3178,18 @@ app.get('/api/alertes-officielles', (req, res) => res.set('Cache-Control', 'no-s
   // Canaux proposés pour l'envoi à la demande (gestionnaires) : ceux du companion MeshCore et du module Meshtastic
   ...(estGestion(req) ? { envoi: { canauxMc: config.meshcore.actif ? companion.canaux().map((c) => c.nom).filter(Boolean) : [], canauxMt: (() => { try { const i = sourceRadio.infos(); return i.connecte ? (i.canaux || []).map((c) => c.nom).filter(Boolean) : []; } catch { return []; } })() } } : {}),
   fonctionsMasquees: [...fonctionsMasquees] }));
+// ---- Feux actifs vus par satellite (NASA FIRMS) : couche de la carte, alertes sur la zone, envoi radio à la demande ----
+const feux = require('./feux').creerFeux({ config, journal, diffuser });
+app.get('/api/feux', (req, res) => {
+  if (fonctionMasquee('feux')) return res.status(404).json({ erreur: 'Fonction masquée par l’administrateur' });
+  res.set('Cache-Control', 'no-store').json(feux.etat(Number(req.query.heures) || 24));
+});
+app.post('/api/feux/envoyer', async (req, res) => {
+  const u = utilisateur(req);
+  if (!u || !estGestion(req)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });
+  const b = req.body || {};
+  try { res.json(await alertesOff.envoyerTexte(feux.texteAlerte(String(b.cle || '')), { canaux: Array.isArray(b.canaux) ? b.canaux : [], canalMc: String(b.canalMc || '').slice(0, 32) }, u.indicatif || u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 app.post('/api/alertes-officielles/envoyer', async (req, res) => {
   const u = utilisateur(req);
   if (!u || !estGestion(req)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });
