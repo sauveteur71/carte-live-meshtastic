@@ -119,3 +119,5 @@ Dans l'onglet **Réseau**, avec les autres alertes MeshCore, la carte signale d'
 
 ## Courbes de puissance
 Quand un capteur envoie une tension et un courant sur la même voie, la carte ajoute une courbe **Puissance (calculée U × I)** si le capteur ne donne pas de puissance, ou si la puissance qu'il donne s'écarte de plus de 10 % du calcul.
+
+**Liaisons déduites des chemins et taille des hachages.** La carte lit chaque chemin avec sa vraie taille (1, 2 ou 3 octets) : un chemin en 2 octets est résolu sur 2 octets. Mais la taille est choisie par l'émetteur du paquet (réglage de son application ou companion), donc beaucoup de paquets circulent encore en 1 octet, où deux répéteurs peuvent partager le même préfixe. Par défaut, seules les liaisons tirées de chemins en **2 octets ou plus** sont tracées ; les liaisons directes (0 saut), mesurées et tracées ne changent pas. Réglage : *MeshCore › Companion › Liaisons déduites des chemins*, ou `MESHCORE_LIENS_OCTETS_MIN` (1, 2 ou 3).

@@ -119,3 +119,5 @@ In the **Network** tab, with the other MeshCore alerts, the map flags on its own
 
 ## Power curves
 When a sensor sends a voltage and a current on the same channel, the map adds a **Power (computed V × I)** curve if the sensor gives no power, or if the power it gives differs by more than 10 % from the calculation.
+
+**Links deduced from paths and hash size.** The map reads each path with its real size (1, 2 or 3 bytes): a 2-byte path is resolved on 2 bytes. But the size is chosen by the packet's sender (its app or companion setting), so many packets still travel with 1 byte, where two repeaters can share the same prefix. By default, only links taken from paths with **2 bytes or more** are drawn; direct (0-hop), measured and traced links are unchanged. Setting: *MeshCore › Companion › Links deduced from paths*, or `MESHCORE_LIENS_OCTETS_MIN` (1, 2 or 3).

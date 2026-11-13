@@ -246,9 +246,11 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
         resolu = resoudreChemin(p.chemin, noeudOrig, noeudObs);
         if (p.chemin.length === 0) dernier = noeudOrig;
         else dernier = resolu[resolu.length - 1];
-        if (dernier && noeudObs) lier(dernier, noeudObs, 'rf', obs.snr, obs.rssi, heure);
+        // Liaisons déduites du chemin seulement si ses hachages sont assez longs (1 octet : préfixes ambigus)
+        const cheminFiable = p.chemin.length === 0 || p.tailleHachage >= (((config.meshcore || {}).liensOctetsMin) || 1);
+        if (cheminFiable && dernier && noeudObs) lier(dernier, noeudObs, 'rf', obs.snr, obs.rssi, heure);
         const chaine = [noeudOrig, ...resolu];
-        for (let k = 0; k + 1 < chaine.length; k++) if (chaine[k] && chaine[k + 1]) lier(chaine[k], chaine[k + 1], 'chemin', null, null, heure);
+        if (cheminFiable) for (let k = 0; k + 1 < chaine.length; k++) if (chaine[k] && chaine[k + 1]) lier(chaine[k], chaine[k + 1], 'chemin', null, null, heure);
         for (const n of resolu) if (n) q.vu.run({ cle: n.cle, heure, sauts: null, snr: null, rssi: null });
       } else if (p.type === 'TRACE' && c.route && p.snrChemin) {
         resolu = resoudreChemin(c.route, null, null);

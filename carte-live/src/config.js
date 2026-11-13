@@ -137,6 +137,8 @@ const config = {
     retentionPaquetsJours: nombre('MESHCORE_RETENTION_PAQUETS_JOURS', 2),
     // Périmètre des paquets MeshCore conservés : 'departement', 'voisins' (département + limitrophes) ou 'national'.
     // Un paquet est gardé si l'observateur qui l'a capté est dans le périmètre (le flux national est très lourd).
+    // Liaisons déduites des chemins : taille minimale des hachages (1 octet = préfixes ambigus, liaisons parfois fausses)
+    liensOctetsMin: [1, 2, 3].includes(nombre('MESHCORE_LIENS_OCTETS_MIN', 2)) ? nombre('MESHCORE_LIENS_OCTETS_MIN', 2) : 2,
     perimetre: ['departement', 'voisins', 'national'].includes(texte('MESHCORE_PERIMETRE', 'voisins')) ? texte('MESHCORE_PERIMETRE', 'voisins') : 'voisins',
     // Codes de zone acceptés pour les observateurs dont la position est inconnue (en plus de MESHCORE_IATA)
     // Réglage radio attendu du companion (fréquence,bande,SF,CR) ; « non » : aucun avertissement
@@ -193,6 +195,7 @@ function appliquerReglages(r) {
     if (typeof m.republier === 'boolean') config.meshcore.republier = m.republier;
     if (typeof m.actif === 'boolean') config.meshcore.actif = m.actif;
     if (['departement', 'voisins', 'national'].includes(m.perimetre)) config.meshcore.perimetre = m.perimetre;
+    if ([1, 2, 3].includes(m.liensOctetsMin)) config.meshcore.liensOctetsMin = m.liensOctetsMin;
     if (Array.isArray(m.iataVoisins)) config.meshcore.iataVoisins = m.iataVoisins.map((x) => String(x).toUpperCase()).filter((x) => /^[A-Z0-9]{2,8}$/.test(x));
     if (Array.isArray(m.canaux) && m.canaux.length) config.meshcore.canaux = m.canaux.map(String);
   }

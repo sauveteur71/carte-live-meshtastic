@@ -2125,7 +2125,7 @@ function etatMc(admin) {
   if (admin) {
     e.companion = { ...c, canaux: companion.canaux() };
     e.republication = publicateurMc.etat();
-    e.reglages = { iata: config.meshcore.iata, racine: config.meshcore.racine, republier: config.meshcore.republier, canaux: config.meshcore.canaux.join('\n'), perimetre: config.meshcore.perimetre, iataVoisins: config.meshcore.iataVoisins.join(', '), horsPerimetre: compteurMc.horsPerimetre || 0 };
+    e.reglages = { iata: config.meshcore.iata, racine: config.meshcore.racine, republier: config.meshcore.republier, canaux: config.meshcore.canaux.join('\n'), perimetre: config.meshcore.perimetre, liensOctetsMin: config.meshcore.liensOctetsMin, iataVoisins: config.meshcore.iataVoisins.join(', '), horsPerimetre: compteurMc.horsPerimetre || 0 };
     e.agents = agents.liste();
     e.ecoutes = ecoutes.liste().meshcore;
   }
@@ -2443,6 +2443,7 @@ app.post('/api/mc/reglages', (req, res) => {
   if (typeof b.republier === 'boolean') m.republier = b.republier;
   if (typeof b.actif === 'boolean') m.actif = b.actif;
   if (['departement', 'voisins', 'national'].includes(b.perimetre)) m.perimetre = b.perimetre;
+  if ([1, 2, 3].includes(Number(b.liensOctetsMin))) m.liensOctetsMin = Number(b.liensOctetsMin);
   if (typeof b.iataVoisins === 'string') m.iataVoisins = b.iataVoisins.split(/[,;\s]+/).map((x) => x.trim().toUpperCase()).filter((x) => /^[A-Z0-9]{2,8}$/.test(x)).slice(0, 20);
   if (typeof b.canaux === 'string') {
     const l = b.canaux.split(/[;\n]/).map((x) => x.trim()).filter(Boolean).slice(0, 20);
