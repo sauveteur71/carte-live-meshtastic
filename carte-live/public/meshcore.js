@@ -103,6 +103,8 @@ function appliquerVueReseau() {
   mcMajKpis();
   mcMajAlertes();
   mcDessinerChaleur();
+  // Réglages : la liste dépend du réseau affiché
+  if (typeof rendreHubReglages === 'function' && document.querySelector('.hub-reglages')) { try { rendreHubReglages(); } catch { /* panneau absent */ } }
   // Traces de l'autre réseau : axes de trafic, liaisons allumées, parcours d'un message affiché
   if (typeof dessinerAxes === 'function') dessinerAxes();
   if (typeof anim !== 'undefined' && anim.coucheAllumes) anim.coucheAllumes.clearLayers();

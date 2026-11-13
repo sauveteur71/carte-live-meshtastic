@@ -238,11 +238,13 @@ function rendreHubReglages() {
     ['⬆️', 'Mise à jour de la carte', 'Version installée, nouvelle version, mise à jour en un clic', () => ficheMaj()],
     ['🇫🇷', 'Toute la France', 'Télécharger et installer le relief de tous les départements', () => ficheFrance()],
   ];
+  // Réglages propres à un réseau : seulement quand ce réseau est affiché (Meshtastic, MeshCore ou les deux)
+  const vue = etat.vueReseau || 'les-deux', voitMc = vue !== 'meshtastic', lesDeux = vue === 'les-deux';
   const modules = !etat.membre ? [] : [
-    ['🔌', 'Connecter un module', 'Bluetooth, USB ou adresse IP, Meshtastic ou MeshCore', () => { const b = $('#outil-connecter'); if (b) b.click(); }],
-    ...(etat.admin && etat.config.meshcore ? [['🟠', 'MeshCore', 'Module (companion), code de zone, canaux, périmètre', () => ouvrirMcVue('companion')]] : []),
-    ...(etat.admin && etat.config.passerelleDispo ? [['⇄', 'Passerelle Meshtastic ⇄ MeshCore', 'Activer, choisir les canaux reliés, filtres', () => ouvrirPasserelle()]] : []),
-    ...(etat.admin ? [['🔐', 'Équipes', 'Canal chiffré par équipe sur les nœuds des intervenants', () => ouvrirOutilProgrammer('voir-equipes')]] : []),
+    ['🔌', 'Connecter un module', vue === 'meshtastic' ? 'Bluetooth, USB ou adresse IP' : vue === 'meshcore' ? 'Companion MeshCore : Bluetooth, USB ou Wi-Fi' : 'Bluetooth, USB ou adresse IP, Meshtastic ou MeshCore', () => { const b = $('#outil-connecter'); if (b) b.click(); }],
+    ...(etat.admin && etat.config.meshcore && voitMc ? [['🟠', 'MeshCore', 'Module (companion), code de zone, canaux, périmètre', () => ouvrirMcVue('companion')]] : []),
+    ...(etat.admin && etat.config.passerelleDispo && lesDeux ? [['⇄', 'Passerelle Meshtastic ⇄ MeshCore', 'Activer, choisir les canaux reliés, filtres', () => ouvrirPasserelle()]] : []),
+    ...(etat.admin && vue !== 'meshcore' ? [['🔐', 'Équipes', 'Canal chiffré par équipe sur les nœuds des intervenants', () => ouvrirOutilProgrammer('voir-equipes')]] : []),
   ];
   z.innerHTML = `<div class="hub-reglages">
     <p class="note">Tous les réglages sont rangés ici. Vous cherchez autre chose ? <button type="button" class="mini" id="hub-chercher">🔎 Chercher</button></p>
@@ -255,7 +257,7 @@ function rendreHubReglages() {
       <label translate="no">🌐 Langue · Language <select id="hub-langue" aria-label="Langue · Language"><option value="fr" ${window.LANGUE !== 'en' ? 'selected' : ''}>Français</option><option value="en" ${window.LANGUE === 'en' ? 'selected' : ''}>English</option></select></label>
       <div class="actions-prop"><button type="button" class="mini" id="hub-visite">🧭 Revoir la visite guidée</button><button type="button" class="mini" id="hub-aide">❓ Aide</button></div>
     </div>
-    ${bloc('Compte', compte)}${bloc('Modules et réseaux', modules)}${bloc('La carte (administrateur)', carteL)}
+    ${bloc('Compte', compte)}${bloc('Modules et réseaux', modules)}${etat.admin && etat.config.meshcore && !lesDeux ? `<p class="note">${vue === 'meshtastic' ? 'Réglages MeshCore et passerelle : choisissez « MeshCore » ou « Les deux » en haut du panneau.' : 'Réglages Meshtastic (équipes) et passerelle : choisissez « Meshtastic » ou « Les deux » en haut du panneau.'}</p>` : ''}${bloc('La carte (administrateur)', carteL)}
     <p class="note a-propos">Carte live Meshtastic / MeshCore v${esc((etat.config.version && etat.config.version.version) || '')} · créée par F4GLD · <a href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener">♥ Soutenir le projet</a> (Radio-club du Velay) · <a href="https://github.com/sauveteur71/carte-live-meshtastic" target="_blank" rel="noopener">code source</a></p></div>`;
   z.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => { try { actions[b.dataset.go](); } catch (e) { annonce('⚠ ' + e.message, 'erreur'); } }));
   $('#hub-chercher').onclick = () => ouvrirRechercheReglages();
