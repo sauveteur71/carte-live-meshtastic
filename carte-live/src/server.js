@@ -2701,6 +2701,7 @@ function diffuserEtatMc() {
   const c = companion.etat();
   alertesMc = reseauMc.calculerAlertes({ administres: adminMc.memorises(), companion: { cible: c.cible || c.navigateur, connecte: c.connecte, nom: c.nom, cle: c.cle, erreur: c.erreur } });
   try { alertesMc = [...alertesMc, ...capteursMc.alertes(nomNoeudMc)]; } catch (e) { journal('alertes des capteurs :', e.message); }
+  try { if (typeof maintenanceMc !== 'undefined') alertesMc = [...alertesMc, ...maintenanceMc.alertes()]; } catch (e) { journal('alertes de maintenance :', e.message); }
   diffuser({ genre: 'mc-etat', ...etatMc(false) });
 }
 function planifierEtatMc() { if (!minuterieEtatMc) minuterieEtatMc = setTimeout(() => { minuterieEtatMc = null; diffuserEtatMc(); }, 15000); } // statuts d'observateurs fréquents : au plus toutes les 15 s
@@ -2837,7 +2838,7 @@ app.post('/api/mc/capteurs/:cle/reinitialiser', (req, res) => {
   try { res.json(capteursMc.reinitialiser(cle, req.body || {})); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 const { creerMaintenanceMc } = require('./meshcore/maintenance');
-const maintenanceMc = creerMaintenanceMc({ config, reseauMc, adminMc, companion, journal });
+const maintenanceMc = creerMaintenanceMc({ config, reseauMc, adminMc, companion, journal, auditMc });
 app.get('/api/mc/maintenance', (req, res) => {
   if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const r = maintenanceMc.etat();

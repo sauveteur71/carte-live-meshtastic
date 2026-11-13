@@ -11,6 +11,8 @@ Onglet **MeshCore › Companion** (administrateur). Le companion sert d'**observ
 - **🌡️ Télémétrie** : batterie et capteurs.
 - **Région par défaut** : les envois en inondation du companion ne sont relayés que par les répéteurs qui acceptent cette région.
 - **Commandes sur le companion** (firmware 1.14+) et **Wi-Fi du companion** (réseau, mot de passe, activé).
+- **Companion en Wi-Fi** (firmware 1.18+) : le companion BLE des cartes ESP32-S3 (Heltec V3/V4, XIAO ESP32-S3…) peut aussi rejoindre votre Wi-Fi. Réglez le réseau dans l'application MeshCore (Réglages → Wi-Fi), donnez-lui une adresse fixe dans la box, puis indiquez son IP dans *Companion Wi-Fi* (port 5000).
+- **Administrer un autre companion** (firmware 1.18+) : dans la fiche d'un companion, onglet **Administration**, la console et « Lire la configuration » fonctionnent sans mot de passe si son propriétaire a accordé la permission **commande à distance** au contact de la carte (application MeshCore → contact → Permissions).
 
 ## Les répéteurs
 Onglet **MeshCore › Programmer** et fiche d'un répéteur :
@@ -104,3 +106,15 @@ Un écart est signalé en orange :
 C'est l'outil pour vérifier une mise en service, par exemple avec le modèle « Répéteur de base (FR-43) ».
 
 **🔀 Collisions d'identifiants.** Dans un chemin, chaque relais n'est noté que par le début de sa clé : 1 octet par défaut. Deux répéteurs proches qui commencent pareil rendent le parcours ambigu. Le tableau liste ces répéteurs, avec la distance entre les plus proches, et la part des chemins encore à 1 octet. Le remède : `set path.hash.mode 1` (2 octets).
+
+**Taille des hachages de chaque répéteur.** Sous les collisions, la carte lit la taille de hachage que chaque répéteur utilise dans ses propres annonces (14 jours) et signale ceux qui diffèrent de la majorité, avec la commande à passer (`set path.hash.mode N`). Un répéteur en retard d'une taille coupe les chemins des autres. L'écart est aussi remonté dans les alertes MeshCore.
+
+## Alertes de maintenance MeshCore
+Dans l'onglet **Réseau**, avec les autres alertes MeshCore, la carte signale d'elle-même (à partir des versions lues par « Lire la configuration », commandes `ver` et `board`) :
+- un **avis connu** sur un nœud : firmware à problème (1.17.0 sur Heltec T096, qui n'émet pas correctement : passer en 1.17.1) ou matériel sous avis du fabricant (Elecrow ThinkNode M9 : avis sur la carte SD) ;
+- un **room server encore en mode répéteur** (`repeat on`) : ce mode est abandonné depuis le firmware 1.18, mettez `set repeat off` et un répéteur dédié pour relayer ;
+- une **nouvelle version MeshCore publiée** (moins de 3 semaines) alors que des répéteurs ou room servers de la zone sont en retard, avec leurs noms ;
+- un **répéteur dont la taille de hachage diffère** du reste du réseau.
+
+## Courbes de puissance
+Quand un capteur envoie une tension et un courant sur la même voie, la carte ajoute une courbe **Puissance (calculée U × I)** si le capteur ne donne pas de puissance, ou si la puissance qu'il donne s'écarte de plus de 10 % du calcul.

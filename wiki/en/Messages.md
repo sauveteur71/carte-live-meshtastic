@@ -5,6 +5,10 @@
 - choose a **channel**, or **✉️ Direct message… (choose a node)**: search by name, short name or `!id`, recent nodes first;
 - **recent contacts** are offered directly in the list;
 - clicking a received message prepares the reply on the right channel (or directly to its author).
+- **⚡ Quick message**: ready-made texts (RAS, Bien reçu, En route, Sur place…) added in one click; “✏️ Edit the list…” to set your own (kept in this browser);
+- **@mention**: type `@` then the start of a name, pick from the list or complete with Tab;
+- **draft**: a started message is kept per channel, even after reloading the page;
+- in received messages, **coordinates** (“45.0431, 3.8853”) or a **DFCI square** are clickable and centre the map on them.
 
 ## Knowing whether the message got through
 Under each message sent from the map:

@@ -447,6 +447,8 @@ async function mcRendreMessages() {
   ta.value = ancienTexte;
   const compter = () => { const n = new TextEncoder().encode(ta.value).length; $('#mc-compteur').textContent = `${n}/140`; $('#mc-compteur').classList.toggle('trop', n > 140); };
   ta.oninput = compter; compter();
+  if (typeof ameliorerSaisie === 'function') ameliorerSaisie($('#mc-texte'), { cle: () => 'mc:' + (mc.destMessage || ''), apres: $('#mc-btn-position') && $('#mc-btn-position').parentElement,
+    noms: () => [...mc.noeuds.values()].filter((n) => n.role === 'companion' && n.nom).map((n) => n.nom) });
   ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#mc-envoi').requestSubmit(); } };
   $('#mc-dest').onchange = async (e) => {
     if (e.target.value === 'choisir') {
@@ -536,7 +538,7 @@ async function mcRendreAnalyse() {
 
 // ---- Gestion : administration des répéteurs et room servers (admin) ---------------------------
 const mcGestion = { selection: new Set(), suivi: null, tache: null, info: null };
-const MC_LPP = { tension: 'Tension', temperature: 'Température', humidite: 'Humidité', pression: 'Pression', courant: 'Courant', pourcentage: 'Charge', luminosite: 'Luminosité', altitude: 'Altitude', puissance: 'Puissance', energie: 'Énergie', concentration: 'Concentration', gps: 'Position', analogique: 'Entrée analogique', entree: 'Entrée', sortie: 'Sortie', generique: 'Capteur', presence: 'Présence', interrupteur: 'Interrupteur' };
+const MC_LPP = { puissance_calculee: 'Puissance (calculée U × I)', tension: 'Tension', temperature: 'Température', humidite: 'Humidité', pression: 'Pression', courant: 'Courant', pourcentage: 'Charge', luminosite: 'Luminosité', altitude: 'Altitude', puissance: 'Puissance', energie: 'Énergie', concentration: 'Concentration', gps: 'Position', analogique: 'Entrée analogique', entree: 'Entrée', sortie: 'Sortie', generique: 'Capteur', presence: 'Présence', interrupteur: 'Interrupteur' };
 // Dernière opération lancée (par nœud, « * » pour le panneau Programmer) : son bouton est le bouton principal
 const mcDerniereAction = {};
 const mcActionActive = (cle, a) => ((mcDerniereAction[cle] || 'lire') === a ? 'class="principal"' : '');
@@ -632,6 +634,9 @@ async function mcFicheCollisions() {
       <div class="mesure"><span>Chemins à 1 octet</span><b>${c.partUnOctetPct == null ? '–' : fmt(c.partUnOctetPct, 0, ' %')}</b></div>
     </div>
     <p class="note">${c.total ? `Sur les paquets relayés des 2 derniers jours : ${c.parTaille[1]} chemins à 1 octet, ${c.parTaille[2]} à 2 octets, ${c.parTaille[3]} à 3 octets.` : ''} ${r.un.length ? 'Passer ces répéteurs en <span class="mono">path.hash.mode 1</span> (2 octets) lève l’ambiguïté, comme le modèle « Répéteur de base (FR-43) ».' : ''}</p>
+    ${r.hachages && r.hachages.total ? `<h3>Taille des hachages de chaque répéteur</h3>
+    <p class="note">Lue sur leurs propres annonces (14 jours) : ${[1, 2, 3].filter((t) => r.hachages.parRepeteur[t]).map((t) => `${r.hachages.parRepeteur[t]} en ${t} octet${t > 1 ? 's' : ''}`).join(', ')}. Tout le réseau devrait utiliser la même taille (réglage <span class="mono">path.hash.mode</span>).</p>
+    ${r.hachages.ecarts.length ? r.hachages.ecarts.map((x) => `<div class="proposition audit-rep attention"><div class="audit-ligne"><a href="#" data-mc-fiche-audit="${x.cle}">${esc(x.nom)}</a> <small>annonce en <b>${x.taille} octet${x.taille > 1 ? 's' : ''}</b> alors que la majorité est en ${r.hachages.majoritaire} : <span class="mono">set path.hash.mode ${r.hachages.majoritaire - 1}</span></small></div></div>`).join('') : '<div class="vide">Tous les répéteurs entendus utilisent la même taille. 👍</div>'}` : ''}
     <h3>Même premier octet (${r.un.filter((g) => !g.doublon).length} vraie${r.un.filter((g) => !g.doublon).length > 1 ? 's' : ''}${r.un.some((g) => g.doublon) ? ` · ${r.un.filter((g) => g.doublon).length} doublon(s)` : ''})</h3>
     ${r.un.map((g) => groupe(g, 1)).join('') || '<div class="vide">Aucune collision à 1 octet dans la zone. 👍</div>'}
     ${r.deux.length ? `<h3>Mêmes deux premiers octets (${r.deux.length})</h3>${r.deux.map((g) => groupe(g, 2)).join('')}` : ''}`;
@@ -902,6 +907,7 @@ async function mcRendreAdminFiche(n, z) {
   };
   z.innerHTML = `
     <form id="mc-f-adm" class="form-edit">
+      ${n.role === 'companion' ? '<p class="note">Companion : l’administration à distance demande un firmware 1.18 ou plus récent, et que son propriétaire accorde la permission « commande à distance » au contact de la carte (application MeshCore → contact → Permissions). Le mot de passe est inutile. Seules la console et la lecture de configuration ont un sens ici.</p>' : ''}
       <div class="grille-edit">
         <label>Mot de passe admin <input name="mdp" type="password" autocomplete="off" placeholder="${l.memorise ? '🔑 mémorisé (laisser vide)' : 'mot de passe du nœud'}"></label>
         <label class="case"><input type="checkbox" name="memoriser" ${l.memorise ? 'checked' : ''}> Mémoriser sur le serveur</label>
@@ -1204,6 +1210,7 @@ function mcRendreCompanion() {
       <button type="submit" class="principal">Relier</button>
       <button type="button" id="mc-wifi-ecoute" title="En plus du companion principal, pour l'écoute seulement">👂 En écoute</button>
     </form>
+    <p class="note">Depuis le firmware 1.18, le companion BLE des cartes ESP32-S3 (Heltec V3/V4, XIAO ESP32-S3…) sait aussi se relier au Wi-Fi : renseignez le réseau et le mot de passe dans l’application MeshCore (Réglages → Wi-Fi), puis indiquez ici son adresse IP (port 5000 par défaut). Donnez-lui une adresse fixe dans votre box.</p>
     <h4>Par un agent (companion USB sur un autre PC)</h4>
     ${(e.agents || []).length ? `<div class="liste">${e.agents.map((a) => `<div class="ligne"><span class="point ${a.occupe ? 'actif' : 'recent'}"></span><span class="titre">${esc(a.nom)}<small>${esc(a.source)}</small></span><span class="meta"><button class="mini" data-mc-agent="${esc(a.hote)}">${c.cible && c.cible.hote === a.hote ? 'Choisi' : 'Utiliser'}</button>${!a.occupe && !(c.cible && c.cible.hote === a.hote) ? ` <button class="mini" data-mc-agent-ecoute="${esc(a.hote)}" title="En plus du companion principal, pour l'écoute">👂</button>` : ''}</span></div>`).join('')}</div>` : '<div class="vide">Aucun agent en ligne. L’agent se télécharge dans Réseau › Modules radio › Module par agent (choisissez le port COM du companion).</div>'}
     <h4>Republication MQTT</h4>
@@ -1406,7 +1413,7 @@ function mcHtmlChemin(c, n) {
     <div class="chemin-mc"><span class="saut obs">${esc(n.nom || n.id)}</span>${c.retour.map((x) => '<i>›</i>' + etape(x)).join('')}<i>›</i><span class="saut obs">${esc(moi)}</span> <small>retour</small></div></div>`;
 }
 // ---- Capteurs d'un nœud : relevé périodique, courbes, libellés personnalisés ----
-const MC_LIB_CAPTEUR = { tension: 'Tension', temperature: 'Température', humidite: 'Humidité', pression: 'Pression', courant: 'Courant', pourcentage: 'Charge', luminosite: 'Luminosité', puissance: 'Puissance', energie: 'Énergie', altitude: 'Altitude', distance: 'Distance', concentration: 'Concentration', frequence: 'Fréquence', analogique: 'Entrée analogique', generique: 'Valeur', entree: 'Entrée', sortie: 'Sortie', presence: 'Présence', interrupteur: 'Interrupteur', direction: 'Direction' };
+const MC_LIB_CAPTEUR = { puissance_calculee: 'Puissance (calculée U × I)', tension: 'Tension', temperature: 'Température', humidite: 'Humidité', pression: 'Pression', courant: 'Courant', pourcentage: 'Charge', luminosite: 'Luminosité', puissance: 'Puissance', energie: 'Énergie', altitude: 'Altitude', distance: 'Distance', concentration: 'Concentration', frequence: 'Fréquence', analogique: 'Entrée analogique', generique: 'Valeur', entree: 'Entrée', sortie: 'Sortie', presence: 'Présence', interrupteur: 'Interrupteur', direction: 'Direction' };
 const libelleCapteur = (r, mesure) => {
   if (r.libelles && r.libelles[mesure]) return r.libelles[mesure];
   const [type, canal] = mesure.split(':');
@@ -1568,7 +1575,7 @@ async function mcOuvrirFiche(cle, ongletInitial) {
       ${n.observateur ? `<span class="badge passerelle" title="${obs.carte ? 'Relié à cette carte : il lui transmet ce qu’il entend (indépendant de la republication MQTT)' : 'Publie ce qu’il entend sur le broker MQTT, où la carte le lit'}">${esc(mcLibObservateur(n, true))}</span>` : ''}
       <span class="badge reseau-mc">MeshCore</span>
     </div>
-    <nav class="onglets-fiche"><button data-of="infos" class="actif">Informations</button><button data-of="voisins">Voisins (${d.voisins.length})</button><button data-of="trames">Paquets</button>${etat.membre && ['repeteur', 'salon', 'capteur'].includes(n.role) ? '<button data-of="capteurs">Capteurs</button>' : ''}${gerable(n.cle) && ['repeteur', 'salon', 'capteur'].includes(n.role) ? '<button data-of="admin">Administration</button>' : ''}</nav>
+    <nav class="onglets-fiche"><button data-of="infos" class="actif">Informations</button><button data-of="voisins">Voisins (${d.voisins.length})</button><button data-of="trames">Paquets</button>${etat.membre && ['repeteur', 'salon', 'capteur'].includes(n.role) ? '<button data-of="capteurs">Capteurs</button>' : ''}${gerable(n.cle) && ['repeteur', 'salon', 'capteur', 'companion'].includes(n.role) ? '<button data-of="admin">Administration</button>' : ''}</nav>
     <div data-pf="infos">
       <div class="grille">${mesures.map(([l, v]) => `<div class="mesure"><span>${l}</span><b>${esc(v)}</b></div>`).join('')}</div>
       <div class="boutons">

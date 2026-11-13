@@ -9,7 +9,16 @@ const path = require('path');
 const versionNum = (v) => { const m = /(\d+)\.(\d+)(?:\.(\d+))?/.exec(String(v || '')); return m ? [+m[1], +m[2], +(m[3] || 0)] : null; };
 const comparer = (a, b) => (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]);
 
-function creerMaintenanceMc({ config, reseauMc, adminMc, companion, journal }) {
+// Avis connus (notes de version MeshCore, avis des fabricants) : versions de firmware à problème et matériel concerné.
+// « versions » : versions touchées ; « materiel » : expression sur le résultat de la commande « board ».
+const AVIS = [
+  { id: 'fw-1.17.0-t096', versions: ['1.17.0'], materiel: /t0?96/i, niveau: 'critique',
+    message: 'firmware 1.17.0 sur Heltec T096 : n’émet pas correctement, passez en 1.17.1 ou plus' },
+  { id: 'thinknode-m9-sd', materiel: /thinknode.?m9/i, niveau: 'attention',
+    message: 'avis de sécurité Elecrow : risque de logiciel malveillant sur la carte SD du ThinkNode M9 (voir elecrow.com, « Thinknode M9 Security Advisory »)' },
+];
+
+function creerMaintenanceMc({ config, reseauMc, adminMc, companion, journal, auditMc = null }) {
   const fConf = path.join(path.dirname(config.fichierBase), 'meshcore-conformite.json');
   let conf = { actif: false, heure: 3, reference: null, elements: null, dernier: null, tache: null, lancee: 0 };
   try { conf = { ...conf, ...lireJson(fConf) }; } catch { /* aucune */ }
@@ -94,8 +103,48 @@ function creerMaintenanceMc({ config, reseauMc, adminMc, companion, journal }) {
   }, 5 * 60000);
   if (m.unref) m.unref();
 
+  // Alertes de maintenance : versions à problème, matériel sous avis, nouvelle version publiée avec des répéteurs
+  // en retard, room servers encore en mode répéteur (abandonné en 1.18), taille de hachage différente du réseau
+  let cacheAlertes = null;
+  function alertes() {
+    if (cacheAlertes && Date.now() - cacheAlertes.heure < 10 * 60000) return cacheAlertes.l;
+    const l = [], e = etat(), t = Date.now();
+    for (const n of e.noeuds) {
+      const v = n.firmware ? (versionNum(n.firmware) || []).join('.') : null;
+      for (const a of AVIS) {
+        if (a.versions && !(v && a.versions.includes(v))) continue;
+        if (a.materiel && !(n.materiel && a.materiel.test(n.materiel))) continue;
+        l.push({ cle: `mc-avis:${a.id}:${n.cle}`, noeud: n.cle, type: 'avis', niveau: a.niveau, nom: n.nom, depuis: n.lu || t, message: `${n.nom} : ${a.message}` });
+      }
+      const lu = adminMc.lecture(n.cle) || {};
+      const fw = versionNum(n.firmware);
+      if (n.role === 'salon' && (lu.valeurs || {}).repeat === 'on' && (!fw || comparer(fw, [1, 18, 0]) >= 0)) {
+        l.push({ cle: `mc-salon-repeat:${n.cle}`, noeud: n.cle, type: 'avis', niveau: 'attention', nom: n.nom, depuis: lu.heure || t,
+          message: `${n.nom} : room server encore en mode répéteur, abandonné depuis le firmware 1.18 (set repeat off, et un répéteur dédié pour relayer)` });
+      }
+    }
+    for (const [type, lib, role] of [['repeater', 'répéteurs', 'repeteur'], ['room-server', 'room servers', 'salon']]) {
+      const ref = versions && versions[type];
+      if (!ref || !ref.date || t - Date.parse(ref.date) > 21 * 86400000) continue;
+      const retard = e.noeuds.filter((n) => n.role === role && n.etatFw === 'retard');
+      if (retard.length) l.push({ cle: `mc-version:${ref.tag}`, type: 'version', niveau: 'attention', depuis: Date.parse(ref.date),
+        message: `MeshCore ${ref.version} publié le ${new Date(ref.date).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })} : ${retard.length} de vos ${lib} à mettre à jour (${retard.slice(0, 4).map((n) => n.nom).join(', ')}${retard.length > 4 ? '…' : ''})` });
+    }
+    if (auditMc) {
+      try {
+        const z = config.zone;
+        const h = auditMc.collisions({ bbox: [z[0], z[1], z[2], z[3]] }).hachages;
+        for (const x of (h && h.ecarts) || []) l.push({ cle: `mc-hachage:${x.cle}`, noeud: x.cle, type: 'avis', niveau: 'attention', nom: x.nom, depuis: t,
+          message: `${x.nom} : chemins en ${x.taille} octet${x.taille > 1 ? 's' : ''} alors que le réseau est en ${h.majoritaire} (set path.hash.mode ${h.majoritaire - 1})` });
+      } catch (err) { journal('[MeshCore] hachages :', err.message); }
+    }
+    cacheAlertes = { heure: t, l };
+    return l;
+  }
+
   return {
     etat,
+    alertes,
     regler(b) {
       if (b.reference !== undefined) conf.reference = b.reference ? String(b.reference).toUpperCase() : null;
       if (b.actif != null) conf.actif = !!b.actif;

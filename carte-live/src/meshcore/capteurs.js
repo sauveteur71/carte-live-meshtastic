@@ -50,6 +50,19 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
       if (!series.has(p.mesure)) series.set(p.mesure, { mesure: p.mesure, unite: p.unite, points: [] });
       series.get(p.mesure).points.push([p.heure, p.valeur]);
     }
+    // Puissance calculée (tension × courant, même canal, même relevé) quand le capteur ne la donne pas lui-même,
+    // ou quand sa valeur s'écarte nettement du calcul (comme le fait l'appli MeshCore)
+    for (const [k, t] of series) {
+      if (!k.startsWith('tension:')) continue;
+      const canal = k.split(':')[1], c = series.get('courant:' + canal);
+      if (!c) continue;
+      const parHeure = new Map(c.points.map(([h, v]) => [h, v]));
+      const points = t.points.filter(([h]) => parHeure.has(h)).map(([h, v]) => [h, Math.round(v * parHeure.get(h) * 1000) / 1000]);
+      if (!points.length) continue;
+      const donnee = series.get('puissance:' + canal);
+      const ecart = donnee && donnee.points.length && Math.abs(donnee.points[donnee.points.length - 1][1] - points[points.length - 1][1]) > Math.max(0.5, 0.1 * Math.abs(points[points.length - 1][1]));
+      if (!donnee || ecart) series.set('puissance_calculee:' + canal, { mesure: 'puissance_calculee:' + canal, unite: 'W', calculee: true, points });
+    }
     return { intervalleMin: r.intervalleMin || 0, libelles: r.libelles || {}, seuils: r.seuils || {}, masquees: r.masquees || [], dernier: r.dernier || null, intervalles: INTERVALLES, series: [...series.values()] };
   }
 

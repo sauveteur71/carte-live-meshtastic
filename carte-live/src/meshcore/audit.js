@@ -25,6 +25,7 @@ function creerAuditMc({ db, config, reseauMc, journal }) {
     chemins: db.prepare('SELECT DISTINCT chemin FROM mc_receptions WHERE paquet = ? AND chemin IS NOT NULL'),
     noeuds: db.prepare("SELECT cle, nom, role, lat, lon, dernier_vu FROM mc_noeuds WHERE role IN ('repeteur', 'salon')"),
     tailles: db.prepare(`SELECT brut FROM mc_paquets WHERE heure >= ? AND sauts > 0 LIMIT 20000`),
+    annonces: db.prepare(`SELECT de, brut FROM mc_paquets WHERE heure >= ? AND type = 'ADVERT' AND sauts > 0 AND de IS NOT NULL LIMIT 20000`),
   };
   const dansBbox = (n, b) => !b || (n && n.lat != null && n.lat >= b[0] && n.lat <= b[2] && n.lon >= b[1] && n.lon <= b[3]);
   let cache = null; // { cle, heure, val }
@@ -95,6 +96,25 @@ function creerAuditMc({ db, config, reseauMc, journal }) {
     return val;
   }
 
+  // Taille des hachages de chemin de chaque répéteur, lue sur ses propres annonces (14 jours) : le réseau doit
+  // parler d'une seule voix. Un répéteur qui annonce en 1 octet au milieu d'un réseau à 2 octets (ou l'inverse)
+  // rend ses chemins ambigus pour les autres.
+  function hachagesRepeteurs(rep) {
+    const parCle = new Map(rep.map((n) => [n.cle, { cle: n.cle, nom: n.nom || n.cle.slice(0, 8), role: n.role, n: { 1: 0, 2: 0, 3: 0 } }]));
+    for (const p of q.annonces.all(Date.now() - 14 * 86400000)) {
+      const r = parCle.get(p.de);
+      if (!r) continue;
+      const b = Buffer.from(p.brut, 'hex');
+      const routeN = b[0] & 3, i = routeN === 0 || routeN === 3 ? 5 : 1;
+      if (b.length > i) { const t = (b[i] >> 6) + 1; if (r.n[t] != null) r.n[t]++; }
+    }
+    const vus = [...parCle.values()].filter((r) => r.n[1] + r.n[2] + r.n[3] > 0).map((r) => ({ ...r, taille: [1, 2, 3].sort((a, b) => r.n[b] - r.n[a])[0] }));
+    const compte = { 1: 0, 2: 0, 3: 0 };
+    for (const r of vus) compte[r.taille]++;
+    const majoritaire = vus.length ? [1, 2, 3].sort((a, b) => compte[b] - compte[a])[0] : null;
+    return { majoritaire, parRepeteur: compte, total: vus.length, ecarts: vus.filter((r) => r.taille !== majoritaire).map(({ n, ...r }) => r) };
+  }
+
   // Collisions de préfixes entre répéteurs actifs (14 jours) de la zone, et part des chemins à 1 octet
   function collisions({ bbox = null, jours = 14 } = {}) {
     const depuis = Date.now() - jours * 86400000;
@@ -121,7 +141,7 @@ function creerAuditMc({ db, config, reseauMc, journal }) {
     }
     const nb = tailles[1] + tailles[2] + tailles[3];
     return {
-      repeteurs: rep.length, un: grouper(1), deux: grouper(2),
+      repeteurs: rep.length, un: grouper(1), deux: grouper(2), hachages: hachagesRepeteurs(rep),
       chemins: { total: nb, parTaille: tailles, partUnOctetPct: nb ? Math.round((tailles[1] / nb) * 1000) / 10 : null },
     };
   }

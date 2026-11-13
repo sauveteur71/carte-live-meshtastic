@@ -1569,11 +1569,19 @@ function marquerNouveaux(liste, cle, idDe, estRecu, avant) {
 }
 // ---- Positions partagées par message (« meshand: 45.04,3.88 », comme l'appli MeshAnd ; aussi « geo:… » et « 📍 … ») ----
 const RE_EPINGLE = /(?:meshand:|geo:|📍)\s*(-?\d{1,2}\.\d{3,7})\s*[,;]\s*(-?\d{1,3}\.\d{3,7})/i;
+// Aussi, comme l'appli MeshCore : « 45.0451, 3.8852 » seul (3 décimales au moins), et un code DFCI (« KD42F7.5 »)
+const RE_COORDS_NUES = /(?:^|[\s(:])(-?\d{1,2}\.\d{3,7})\s*,\s*(-?\d{1,3}\.\d{3,7})(?![\d.])/;
+const RE_DFCI_MSG = /(?:^|[^A-Z0-9])([A-HK-N]{2}[02468]{2}[A-HK-L]\d(?:\.[1-5])?)(?![A-Z0-9])/;
 function lireEpingle(texte) {
-  const m = RE_EPINGLE.exec(String(texte || ''));
-  if (!m) return null;
-  const lat = Number(m[1]), lon = Number(m[2]);
-  return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null;
+  const t = String(texte || '');
+  const m = RE_EPINGLE.exec(t) || RE_COORDS_NUES.exec(t);
+  if (m) {
+    const lat = Number(m[1]), lon = Number(m[2]);
+    return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0) ? { lat, lon } : null;
+  }
+  const d = typeof DFCI !== 'undefined' && RE_DFCI_MSG.exec(t);
+  if (d) { const r = DFCI.depuisDfci(d[1]); if (r) return { lat: r.lat, lon: r.lon, dfci: r.code }; }
+  return null;
 }
 // Texte d'un message, avec un bouton « voir sur la carte » s'il contient une position
 function texteMessageHtml(texte, qui, heureMsg) {
@@ -2085,6 +2093,63 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fermerMenu
 document.addEventListener('scroll', fermerMenuNoeud, true);
 
 // Insère une position (« meshand: lat,lon ») dans une zone de saisie
+// ---- Saisie des messages (Meshtastic et MeshCore) : brouillon gardé par conversation, messages rapides, @mention ----
+const MSG_RAPIDES_DEFAUT = ['RAS', 'Bien reçu', 'En route', 'Sur place', 'Besoin d’aide', 'Fin de mission', 'Je vous reçois 5/9'];
+const msgRapides = () => { const l = lireLs('gaulix_msg_rapides', null); return Array.isArray(l) && l.length ? l : MSG_RAPIDES_DEFAUT; };
+function ameliorerSaisie(ta, { cle, noms, apres }) {
+  if (!ta) return;
+  const k = () => 'gaulix_brouillon_' + cle();
+  // Brouillon : repris s'il n'y a rien dans la zone, gardé à chaque frappe, effacé après l'envoi
+  if (!ta.value) { const b = lireLs(k(), ''); if (b) { ta.value = b; ta.dispatchEvent(new Event('input')); } }
+  if (!ta.dataset.ameliore) {
+    ta.dataset.ameliore = '1';
+    ta.addEventListener('input', () => { ecrireLs(k(), ta.value.slice(0, 400)); proposerMention(); });
+    const f = ta.form;
+    if (f) f.addEventListener('submit', () => setTimeout(() => { if (!ta.value.trim()) ecrireLs(k(), ''); }, 2500));
+    // @mention : après « @ » et quelques lettres, les noms connus qui commencent ainsi ; Tab ou clic pour compléter
+    const liste = document.createElement('div');
+    liste.className = 'mentions';
+    liste.hidden = true;
+    (ta.closest('.envoi-ligne') || ta).insertAdjacentElement('afterend', liste);
+    const motCourant = () => { const avant = ta.value.slice(0, ta.selectionStart); const m = /@([\p{L}\p{N}_.-]{1,20})$/u.exec(avant); return m ? m[1] : null; };
+    const completer = (nom) => {
+      const avant = ta.value.slice(0, ta.selectionStart), apresTxt = ta.value.slice(ta.selectionStart);
+      const debut = avant.replace(/@([\p{L}\p{N}_.-]{1,20})$/u, '@' + nom + ' ');
+      ta.value = debut + apresTxt; ta.selectionStart = ta.selectionEnd = debut.length;
+      liste.hidden = true; ta.dispatchEvent(new Event('input')); ta.focus();
+    };
+    function proposerMention() {
+      const m = motCourant();
+      if (!m) { liste.hidden = true; return; }
+      const choix = [...new Set(noms().filter(Boolean))].filter((n) => n.toLowerCase().startsWith(m.toLowerCase()) && n.toLowerCase() !== m.toLowerCase()).slice(0, 6);
+      liste.innerHTML = choix.map((n) => `<button type="button" data-n="${esc(n)}">@${esc(n)}</button>`).join('');
+      liste.hidden = !choix.length;
+    }
+    liste.addEventListener('mousedown', (e) => { const b = e.target.closest('[data-n]'); if (b) { e.preventDefault(); completer(b.dataset.n); } });
+    ta.addEventListener('keydown', (e) => { if (e.key === 'Tab' && !liste.hidden) { const b = liste.querySelector('[data-n]'); if (b) { e.preventDefault(); completer(b.dataset.n); } } else if (e.key === 'Escape') liste.hidden = true; });
+    ta.addEventListener('blur', () => setTimeout(() => { liste.hidden = true; }, 150));
+  }
+  // Messages rapides : une liste à choisir, modifiable
+  if (apres && !apres.querySelector('.msg-rapides')) {
+    const sel = document.createElement('select');
+    sel.className = 'mini msg-rapides';
+    sel.title = 'Messages rapides : un clic ajoute le texte au message';
+    const remplir = () => { sel.innerHTML = `<option value="">⚡ Message rapide</option>${msgRapides().map((m) => `<option>${esc(m)}</option>`).join('')}<option value="__modifier">✏️ Modifier la liste…</option>`; };
+    remplir();
+    sel.onchange = async () => {
+      const v = sel.value; sel.value = '';
+      if (!v) return;
+      if (v === '__modifier') {
+        const r = await saisir('Messages rapides, séparés par « | » :', msgRapides().join(' | '));
+        if (r != null) { ecrireLs('gaulix_msg_rapides', r.split('|').map((x) => x.trim()).filter(Boolean).slice(0, 20)); remplir(); }
+        return;
+      }
+      ta.value = ta.value.trim() ? ta.value.trimEnd() + ' ' + v : v;
+      ta.dispatchEvent(new Event('input')); ta.focus();
+    };
+    apres.appendChild(sel);
+  }
+}
 function insererPosition(zone, lat, lon) {
   if (!zone) return;
   const t = `meshand: ${lat.toFixed(5)},${lon.toFixed(5)}`;
@@ -6180,6 +6245,9 @@ function brancherInterface() {
   $('#recherche').oninput = rendreNoeuds;
   $('#tri').onchange = rendreNoeuds;
   { const bp = $('#btn-position-envoi'); if (bp) bp.onclick = () => { const c = carte.getCenter(); insererPosition($('#form-envoi').texte, c.lat, c.lng); }; }
+  { const fe = $('#form-envoi'), bp = $('#btn-position-envoi');
+    ameliorerSaisie(fe.texte, { cle: () => 'mt:' + (filtreMessages === 'direct' ? 'direct:' + (fe.vers.value || '') : filtreMessages), apres: bp && bp.parentElement,
+      noms: () => [...etat.noeuds.values()].filter((n) => n.dernierVu && Date.now() - n.dernierVu < 7 * 86400000).flatMap((n) => [n.nomCourt, n.nomLong]) }); }
   { const g = $('#groupe-noeuds'); if (g) { try { g.value = localStorage.getItem('gaulix_groupe') || ''; } catch { /* ignoré */ } g.hidden = !etat.membre; g.onchange = () => { try { localStorage.setItem('gaulix_groupe', g.value); } catch { /* ignoré */ } rendreNoeuds(); }; } }
   $('#fenetre').onchange = chargerLiens;
   document.querySelectorAll('.bascule').forEach((b) => (b.onclick = () => {

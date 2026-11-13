@@ -227,6 +227,9 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
 
   async function seConnecter(t, n) {
     const mdp = t.motDePasse || motsDePasse[n.cle];
+    // Companion (firmware 1.18+) : pas de connexion, l'accès passe par la permission « commande à distance »
+    // que son propriétaire accorde à notre contact dans l'application MeshCore.
+    if (n.role === 'companion' && !mdp) { etape(t, n.cle, 'companion : accès par la permission « commande à distance » accordée à notre contact (firmware 1.18+), sans mot de passe'); return { admin: true }; }
     if (!mdp && mdp !== '') throw new Error('mot de passe admin inconnu : saisissez-le');
     etape(t, n.cle, 'connexion…');
     const r = await avecReprise(() => companion.connexion(n, mdp));

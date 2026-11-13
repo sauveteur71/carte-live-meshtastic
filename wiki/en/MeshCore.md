@@ -11,6 +11,8 @@ The map shows MeshCore **alone or overlaid** on Meshtastic: repeaters, room serv
 - **🌡️ Telemetry**: battery and sensors.
 - **Default region**: the companion's flood sends are only relayed by repeaters accepting this region.
 - **Companion commands** (firmware 1.14+) and **companion Wi-Fi** (network, password, enabled).
+- **Companion over Wi-Fi** (firmware 1.18+): the BLE companion on ESP32-S3 boards (Heltec V3/V4, XIAO ESP32-S3…) can also join your Wi-Fi. Set the network in the MeshCore app (Settings → Wi-Fi), give it a fixed address in your router, then enter its IP in *Companion Wi-Fi* (port 5000).
+- **Administering another companion** (firmware 1.18+): in a companion's card, **Administration** tab, the console and “Read configuration” work without a password if its owner has granted the **remote command** permission to the map's contact (MeshCore app → contact → Permissions).
 
 ## Repeaters
 **MeshCore › Program** tab and a repeater's sheet:
@@ -104,3 +106,15 @@ A difference is flagged in orange:
 This is the tool to check a commissioning, for example with the “Répéteur de base (FR-43)” template.
 
 **🔀 ID collisions.** In a path, each relay is only noted by the start of its key: 1 byte by default. Two nearby repeaters starting the same way make the route ambiguous. The table lists these repeaters, with the distance between the closest ones, and the share of paths still on 1 byte. The fix: `set path.hash.mode 1` (2 bytes).
+
+**Hash size of each repeater.** Below the collisions, the map reads the hash size each repeater uses in its own adverts (14 days) and flags those that differ from the majority, with the command to run (`set path.hash.mode N`). A repeater one size behind breaks the others' paths. The gap is also raised in the MeshCore alerts.
+
+## MeshCore maintenance alerts
+In the **Network** tab, with the other MeshCore alerts, the map flags on its own (from the versions read by “Read configuration”, `ver` and `board` commands):
+- a **known advisory** on a node: problem firmware (1.17.0 on Heltec T096, which does not transmit correctly: move to 1.17.1) or hardware under a manufacturer advisory (Elecrow ThinkNode M9: SD card advisory);
+- a **room server still in repeat mode** (`repeat on`): this mode is deprecated since firmware 1.18; set `set repeat off` and use a dedicated repeater to relay;
+- a **new MeshCore release** (less than 3 weeks old) while repeaters or room servers in the zone are behind, with their names;
+- a **repeater whose hash size differs** from the rest of the network.
+
+## Power curves
+When a sensor sends a voltage and a current on the same channel, the map adds a **Power (computed V × I)** curve if the sensor gives no power, or if the power it gives differs by more than 10 % from the calculation.
