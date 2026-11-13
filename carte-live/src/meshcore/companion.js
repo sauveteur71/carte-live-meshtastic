@@ -675,6 +675,8 @@ function creerCompanion(config, { agents, surObservation, surContacts, surEtat, 
     async tracer(chemin, delai = 30000) {
       exigerPret();
       if (!chemin.length) throw new Error('chemin vide');
+      // Le protocole ne sait pas tracer des hachages de 3 octets : on les ramène à 2 (comme l'application MeshCore 1.50)
+      if (chemin[0].length === 6) chemin = chemin.map((h) => h.slice(0, 4));
       const taille = chemin[0].length / 2;
       const drapeaux = { 1: 0, 2: 1, 4: 2, 8: 3 }[taille];
       if (drapeaux == null || chemin.some((h) => h.length !== taille * 2)) throw new Error('chemin invalide');
