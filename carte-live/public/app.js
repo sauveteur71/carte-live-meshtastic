@@ -2201,15 +2201,56 @@ function rendreMessages() {
     : filtreMessages === 'direct' ? tous.filter((m) => estMonDirect(m))
       : tous.filter((m) => m.vers === 0xffffffff && memeCanal(m.canal, filtreMessages.slice(2)));
   $('#messages').innerHTML = msgs.length
-    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${msgNouveaux.has('mt' + m.rowid) ? ' nouveau' : ''}${etat.admin ? ' cliquable' : ''}" data-rowid="${m.rowid}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · ${m.vers !== 0xffffffff ? '<b class="canal-msg direct">✉️ Direct</b>' : `<b class="canal-msg" style="--coul:${couleurCanal(m.canal)}">📢 ${esc(m.canal || '?')}</b>`}${msgNouveaux.has('mt' + m.rowid) ? ' <span class="etiquette-nouveau">nouveau</span>' : ''}${estRelaye(m.texte) ? ' <span class="badge-passerelle" title="Relayé par une passerelle inter-réseaux">⇄ passerelle</span>' : ''} · ${esc(nomNoeud(m.de))}${m.vers !== 0xffffffff ? ' → ' + esc(nomNoeud(m.vers)) : ''}</div><div class="texte" translate="no">${m.texte ? texteMessageHtml(m.texte, nomNoeud(m.de), m.heure) : '(non conservé)'}</div>${origineMessage(m)}${suiviMessage(m)}</div>`).join('')
+    ? msgs.map((m) => `<div class="message${etat.radio && m.de === etat.radio.noeudLocal ? ' moi' : ''}${msgNouveaux.has('mt' + m.rowid) ? ' nouveau' : ''}${etat.admin ? ' cliquable' : ''}" data-rowid="${m.rowid}" data-de="${m.de}" data-vers="${m.vers}" data-canal="${esc(m.canal || '')}" title="${etat.admin ? 'Cliquer pour répondre dans ce canal' : ''}"><div class="entete">${heure(m.heure)} · ${new Date(m.heure).toLocaleDateString('fr-FR')} · ${m.vers !== 0xffffffff ? '<b class="canal-msg direct">✉️ Direct</b>' : `<b class="canal-msg" style="--coul:${couleurCanal(m.canal)}">📢 ${esc(m.canal || '?')}</b>`}${msgNouveaux.has('mt' + m.rowid) ? ' <span class="etiquette-nouveau">nouveau</span>' : ''}${estRelaye(m.texte) ? ' <span class="badge-passerelle" title="Relayé par une passerelle inter-réseaux">⇄ passerelle</span>' : ''} · ${boutonAuteur(m.de)}${m.vers !== 0xffffffff ? ' → ' + boutonAuteur(m.vers) : ''}</div><div class="texte" translate="no">${m.texte ? texteMessageHtml(m.texte, nomNoeud(m.de), m.heure) : '(non conservé)'}</div>${origineMessage(m)}${suiviMessage(m)}</div>`).join('')
     : `<div class="vide">${filtreMessages === 'direct' && !mesNums().size ? 'Aucun module relié à la carte : vos messages directs sont ceux envoyés ou reçus par votre module.' : filtreMessages === 'direct' ? 'Aucun message direct envoyé ou reçu par votre module sur la période.' : filtreMessages ? 'Aucun message dans ce choix sur la période.' : 'Aucun message texte sur la période.'}</div>`;
   epinglerMessages(msgs.map((m) => ({ texte: m.texte, heure: m.heure, qui: nomNoeud(m.de) })));
-  if (etat.admin) $('#messages').querySelectorAll('.message[data-de]').forEach((el) => (el.onclick = () => repondreA(el)));
+  if (etat.admin) $('#messages').querySelectorAll('.message[data-de]').forEach((el) => (el.onclick = (e) => { if (!e.target.closest('[data-auteur]')) repondreA(el); }));
   $('#messages').querySelectorAll('.origines, .suivi-msg').forEach((el) => {
     el.title = 'Voir le parcours du message sur la carte';
     el.onclick = (e) => { e.stopPropagation(); afficherParcours(Number(el.closest('.message').dataset.rowid)); };
   });
 }
+
+// Nom de l'auteur (ou du destinataire) d'un message : un clic ouvre un petit menu (fiche, message direct, carte)
+function boutonAuteur(num) {
+  return `<button type="button" class="auteur-msg" data-auteur="${num >>> 0}" title="Fiche, message direct, position">${esc(nomNoeud(num))}</button>`;
+}
+// Petit menu contextuel ancré sous un élément : items = [[libellé, action], …]
+function ouvrirMenu(ancre, titre, items) {
+  document.querySelectorAll('.menu-noeud').forEach((x) => x.remove());
+  const m = document.createElement('div');
+  m.className = 'menu-noeud';
+  m.setAttribute('role', 'menu');
+  m.innerHTML = `<div class="titre">${titre}</div>${items.map(([l], i) => `<button type="button" role="menuitem" data-i="${i}">${esc(l)}</button>`).join('')}`;
+  document.body.appendChild(m);
+  const b = ancre.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(b.left, innerWidth - m.offsetWidth - 8)) + 'px';
+  m.style.top = (b.bottom + m.offsetHeight + 8 > innerHeight ? Math.max(8, b.top - m.offsetHeight - 4) : b.bottom + 4) + 'px';
+  const fermer = () => { m.remove(); document.removeEventListener('pointerdown', dehors, true); document.removeEventListener('keydown', echap); };
+  const dehors = (e) => { if (!m.contains(e.target)) fermer(); };
+  const echap = (e) => { if (e.key === 'Escape') { fermer(); ancre.focus(); } };
+  setTimeout(() => { document.addEventListener('pointerdown', dehors, true); document.addEventListener('keydown', echap); }, 0);
+  m.onclick = (e) => { const x = e.target.closest('[data-i]'); if (!x) return; fermer(); items[Number(x.dataset.i)][1](); };
+  const premier = m.querySelector('button'); if (premier) premier.focus();
+}
+function menuNoeud(num, ancre) {
+  num = num >>> 0;
+  const n = etat.noeuds.get(num);
+  const moi = etat.radio && etat.radio.noeudLocal === num;
+  const items = [['📇 Fiche du nœud', () => ouvrirFiche(num)]];
+  if (etat.admin && !moi) items.push(['✉️ Message direct', async () => {
+    await preparerEnvoi(num);
+    const f = $('#form-envoi');
+    if (f && !f.hidden) { if (filtreMessages !== 'direct') choisirFiltreMessages('direct'); f.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); f.texte.focus(); }
+  }]);
+  if (n && n.lat != null) items.push(['📍 Voir sur la carte', () => carte.setView([n.lat, n.lon], Math.max(carte.getZoom(), 13))]);
+  ouvrirMenu(ancre, `${esc(nomNoeud(num))} <small>${idHex(num)}</small>`, items);
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-auteur]'); if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  menuNoeud(Number(b.dataset.auteur), b);
+});
 
 // Clic sur un message : le formulaire bascule sur le bon canal (ou en direct vers l'expéditeur) pour répondre
 async function repondreA(el) {

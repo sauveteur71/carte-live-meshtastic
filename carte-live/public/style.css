@@ -1442,3 +1442,9 @@ body.theme-clair .leaflet-control-attribution a[href*="helloasso"] { color: #c01
 .msg-rapides { max-width: 170px; }
 .proprietaire-mc { display: block; color: var(--doux, inherit); white-space: normal; }
 .responsable-noeud { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 6px 0 10px; padding: 6px 10px; border: 1px solid var(--bord, #2a3b37); border-radius: 8px; }
+.auteur-msg { font: inherit; color: inherit; font-weight: 600; background: none; border: 0; border-bottom: 1px dotted currentColor; padding: 0; cursor: pointer; }
+.auteur-msg:hover, .auteur-msg:focus-visible { color: var(--accent); outline: none; }
+.menu-noeud { position: fixed; z-index: 3000; min-width: 190px; background: var(--surface-2); color: var(--texte); border: 1px solid var(--bord); border-radius: 8px; box-shadow: 0 6px 20px #0008; padding: 4px; display: grid; }
+.menu-noeud .titre { padding: 6px 8px; font-weight: 600; border-bottom: 1px solid var(--bord); margin-bottom: 2px; }
+.menu-noeud button { text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 7px 8px; border-radius: 6px; cursor: pointer; }
+.menu-noeud button:hover, .menu-noeud button:focus-visible { background: var(--surface); outline: 2px solid var(--accent); outline-offset: -2px; }

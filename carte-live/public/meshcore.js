@@ -491,8 +491,25 @@ function mcTagRegion(r) {
   if (r === '?') return '<span class="tag-region inconnue" title="Région inconnue de la carte (ajoutez-la à MESHCORE_REGIONS dans le .env)">🏷 région ?</span>';
   return `<span class="tag-region" title="Région « ${esc(r)} » : relayé par les répéteurs qui ont ${esc(r)} dans leur arbre de régions">🏷 ${esc(r)}</span>`;
 }
+// Auteur d'un message MeshCore : bouton qui ouvre fiche, message direct, position. Sur un canal, seul le nom
+// est connu : on retrouve le nœud quand un seul porte ce nom.
+function mcBoutonAuteur(nom, cle) {
+  if (!cle && nom && nom !== '?') { const l = [...mc.noeuds.values()].filter((n) => n.nom === nom); if (l.length === 1) cle = l[0].cle; }
+  return `<button type="button" class="auteur-msg" data-mc-auteur="${esc(cle || '')}" data-mc-nom="${esc(nom || '')}" title="Fiche, message direct, position">${esc(nom || '?')}</button>`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-mc-auteur]'); if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  const cle = b.dataset.mcAuteur, n = cle && mc.noeuds.get(cle);
+  if (!cle) { ouvrirMenu(b, `${esc(b.dataset.mcNom)}`, [['🔎 Chercher ce nom', () => { const c = document.querySelector('#recherche-lieu'); if (c) { c.value = b.dataset.mcNom; c.dispatchEvent(new Event('input')); c.focus(); } }]]); return; }
+  const items = [['📇 Fiche du nœud', () => mcOuvrirFiche(cle)]];
+  if (etat.admin) items.push(['✉️ Message direct', () => { mc.destMessage = 'direct:' + cle; mcRendreMessages().then(() => { const t = $('#mc-texte'); if (t) t.focus(); }); }]);
+  if (n && n.lat != null) items.push(['📍 Voir sur la carte', () => carte.setView([n.lat, n.lon], Math.max(carte.getZoom(), 13))]);
+  ouvrirMenu(b, `${esc(mcNom(cle))} <small>${esc(cle.slice(0, 8))}</small>`, items);
+});
+
 function mcLigneMessage(m) {
-  const qui = m.sens === 'envoye' ? `<b>${esc(m.nomDe || 'moi')}</b>${m.genre === 'direct' ? ` → ${esc(m.nomVers || mcNom(m.vers))}` : ''}` : `<b>${esc(m.nomDe || '?')}</b>${m.genre === 'direct' ? ' → moi' : ''}`;
+  const qui = m.sens === 'envoye' ? `<b>${esc(m.nomDe || 'moi')}</b>${m.genre === 'direct' ? ` → ${mcBoutonAuteur(m.nomVers || mcNom(m.vers), m.vers)}` : ''}` : `${mcBoutonAuteur(m.nomDe || '?', m.genre === 'direct' ? m.de : null)}${m.genre === 'direct' ? ' → moi' : ''}`;
   const lieu = m.genre === 'direct' ? 'Direct' : m.canal || '';
   const nouv = typeof msgNouveaux !== 'undefined' && msgNouveaux.has('mc' + (m.id != null ? m.id : m.heure + (m.nomDe || '')));
   return `<div class="paquet mc message-mc ${m.sens}${nouv ? ' nouveau' : ''}" ${m.genre === 'direct' && m.sens === 'recu' && m.de ? `data-mc-repondre="${m.de}"` : m.genre === 'canal' && m.indexCanal != null ? `data-mc-canal="${m.indexCanal}"` : ''}>
@@ -1861,7 +1878,7 @@ function demarrerMeshcore() {
   // Clic sur un message : répondre (message direct reçu) ou écrire sur son canal
   document.body.addEventListener('click', (e) => {
     const r = e.target.closest('[data-mc-repondre], [data-mc-canal]');
-    if (!r || !etat.admin) return;
+    if (!r || !etat.admin || e.target.closest('[data-mc-auteur]')) return;
     mc.destMessage = r.dataset.mcRepondre ? 'direct:' + r.dataset.mcRepondre : 'canal:' + r.dataset.mcCanal;
     mcRendreMessages().then(() => { const t = $('#mc-texte'); if (t) t.focus(); });
   });

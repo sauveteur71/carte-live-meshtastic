@@ -5,6 +5,7 @@ Onglet **Messages** (administrateur, module radio relié) :
 - choisir un **canal**, ou **✉️ Message direct… (choisir un nœud)** : une recherche par nom, nom court ou `!identifiant`, nœuds récents en tête ;
 - les **correspondants récents** sont proposés directement dans la liste ;
 - un clic sur un message reçu prépare la réponse sur le bon canal (ou en direct à son auteur).
+- un clic sur le **nom de l'auteur** (ou du destinataire) ouvre un petit menu : **📇 Fiche du nœud**, **✉️ Message direct**, **📍 Voir sur la carte**. Sur un canal MeshCore, où seul le nom est connu, la carte retrouve le nœud quand un seul porte ce nom ;
 - **⚡ Message rapide** : textes tout prêts (RAS, Bien reçu, En route, Sur place…), ajoutés d'un clic ; « ✏️ Modifier la liste… » pour mettre les vôtres (gardés dans ce navigateur) ;
 - **@mention** : tapez `@` puis le début d'un nom, choisissez dans la liste ou complétez avec Tab ;
 - **brouillon** : un message commencé est gardé par canal, même après rechargement de la page ;

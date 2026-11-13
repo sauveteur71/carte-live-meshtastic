@@ -146,6 +146,14 @@ async function essaiCarteFrancais(contexte) {
   }).catch((e) => ({ erreur: e.message }));
   if (rp.l && rp.l.personne === 'F4XYZ Essai' && rp.l.contact) ok('responsable d’un nœud enregistré'); else ko('responsable : ' + JSON.stringify(rp).slice(0, 200));
   if (rp.j && Array.isArray(rp.j.lignes)) ok('pour le joindre : réponse valide'); else ko('pour le joindre : ' + JSON.stringify(rp.j).slice(0, 200));
+  // Auteur d'un message cliquable : menu fiche / message direct / carte
+  const menu = await page.evaluate(() => {
+    const d = document.createElement('div'); d.innerHTML = boutonAuteur(305419896); document.body.appendChild(d);
+    d.querySelector('[data-auteur]').click();
+    const m = document.querySelector('.menu-noeud'); const t = m ? m.textContent : '';
+    if (m) m.remove(); d.remove(); return t;
+  }).catch((e) => 'erreur ' + e.message);
+  if (/Fiche du nœud/.test(menu) && /Message direct/.test(menu)) ok('auteur de message : menu fiche et message direct'); else ko('auteur de message : ' + menu);
   await capture(page, 'carte-fr');
   bilanErreurs(erreurs, 'carte en français');
   await page.close();
