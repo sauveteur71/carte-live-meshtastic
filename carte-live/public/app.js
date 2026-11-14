@@ -481,7 +481,20 @@ function afficherVersion(v) {
   el.classList.toggle('maj', !!v.majDisponible);
   el.textContent = v.majDisponible ? `v${v.version} · v${v.derniere} disponible` : `v${v.version}${v.derniere ? ' · à jour' : ''}`;
   el.title = v.majDisponible ? `Nouvelle version v${v.derniere} publiée sur GitHub : cliquez pour ${etat.admin ? 'mettre à jour' : 'voir les nouveautés'}` : v.derniere ? `Version installée v${v.version} — c'est la dernière publiée sur GitHub` : `Version installée v${v.version}`;
-  el.onclick = (e) => { if (!etat.admin) return; e.preventDefault(); ficheMaj(); };
+  // Administrateur : fenêtre de mise à jour en un clic. Sinon (pas connecté, ou mode consultation) : on explique comment
+  // mettre à jour au lieu de partir sur GitHub ; les nouveautés restent accessibles par un lien.
+  el.onclick = (e) => {
+    if (!v.majDisponible && !etat.admin) return;
+    e.preventDefault();
+    if (etat.admin) { ficheMaj(); return; }
+    $('#fiche').hidden = false; etat.selection = null;
+    const consultation = etat.consultation && etat.config.compte;
+    $('#fiche-contenu').innerHTML = `<div class="fiche-maj"><h2>⬆️ Mise à jour de la carte</h2>
+      <div class="grille"><div class="mesure"><span>Installée</span><b>v${esc(v.version)}</b></div><div class="mesure"><span>Dernière publiée</span><b>v${esc(v.derniere || '?')}</b></div></div>
+      <p class="note">${consultation ? 'Vous êtes en mode consultation : ouvrez la carte normale pour mettre à jour en un clic.' : 'La mise à jour en un clic est réservée à l’administrateur : connectez-vous avec un compte administrateur.'} <a href="${esc(v.url)}" target="_blank" rel="noopener">Voir les nouveautés</a></p>
+      <div class="actions-prop">${consultation ? '<a class="bouton principal" href="/">Ouvrir la carte normale</a>' : '<button type="button" class="principal" id="maj-connexion">Se connecter</button>'}</div></div>`;
+    const b = $('#maj-connexion'); if (b) b.onclick = () => { const c = $('#btn-admin'); if (c) c.click(); };
+  };
 }
 // ---- Mise à jour de la carte en un clic (administrateur) ---------------------------------------------------
 async function ficheMaj() {
