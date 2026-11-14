@@ -181,6 +181,8 @@ function tuilesAccueil() {
   ];
   // Signalements masqués par l'administrateur : la tuile mène à la vigilance météo
   if (typeof masquee === 'function' && masquee('signalements')) t[2] = { ic: '🌦️', nom: 'Alertes météo', aide: 'Vigilance Météo-France en cours', go: () => ficheAlertesOff() };
+  // Consultation : pas d'écriture ni de signalement ; à la place, les alertes officielles en lecture
+  if (etat.consultation) { t.splice(1, 2, { ic: '🌦️', nom: 'Alertes officielles', aide: 'Vigilance météo, feux actifs', go: () => ficheAlertesOff() }); }
   if (etat.gestion) t.push({ ic: '🛠', nom: 'Gérer mes nœuds', aide: 'Programmer, équipes, positions', go: () => allerGroupe('gerer') });
   t.push({ ic: '⚙️', nom: etat.membre ? 'Régler la carte' : 'Se connecter, affichage', aide: etat.admin ? 'Tous les réglages au même endroit' : 'Compte, affichage, aide', go: () => allerGroupe('reglages') });
   return t;

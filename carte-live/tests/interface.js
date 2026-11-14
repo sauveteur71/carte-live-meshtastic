@@ -202,6 +202,25 @@ async function essaiAnglais(contexte) {
   await page.close();
 }
 
+// Mode consultation (lien « Explorer en détail ») : même connecté en administrateur, rien à modifier ni à émettre
+async function essaiConsultation(contexte) {
+  console.log('Carte détaillée en consultation (compte administrateur connecté)');
+  const { page, erreurs } = await ouvrir(contexte, '/?consultation&vue=45.1,3.9,12');
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  const r = await page.evaluate(() => ({
+    bandeau: !!document.querySelector('.bandeau-consultation'),
+    admin: etat.admin || etat.gestion || etat.membre,
+    gerer: !!document.querySelector('[data-groupe="gerer"]') && !!document.querySelector('[data-groupe="gerer"]').offsetParent,
+    connecter: !!document.querySelector('#outil-connecter') && !!document.querySelector('#outil-connecter').offsetParent,
+    zoom: carte.getZoom(),
+  }));
+  if (r.bandeau && !r.admin && !r.gerer && !r.connecter) ok('consultation : bandeau affiché, aucun droit ni bouton de modification'); else ko('consultation : ' + JSON.stringify(r));
+  if (r.zoom === 12) ok('consultation : même vue que la carte publique'); else ko('consultation : zoom ' + r.zoom + ' au lieu de 12');
+  await capture(page, 'consultation');
+  bilanErreurs(erreurs, 'consultation');
+  await page.close();
+}
+
 async function essaiPagesPubliques(navig) {
   for (const [url, nom, attendu] of [['/publique.html', 'carte publique', '#carte .leaflet-pane, .leaflet-pane'], ['/topologie.html', 'graphe des liens', 'svg, canvas']]) {
     console.log(nom[0].toUpperCase() + nom.slice(1) + ' (visiteur)');
@@ -209,6 +228,7 @@ async function essaiPagesPubliques(navig) {
     await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); } catch { /* */ } });
     const { page, erreurs } = await ouvrir(contexte, url);
     if (await page.locator(attendu).count()) ok(`${nom} affichée`); else ko(`${nom} : contenu absent`);
+    if (url === '/publique.html') { const h = await page.getAttribute('#lien-explorer', 'href').catch(() => null); if (h && h.startsWith('/?consultation&vue=')) ok('carte publique : lien « Explorer en détail »'); else ko('carte publique : lien d’exploration ' + h); }
     await capture(page, nom.replace(/ /g, '-'));
     bilanErreurs(erreurs, nom);
     await contexte.close();
@@ -227,6 +247,7 @@ async function essaiPagesPubliques(navig) {
     await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); if (!localStorage.getItem('gaulix_langue')) localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
     await essaiCarteFrancais(contexte);
     await essaiAnglais(contexte);
+    await essaiConsultation(contexte);
     await contexte.close();
     await essaiPagesPubliques(navigateur);
     code = echecs ? 1 : 0;

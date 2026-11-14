@@ -1448,3 +1448,6 @@ body.theme-clair .leaflet-control-attribution a[href*="helloasso"] { color: #c01
 .menu-noeud .titre { padding: 6px 8px; font-weight: 600; border-bottom: 1px solid var(--bord); margin-bottom: 2px; }
 .menu-noeud button { text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 7px 8px; border-radius: 6px; cursor: pointer; }
 .menu-noeud button:hover, .menu-noeud button:focus-visible { background: var(--surface); outline: 2px solid var(--accent); outline-offset: -2px; }
+.bandeau-consultation { position: fixed; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 1200; background: var(--surface-2); color: var(--texte); border: 1px solid var(--accent); border-radius: 99px; padding: 5px 14px; font-size: 13px; max-width: calc(100vw - 32px); text-align: center; box-shadow: 0 4px 14px #0007; }
+.bandeau-consultation a { color: var(--accent); }
+body.consultation #outil-connecter, body.consultation #outil-companion-mc, body.consultation [data-groupe="gerer"] { display: none !important; }

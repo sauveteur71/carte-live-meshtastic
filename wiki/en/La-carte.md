@@ -54,7 +54,9 @@ Node card, **Information** tab: **👤 Person in charge**, the person responsibl
 
 A public page (no messages or exact positions of private individuals) can be shared: *Tools › Share*. It is for viewing the network, without being able to change anything.
 - Each visitor chooses the **area** shown: the map's department, with its neighbours, a region, any department or the whole of France. Nodes, links, figures and animations follow. By default, coverage computations (coverage, where to place relays, point coverage) stay on the map's department: elsewhere, the public map is a light network map. The administrator can open them to **all departments** (*Manage › Settings › Public map and terrain*): a department's terrain is then loaded at the first computation, or in advance with **Tools › 🗺️ Whole of France › ⬇ Download and install** (can be stopped at any time, ≈ 250 MB on disk). Preparation first installs the “France terrain” package published on GitHub (`relief-france` release, ≈ 110 MB), then completes department by department. **📦 Build the package** produces this file from a map that has prepared everything. Sources: IGN RGE ALTI terrain (Licence Ouverte Etalab), high points, access and sites © OpenStreetMap contributors (ODbL).
-- The title follows the chosen network and area. The link to the full map only appears to logged-in administrators.
+- The title follows the chosen network and area.
+- **🧭 Explore in detail** opens the full map **read-only**, on the same view: node cards (neighbours, “how to reach it”, history), all layers, links, coverage and area studies, profiles, official alerts and active fires. Nothing can be changed: no report, message, radio request (position, traceroute, “who hears me”), administration or module to link, even for a signed-in account. A banner says so, with a way back to the simple map. Direct link: `/?consultation`.
+- The link to the full map (administration) only appears to logged-in administrators.
 
 ## Favorites and “My nodes”
 In a node's sheet, Meshtastic or MeshCore (logged-in account):

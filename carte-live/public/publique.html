@@ -8,6 +8,8 @@
   <style>
     .soutien { display: inline-block; padding: 3px 10px; border-radius: 99px; background: #ff4f8b; color: #fff !important; font-weight: 700; font-size: 12px; text-decoration: none; }
     .soutien:hover { background: #ff2f75; }
+    .explorer { display: inline-block; padding: 6px 14px; border-radius: 8px; background: #3ee6c4; color: #06120f !important; font-weight: 700; font-size: 14px; text-decoration: none; }
+    .explorer:hover, .explorer:focus-visible { background: #6ff0d6; outline: 2px solid #fff; outline-offset: 2px; }
     .leaflet-control-attribution a[href*="helloasso"] { color: #ff6fa3 !important; font-weight: 700; }
     :root { --fond: #0b1118; --surface: rgba(17,26,36,.92); --texte: #e8eef5; --doux: #9fb0c2; --accent: #3ee6c4; --bord: #22303f; }
     html, body { margin: 0; height: 100%; background: var(--fond); color: var(--texte); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -83,6 +85,7 @@
       <button class="bascule" id="b-sites" title="Points hauts où de nouveaux relais étendraient le plus la couverture">🎯 Où poser des relais ?</button>
       <button class="bascule" id="b-point" title="Cliquez ensuite n’importe où sur la carte : zone couverte par une antenne placée à cet endroit">📍 Couverture d’un point</button>
     </div>
+    <div class="reseaux"><a class="explorer" id="lien-explorer" href="/?consultation" title="Toute la carte en lecture : fiches des nœuds, couches, liaisons, couverture et études de zone, alertes. Rien ne peut y être modifié ni envoyé par radio">🧭 Explorer en détail</a></div>
     <div class="reseaux"><a class="soutien" href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener" title="Le programme est gratuit : un don au Radio-club du Velay aide à le faire vivre">♥ Soutenir le projet</a></div>
     <small id="note-couv" hidden></small>
     <div id="info-couv" class="info-couv" hidden></div>
@@ -90,7 +93,7 @@
   <div class="legende">
     <span class="l-mt"><i style="background:#60a5fa;border-radius:1px"></i>relais<i style="background:#3ee6c4;border-radius:1px"></i>passerelle<i style="background:#c084fc"></i>nœud (position approchée)</span>
     <span class="l-mc"><i style="background:#f97316;border-radius:2px"></i>répéteur MeshCore<i style="background:#fbbf24;border-radius:2px"></i>room server</span>
-    <span id="lien-complet" hidden>· <a href="/" target="_blank" rel="noopener">carte complète</a></span>
+    <span id="lien-complet" hidden>· <a href="/" target="_blank" rel="noopener">carte complète (administration)</a></span>
   </div>
   <script src="/langue.js"></script>
   <script src="/vendor/leaflet/leaflet.js"></script>

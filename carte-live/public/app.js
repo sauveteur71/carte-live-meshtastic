@@ -7147,10 +7147,21 @@ async function installation() {
 
 async function demarrer() {
   etat.config = await api('/api/config');
+  // Mode consultation (?consultation, lien « Explorer en détail » de la carte publique) : tout en lecture, aucune
+  // action d'écriture ni d'émission radio, même pour un compte connecté. Le serveur refuse de toute façon ces
+  // actions à un visiteur ; ici on retire aussi les boutons.
+  etat.consultation = new URLSearchParams(location.search).has('consultation');
+  if (etat.consultation) { etat.config.admin = false; etat.config.gestion = false; etat.config.membre = false; document.body.classList.add('consultation'); }
   etat.admin = etat.config.admin;
   etat.gestion = !!etat.config.gestion;
   etat.secteur = etat.admin ? null : (etat.config.compte && etat.config.compte.noeuds) || [];
   etat.membre = etat.config.membre;
+  if (etat.consultation) {
+    const b = document.createElement('div');
+    b.className = 'bandeau-consultation';
+    b.innerHTML = `👁️ Consultation : tout se lit, rien ne se modifie ni ne s’envoie par radio. <a href="/publique">Carte simple</a>${etat.config.compte ? ' · <a href="/">Mon espace</a>' : ''}`;
+    document.body.appendChild(b);
+  }
   document.title = etat.config.titre;
   setTimeout(() => { try { appliquerFonctionsMasquees(); } catch { /* carte pas encore prête */ } }, 0);
   // Couches : masquées par défaut sur cette carte (CARTE_COUCHES_MASQUEES), puis choix du visiteur
@@ -7198,6 +7209,8 @@ async function demarrer() {
   connecterWs();
   // Lien direct vers la fiche d'un nœud (?noeud=NUM, ex. depuis la page Topologie)
   { const pn = Number(new URLSearchParams(location.search).get('noeud')) >>> 0; if (pn && etat.noeuds.has(pn)) setTimeout(() => ouvrirFiche(pn), 300); }
+  // ?vue=lat,lon,zoom (lien « Explorer en détail » de la carte publique) : reprendre la même vue
+  { const v = (new URLSearchParams(location.search).get('vue') || '').split(',').map(Number); if (v.length === 3 && v.every(Number.isFinite)) setTimeout(() => carte.setView([v[0], v[1]], v[2]), 200); }
   if (typeof demarrerMeshcore === 'function') demarrerMeshcore();
   chargerRelief();
   chargerAsymetrie(); setInterval(chargerAsymetrie, 120000);
