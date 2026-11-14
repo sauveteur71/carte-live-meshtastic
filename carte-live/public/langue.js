@@ -29,7 +29,7 @@
         let src = '^' + echap(parts[0]);
         for (let i = 1; i < parts.length; i++) src += (parts[i - 1] === '' && i > 1 ? '()' : /[a-zà-ÿ]$/i.test(parts[i - 1]) ? '(\\S{0,12}?)' : '([\\s\\S]*?)') + echap(parts[i]);
         const re = new RegExp(src + '$');
-        const cle = (parts[0].match(/^\S+/) || [''])[0];
+        const cle = (parts[0].match(/^(\S+)\s/) || ['', ''])[1]; // premier mot complet seulement (« ({} détections) » : aucun)
         if (!motifs.has(cle)) motifs.set(cle, []);
         motifs.get(cle).push({ re, en, morceaux: parts.filter((x) => x.trim()), poids: fr.replace(/\{\}/g, '').length });
       } else {

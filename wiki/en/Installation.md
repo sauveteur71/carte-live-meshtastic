@@ -57,6 +57,8 @@ Each visitor can then change the base map and layers in *Layers ▾*. Their choi
 
 > ⚠️ Check the spelling of the broker address: a typo such as `mqttexample.org` instead of `mqtt.example.org` gives a looping `getaddrinfo ENOTFOUND` error in the log.
 
+**Log language**: `LANGUE=en` makes the server log (`docker compose logs`) English; the interface follows each browser's language. `.env` values can be written in French or English (`oui`/`yes`, `non`/`no`, `CARTE_FOND=sombre` or `dark`, `CARTE_RESEAUX=les-deux` or `both`, `MESHCORE_PERIMETRE=voisins` or `neighbours`).
+
 ## 3. The setup wizard
 
 Open `http://SERVER_IP:8095`. The wizard creates the **admin account** and sets the department, the broker and the channels.

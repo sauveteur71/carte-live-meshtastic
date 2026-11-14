@@ -43,6 +43,9 @@ jobs:
       - name: Tests du décodage radio (Meshtastic, MeshCore, DFCI, passerelle)
         working-directory: carte-live
         run: node --test tests/radio.js
+      - name: Textes du serveur traduits en anglais (journal, erreurs, diagnostic, alertes)
+        working-directory: carte-live
+        run: npm i --no-save acorn@8.14.0 acorn-walk@8.3.4 && node outils/textes-serveur.js
       - name: Tests de l'interface
         working-directory: carte-live
         run: node tests/interface.js

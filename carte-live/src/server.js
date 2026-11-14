@@ -9,6 +9,9 @@ const crypto = require('crypto');
 const express = require('express');
 const mqtt = require('mqtt');
 const { WebSocketServer } = require('ws');
+// Langue du journal : LANGUE=en (ou la langue par défaut de l'édition, champ langueServeur de package.json)
+const LANGUE_SERVEUR = String(process.env.LANGUE || require('../package.json').langueServeur || 'fr').toLowerCase().startsWith('en') ? 'en' : 'fr';
+require('./traduction').installerJournal(LANGUE_SERVEUR);
 
 // Restauration d'une sauvegarde complète préparée avant le redémarrage : appliquée avant de lire les réglages et la base
 {
@@ -174,7 +177,7 @@ const DEPOT = process.env.DEPOT_GITHUB || 'sauveteur71/carte-live-meshtastic';
 const majDispo = { version: null, url: null, verifie: 0, erreur: null };
 const comparerVersions = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); } return 0; };
 async function verifierDerniereVersion() {
-  if (process.env.VERIFIER_MAJ === '0') return;
+  if (/^(0|non|no|false|off)$/i.test(String(process.env.VERIFIER_MAJ || ''))) return;
   try {
     const r = await fetch(`https://api.github.com/repos/${DEPOT}/releases/latest`, { headers: { 'User-Agent': 'carte-live/' + VERSION, Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10000) });
     if (!r.ok) throw new Error('HTTP ' + r.status);

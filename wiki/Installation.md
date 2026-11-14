@@ -55,6 +55,8 @@ Chaque visiteur peut ensuite changer de fond et de couches dans *Couches ▾*. S
 
 > ⚠️ Vérifiez l'orthographe de l'adresse du broker : `mqttgaulix.fr` au lieu de `mqtt.gaulix.fr` donne une erreur `getaddrinfo ENOTFOUND` en boucle dans le journal.
 
+**Langue du journal** : `LANGUE=en` fait sortir le journal du serveur (`docker compose logs`) en anglais ; l'interface suit, elle, la langue de chaque navigateur. Les valeurs du `.env` s'écrivent en français ou en anglais (`oui`/`yes`, `non`/`no`, `CARTE_FOND=sombre` ou `dark`, `CARTE_RESEAUX=les-deux` ou `both`, `MESHCORE_PERIMETRE=voisins` ou `neighbours`).
+
 ## 3. L'assistant d'installation
 
 Ouvrez `http://IP_DU_SERVEUR:8095`. L'assistant crée le **compte administrateur** et règle le département, le broker et les canaux.

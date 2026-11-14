@@ -8,9 +8,21 @@ function nombre(nom, defaut) {
   return Number.isFinite(n) ? n : defaut;
 }
 
+// Valeurs anglaises acceptées dans le .env (édition monde) : yes/no/true/false/on/off, et pour les listes de choix
+// les équivalents anglais des valeurs françaises (dark → sombre, both → les-deux…)
+const ALIAS_OUI_NON = { yes: 'oui', y: 'oui', true: 'oui', on: 'oui', no: 'non', n: 'non', false: 'non', off: 'non' };
+const ALIAS_VALEURS = {
+  CARTE_FOND: { dark: 'sombre', map: 'plan', 'dark-map': 'plan-sombre', 'map-dark': 'plan-sombre', satellite: 'photos', aerial: 'photos', topographic: 'topo' },
+  CARTE_RESEAUX: { both: 'les-deux', all: 'les-deux' },
+  MESHCORE_PERIMETRE: { department: 'departement', area: 'departement', neighbours: 'voisins', neighbors: 'voisins', nationwide: 'national', country: 'national' },
+};
 function texte(nom, defaut = '') {
   const v = process.env[nom];
-  return v === undefined || v === '' ? defaut : v;
+  if (v === undefined || v === '') return defaut;
+  const b = String(v).trim().toLowerCase();
+  if (ALIAS_VALEURS[nom] && ALIAS_VALEURS[nom][b]) return ALIAS_VALEURS[nom][b];
+  if (ALIAS_OUI_NON[b]) return ALIAS_OUI_NON[b];
+  return v;
 }
 
 // CANAUX="Fr_Balise=AQ==;D_HauteLoir=AQ==;..."  (nom=clé base64, séparés par ; ou retour ligne)
