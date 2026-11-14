@@ -14,7 +14,7 @@ RUN set -e; mkdir -p /out; \
     CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="-s -w" -o /out/agent-gaulix-raspberrypi-armv7 .
 
 # 2. Service Node.js
-FROM node:22-bookworm-slim
+FROM node:25-bookworm-slim
 ENV NODE_ENV=production \
     PORT=8095 \
     FICHIER_BASE=/data/carte-live.db \
