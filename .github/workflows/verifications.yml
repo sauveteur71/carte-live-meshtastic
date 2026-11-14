@@ -39,13 +39,13 @@ jobs:
           cache-dependency-path: carte-live/package-lock.json
       - name: Dépendances
         working-directory: carte-live
-        run: npm ci --omit=dev && npm i --no-save playwright && npx playwright install --with-deps chromium
+        run: npm ci --omit=dev && npm i --no-save playwright acorn@8.14.0 acorn-walk@8.3.4 && npx playwright install --with-deps chromium
       - name: Tests du décodage radio (Meshtastic, MeshCore, DFCI, passerelle)
         working-directory: carte-live
         run: node --test tests/radio.js
       - name: Textes du serveur traduits en anglais (journal, erreurs, diagnostic, alertes)
         working-directory: carte-live
-        run: npm i --no-save acorn@8.14.0 acorn-walk@8.3.4 && node outils/textes-serveur.js
+        run: node outils/textes-serveur.js
       - name: Tests de l'interface
         working-directory: carte-live
         run: node tests/interface.js
