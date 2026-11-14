@@ -20,7 +20,7 @@ jobs:
         run: |
           v=$(node -p "require('./carte-live/package.json').version")
           grep -q "Version actuelle : $v" README.md || { echo "README.md : indiquer « Version actuelle : $v »"; exit 1; }
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.24'
       - name: Agent
