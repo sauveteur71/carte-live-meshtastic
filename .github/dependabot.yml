@@ -12,6 +12,8 @@ updates:
     ignore:
       - dependency-name: leaflet # 2.0 change l'API : migration à faire à la main
         update-types: [version-update:semver-major]
+      - dependency-name: better-sqlite3 # 13 : pas de binaire tout prêt pour Node 22 ARM64 (Raspberry Pi), l'image ne se construirait plus
+        update-types: [version-update:semver-major]
   - package-ecosystem: gomod
     directory: /agent
     schedule: { interval: weekly, day: monday }
@@ -21,3 +23,6 @@ updates:
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly, day: monday }
+    ignore:
+      - dependency-name: node # rester sur une version LTS de Node (22) : changement de version à faire à la main
+        update-types: [version-update:semver-major]
