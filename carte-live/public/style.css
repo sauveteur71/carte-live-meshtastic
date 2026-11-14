@@ -1363,6 +1363,7 @@ body.theme-clair .bulle-visite { background: #fff; color: #0f172a; }
 .puce-canal.vient { animation: puce-vient 1s ease-in-out 4; }
 @keyframes puce-vient { 50% { transform: scale(1.08); box-shadow: 0 0 12px var(--coul); } }
 .puce-canal.tous .nb { background: var(--ok); color: #04121a; }
+.puce-canal.tout-lu { border-style: dashed; opacity: .9; }
 /* Canal de chaque message, en couleur, et messages arrivés depuis la dernière lecture */
 .canal-msg { --coul: var(--doux); color: var(--coul); }
 b.canal-msg { padding: 0 6px; border-radius: 4px; background: color-mix(in srgb, var(--coul) 16%, transparent); }

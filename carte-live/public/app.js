@@ -1406,32 +1406,51 @@ async function afficherParcours(rowid) {
 const lireLs = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? d; } catch { return d; } };
 const ecrireLs = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* navigation privée */ } };
 const nonLus = lireLs('gaulix_non_lus', {}); // clé : 'c:<canal>' ou 'direct' -> nombre
-const sons = { canaux: {}, direct: true, notifDirect: true, ...lireLs('gaulix_sons', {}) };
+const sons = { canaux: {}, direct: true, notifDirect: true, force: 2, ...lireLs('gaulix_sons', {}) };
 const cleMessage = (m) => (m.vers != null && m.vers !== 0xffffffff ? 'direct' : 'c:' + String(m.canal || '?').toLowerCase());
 const ongletMessagesVisible = () => !document.hidden && !!document.querySelector('.onglets button[data-onglet="messages"].actif');
 // Ce que la liste affichée montre (et que l'utilisateur a donc sous les yeux)
-const filtreVoit = (k) => !filtreMessages || (filtreMessages === 'direct' ? k === 'direct' : k === 'c:' + filtreMessages.slice(2).toLowerCase());
-let contexteAudio = null;
-function bip(frequences, duree = 0.13) {
+const listeMontre = (k) => !filtreMessages || (filtreMessages === 'direct' ? k === 'direct' : k === 'c:' + filtreMessages.slice(2).toLowerCase());
+// Ce qui vaut lecture : un canal (ou les directs) ouvert seul. « Tous les canaux » garde les compteurs de chaque canal,
+// pour voir d'un coup d'œil où sont les nouveaux messages (bouton « ✓ Tout lu » pour les remettre à zéro).
+const filtreVoit = (k) => !!filtreMessages && listeMontre(k);
+let contexteAudio = null, sortieAudio = null;
+// Force des sons : 1 discret (un bip doux), 2 fort (bip-bip net, par défaut), 3 très fort (trois salves stridentes + vibration)
+const FORCES_SON = { 1: { onde: 'sine', gain: 0.3, fois: 1 }, 2: { onde: 'triangle', gain: 0.8, fois: 2 }, 3: { onde: 'square', gain: 0.55, fois: 3 } };
+function bip(frequences, duree = 0.13, force = sons.force) {
   try {
+    const f0 = FORCES_SON[force] || FORCES_SON[2];
     contexteAudio = contexteAudio || new (window.AudioContext || window.webkitAudioContext)();
-    let t = contexteAudio.currentTime;
-    for (const f of frequences) {
-      const o = contexteAudio.createOscillator(), g = contexteAudio.createGain();
-      o.type = 'sine'; o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + duree);
-      o.connect(g).connect(contexteAudio.destination); o.start(t); o.stop(t + duree + 0.02);
-      t += duree + 0.04;
+    if (contexteAudio.state === 'suspended') contexteAudio.resume();
+    if (!sortieAudio) { // compresseur : un son plus fort sans saturer les haut-parleurs
+      sortieAudio = contexteAudio.createDynamicsCompressor();
+      sortieAudio.threshold.value = -18; sortieAudio.ratio.value = 6;
+      sortieAudio.connect(contexteAudio.destination);
     }
+    let t = contexteAudio.currentTime;
+    for (let r = 0; r < f0.fois; r++) {
+      for (const f of frequences) {
+        const o = contexteAudio.createOscillator(), g = contexteAudio.createGain();
+        o.type = f0.onde; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(f0.gain, t + 0.01);
+        g.gain.setValueAtTime(f0.gain, t + duree * 0.6); g.gain.exponentialRampToValueAtTime(0.0001, t + duree);
+        o.connect(g).connect(sortieAudio); o.start(t); o.stop(t + duree + 0.02);
+        t += duree + 0.035;
+      }
+      t += 0.12;
+    }
+    if (force >= 3 && navigator.vibrate) navigator.vibrate([200, 100, 200]);
   } catch { /* son indisponible */ }
 }
-// Une note différente par canal (déduite de son nom), deux notes montantes pour un message direct
+// Une note différente par canal (déduite de son nom), trois notes montantes pour un message direct
 const NOTES = [523, 587, 659, 698, 784, 880, 988, 1047];
 const noteCanal = (nom) => NOTES[[...String(nom).toLowerCase()].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % NOTES.length];
+const sonCanal = (nom) => bip([noteCanal(nom), noteCanal(nom) * 1.5], 0.14);
+const sonDirect = () => bip([880, 1320, 1760], 0.13, Math.max(2, sons.force || 2));
 function sonner(k) {
-  if (k === 'direct') { if (sons.direct) bip([880, 1320, 1760], 0.12); return; }
+  if (k === 'direct') { if (sons.direct) sonDirect(); return; }
   const nom = k.slice(2);
-  if (sons.canaux[nom]) bip([noteCanal(nom)], 0.18);
+  if (sons.canaux[nom]) sonCanal(nom);
 }
 // Mes nœuds pour les messages directs : module principal et modules en écoute reliés à la carte
 function mesNums() {
@@ -1497,11 +1516,16 @@ function reglerSons(canaux) {
   z.dataset.ouvert = z.hidden ? '0' : '1';
   if (z.hidden) return;
   z.innerHTML = `<p class="note">Un bip différent par canal coché, et une alerte (trois notes) pour un message direct reçu par le module de la carte. Le son ne marche qu’après un premier clic dans la page.</p>
+    <label>Force des sons <select id="son-force">
+      <option value="1" ${sons.force == 1 ? 'selected' : ''}>Discret : un bip doux</option>
+      <option value="2" ${sons.force == 2 ? 'selected' : ''}>Fort : bip-bip net</option>
+      <option value="3" ${sons.force == 3 ? 'selected' : ''}>Très fort : trois salves stridentes (+ vibration du téléphone)</option></select></label>
     ${canaux.map((c) => `<label class="case"><input type="checkbox" data-son="${esc(c)}" ${sons.canaux[c.toLowerCase()] ? 'checked' : ''}> 📢 ${esc(c)} <button type="button" class="mini" data-test-son="c:${esc(c.toLowerCase())}">▶</button></label>`).join('')}
     <label class="case"><input type="checkbox" id="son-direct" ${sons.direct ? 'checked' : ''}> ✉️ Messages directs <button type="button" class="mini" data-test-son="direct">▶</button></label>
     <label class="case"><input type="checkbox" id="notif-direct" ${sons.notifDirect ? 'checked' : ''}> Notification de Windows / du téléphone pour un message direct (onglet en arrière-plan)</label>`;
   z.querySelectorAll('[data-son]').forEach((c) => (c.onchange = () => { sons.canaux[c.dataset.son.toLowerCase()] = c.checked; ecrireLs('gaulix_sons', sons); }));
-  z.querySelectorAll('[data-test-son]').forEach((b) => (b.onclick = (e) => { e.preventDefault(); const k = b.dataset.testSon; if (k === 'direct') bip([880, 1320, 1760], 0.12); else bip([noteCanal(k.slice(2))], 0.18); }));
+  z.querySelectorAll('[data-test-son]').forEach((b) => (b.onclick = (e) => { e.preventDefault(); const k = b.dataset.testSon; if (k === 'direct') sonDirect(); else sonCanal(k.slice(2)); }));
+  $('#son-force').onchange = (e) => { sons.force = Number(e.target.value); ecrireLs('gaulix_sons', sons); sonCanal('essai'); };
   $('#son-direct').onchange = (e) => { sons.direct = e.target.checked; ecrireLs('gaulix_sons', sons); };
   $('#notif-direct').onchange = async (e) => {
     sons.notifDirect = e.target.checked; ecrireLs('gaulix_sons', sons);
@@ -1578,9 +1602,15 @@ function barreCanauxHtml(reseau, filtre) {
       + `${x.seul ? '' : `<span class="reseau ${x.r}">${x.r === 'mc' ? 'MC' : 'MT'}</span>`}${x.ic} ${esc(x.nom)}${n ? `<b class="nb">${n}</b>` : ''}${n && t ? `<small>${ilYa(t)}</small>` : ''}</button>`;
   };
   return `<div class="barre-canaux" role="toolbar" aria-label="Canaux : ceux qui ont des messages en attente sont en tête">`
-    + `<button type="button" class="puce-canal tous${!filtre ? ' actif' : ''}" data-puce-r="${reseau}" data-puce-v="">Tous${tot ? `<b class="nb">${tot}</b>` : ''}</button>${el.map(puce).join('')}</div>`;
+    + `<button type="button" class="puce-canal tous${!filtre ? ' actif' : ''}" data-puce-r="${reseau}" data-puce-v="">Tous${tot ? `<b class="nb">${tot}</b>` : ''}</button>${tot ? `<button type="button" class="puce-canal tout-lu" data-tout-lu="${reseau}" title="Remettre à zéro les compteurs de nouveaux messages">✓ Tout lu</button>` : ''}${el.map(puce).join('')}</div>`;
 }
 function brancherBarreCanaux(z) {
+  z.querySelectorAll('[data-tout-lu]').forEach((b) => (b.onclick = () => {
+    const mcr = b.dataset.toutLu === 'mc';
+    for (const k of Object.keys(nonLus)) if (k.startsWith('mc') === mcr) delete nonLus[k];
+    ecrireLs('gaulix_non_lus', nonLus); majBadgesMessages();
+    if (mcr) { if (typeof mcRendreMessages === 'function') mcRendreMessages(); } else rendreMessages();
+  }));
   z.querySelectorAll('[data-puce-r]').forEach((b) => (b.onclick = () => {
     const r = b.dataset.puceR, v = b.dataset.puceV;
     if (r === 'mc') { choisirFiltreMc(v); if (typeof cliquerOnglet === 'function' && !(document.querySelector('[data-vue="meshcore"]') || {}).classList?.contains('actif')) cliquerOnglet('meshcore', 'messages'); else mcRendreMessages(); }
@@ -2207,7 +2237,7 @@ function rendreMessages() {
   const avantLecture = ongletMessagesVisible() ? { ...nonLus } : {};
   marquerLus(); // le canal affiché est lu : ses compteurs repartent de zéro avant d'être dessinés
   const local0 = etat.radio ? etat.radio.noeudLocal : null;
-  marquerNouveaux(tous.filter((m) => filtreVoit(cleMessage(m))), cleMessage, (m) => 'mt' + m.rowid, (m) => m.de !== local0, avantLecture);
+  marquerNouveaux(tous.filter((m) => listeMontre(cleMessage(m))), cleMessage, (m) => 'mt' + m.rowid, (m) => m.de !== local0, avantLecture);
   const zf = $('#filtre-messages');
   if (zf) {
     zf.innerHTML = barreCanauxHtml('mt', filtreMessages) + `<label title="Le canal choisi est celui que vous lisez et celui où vous écrivez">Canal <select id="sel-filtre-messages">
@@ -6824,7 +6854,9 @@ async function rendreFrance() {
     <div class="actions-prop">${p.enCours ? '<button class="mini" id="fr-stop">⏹ Arrêter la préparation</button>' : '<button class="mini principal" id="fr-go" title="Installe le paquet « relief France » puis complète département par département ; la carte publique passe ensuite d’elle-même en « tous les départements »">⬇ Télécharger et installer toute la France</button>'}<span class="note">Relief prêt sur le serveur : <b>${r.surDisque}</b> <span>sur ${r.total} départements</span></span></div>
     ${p.enCours ? `<div class="alerte info-lecture"><span class="sablier"></span> Préparation en cours : ${p.faits}/${p.total} départements${p.courant ? ` · département ${esc(p.courant === 'paquet' ? 'paquet GitHub' : p.courant)}${p.etape ? ' : ' + esc(p.etape) : ''}` : p.etape ? ' · ' + esc(p.etape) : ''} · ${duree} min${p.faits > p.deja + 1 && p.total > p.faits ? `, encore ≈ ${Math.round(((Date.now() - p.debut) / 60000 / Math.max(1, p.faits - p.deja)) * (p.total - p.faits) / 60)} h` : ''}. Elle continue même si vous fermez cette page.</div>` : p.fin ? `<p class="note">Dernière préparation : ${p.faits}/${p.total} départements en ${duree} min${p.erreurs.length ? `, ${p.erreurs.length} erreur(s) : ${p.erreurs.slice(0, 5).map((x) => esc(x.code + ' ' + x.erreur)).join(' ; ')}` : ''}.${p.aCompleter && p.aCompleter.length ? ` Points hauts OpenStreetMap manquants pour ${p.aCompleter.length} département(s) (${esc(p.aCompleter.slice(0, 12).join(', '))}${p.aCompleter.length > 12 ? '…' : ''}) : relancez la préparation plus tard, seuls ceux-là seront repris.` : ''}</p>` : ''}
     <p class="note">La préparation installe d’abord le paquet « relief France » publié sur GitHub (≈ 110 Mo, quelques minutes), puis télécharge département par département ce qui manque encore : relief IGN, points hauts, voies d’accès et sites (OpenStreetMap). Sans paquet, comptez plusieurs heures. Environ 250 Mo sur le disque. Les départements déjà prêts sont sautés.</p>
-    <div class="actions-prop"><a class="mini bouton-lien" href="/api/relief/france/paquet" download>📦 Fabriquer le paquet « relief France »</a><span class="note">tous les départements prêts sur ce serveur, en un fichier tar.gz, à publier sur GitHub (version « relief-france »)</span></div>`;
+    <details class="note"><summary>Pour le mainteneur du projet : exporter le paquet « relief France »</summary>
+      <p>Inutile pour faire marcher votre carte. Ce bouton rassemble en un seul fichier (tar.gz) le relief de tous les départements déjà prêts sur ce serveur, pour le publier sur GitHub comme paquet « relief-france » : c’est ce paquet que les autres cartes téléchargent avec le bouton ci-dessus.</p>
+      <div class="actions-prop"><a class="mini bouton-lien" href="/api/relief/france/paquet" download>📦 Exporter le paquet (tar.gz)</a></div></details>`;
   $('#fr-couv').onchange = async (e) => { try { await postJson('/api/relief/france', { couverture: e.target.value }); } catch (x) { alert(x.message); } rendreFrance(); };
   const go = $('#fr-go'); if (go) go.onclick = async () => { try { await postJson('/api/relief/france', { precharger: true, activer: true }); } catch (x) { alert(x.message); } setTimeout(rendreFrance, 800); };
   const st = $('#fr-stop'); if (st) st.onclick = async () => { try { await postJson('/api/relief/france', { precharger: false }); } catch (x) { alert(x.message); } setTimeout(rendreFrance, 800); };
