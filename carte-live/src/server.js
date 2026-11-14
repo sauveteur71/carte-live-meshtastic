@@ -337,7 +337,7 @@ function obtenirAsymetrie() {
       return l && l.lora && l.lora.txPower > 0 ? l.lora.txPower : null;
     },
     seuilDemod: () => {
-      const pr = (sourceRadio && sourceRadio.etat().preset) || config.reseauPreset || 'LONG_FAST';
+      const pr = presetReseau() || config.reseauPreset || 'LONG_FAST';
       const sf = (require('./analyse').PRESETS[pr] || { sf: 11 }).sf;
       return -7.5 - 2.5 * (sf - 7);
     },
@@ -550,7 +550,9 @@ function Rdep(req, depForce) {
 // plutôt que de répondre « en cours de chargement » (le navigateur ne réessayait que 20 s plus tard).
 async function reliefPret(RR, ms = 12000) {
   const fin = Date.now() + ms;
-  while (!RR.pret() && Date.now() < fin) {
+  // Relief prêt et, pour un département préparé, ses points hauts aussi (sinon « 0 point haut évalué »)
+  const fini = () => RR.pret() && (!RR.code || !reliefSurDisque(RR.code) || (RR.etat().sommets || 0) > 0);
+  while (!fini() && Date.now() < fin) {
     const e = RR.etat ? RR.etat() : {};
     if (e.mnt === 'erreur' || (RR.code && !reliefSurDisque(RR.code))) break; // téléchargement IGN : plusieurs minutes, inutile d'attendre ici
     await new Promise((ok) => setTimeout(ok, 200));
@@ -3487,10 +3489,23 @@ app.post('/api/suivis', (req, res) => {
   try { res.json(suivis.regler(u, b.id, b.liste, !!b.valeur)); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 administration.utiliserAgents(agents);
-const analyse = creerAnalyse(stockage, config, reseau, () => (sourceRadio ? sourceRadio.etat().preset : null));
+const analyse = creerAnalyse(stockage, config, reseau, () => presetReseau());
 const liensMesuresNoeuds = () => fournisseursRelief.liensNoeuds(); // + mesures des nœuds mobiles (couverture mesurée)
+// Preset LoRa du réseau : celui du module connecté, sinon le plus fréquent parmi les nœuds entendus depuis 7 jours
+// (rapports de carte), sinon RESEAU_PRESET. Recalculé toutes les 10 minutes.
+var presetReseauCache = { t: 0, v: null };
+function presetReseau() {
+  const radio = sourceRadio ? sourceRadio.etat().preset : null;
+  if (radio) return radio;
+  if (Date.now() - presetReseauCache.t > 600000) {
+    const c = {}, lim = Date.now() - 7 * 86400000;
+    try { for (const n of stockage.q.noeuds.all()) if (n.preset && (n.dernier_vu || 0) >= lim && reseau.estSurveille(n)) c[n.preset] = (c[n.preset] || 0) + 1; } catch { /* base indisponible */ }
+    presetReseauCache = { t: Date.now(), v: Object.entries(c).sort((a, b) => b[1] - a[1]).map(([k]) => k)[0] || null };
+  }
+  return presetReseauCache.v;
+}
 const fournisseursRelief = {
-  presetCourant: () => (sourceRadio ? sourceRadio.etat().preset : null),
+  presetCourant: presetReseau,
   // Relais / passerelles positionnés et entendus dans les dernières 24 h (un relais muet ne couvre plus rien)
   noeudsReseau: () => {
     const limite = Date.now() - 24 * 3600000;

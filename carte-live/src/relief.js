@@ -263,6 +263,12 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   // Sommets OpenStreetMap : plusieurs serveurs Overpass, trois tours (Overpass est souvent saturé)
   const SERVEURS_OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
   async function sommetsOsm() {
+    // Sommets déjà en cache (préparation de la France, paquet GitHub) : pris tout de suite, sans attendre Overpass
+    // (jusqu'à plusieurs minutes quand il est saturé). Rafraîchis au plus tous les 90 jours.
+    try {
+      const c = lireJson(fSommets);
+      if (c && Array.isArray(c.liste) && (!c.date || Date.now() - c.date < 90 * 86400000)) { etat.sommetsOsm = 'cache'; return c.liste; }
+    } catch { /* pas de cache */ }
     const q = `[out:json][timeout:60];node["natural"="peak"](${emprise.sud},${emprise.ouest},${emprise.nord},${emprise.est});out body;`;
     let derniere = null;
     for (let tour = 0; tour < 3 && !arrete; tour++) {
