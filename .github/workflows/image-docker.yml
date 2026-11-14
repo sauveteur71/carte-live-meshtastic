@@ -127,7 +127,7 @@ jobs:
       - if: steps.v.outputs.nouvelle == '1'
         uses: actions/setup-go@v7
         with:
-          go-version: '1.24'
+          go-version: '1.25'
       - if: steps.v.outputs.nouvelle == '1'
         name: Compilation de l'agent
         working-directory: agent

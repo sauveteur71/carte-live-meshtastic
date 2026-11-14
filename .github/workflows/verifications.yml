@@ -22,7 +22,7 @@ jobs:
           grep -q "Version actuelle : $v" README.md || { echo "README.md : indiquer « Version actuelle : $v »"; exit 1; }
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.24'
+          go-version: '1.25'
       - name: Agent
         working-directory: agent
         run: go vet ./... && go build ./...

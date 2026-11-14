@@ -2,7 +2,7 @@
 # Construction depuis la racine du dépôt :  docker build -t carte-live-meshtastic .
 
 # 1. Agents (petit programme qui relie un module USB ou d'un autre réseau à la carte), compilés pour chaque système
-FROM golang:1.24-bookworm AS agents
+FROM golang:1.25-bookworm AS agents
 WORKDIR /src
 COPY agent/go.mod agent/go.sum ./
 RUN go mod download
