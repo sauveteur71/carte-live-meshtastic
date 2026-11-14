@@ -10,7 +10,7 @@ jobs:
   verifier:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -31,7 +31,7 @@ jobs:
     # Tests de l'interface dans un vrai navigateur : carte, rubriques, aide, recherche, DFCI, anglais, pages publiques
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
