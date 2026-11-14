@@ -1479,3 +1479,6 @@ body.consultation #outil-connecter, body.consultation #outil-companion-mc { disp
 .lien-github { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; padding: 2px 9px; border-radius: 99px; background: #24292f; color: #fff !important; border: 1px solid #57606a; font-weight: 700; font-size: 11px; text-decoration: none; vertical-align: middle; }
 .lien-github:hover, .lien-github:focus-visible { background: #3d444d; outline: 2px solid #fff; outline-offset: 1px; }
 body.consultation #btn-admin, body.consultation .lien-inscription, body.consultation #hub-compte { display: none !important; }
+
+.tache-maj { margin: 8px 0 0; padding: 6px 8px; border-left: 2px solid var(--bord); font-size: 13px; }
+#maj-detail { margin-left: 6px; }

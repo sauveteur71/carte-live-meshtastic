@@ -3138,12 +3138,35 @@ function tachesEnCours() {
   try { n += adminMc.taches().filter((t) => !t.fin && t.type !== 'telemetrie').length; } catch { /* aucune */ }
   return n;
 }
+// Détail des programmations en cours, pour décider de forcer ou non la mise à jour : quoi, sur quels nœuds,
+// où elle en est, et si elle reprendra d'elle-même après le redémarrage de la carte
+function tachesDetail() {
+  const l = [];
+  const nomMt = (num) => { const n = stockage.q.noeud ? stockage.q.noeud.get(num) : null; return (n && (n.nom_long || n.nom_court)) || '!' + (num >>> 0).toString(16); };
+  try {
+    for (const t of administration.taches().filter((x) => !x.fin)) {
+      const faits = t.noeuds.filter((n) => ['ok', 'echec', 'annule'].includes(n.statut)).length, cours = t.noeuds.find((n) => n.statut === 'en_cours');
+      l.push({ reseau: 'Meshtastic', nom: t.nom || t.type, auteur: t.auteur, debut: t.debut, avancement: `${faits}/${t.noeuds.length} nœud(s)`,
+        courant: cours ? `${nomMt(cours.num)}${cours.detail ? ' : ' + cours.detail : ''}` : (t.noeuds.find((n) => n.statut === 'en_attente') ? 'en attente du prochain nœud' : null),
+        reprise: t.type === 'firmware' ? 'non : une mise à jour de firmware interrompue est à relancer' : Date.now() - t.debut < 6 * 3600000 ? 'oui, reprend toute seule après le redémarrage' : 'non (trop ancienne)' });
+    }
+  } catch { /* aucune */ }
+  try {
+    for (const t of adminMc.taches().filter((x) => !x.fin && x.type !== 'telemetrie')) {
+      const total = (t.cles || []).length, faits = Object.keys(t.resultats || {}).length;
+      l.push({ reseau: 'MeshCore', nom: t.type, auteur: t.auteur, debut: t.debut || t.creee, avancement: `${faits}/${total} relais`,
+        courant: t.courant ? ((t.noms || {})[t.courant] || String(t.courant).slice(0, 8)) : t.prochainEssai ? 'en attente d’un nouvel essai' : t.statut,
+        reprise: t.type === 'motdepasse' ? 'non : un changement de mot de passe interrompu est à relancer' : 'oui, reprend toute seule après le redémarrage' });
+    }
+  } catch { /* aucune */ }
+  return l;
+}
 app.get('/api/maj', async (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   // Fenêtre « Mise à jour » ouverte : on redemande la dernière version à GitHub (au plus une fois par minute)
   if (Date.now() - (majDispo.verifie || 0) > 60000) await verifierDerniereVersion();
   const v = infosVersion();
-  try { res.json({ ...v, installe: true, service: await appelMaj('GET', '/etat'), taches: tachesEnCours() }); } catch (e) { res.json({ ...v, installe: false, raison: e.message, taches: tachesEnCours() }); }
+  try { res.json({ ...v, installe: true, service: await appelMaj('GET', '/etat'), taches: tachesEnCours(), tachesDetail: tachesDetail() }); } catch (e) { res.json({ ...v, installe: false, raison: e.message, taches: tachesEnCours(), tachesDetail: tachesDetail() }); }
 });
 app.post('/api/maj', async (req, res) => {
   const u = utilisateur(req);

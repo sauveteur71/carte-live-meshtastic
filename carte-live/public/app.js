@@ -550,7 +550,11 @@ async function ficheMaj() {
     <div class="grille"><div class="mesure"><span>Installée</span><b>v${esc(r.version)}</b></div><div class="mesure"><span>Dernière publiée</span><b>${r.derniere ? 'v' + esc(r.derniere) : '?'}</b></div></div>
     <p class="note">${r.majDisponible ? `Une nouvelle version est disponible : <a href="${esc(r.url)}" target="_blank" rel="noopener">voir les nouveautés</a>.` : 'La carte est à jour : rien à faire.'}</p>
     ${r.installe ? `
-      ${r.taches ? `<div class="alerte attention">${r.taches} programmation(s) à distance en cours : la mise à jour les interromprait. Attendez leur fin.</div>` : ''}
+      ${r.taches ? `<div class="alerte attention">${r.taches} programmation(s) à distance en cours : la mise à jour les interromprait. Attendez leur fin.
+        <button type="button" class="mini" id="maj-detail">Détail</button>
+        <div id="maj-detail-liste" hidden>${(r.tachesDetail || []).map((t) => `<div class="tache-maj"><b>${esc(t.reseau)} · ${esc(t.nom)}</b> — ${esc(t.avancement)}, lancée ${ilYa(t.debut)} par ${esc(t.auteur || '?')}
+          ${t.courant ? `<br>En ce moment : ${esc(t.courant)}` : ''}<br>Après une mise à jour forcée : <b>${esc(t.reprise)}</b></div>`).join('') || '<div class="note">Détail indisponible.</div>'}
+          <p class="note">Si toutes reprennent toutes seules, vous pouvez forcer : elles continueront après le redémarrage (1 à 3 minutes). Sinon, attendez leur fin.</p></div></div>` : ''}
       ${s.enCours ? `<div class="alerte info-lecture">Mise à jour en cours : ${esc(s.message || '')}</div>` : s.phase === 'echec' || s.phase === 'retour' ? `<div class="alerte attention">Dernière tentative : ${esc(s.message || '')}</div>` : ''}
       <div class="actions-prop">${r.majDisponible || s.enCours ? `<button class="principal" id="maj-go" ${s.enCours ? 'disabled' : ''}>⬆️ Mettre à jour maintenant</button>` : '<button class="mini" id="maj-go" title="Retélécharge la même version : utile seulement si la carte fonctionne mal">↻ Réinstaller la version actuelle</button>'}${r.taches ? '<button id="maj-forcer" class="danger">Forcer quand même</button>' : ''}</div>
       <p class="note">La carte télécharge la nouvelle image, puis redémarre avec les mêmes réglages et les mêmes données (1 à 3 minutes, la page se recharge toute seule). Si la nouvelle version ne démarre pas, l’ancienne est remise en route.</p>`
@@ -568,6 +572,7 @@ async function ficheMaj() {
     try { await postJson('/api/maj', { forcer: !!forcer }); attendreMaj(r.version); } catch (e) { $('#maj-retour').textContent = e.message; }
   };
   const g = $('#maj-go'); if (g) g.onclick = () => lancer(false);
+  const dt = $('#maj-detail'); if (dt) dt.onclick = () => { const l = $('#maj-detail-liste'); l.hidden = !l.hidden; dt.textContent = l.hidden ? 'Détail' : 'Masquer le détail'; };
   const f = $('#maj-forcer'); if (f) f.onclick = () => lancer(true);
 }
 // Attend que la carte revienne avec une autre version (ou la même si l'image n'avait pas changé)
