@@ -644,7 +644,12 @@ app.get('/api/relief/couverture', async (req, res) => {
   const lat = Number(req.query.lat), lon = Number(req.query.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ erreur: 'Point invalide' });
   const RR = R(req, { lat, lon });
-  if (!dansEmprise({ lat, lon }, RR.emprise())) return res.status(400).json({ erreur: estMembre(req) ? 'Point hors de France métropolitaine : pas de relief disponible' : 'Point hors de la zone couverte par le modèle de relief (département et ses abords)' });
+  if (!dansEmprise({ lat, lon }, RR.emprise())) {
+    // Hors de France : le relief de cette édition vient de l'IGN ; l'édition monde (relief Copernicus) couvre toute la planète
+    const horsFrance = lat < 41.3 || lat > 51.2 || lon < -5.3 || lon > 9.7;
+    return res.status(400).json({ erreur: horsFrance ? 'Cette carte calcule la couverture en France seulement (relief IGN). Pour le reste du monde, installez l’édition monde (relief Copernicus partout) : https://github.com/sauveteur71/live-mesh-map-world'
+      : estMembre(req) ? 'Point hors de France métropolitaine : pas de relief disponible' : 'Point hors de la zone couverte par le modèle de relief (département et ses abords)' });
+  }
   if (!(await reliefPret(RR))) return res.status(503).json({ erreur: messageChargement(RR) });
   const o = optsRelief(req.query);
   const cle = JSON.stringify([RR.code, lat.toFixed(4), lon.toFixed(4), o, (RR.calibration() || {}).date]);

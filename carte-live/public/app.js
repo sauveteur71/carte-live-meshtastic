@@ -6866,7 +6866,7 @@ async function rendreFrance() {
 
 // Téléphone : panneau en tiroir (réduit / moitié / plein), poignée à tirer ou à toucher, état gardé
 function installerTiroir() {
-  const mq = matchMedia('(max-width: 900px)');
+  const mq = matchMedia('(max-width: 700px)');
   const p = $('#panneau');
   if (!p.querySelector('.poignee-tiroir')) p.insertAdjacentHTML('afterbegin', '<div class="poignee-tiroir" title="Tirer ou toucher pour agrandir / réduire"></div>');
   const ETATS = ['reduit', 'moitie', 'plein'];
@@ -6885,6 +6885,8 @@ function installerTiroir() {
     majReduit();
     setTimeout(() => { document.documentElement.style.setProperty('--h-tiroir-reel', p.offsetHeight + 'px'); if (typeof carte !== 'undefined' && carte) carte.invalidateSize(); }, 260);
   };
+  // Hauteur réelle du tiroir suivie en continu (attribution et boutons de la carte juste au-dessus, jamais au milieu)
+  if (window.ResizeObserver) new ResizeObserver(() => { if (mq.matches) document.documentElement.style.setProperty('--h-tiroir-reel', p.offsetHeight + 'px'); }).observe(p);
   appliquer(lireLs('gaulix_tiroir', 'reduit'));
   mq.addEventListener('change', () => appliquer(etat.tiroir || 'reduit'));
   window.addEventListener('resize', () => { const o = document.querySelector('.outils'); if (o) document.documentElement.style.setProperty('--h-outils', o.offsetHeight + 'px'); majReduit(); });

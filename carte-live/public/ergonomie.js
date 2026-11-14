@@ -168,7 +168,7 @@ function installerGroupes() {
 // ---- Accueil : « Que voulez-vous faire ? » -------------------------------------------------------------------
 function choisirPointPuis(texte, action) {
   annonce(texte);
-  if (matchMedia('(max-width: 900px)').matches && typeof etat.tiroir !== 'undefined') { const p = document.querySelector('.poignee-tiroir'); if (p && etat.tiroir === 'plein') p.click(); }
+  if (matchMedia('(max-width: 700px)').matches && typeof etat.tiroir !== 'undefined') { const p = document.querySelector('.poignee-tiroir'); if (p && etat.tiroir === 'plein') p.click(); }
   document.body.classList.add('choix-point');
   carte.once('click', (e) => { document.body.classList.remove('choix-point'); action(e.latlng); });
 }

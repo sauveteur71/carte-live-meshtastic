@@ -209,7 +209,7 @@ dialog .principal { background: var(--accent); color: #062019; border-color: var
 .erreur { color: var(--critique) !important; min-height: 1em; margin: 6px 0 0 !important; }
 
 /* ---- Mobile ---- */
-@media (max-width: 900px) {
+@media (max-width: 700px) {
   .kpis { display: none; }
   .outils { top: auto; bottom: 12px; right: 12px; left: 12px; justify-content: center; }
   .panneau { left: 8px; right: 8px; width: auto; top: auto; bottom: 112px; height: 42vh; }
@@ -255,11 +255,11 @@ svg.profil .fresnel60 { stroke: #f39a4a; stroke-width: 1; stroke-dasharray: 2 4;
 svg.profil .ant { fill: #3ee6c4; }
 svg.profil .obstacle { fill: #ff5c6c; }
 .verdict { border-left: 3px solid var(--accent); background: rgba(255,255,255,.04); padding: 7px 10px; border-radius: 6px; margin: 10px 0; }
-@media (max-width: 900px) { .rejeu { bottom: 116px; } }
+@media (max-width: 700px) { .rejeu { bottom: 116px; } }
 
 /* Barre d'outils sur deux rangs si nécessaire, sans chevaucher les compteurs */
-@media (min-width: 901px) and (max-width: 1560px) { .kpis .kpi:nth-child(n+4) { display: none; } }
-@media (min-width: 901px) and (max-width: 1220px) { .kpis { display: none; } }
+@media (min-width: 701px) and (max-width: 1560px) { .kpis .kpi:nth-child(n+4) { display: none; } }
+@media (min-width: 701px) and (max-width: 1220px) { .kpis { display: none; } }
 .menu-couches { position: relative; }
 .menu-couches summary { list-style: none; cursor: pointer; color: var(--doux); padding: 5px 10px; border-radius: 7px; border: 1px solid var(--bord); }
 .menu-couches summary::-webkit-details-marker { display: none; }
@@ -344,7 +344,7 @@ body.panneau-replie .recherche-lieu { left: 64px; }
 .leaflet-control-layers-toggle { filter: invert(1) brightness(.8); }
 .leaflet-control-layers-separator { border-top-color: var(--bord) !important; }
 @media (max-width: 1200px) { .recherche-lieu { width: 280px; } }
-@media (max-width: 900px) { .recherche-lieu { top: 64px; left: 8px; right: 8px; width: auto; } }
+@media (max-width: 700px) { .recherche-lieu { top: 64px; left: 8px; right: 8px; width: auto; } }
 .repere { overflow: visible; }
 .repere i { display: block; width: 8px; height: 8px; border-radius: 50%; background: #ff9f43; border: 1.5px solid #fff; box-shadow: 0 0 4px rgba(0,0,0,.7); }
 .repere span { position: absolute; left: 12px; top: -5px; white-space: nowrap; font-size: 12px; font-weight: 600; color: #ffe2c2; text-shadow: 0 0 3px #000, 0 0 2px #000, 0 0 1px #000; pointer-events: none; }
@@ -581,7 +581,7 @@ svg.signal .t-rssi { fill: #f4a261; }
 
 /* Panneaux redimensionnables (poignée sur le bord, double-clic = large / normal) */
 :root { --l-panneau: 360px; --l-fiche: 400px; }
-@media (min-width: 901px) {
+@media (min-width: 701px) {
   .panneau { width: var(--l-panneau); }
   .fiche { width: var(--l-fiche); }
   .recherche-lieu { left: calc(var(--l-panneau) + 24px); }
@@ -593,7 +593,7 @@ svg.signal .t-rssi { fill: #f4a261; }
 .poignee-fiche { position: fixed; z-index: 1002; top: 64px; bottom: 12px; right: calc(12px + var(--l-fiche) - 5px); }
 .fiche[hidden] + .poignee-fiche { display: none; }
 body.redim, body.redim * { cursor: ew-resize !important; user-select: none !important; }
-@media (max-width: 900px) { .poignee { display: none; } }
+@media (max-width: 700px) { .poignee { display: none; } }
 .menu-outils .menu a { display: block; text-decoration: none; color: var(--texte); white-space: nowrap; }
 .menu-outils .note { display: block; max-width: 230px; white-space: normal; margin-top: 4px; }
 .message.cliquable { cursor: pointer; }
@@ -882,7 +882,7 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 #f-releve .deux { display: flex; gap: 8px; }
 #f-releve .deux label { flex: 1; }
 /* Sur téléphone, la barre d'outils est en bas : les menus s'ouvrent vers le haut et défilent */
-@media (max-width: 900px) {
+@media (max-width: 700px) {
   .menu-couches .menu { top: auto; bottom: calc(100% + 6px); max-height: 65vh; overflow-y: auto; }
 }
 #f-releve label { display: block; margin-bottom: 8px; }
@@ -1098,7 +1098,7 @@ a.bouton-lien { text-decoration: none; display: inline-flex; align-items: center
 /* ---- Téléphone et tablette en portrait : panneau en tiroir depuis le bas ----
    Trois hauteurs (réduit : onglets seuls, moitié, plein écran), poignée à tirer ou à toucher.
    Barre d'outils sur une seule ligne en bas, qui défile au doigt. */
-@media (max-width: 900px) {
+@media (max-width: 700px) {
   .barre { left: 6px; right: 6px; top: 6px; }
   .marque { padding: 5px 10px; gap: 8px; }
   .marque .nom { font-size: 13px; }
@@ -1133,11 +1133,33 @@ a.bouton-lien { text-decoration: none; display: inline-flex; align-items: center
   .rejeu { bottom: calc(var(--h-outils, 50px) + 104px); }
   .menu-couches .menu, .menu-outils .menu { position: fixed; left: 8px; right: 8px; top: auto; bottom: calc(var(--h-outils, 50px) + 6px); max-height: 60vh; overflow-y: auto; }
 }
-@media (min-width: 901px) { .poignee-tiroir { display: none; } }
+@media (min-width: 701px) { .poignee-tiroir { display: none; } }
 /* Tablette en paysage : panneaux un peu plus étroits pour laisser la carte respirer */
-@media (pointer: coarse) and (min-width: 901px) and (max-width: 1366px) { :root { --l-panneau: 320px; --l-fiche: 340px; } }
+@media (pointer: coarse) and (min-width: 701px) and (max-width: 1366px) { :root { --l-panneau: 320px; --l-fiche: 340px; } }
+/* Tablette (portrait 701 à 1100 px, et toute tablette tactile jusqu'à 1366 px) : vraie mise en page tablette, pas celle du téléphone.
+   Panneau fixe à gauche ; la fiche s'ouvre par-dessus ce panneau (même largeur) pour garder la carte visible à droite ;
+   barre d'outils en bas sur toute la largeur ; légende repliée (bouton Couches). */
+@media (min-width: 701px) and (max-width: 1100px), (pointer: coarse) and (min-width: 701px) and (max-width: 1366px) {
+  :root { --l-panneau: 360px; --l-fiche: 360px; }
+  .kpis { display: none; }
+  .panneau { top: 84px; bottom: calc(var(--h-outils, 54px) + 8px); }
+  .fiche { left: 12px; right: auto; width: var(--l-panneau); top: 84px; bottom: calc(var(--h-outils, 54px) + 8px); z-index: 1003; }
+  .poignee-fiche { display: none; }
+  .outils { top: auto; bottom: 0; left: 0; right: 0; border-radius: 0; border-width: 1px 0 0; padding: 6px 10px calc(6px + env(safe-area-inset-bottom)); flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; scrollbar-width: none; gap: 6px; }
+  .outils::-webkit-scrollbar { display: none; }
+  .outils > * { flex: none; }
+  .outils #sel-zone { max-width: 190px; }
+  .menu-couches .menu, .menu-outils .menu { position: fixed; top: auto; bottom: calc(var(--h-outils, 54px) + 6px); max-height: 70vh; overflow-y: auto; }
+  .recherche-lieu { top: 84px; left: calc(var(--l-panneau) + 24px); right: 12px; width: auto; min-width: 0; }
+  body .bandeau-consultation { bottom: calc(var(--h-outils, 54px) + 10px); }
+  .legende { display: none; }
+  .leaflet-bottom.leaflet-right { bottom: var(--h-outils, 54px); }
+  .rejeu { bottom: calc(var(--h-outils, 54px) + 10px); }
+  .groupes { padding-right: 30px; justify-content: space-between; }
+  .groupes button[data-groupe] { font-size: 12.5px; padding-left: 3px; padding-right: 3px; flex: none; }
+}
 
-@media (min-width: 901px) { .poignee-fiche-mob { display: none; } }
+@media (min-width: 701px) { .poignee-fiche-mob { display: none; } }
 
 /* ---- Écrans tactiles : cibles assez grandes pour le doigt (≈ 40 px) ---- */
 @media (pointer: coarse) {
@@ -1155,7 +1177,7 @@ a.bouton-lien { text-decoration: none; display: inline-flex; align-items: center
 }
 
 /* ---- Téléphone en paysage : panneau sur le côté gauche, fiche sur le côté droit ---- */
-@media (max-width: 900px) and (orientation: landscape) and (max-height: 520px) {
+@media (max-width: 700px) and (orientation: landscape) and (max-height: 520px) {
   .panneau { top: 52px; bottom: var(--h-outils, 50px); height: auto !important; width: 46vw; right: auto; border-radius: 0 14px 0 0; border-bottom: 1px solid var(--bord); }
   body.tiroir-reduit .panneau { bottom: auto; height: var(--h-tiroir-reduit, 124px) !important; }
   body.tiroir-plein .panneau { width: 62vw; }
@@ -1194,7 +1216,7 @@ body.theme-clair[data-reseau="les-deux"] .titre-reseau { color: #0b6e63; backgro
 body.theme-clair .choix-reseau button.actif { color: #05090d; font-weight: 700; border-width: 2px; }
 body.theme-clair .choix-reseau button[data-reseau="les-deux"].actif { background: linear-gradient(90deg, rgba(11,110,99,.22), rgba(234,88,12,.25)); border-color: #33475a; }
 body.theme-clair .mesure b, body.theme-clair .vue h3 { color: var(--texte); }
-@media (max-width: 900px) and (orientation: landscape) and (max-height: 520px) { .panneau, .fiche, body.fiche-pleine .fiche { top: 66px; } }
+@media (max-width: 700px) and (orientation: landscape) and (max-height: 520px) { .panneau, .fiche, body.fiche-pleine .fiche { top: 66px; } }
 
 .mesures-masquees { margin-top: 8px; border: 1px dashed var(--bord); border-radius: 8px; padding: 6px 10px; }
 .mesures-masquees summary { cursor: pointer; color: var(--doux); font-size: 13px; }
@@ -1329,7 +1351,7 @@ body.grand-texte .panneau, body.grand-texte .fiche, body.grand-texte dialog, bod
   .groupes button[data-groupe], .onglets button[data-onglet] { min-height: 44px; }
   button.mini, .bascule, .res-reglage, .ligne-reglage { min-height: 40px; }
 }
-@media (max-width: 900px) {
+@media (max-width: 700px) {
   .groupes button[data-groupe] { font-size: 12.5px; padding: 9px 3px 8px; }
   .fab-plus { left: auto; transform: none; right: 14px; bottom: calc(var(--h-tiroir-reduit, 150px) + var(--h-outils, 56px) + 16px); }
   .tuile-accueil { min-height: 56px; }
@@ -1431,7 +1453,7 @@ body.alertes-fusionnees .titre-mt-alertes { display: none; }
 body.theme-clair .leaflet-control-attribution a[href*="helloasso"] { color: #c0125a !important; }
 .soutien .s-court { display: none; }
 .marque .nom { white-space: nowrap; }
-@media (max-width: 900px) {
+@media (max-width: 700px) {
   .marque .soutien { margin-left: 6px; padding: 0 7px; font-size: 10px; line-height: 15px; }
   .marque .soutien .s-long { display: none; }
   .marque .soutien .s-court { display: inline; }
