@@ -1,8 +1,8 @@
 # Application Android (APK) : une fenêtre sur la carte de votre serveur (adresse choisie au premier lancement).
 # - À chaque envoi qui touche android/ : construite et vérifiée (fichier téléchargeable dans l'onglet Actions).
 # - À chaque version publiée (workflow « Image Docker » avec « publier ») : l'APK est jointe à la version GitHub.
-# Signature : clé fixe dans les secrets ANDROID_CLE (keystore en base64) et ANDROID_CLE_MOT_DE_PASSE, pour que
-# chaque nouvelle version s'installe par-dessus l'ancienne.
+# Signature : clé fixe (android/app/cle-publique.jks, ou une clé privée dans les secrets ANDROID_CLE et
+# ANDROID_CLE_MOT_DE_PASSE), pour que chaque nouvelle version s’installe par-dessus l’ancienne.
 name: Android
 
 on:
@@ -38,7 +38,7 @@ jobs:
           ANDROID_CLE: ${{ secrets.ANDROID_CLE }}
         run: |
           if [ -n "$ANDROID_CLE" ]; then echo "$ANDROID_CLE" | base64 -d > "$RUNNER_TEMP/carte-live.jks"; echo "ANDROID_CLE_FICHIER=$RUNNER_TEMP/carte-live.jks" >> "$GITHUB_ENV";
-          else echo "::warning::Secret ANDROID_CLE absent : APK signée avec une clé de test (à réinstaller à chaque version)"; fi
+          fi
       - name: Construction
         working-directory: android
         env:

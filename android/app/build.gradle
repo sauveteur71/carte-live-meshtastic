@@ -15,18 +15,22 @@ android {
         versionCode parts[0] * 10000 + parts[1] * 100 + parts[2]
     }
     signingConfigs {
-        // Clé de signature fixe (secrets GitHub) : indispensable pour installer les nouvelles versions par-dessus
+        // Clé de signature fixe, pour que chaque nouvelle version s'installe par-dessus l'ancienne.
+        // Par défaut : cle-publique.jks du dépôt (mot de passe « android », comme une clé de test Android : elle ne
+        // protège pas contre une APK modifiée par un tiers ; téléchargez l'APK seulement depuis les versions GitHub).
+        // Avec les secrets ANDROID_CLE / ANDROID_CLE_MOT_DE_PASSE, une clé privée la remplace.
         publication {
-            storeFile file(System.getenv('ANDROID_CLE_FICHIER') ?: 'inexistant.jks')
-            storePassword System.getenv('ANDROID_CLE_MOT_DE_PASSE') ?: ''
-            keyAlias System.getenv('ANDROID_CLE_ALIAS') ?: 'carte-live'
-            keyPassword System.getenv('ANDROID_CLE_MOT_DE_PASSE') ?: ''
+            def privee = System.getenv('ANDROID_CLE_FICHIER')
+            storeFile file(privee ?: 'cle-publique.jks')
+            storePassword privee ? System.getenv('ANDROID_CLE_MOT_DE_PASSE') : 'android'
+            keyAlias 'carte-live'
+            keyPassword privee ? System.getenv('ANDROID_CLE_MOT_DE_PASSE') : 'android'
         }
     }
     buildTypes {
         release {
             minifyEnabled false
-            signingConfig System.getenv('ANDROID_CLE_FICHIER') ? signingConfigs.publication : signingConfigs.debug
+            signingConfig signingConfigs.publication
         }
     }
     compileOptions {
