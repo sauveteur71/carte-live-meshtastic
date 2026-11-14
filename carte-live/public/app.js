@@ -192,7 +192,16 @@ function initCarte() {
     'Photos aériennes IGN': L.tileLayer(wmts('ORTHOIMAGERY.ORTHOPHOTOS', 'image/jpeg'), { maxZoom: 19, maxNativeZoom: 19, attribution: ign }),
     'Topographique': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17, maxNativeZoom: 17, subdomains: 'abc', attribution: 'Carte &copy; <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a> (CC-BY-SA), données &copy; contributeurs OpenStreetMap' }),
   };
+  // Fond hors ligne (carte vectorielle OpenStreetMap servie par la carte elle-même) : visible s'il a été téléchargé
+  const fhl = etat.config.fondHorsLigne;
+  if (fhl && window.protomapsL) {
+    const attrib = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · <a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a>';
+    const couche = (flavor) => protomapsL.leafletLayer({ url: '/fonds/fond.pmtiles?v=' + fhl.date, flavor, lang: 'fr', maxDataZoom: fhl.maxzoom, attribution: attrib });
+    fonds['Hors ligne · sombre'] = couche('dark');
+    fonds['Hors ligne · clair'] = couche('light');
+  }
   const surcouches = {
+    'Relief ombré (hors ligne)': L.tileLayer('/api/relief/ombrage/{z}/{x}/{y}.png', { minZoom: 6, maxZoom: 19, maxNativeZoom: 13, opacity: 0.85, zIndex: 250, attribution: 'Relief : IGN RGE ALTI (calcul de la carte)' }),
     'Relief ombré': L.tileLayer(wmts('ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW', 'image/png', 'estompage_grayscale'), { maxZoom: 19, maxNativeZoom: 15, opacity: 0.4, attribution: ign }),
     'Noms des lieux': L.tileLayer(wmts('GEOGRAPHICALNAMES.NAMES'), { maxZoom: 19, maxNativeZoom: 18, className: 'noms-ign', attribution: ign }),
     'Points de repère': L.layerGroup(),
@@ -234,6 +243,20 @@ function initCarte() {
   let choix = fonds[etat.config.fond] ? etat.config.fond : 'Sombre'; // fond par défaut de cette carte (CARTE_FOND)
   try { const c = localStorage.getItem('gaulix_fond'); if (c && fonds[c]) choix = c; } catch { /* stockage indisponible */ }
   fonds[choix].addTo(carte);
+  // Pas d'internet (installation autonome, coupure) : les tuiles du fond échouent en série → fond hors ligne
+  if (fonds['Hors ligne · sombre'] && !/^Hors ligne/.test(choix)) {
+    let echecs = 0, bascule = false;
+    const surErreur = () => {
+      if (bascule || ++echecs < 6) return;
+      bascule = true;
+      const b = document.querySelector(`.menu-couches [data-fond="${/clair|Plan IGN$|Photos|Topo/.test(choix) ? 'Hors ligne · clair' : 'Hors ligne · sombre'}"]`);
+      if (!b) return;
+      b.click();
+      const t = document.createElement('div'); t.className = 'bandeau-consultation'; t.textContent = 'Pas d’accès aux fonds de carte en ligne : fond hors ligne affiché';
+      document.body.appendChild(t); setTimeout(() => t.remove(), 8000);
+    };
+    (fonds[choix].getLayers ? fonds[choix].getLayers() : [fonds[choix]]).forEach((c) => c.on('tileerror', surErreur));
+  }
   // Fond sombre : les surcouches de texte (noms IGN) passent en clair pour rester lisibles
   const majFondSombre = () => {
     document.body.classList.toggle('fond-sombre', /sombre/i.test(choix));
@@ -1725,6 +1748,7 @@ const CATALOGUE_REGLAGES = [
   ['Durée de conservation des données', 'Compte › Réglages', 'retention jours historique purge', 'admin', () => ouvrirDlg('reglages', '[name=retentionJours]')],
   ['Canaux Meshtastic à déchiffrer (clés)', 'Compte › Réglages', 'canaux cle psk aq== messages chiffrement longfast', 'admin', () => ouvrirDlg('reglages', '[name=canaux]')],
   ['Télécharger toute la France (relief)', 'Outils', 'relief france paquet mnt télécharger préparer installer carte', 'admin', () => ficheFrance()],
+  ['Fond de carte hors ligne', 'Outils', 'hors ligne offline fond carte sans internet pmtiles raspberry autonome coupure', 'admin', () => ficheFrance()],
   ['Comptes des utilisateurs', 'Compte › Comptes', 'utilisateur ajouter rôle gestionnaire secteur blocage', 'admin', () => ouvrirDlg('comptes')],
   ['Sauvegardes', 'Compte › Sauvegardes', 'sauvegarde restaurer export', 'admin', () => ouvrirDlg('sauvegardes')],
   ['Archive PostgreSQL', 'Compte › Archive', 'postgres base archive', 'admin', () => ouvrirDlg('archive')],
@@ -6858,10 +6882,44 @@ async function rendreFrance() {
     <details class="note"><summary>Pour le mainteneur du projet : exporter le paquet « relief France »</summary>
       <p>Inutile pour faire marcher votre carte. Ce bouton rassemble en un seul fichier (tar.gz) le relief de tous les départements déjà prêts sur ce serveur, pour le publier sur GitHub comme paquet « relief-france » : c’est ce paquet que les autres cartes téléchargent avec le bouton ci-dessus.</p>
       <div class="actions-prop"><a class="mini bouton-lien" href="/api/relief/france/paquet" download>📦 Exporter le paquet (tar.gz)</a></div></details>`;
+  z.insertAdjacentHTML('beforeend', '<div id="bloc-fond-hl"></div>');
+  rendreFondHorsLigne();
   $('#fr-couv').onchange = async (e) => { try { await postJson('/api/relief/france', { couverture: e.target.value }); } catch (x) { alert(x.message); } rendreFrance(); };
   const go = $('#fr-go'); if (go) go.onclick = async () => { try { await postJson('/api/relief/france', { precharger: true, activer: true }); } catch (x) { alert(x.message); } setTimeout(rendreFrance, 800); };
   const st = $('#fr-stop'); if (st) st.onclick = async () => { try { await postJson('/api/relief/france', { precharger: false }); } catch (x) { alert(x.message); } setTimeout(rendreFrance, 800); };
   if (p.enCours) { clearTimeout(etat.minuterieFrance); etat.minuterieFrance = setTimeout(() => { if ($('#bloc-france')) rendreFrance(); }, 15000); }
+}
+
+// Fond de carte hors ligne : carte vectorielle OpenStreetMap du département gardée sur le serveur (Raspberry Pi
+// autonome, coupure d'internet), et relief ombré calculé sur place
+async function rendreFondHorsLigne() {
+  const z = $('#bloc-fond-hl');
+  if (!z) return;
+  let r;
+  try { r = await api('/api/fond-hors-ligne'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const f = r.fond, c = r.enCours;
+  z.innerHTML = `<h3>📴 Fond de carte hors ligne</h3>
+    <p class="note">Une carte OpenStreetMap complète (routes, chemins, noms, rivières, forêts) gardée sur ce serveur : elle s’affiche sans internet, idéal pour une installation autonome (Raspberry Pi) ou en cas de coupure. Fonds « Hors ligne · clair / sombre » dans Couches, et « Relief ombré (hors ligne) », calculé à partir du relief déjà préparé.</p>
+    ${f ? `<div class="alerte info-lecture">✔ Fond prêt : <b>${esc(f.nom)}</b> · zoom ${f.maxzoom} · ${f.tailleMo} Mo · ${ilYa(f.date)}. Mis à jour chaque mois automatiquement. Rechargez la page pour le voir dans Couches.</div>` : ''}
+    ${c.actif ? `<div class="alerte info-lecture"><span class="sablier"></span> Téléchargement : ${esc(c.etape || '…')} <button class="mini" id="fhl-stop">⏹ Arrêter</button></div>` : ''}
+    ${c.erreur && !c.actif ? `<div class="alerte attention">Dernier essai : ${esc(c.erreur)}</div>` : ''}
+    ${!r.outil ? '<div class="alerte attention">L’outil d’extraction « pmtiles » manque sur ce serveur : il est inclus dans l’image Docker à partir de la version 2.25 (mettez la carte à jour).</div>' : ''}
+    <div class="parametres">
+      <label>Zone <select id="fhl-zone">
+        <option value="departement">Département de la carte (≈ 50 Mo)</option>
+        <option value="voisins" selected>Département et alentours (≈ 120 Mo)</option>
+        <option value="france">France entière (3 à 5 Go)</option></select></label>
+      <label>Détail <select id="fhl-zoom">
+        <option value="13">Zoom 13 : routes et villages (léger)</option>
+        <option value="14" selected>Zoom 14 : chemins, lieux-dits</option>
+        <option value="15">Zoom 15 : tout, bâtiments (≈ × 2)</option></select></label>
+    </div>
+    <div class="actions-prop"><button class="mini principal" id="fhl-go" ${c.actif || !r.outil ? 'disabled' : ''}>⬇ ${f ? 'Remplacer le fond' : 'Télécharger le fond hors ligne'}</button>${f ? '<button class="mini" id="fhl-suppr">Supprimer</button>' : ''}</div>
+    <p class="note">Données © contributeurs OpenStreetMap (ODbL), carte Protomaps. Seule la zone choisie est téléchargée (quelques secondes à quelques minutes).</p>`;
+  const go = $('#fhl-go'); if (go) go.onclick = async () => { try { await postJson('/api/fond-hors-ligne', { zone: $('#fhl-zone').value, maxzoom: Number($('#fhl-zoom').value) }); } catch (x) { alert(x.message); } rendreFondHorsLigne(); };
+  const st = $('#fhl-stop'); if (st) st.onclick = async () => { await postJson('/api/fond-hors-ligne', { action: 'arreter' }).catch(() => {}); rendreFondHorsLigne(); };
+  const sp = $('#fhl-suppr'); if (sp) sp.onclick = async () => { if (!confirm('Supprimer le fond hors ligne de ce serveur ?')) return; await postJson('/api/fond-hors-ligne', { action: 'supprimer' }).catch((x) => alert(x.message)); rendreFondHorsLigne(); };
+  if (c.actif) { clearTimeout(etat.minuterieFhl); etat.minuterieFhl = setTimeout(() => { if ($('#bloc-fond-hl')) rendreFondHorsLigne(); }, 3000); }
 }
 
 // Téléphone : panneau en tiroir (réduit / moitié / plein), poignée à tirer ou à toucher, état gardé

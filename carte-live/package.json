@@ -18,6 +18,7 @@
     "mqtt": "^5.10.4",
     "pg": "^8.23.1",
     "protobufjs": "^8.8.1",
+    "protomaps-leaflet": "5.1.0",
     "qrcode": "^1.5.4",
     "seek-bzip": "^2.0.0",
     "ws": "^8.22.2"

@@ -1322,8 +1322,44 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   // Classement recalculé chaque nuit (le réseau existant évolue)
   minuteries.push(setInterval(() => { if (new Date().getHours() === 4) { calculerClassement(); const l = sommets.filter((x) => x.dansZone || distanceAuDepartement(x) < 10000); acces.completer(l).catch(() => {}); realisme.completer(l).catch(() => {}); } }, 3600000));
 
+  // ---- Relief ombré (hors ligne) : tuile 256 × 256 calculée à partir du MNT déjà sur le disque -------------
+  // Éclairage du nord-ouest (azimut 315°, hauteur 45°), exagération ×2 ; transparent hors du modèle.
+  function ombrageTuile(z, x, y) {
+    if (etat.mnt !== 'pret' || !Z) return null;
+    const n = 2 ** z, T = 256;
+    const lonDeX = (px) => (px / (n * T)) * 360 - 180;
+    const latDeY = (py) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * py) / (n * T)))) * 180) / Math.PI;
+    const nord = latDeY(y * T), sud = latDeY((y + 1) * T), ouest = lonDeX(x * T), est = lonDeX((x + 1) * T);
+    const e = { sud: emprise.sud, ouest: emprise.ouest, nord: emprise.sud + (nLat - 1) * pasLat, est: emprise.ouest + (nLon - 1) * pasLon };
+    if (sud > e.nord || nord < e.sud || ouest > e.est || est < e.ouest) return null;
+    const rgba = Buffer.alloc(T * T * 4);
+    const dLat = pasLat, dLon = pasLon, mY = dLat * M_PAR_DEG;
+    const az = (315 * Math.PI) / 180, haut = (45 * Math.PI) / 180, exa = 2;
+    let vide = true;
+    for (let j = 0; j < T; j++) {
+      const lat = latDeY(y * T + j + 0.5), mX = dLon * M_PAR_DEG * Math.cos((lat * Math.PI) / 180);
+      for (let i = 0; i < T; i++) {
+        const lon = lonDeX(x * T + i + 0.5);
+        const zc = alt(lat, lon);
+        if (Number.isNaN(zc)) continue;
+        const zo = alt(lat, lon - dLon), ze = alt(lat, lon + dLon), zn = alt(lat + dLat, lon), zs = alt(lat - dLat, lon);
+        if ([zo, ze, zn, zs].some(Number.isNaN)) continue;
+        const dzdx = ((ze - zo) / (2 * mX)) * exa, dzdy = ((zn - zs) / (2 * mY)) * exa;
+        const pente = Math.atan(Math.hypot(dzdx, dzdy)), aspect = Math.atan2(dzdy, -dzdx);
+        const lum = Math.max(0, Math.cos(haut) * Math.cos(pente) + Math.sin(haut) * Math.sin(pente) * Math.cos(az - Math.PI / 2 - aspect));
+        // Ombres en noir, lumières en blanc, plat transparent : se superpose à n'importe quel fond
+        const k = (j * T + i) * 4, d = lum - Math.cos(haut);
+        if (d < 0) { rgba[k] = rgba[k + 1] = rgba[k + 2] = 0; rgba[k + 3] = Math.min(200, Math.round(-d * 420)); }
+        else { rgba[k] = rgba[k + 1] = rgba[k + 2] = 255; rgba[k + 3] = Math.min(120, Math.round(d * 300)); }
+        vide = false;
+      }
+    }
+    return vide ? null : png(T, T, rgba);
+  }
+
   return {
     code: codeDep,
+    ombrageTuile,
     arreter: () => { arrete = true; for (const m of minuteries) { clearTimeout(m); clearInterval(m); } try { acces.arreter(); } catch { /* déjà */ } },
     accesEtat: () => acces.etat(),
     etat: () => ({ ...etat, departement: { code: codeDep, nom: options.nom || (options.code ? nomDepartement(codeDep) : config.zoneNom) }, zone: z0, grille: { nLat, nLon, pasM: 250 }, calibration: calibration && { liaisons: calibration.liaisons, ecartMedianDb: calibration.ecartMedianDb, perteEnvironnementDb: calibration.perteEnvironnementDb } }),

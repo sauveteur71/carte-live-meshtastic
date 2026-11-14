@@ -162,7 +162,7 @@ const DEMO_LECTURE = [
   /^\/api\/admin-noeuds(\/(modeles|favoris|firmware|conformite-auto|v28|taches\/[\w-]+|lecture\/\d+(\/detail)?))?$/,
   /^\/api\/trafic\/controle$/, /^\/api\/noeuds-nouveaux$/, /^\/api\/installations$/, /^\/api\/responsables$/,
   /^\/api\/mc\/(admin(\/modeles|\/taches\/[\w-]+)?|maintenance|audit\/(regions|collisions)|noeuds\/[0-9A-Fa-f]{64}\/chemin|capteurs\/[0-9A-Fa-f]{64}|companion\/(stats|telemetrie|decouverte))$/,
-  /^\/api\/(sante-carte|reglages|diagnostic|alertes-officielles|passerelle|signalements|releves|ecoutes)$/,
+  /^\/api\/(sante-carte|reglages|diagnostic|alertes-officielles|passerelle|signalements|releves|ecoutes|fond-hors-ligne)$/,
   /^\/api\/maintenance\/[\w-]+$/, /^\/api\/envoi$/, /^\/api\/equipes$/, /^\/api\/firmware\/(info|modules)$/, /^\/api\/radio\/modules$/, /^\/rapport$/,
 ];
 const SECRET_DEMO = /(mot_?de_?passe|motdepasse|password|^pass$|psk|secret|jeton|token|e?mail|channel_?url|urlcanal|privee|private|admin_?keys?|clesadmin|^contact$|telephone|^(hote|ip|host|adresse|url|mqttUrl|urlMqtt|utilisateur|auteur|par)$)/i;
@@ -197,6 +197,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use('/vendor/leaflet', express.static(path.join(path.dirname(require.resolve('leaflet/package.json')), 'dist'), { maxAge: '7d' }));
+app.use('/vendor/protomaps-leaflet', express.static(path.join(path.dirname(require.resolve('protomaps-leaflet/package.json')), 'dist'), { maxAge: '7d' }));
 // Pages : jamais gardées en cache, et leurs feuilles de style et scripts portent le numéro de version
 // (après une mise à jour, le navigateur charge forcément les nouveaux fichiers, sans Ctrl+F5)
 const pagesVersionnees = new Map();
@@ -255,6 +256,7 @@ app.get('/api/config', (req, res) => {
     centre: [config.carte.centreLat, config.carte.centreLon],
     zoom: config.carte.zoom,
     tuiles: config.carte.tuiles,
+    fondHorsLigne: typeof fondsHorsLigne !== 'undefined' ? (fondsHorsLigne.etat().fond || null) : null,
     retentionJours: config.retentionJours,
     seuils: config.seuils,
     admin: estAdmin(req),
@@ -1953,6 +1955,39 @@ try {
     .map((f) => ({ code: f.properties.code, nom: f.properties.nom, bbox: emprise(f.geometry) })).sort((a, b) => a.code.localeCompare(b.code));
 } catch { /* liste indisponible */ }
 app.get('/api/departements', (req, res) => res.json(listeDepartements));
+
+// ---- Fond de carte hors ligne (PMTiles OpenStreetMap) et relief ombré calculé sur place ----------------------
+const fondsHorsLigne = require('./fonds').creerFonds({ config, departements: () => listeDepartements, journal });
+app.get('/api/fond-hors-ligne', (req, res) => res.set('Cache-Control', 'no-store').json(fondsHorsLigne.etat()));
+app.post('/api/fond-hors-ligne', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const b = req.body || {};
+  if (b.action === 'arreter') { fondsHorsLigne.arreter(); return res.json(fondsHorsLigne.etat()); }
+  if (b.action === 'supprimer') { fondsHorsLigne.supprimer(); return res.json(fondsHorsLigne.etat()); }
+  if (fondsHorsLigne.etat().enCours.actif) return res.status(409).json({ erreur: 'Téléchargement déjà en cours' });
+  fondsHorsLigne.telecharger({ zone: b.zone, maxzoom: b.maxzoom }, utilisateur(req).identifiant).catch(() => { /* erreur gardée dans l'état */ });
+  setTimeout(() => res.json(fondsHorsLigne.etat()), 300);
+});
+app.get('/fonds/fond.pmtiles', (req, res) => {
+  const f = fondsHorsLigne.fichier();
+  if (!f) return res.status(404).end();
+  res.sendFile(f, { acceptRanges: true, cacheControl: true, maxAge: '1d' });
+});
+const cacheOmbrage = new Map();
+app.get('/api/relief/ombrage/:z/:x/:y.png', (req, res) => {
+  const [z, x, y] = ['z', 'x', 'y'].map((k) => Number(req.params[k]));
+  if (![z, x, y].every(Number.isInteger) || z < 6 || z > 14) return res.status(204).end();
+  const cle = `${z}/${x}/${y}`;
+  let t = cacheOmbrage.get(cle);
+  if (t === undefined) {
+    try { t = relief.ombrageTuile(z, x, y); } catch { t = null; }
+    if (!relief.pret()) return res.status(204).end(); // relief pas encore chargé : ne pas mémoriser de tuile vide
+    cacheOmbrage.set(cle, t);
+    if (cacheOmbrage.size > 800) cacheOmbrage.delete(cacheOmbrage.keys().next().value);
+  }
+  if (!t) return res.status(204).end();
+  res.set('Content-Type', 'image/png').set('Cache-Control', 'public, max-age=86400').send(t);
+});
 
 function emprise(geom) {
   let s = 90, o = 180, n = -90, e = -180;

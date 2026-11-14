@@ -13,6 +13,12 @@ RUN set -e; mkdir -p /out; \
     CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /out/agent-gaulix-raspberrypi-arm64 . ; \
     CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="-s -w" -o /out/agent-gaulix-raspberrypi-armv7 .
 
+# 1 bis. Outil « pmtiles » (extraction du fond de carte hors ligne OpenStreetMap), compilé pour la machine visée
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS pmtiles
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go install -trimpath -ldflags="-s -w" github.com/protomaps/go-pmtiles@v1.31.2 \
+ && cp "$(find /go/bin -name go-pmtiles -type f | head -1)" /pmtiles
+
 # 2. Service Node.js
 FROM node:22-bookworm-slim
 ENV NODE_ENV=production \
@@ -29,6 +35,7 @@ COPY wiki ./wiki
 COPY carte-live/outils ./outils
 COPY carte-live/donnees-ref ./donnees-ref
 COPY --from=agents /out/ ./public/agent/
+COPY --from=pmtiles /pmtiles /usr/local/bin/pmtiles
 RUN mkdir -p /data && chown -R node:node /data
 USER node
 EXPOSE 8095 4404
