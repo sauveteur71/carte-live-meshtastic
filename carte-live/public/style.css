@@ -1434,6 +1434,8 @@ body.theme-clair .leaflet-control-attribution a[href*="helloasso"] { color: #c01
   .marque .soutien { margin-left: 6px; padding: 0 7px; font-size: 10px; line-height: 15px; }
   .marque .soutien .s-long { display: none; }
   .marque .soutien .s-court { display: inline; }
+  .marque .lien-github .s-long { display: none; }
+  .marque .lien-github { padding: 3px 6px; }
 }
 
 /* Saisie des messages : @mention et messages rapides */
@@ -1451,3 +1453,5 @@ body.theme-clair .leaflet-control-attribution a[href*="helloasso"] { color: #c01
 .bandeau-consultation { position: fixed; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 1200; background: var(--surface-2); color: var(--texte); border: 1px solid var(--accent); border-radius: 99px; padding: 5px 14px; font-size: 13px; max-width: calc(100vw - 32px); text-align: center; box-shadow: 0 4px 14px #0007; }
 .bandeau-consultation a { color: var(--accent); }
 body.consultation #outil-connecter, body.consultation #outil-companion-mc, body.consultation [data-groupe="gerer"] { display: none !important; }
+.lien-github { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; padding: 2px 9px; border-radius: 99px; background: #24292f; color: #fff !important; border: 1px solid #57606a; font-weight: 700; font-size: 11px; text-decoration: none; vertical-align: middle; }
+.lien-github:hover, .lien-github:focus-visible { background: #3d444d; outline: 2px solid #fff; outline-offset: 1px; }

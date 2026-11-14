@@ -74,7 +74,7 @@ async function demarrer() {
   // « Explorer en détail » : la carte complète en consultation, sur la même vue
   const majExplorer = () => { const a = document.getElementById('lien-explorer'); if (!a) return; const c = carte.getCenter(); a.href = `/?consultation&vue=${c.lat.toFixed(4)},${c.lng.toFixed(4)},${carte.getZoom()}`; };
   carte.on('moveend', majExplorer); majExplorer();
-  carte.attributionControl.setPrefix('Carte live par F4GLD · <a href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener" title="Soutenir le projet (don au Radio-club du Velay)">♥ Soutenir le projet</a> · <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
+  carte.attributionControl.setPrefix('Carte live par F4GLD · <a href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener" title="Soutenir le projet (don au Radio-club du Velay)">♥ Soutenir le projet</a> · <a href="https://github.com/sauveteur71/carte-live-meshtastic" target="_blank" rel="noopener">Code sur GitHub</a> · <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
   L.control.zoom({ position: 'topright' }).addTo(carte);
   carte.createPane('couverture').style.zIndex = 405;
   carte.createPane('liens').style.zIndex = 410;

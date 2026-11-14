@@ -225,7 +225,7 @@ function initCarte() {
   majFondSombre();
   for (const n of surcouchesMemo || []) if (surcouches[n]) surcouches[n].addTo(carte);
   carte.attributionControl.addAttribution('Meshtastic® est une marque de Meshtastic LLC');
-  carte.attributionControl.setPrefix('Carte live par F4GLD · <a href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener" title="Soutenir le projet (don au Radio-club du Velay)">♥ Soutenir le projet</a> · <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
+  carte.attributionControl.setPrefix('Carte live par F4GLD · <a href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener" title="Soutenir le projet (don au Radio-club du Velay)">♥ Soutenir le projet</a> · <a href="https://github.com/sauveteur71/carte-live-meshtastic" target="_blank" rel="noopener" title="Code source sur GitHub">Code sur GitHub</a> · <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
   // Choix du fond et des surcouches dans le menu « Couches »
   const menu = document.querySelector('.menu-couches .menu');
   menu.insertAdjacentHTML('afterbegin', `<div class="titre-menu">Fond de carte</div>${Object.keys(fonds).map((n) => `<button data-fond="${n}" class="${n === choix ? 'actif' : ''}">${n}</button>`).join('')}

@@ -8,6 +8,8 @@
   <style>
     .soutien { display: inline-block; padding: 3px 10px; border-radius: 99px; background: #ff4f8b; color: #fff !important; font-weight: 700; font-size: 12px; text-decoration: none; }
     .soutien:hover { background: #ff2f75; }
+.lien-github { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; padding: 2px 9px; border-radius: 99px; background: #24292f; color: #fff !important; border: 1px solid #57606a; font-weight: 700; font-size: 11px; text-decoration: none; vertical-align: middle; }
+    .lien-github:hover, .lien-github:focus-visible { background: #3d444d; outline: 2px solid #fff; outline-offset: 1px; }
     .explorer { display: inline-block; padding: 6px 14px; border-radius: 8px; background: #3ee6c4; color: #06120f !important; font-weight: 700; font-size: 14px; text-decoration: none; }
     .explorer:hover, .explorer:focus-visible { background: #6ff0d6; outline: 2px solid #fff; outline-offset: 2px; }
     .leaflet-control-attribution a[href*="helloasso"] { color: #ff6fa3 !important; font-weight: 700; }
@@ -86,7 +88,7 @@
       <button class="bascule" id="b-point" title="Cliquez ensuite n’importe où sur la carte : zone couverte par une antenne placée à cet endroit">📍 Couverture d’un point</button>
     </div>
     <div class="reseaux"><a class="explorer" id="lien-explorer" href="/?consultation" title="Toute la carte en lecture : fiches des nœuds, couches, liaisons, couverture et études de zone, alertes. Rien ne peut y être modifié ni envoyé par radio">🧭 Explorer en détail</a></div>
-    <div class="reseaux"><a class="soutien" href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener" title="Le programme est gratuit : un don au Radio-club du Velay aide à le faire vivre">♥ Soutenir le projet</a></div>
+    <div class="reseaux"><a class="soutien" href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener" title="Le programme est gratuit : un don au Radio-club du Velay aide à le faire vivre">♥ Soutenir le projet</a> <a class="lien-github" href="https://github.com/sauveteur71/carte-live-meshtastic" target="_blank" rel="noopener" title="Code source, nouveautés et installation sur GitHub (logiciel libre, gratuit)"><svg class="ic-code" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M5.2 4 1.5 8l3.7 4M10.8 4l3.7 4-3.7 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> GitHub</a></div>
     <small id="note-couv" hidden></small>
     <div id="info-couv" class="info-couv" hidden></div>
   </div>
