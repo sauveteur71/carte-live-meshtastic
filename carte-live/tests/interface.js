@@ -214,11 +214,35 @@ async function essaiConsultation(contexte) {
     connecter: !!document.querySelector('#outil-connecter') && !!document.querySelector('#outil-connecter').offsetParent,
     zoom: carte.getZoom(),
   }));
-  if (r.bandeau && !r.admin && !r.gerer && !r.connecter) ok('consultation : bandeau affiché, aucun droit ni bouton de modification'); else ko('consultation : ' + JSON.stringify(r));
+  if (r.bandeau && r.gerer && !r.connecter) ok('consultation : bandeau affiché, tous les écrans, pas de module à relier'); else ko('consultation : ' + JSON.stringify(r));
   if (r.zoom === 12) ok('consultation : même vue que la carte publique'); else ko('consultation : zoom ' + r.zoom + ' au lieu de 12');
   await capture(page, 'consultation');
   bilanErreurs(erreurs, 'consultation');
   await page.close();
+}
+
+// Démonstration pour tout visiteur, sans compte : tous les écrans, secrets masqués, aucune écriture
+async function essaiDemoVisiteur(navig) {
+  console.log('Démonstration (visiteur sans compte)');
+  const contexte = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
+  await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(contexte, '/?consultation');
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  const r = await page.evaluate(async () => {
+    const vis = (q) => { const e = document.querySelector(q); return !!e && !!e.offsetParent; };
+    const reg = await fetch('/api/reglages').then((x) => x.status === 200 ? x.json() : x.status);
+    const sansDemo = await fetch('/api/reglages', { headers: { 'X-Demo': '' } }).then((x) => x.status).catch(() => 0);
+    const comptes = await fetch('/api/comptes').then((x) => x.status);
+    let ecriture = 'acceptée';
+    try { await fetch('/api/reglages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); } catch (e) { ecriture = e.message; }
+    return { messages: vis('[data-groupe="messages"]'), gerer: vis('[data-groupe="gerer"]'), connexion: vis('#btn-admin'), canaux: reg && reg.canaux, mqttUtil: reg && reg.mqtt && reg.mqtt.utilisateur, sansDemo, comptes, ecriture };
+  });
+  if (r.messages && r.gerer && !r.connexion) ok('démonstration : Messages et Gérer visibles, pas de connexion ni d’inscription'); else ko('démonstration : ' + JSON.stringify(r));
+  if (typeof r.canaux === 'string' && !/AQ==/.test(r.canaux) && [401, 403].includes(r.comptes)) ok('démonstration : réglages lisibles, clés masquées, comptes refusés'); else ko('démonstration (lecture) : ' + JSON.stringify(r));
+  if (/Démonstration/.test(r.ecriture)) ok('démonstration : écriture bloquée'); else ko('démonstration : écriture ' + r.ecriture);
+  await capture(page, 'demo');
+  bilanErreurs(erreurs.filter((e) => !/HTTP 401|401/.test(e)), 'démonstration');
+  await contexte.close();
 }
 
 async function essaiPagesPubliques(navig) {
@@ -249,6 +273,7 @@ async function essaiPagesPubliques(navig) {
     await essaiAnglais(contexte);
     await essaiConsultation(contexte);
     await contexte.close();
+    await essaiDemoVisiteur(navigateur);
     await essaiPagesPubliques(navigateur);
     code = echecs ? 1 : 0;
     console.log(echecs ? `\n${echecs} problème(s) : captures et journal dans tests/resultats/` : '\nTout est bon ✓');

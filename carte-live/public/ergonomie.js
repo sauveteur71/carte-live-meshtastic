@@ -181,8 +181,6 @@ function tuilesAccueil() {
   ];
   // Signalements masqués par l'administrateur : la tuile mène à la vigilance météo
   if (typeof masquee === 'function' && masquee('signalements')) t[2] = { ic: '🌦️', nom: 'Alertes météo', aide: 'Vigilance Météo-France en cours', go: () => ficheAlertesOff() };
-  // Consultation : pas d'écriture ni de signalement ; à la place, les alertes officielles en lecture
-  if (etat.consultation) { t.splice(1, 2, { ic: '🌦️', nom: 'Alertes officielles', aide: 'Vigilance météo, feux actifs', go: () => ficheAlertesOff() }); }
   if (etat.gestion) t.push({ ic: '🛠', nom: 'Gérer mes nœuds', aide: 'Programmer, équipes, positions', go: () => allerGroupe('gerer') });
   t.push({ ic: '⚙️', nom: etat.membre ? 'Régler la carte' : 'Se connecter, affichage', aide: etat.admin ? 'Tous les réglages au même endroit' : 'Compte, affichage, aide', go: () => allerGroupe('reglages') });
   return t;
@@ -224,7 +222,7 @@ function rendreHubReglages() {
   const ligne = (ic, nom, aide, id) => `<button type="button" class="ligne-reglage" data-go="${id}"><span class="ic" aria-hidden="true">${ic}</span><span><b>${esc(nom)}</b><small>${esc(aide)}</small></span><span class="chevron" aria-hidden="true">›</span></button>`;
   const actions = {};
   const bloc = (titre, lignes) => (lignes.length ? `<h3>${titre}</h3><div class="liste-reglages">${lignes.map(([ic, nom, aide, go]) => { const id = 'r' + Object.keys(actions).length; actions[id] = go; return ligne(ic, nom, aide, id); }).join('')}</div>` : '');
-  const compte = etat.membre
+  const compte = etat.consultation ? [] : etat.membre
     ? [['👤', 'Mon compte', 'Mot de passe, double authentification, déconnexion', () => ouvrirDlg('moncompte')]]
     : [['🔑', 'Se connecter', 'Messages, signalements et gestion demandent un compte', () => $('#btn-admin').click()]];
   const carteL = !etat.admin ? [] : [

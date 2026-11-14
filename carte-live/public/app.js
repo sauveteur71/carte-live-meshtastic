@@ -1,5 +1,23 @@
 /* Carte live Meshtastic — interface */
 'use strict';
+// Démonstration (?consultation, lien « Explorer en détail ») : tous les écrans s'affichent, en lecture seule.
+// Les lectures portent l'en-tête X-Demo (le serveur ouvre alors quelques écrans de membre, secrets masqués) ;
+// aucune écriture ne part : toute requête autre que GET vers le serveur est refusée ici même.
+const DEMO = new URLSearchParams(location.search).has('consultation');
+if (DEMO) {
+  const fetchOrigine = window.fetch.bind(window);
+  window.fetch = (url, o = {}) => {
+    const u = typeof url === 'string' ? url : url.url || '';
+    const meme = u.startsWith('/') || u.startsWith(location.origin);
+    const methode = String(o.method || (url && url.method) || 'GET').toUpperCase();
+    if (meme && !['GET', 'HEAD'].includes(methode)) return Promise.reject(new Error('Démonstration : rien n’est enregistré ni envoyé. Installez la carte pour vous en servir.'));
+    if (meme && /\/api\/|\/rapport/.test(u)) o = { ...o, headers: { ...(o.headers || {}), 'X-Demo': '1' } };
+    // Écran réservé (comptes, journal, sauvegardes…) : message clair plutôt que « connexion requise »
+    return fetchOrigine(url, o).then((r) => (r.status === 401 && meme
+      ? new Response(JSON.stringify({ erreur: 'Démonstration : ces données sont privées et ne sont pas montrées.' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+      : r));
+  };
+}
 // Téléphone ou tablette (écran tactile, petit écran) : carte allégée (canevas, moins d'animations simultanées)
 const MOBILE = (() => { try { return matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900; } catch { return false; } })();
 
@@ -2172,6 +2190,8 @@ function insererPosition(zone, lat, lon) {
 }
 async function chargerMessages() {
   if (!etat.membre) return;
+  // Démonstration : pas de messages en direct par le WebSocket (réservés aux membres) : relecture régulière
+  if (etat.demo && !chargerMessages.minuteur) chargerMessages.minuteur = setInterval(() => chargerMessages().catch(() => {}), 60000);
   if (etat.admin && ($('#form-envoi').hidden || !$('#form-envoi').vers.querySelector('option[data-nom]'))) await preparerEnvoi();
   derniersMessages = await api('/api/messages?limite=300');
   rendreMessages();
@@ -7164,7 +7184,7 @@ async function demarrer() {
   // action d'écriture ni d'émission radio, même pour un compte connecté. Le serveur refuse de toute façon ces
   // actions à un visiteur ; ici on retire aussi les boutons.
   etat.consultation = new URLSearchParams(location.search).has('consultation');
-  if (etat.consultation) { etat.config.admin = false; etat.config.gestion = false; etat.config.membre = false; document.body.classList.add('consultation'); }
+  if (etat.consultation) { etat.config.admin = true; etat.config.gestion = true; etat.config.membre = true; etat.demo = true; document.body.classList.add('consultation'); }
   etat.admin = etat.config.admin;
   etat.gestion = !!etat.config.gestion;
   etat.secteur = etat.admin ? null : (etat.config.compte && etat.config.compte.noeuds) || [];
@@ -7172,7 +7192,7 @@ async function demarrer() {
   if (etat.consultation) {
     const b = document.createElement('div');
     b.className = 'bandeau-consultation';
-    b.innerHTML = `👁️ Consultation : tout se lit, rien ne se modifie ni ne s’envoie par radio. <a href="/publique">Carte simple</a>${etat.config.compte ? ' · <a href="/">Mon espace</a>' : ''}`;
+    b.innerHTML = `👁️ Démonstration : tous les écrans sont ouverts pour découvrir la carte, mais rien ne s’enregistre ni ne s’envoie par radio. <a href="/publique">Carte simple</a>${etat.config.compte ? ' · <a href="/">Mon espace</a>' : ''}`;
     document.body.appendChild(b);
   }
   document.title = etat.config.titre;
@@ -7203,12 +7223,12 @@ async function demarrer() {
   if (marque) marque.textContent = `Carte live · ${etat.config.zoneNom}`;
   afficherVersion(etat.config.version);
   setInterval(() => fetch('/api/version').then((r) => r.json()).then(afficherVersion).catch(() => {}), 3600000);
-  if (etat.membre) {
+  if (etat.membre && etat.config.compte) {
     const c = etat.config.compte;
     $('#btn-admin').textContent = `${c.indicatif || c.identifiant}${etat.admin ? ' · admin' : etat.gestion ? ' · gestionnaire' : ''}`;
     $('#btn-admin').classList.add('connecte');
-    $('#onglet-messages').hidden = false; majBadgesMessages();
   }
+  if (etat.membre) { $('#onglet-messages').hidden = false; majBadgesMessages(); }
   if (etat.admin) $('#bloc-modules').hidden = false;
   if (etat.gestion) $('#onglet-gestion').hidden = false;
   initCarte();

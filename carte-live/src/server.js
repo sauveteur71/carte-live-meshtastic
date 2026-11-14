@@ -90,11 +90,15 @@ const utilisateur = (req) => comptes.lireJeton(lireCookie(req, 'gaulix_session')
 const audit = creerAudit(stockage.db);
 const nomCompte = (c) => (c ? c.indicatif ? `${c.identifiant} (${c.indicatif})` : c.identifiant : null);
 // « Membre » : tout compte connecté (messages texte, positions exactes) ; « admin » : réglages et pilotage
-const estMembre = (req) => !!utilisateur(req);
-const estAdmin = (req) => { const u = utilisateur(req); return !!u && u.role === 'admin'; };
+// Démonstration (?consultation, en-tête X-Demo) : un visiteur lit en plus, en GET seulement, une liste d'écrans de
+// membre ou d'administrateur ; les réponses passent par nettoyerDemo (mots de passe, clés, adresses, contacts masqués).
+// Toute écriture reste refusée : un visiteur n'a aucun compte.
+const estMembre = (req) => !!utilisateur(req) || !!req.demoLecture;
+const estAdmin = (req) => { const u = utilisateur(req); return (!!u && u.role === 'admin') || !!req.demoLecture; };
 // Gestion par secteur : l'admin gère tout, un « gestionnaire » seulement les nœuds de sa liste
-const estGestion = (req) => { const u = utilisateur(req); return !!u && (u.role === 'admin' || u.role === 'gestionnaire'); };
+const estGestion = (req) => { const u = utilisateur(req); return (!!u && (u.role === 'admin' || u.role === 'gestionnaire')) || !!req.demoLecture; };
 function peutGerer(req, id) {
+  if (req.demoLecture) return true;
   const u = utilisateur(req);
   if (!u) return false;
   if (u.role === 'admin') return true;
@@ -148,6 +152,43 @@ app.use((req, res, next) => {
   const u = utilisateur(req);
   if (!u) return next();
   res.on('finish', () => audit.noter(nomCompte(u), req.ip, `${req.method} ${req.path}`, audit.resumer(req.body), res.statusCode < 400));
+  next();
+});
+// ---- Démonstration en lecture (lien « Explorer en détail ») ------------------------------------------------
+// Écrans lisibles par un visiteur en démonstration (GET seulement) : jamais les comptes, le journal d'audit, les
+// sauvegardes, les clés d'équipe, les QR de canaux, les exports YAML ni la mise à jour.
+const DEMO_LECTURE = [
+  /^\/api\/messages(\/\d+\/parcours)?$/, /^\/api\/mc\/messages$/, /^\/api\/trames\/\d+$/, /^\/api\/paquets$/,
+  /^\/api\/admin-noeuds(\/(modeles|favoris|firmware|conformite-auto|v28|taches\/[\w-]+|lecture\/\d+(\/detail)?))?$/,
+  /^\/api\/trafic\/controle$/, /^\/api\/noeuds-nouveaux$/, /^\/api\/installations$/, /^\/api\/responsables$/,
+  /^\/api\/mc\/(admin(\/modeles|\/taches\/[\w-]+)?|maintenance|audit\/(regions|collisions)|noeuds\/[0-9A-Fa-f]{64}\/chemin|capteurs\/[0-9A-Fa-f]{64}|companion\/(stats|telemetrie|decouverte))$/,
+  /^\/api\/(sante-carte|reglages|diagnostic|alertes-officielles|passerelle|signalements|releves|ecoutes)$/,
+  /^\/api\/maintenance\/[\w-]+$/, /^\/api\/envoi$/, /^\/api\/equipes$/, /^\/api\/firmware\/(info|modules)$/, /^\/api\/radio\/modules$/, /^\/rapport$/,
+];
+const SECRET_DEMO = /(mot_?de_?passe|motdepasse|password|^pass$|psk|secret|jeton|token|e?mail|channel_?url|urlcanal|privee|private|admin_?keys?|clesadmin|^contact$|telephone|^(hote|ip|host|adresse|url|mqttUrl|urlMqtt|utilisateur|auteur|par)$)/i;
+function nettoyerDemo(v, cle = '', prof = 0) {
+  if (prof > 12 || v == null) return v;
+  if (Array.isArray(v)) return v.map((x) => nettoyerDemo(x, cle, prof + 1));
+  if (typeof v === 'object') {
+    const o = {};
+    for (const [k, x] of Object.entries(v)) {
+      if (SECRET_DEMO.test(k) && (typeof x === 'string' || typeof x === 'number')) { o[k] = x === '' || x == null ? x : '••••'; continue; }
+      // Clé de canal (base64, pas une clé publique MeshCore de 64 caractères hexadécimaux)
+      if (/^(cle|cles|key|keys)$/i.test(k) && typeof x === 'string' && !/^[0-9A-F]{64}$/i.test(x)) { o[k] = x ? '••••' : x; continue; }
+      if (/^(cle|cles|key|keys)$/i.test(k) && Array.isArray(x)) { o[k] = x.map((y) => (typeof y === 'string' && !/^[0-9A-F]{64}$/i.test(y) ? '••••' : y)); continue; }
+      o[k] = nettoyerDemo(x, k, prof + 1);
+    }
+    return o;
+  }
+  // Liste « nom=clé » des canaux
+  if (typeof v === 'string' && /^canaux$/i.test(cle)) return v.replace(/=([^;\n]+)/g, '=••••');
+  return v;
+}
+app.use((req, res, next) => {
+  if (req.method !== 'GET' || req.get('X-Demo') !== '1' || utilisateur(req) || !DEMO_LECTURE.some((r) => r.test(req.path))) return next();
+  req.demoLecture = true;
+  const json = res.json.bind(res);
+  res.json = (b) => json(nettoyerDemo(b));
   next();
 });
 app.use((req, res, next) => {
@@ -1728,7 +1769,10 @@ app.get('/api/etat', (req, res) => {
 
 app.get('/api/messages', (req, res) => {
   if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
-  res.json(stockage.q.messages.all(Math.min(Number(req.query.limite) || 300, 2000)).map((m) => {
+  // Démonstration : canaux publics (clé par défaut) seulement, jamais les messages directs
+  const publics = new Set(config.canaux.filter((c) => !c.cle || c.cle === 'AQ==' || c.cle === '1PG7OiApB1nwvP+rz05pAQ==').map((c) => c.nom));
+  const garder = (m) => !req.demoLecture || (m.vers === 0xffffffff && publics.has(m.canal));
+  res.json(stockage.q.messages.all(Math.min(Number(req.query.limite) || 300, 2000)).filter(garder).map((m) => {
     const a = administration.accuseMessage(m.idPaquet, m.de);
     let entendus = [];
     try { entendus = JSON.parse(m.entendus || '[]'); } catch { /* vide */ }
@@ -2181,7 +2225,9 @@ app.get('/api/mc/qr', async (req, res) => {
 });
 app.get('/api/mc/messages', (req, res) => {
   if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
-  res.json(reseauMc.messages(Math.min(Number(req.query.limite) || 300, 2000)));
+  const l = reseauMc.messages(Math.min(Number(req.query.limite) || 300, 2000));
+  // Démonstration : canal Public et canaux « # » (ouverts à tous) seulement, jamais les messages directs
+  res.json(req.demoLecture ? l.filter((m) => m.genre === 'canal' && (/^public$/i.test(m.canal || '') || /^#/.test(m.canal || ''))) : l);
 });
 let alertesMc = [];
 function etatMc(admin) {
