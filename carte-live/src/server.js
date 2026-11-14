@@ -2462,11 +2462,11 @@ app.post('/api/mc/companion/cli', async (req, res) => {
     res.json({ reponse: /^get wifi\.pwd/i.test(commande) ? '(masqué)' : r });
   } catch (e) { res.status(409).json({ erreur: e.message }); }
 });
-// Relevés automatiques : statistiques toutes les 15 min, découverte toutes les 6 h
+// Relevés automatiques : statistiques toutes les 15 min, découverte et régions des répéteurs une fois par jour
 setInterval(() => { if (config.meshcore.actif && companion.etat().pret) statsCompanionMc().catch(() => {}); }, 15 * 60000);
 let derniereDecouverteMc = 0;
 setInterval(() => {
-  if (!config.meshcore.actif || !companion.etat().pret || Date.now() - derniereDecouverteMc < 6 * 3600000) return;
+  if (!config.meshcore.actif || !companion.etat().pret || Date.now() - derniereDecouverteMc < 24 * 3600000) return;
   derniereDecouverteMc = Date.now();
   decouvrirMc().then(() => interrogerRegionsMc().catch(() => {})).catch((e) => journal('[MeshCore] découverte automatique :', e.message));
 }, 5 * 60000);
@@ -2489,7 +2489,8 @@ async function interrogerRegionsMc(cles) {
       auditMc.noterDeclarees(k, r);
       interrogationMc.resultats.push({ cle: k, nom: n.nom, ok: true, ...r });
       await new Promise((ok) => setTimeout(ok, 2000));
-      try {
+      // Propriétaire : redemandé au plus une fois par semaine (chaque demande est une requête anonyme sur le réseau)
+      if (!(proprietairesMc[k] && Date.now() - (proprietairesMc[k].heure || 0) < 7 * 86400000)) try {
         const pr = await companion.proprietaire({ cle: n.cle, nom: n.nom, role: n.role, lat: n.lat, lon: n.lon, horodatageAnnonce: n.horodatage_annonce });
         proprietairesMc[k] = { nom: pr.nom, infos: pr.infos, heure: Date.now() };
         ecrireSur(fProprietairesMc, JSON.stringify(proprietairesMc));

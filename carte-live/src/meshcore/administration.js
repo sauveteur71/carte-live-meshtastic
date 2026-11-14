@@ -217,6 +217,12 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     if (attente.unref) attente.unref();
   }
 
+  // Connexions réussies récemment (clé → heure) : un relevé automatique (état, télémétrie) réutilise la session
+  // ouverte sur le répéteur au lieu de renvoyer une connexion (requête anonyme ANON_REQ) à chaque fois, ce qui
+  // chargeait le réseau ; il ne se reconnecte que si le relevé échoue. Tâches automatiques : un seul essai.
+  const sessions = {};
+  const SESSION_MS = 3 * 3600000;
+  const automatique = (t) => /^(supervision|capteurs)/.test(String(t.auteur || ''));
   async function avecReprise(fn, essais = 2) {
     let derniere;
     for (let k = 0; k < essais; k++) {
@@ -232,7 +238,8 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     if (n.role === 'companion' && !mdp) { etape(t, n.cle, 'companion : accès par la permission « commande à distance » accordée à notre contact (firmware 1.18+), sans mot de passe'); return { admin: true }; }
     if (!mdp && mdp !== '') throw new Error('mot de passe admin inconnu : saisissez-le');
     etape(t, n.cle, 'connexion…');
-    const r = await avecReprise(() => companion.connexion(n, mdp));
+    const r = await avecReprise(() => companion.connexion(n, mdp), automatique(t) ? 1 : 2);
+    sessions[n.cle] = Date.now();
     if (!r.admin) etape(t, n.cle, 'connecté en invité seulement (mot de passe invité ?) : réglages en lecture limitée', false);
     else etape(t, n.cle, `connecté en admin${r.inondation ? ' (chemin inconnu : envoi en inondation)' : ''}`);
     if (t.motDePasse && t.memoriser) { motsDePasse[n.cle] = t.motDePasse; ecrire(fMdp, motsDePasse); }
@@ -269,7 +276,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
 
   async function statut(t, n) {
     etape(t, n.cle, 'demande de l’état…');
-    const s = await avecReprise(() => companion.statut(n));
+    const s = await avecReprise(() => companion.statut(n), automatique(t) ? 1 : 2);
     lectures[n.cle] = { ...(lectures[n.cle] || {}), statut: { ...s, heure: Date.now() } };
     ecrire(fLectures, lectures);
     t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), statut: s };
@@ -371,7 +378,10 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
       t.courant = cle;
       try {
         // L'état et la découverte de chemin ne demandent pas de connexion admin
-        if (t.type !== 'tracer' && (!SANS_ADMIN.includes(t.type) || t.motDePasse || motsDePasse[n.cle])) await seConnecter(t, n).catch((e) => { if (!SANS_ADMIN.includes(t.type)) throw e; etape(t, n.cle, 'connexion : ' + e.message + ' (on continue sans)', false); });
+        const releve = ['statut', 'telemetrie'].includes(t.type);
+        const sessionOuverte = releve && !t.motDePasse && sessions[n.cle] && Date.now() - sessions[n.cle] < SESSION_MS;
+        if (sessionOuverte) etape(t, n.cle, 'session déjà ouverte sur ce nœud : pas de nouvelle connexion');
+        else if (t.type !== 'tracer' && (!SANS_ADMIN.includes(t.type) || t.motDePasse || motsDePasse[n.cle])) await seConnecter(t, n).catch((e) => { if (!SANS_ADMIN.includes(t.type) || automatique(t)) throw e; /* relevé automatique : nœud injoignable, inutile d'insister */ etape(t, n.cle, 'connexion : ' + e.message + ' (on continue sans)', false); });
         switch (t.type) {
           case 'lire':
             if (Array.isArray(t.params.cles)) { await lireConfig(t, n, t.params.cles); break; }
@@ -393,7 +403,13 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
             break;
           }
           case 'regions': await appliquerRegions(t, n, Array.isArray(t.params.actions) ? t.params.actions : [], t.params.enregistrer !== false); break;
-          case 'statut': await statut(t, n); break;
+          case 'statut':
+            try { await statut(t, n); } catch (e) {
+              if (!sessionOuverte || !motsDePasse[n.cle]) throw e;
+              delete sessions[n.cle]; etape(t, n.cle, 'pas de réponse : nouvelle connexion', false);
+              await seConnecter(t, n); await statut(t, n);
+            }
+            break;
           case 'chemin': {
             etape(t, n.cle, 'découverte du chemin (requête en inondation)…');
             const r = await companion.decouvrirChemin(n);
@@ -411,7 +427,12 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
           case 'tracer': await tracer(t, n); break;
           case 'telemetrie': {
             etape(t, n.cle, 'demande de télémétrie…');
-            const l = await avecReprise(() => companion.telemetrie(n));
+            let l;
+            try { l = await avecReprise(() => companion.telemetrie(n), automatique(t) ? 1 : 2); } catch (e) {
+              if (!sessionOuverte || !motsDePasse[n.cle]) throw e;
+              delete sessions[n.cle]; etape(t, n.cle, 'pas de réponse : nouvelle connexion', false);
+              await seConnecter(t, n); l = await avecReprise(() => companion.telemetrie(n), 1);
+            }
             lectures[n.cle] = { ...(lectures[n.cle] || {}), telemetrie: { mesures: l, heure: Date.now() } };
             ecrire(fLectures, lectures);
             t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), telemetrie: l };
