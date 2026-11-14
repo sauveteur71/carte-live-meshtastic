@@ -1,0 +1,60 @@
+# Veille hebdomadaire : nouvelles versions (Meshtastic, MeshCore, Leaflet…), écart des protobufs officiels,
+# test du décodage sur la dernière version officielle des protobufs, failles et mises à jour npm, projets voisins,
+# tickets ouverts. Le rapport est publié dans un ticket « Veille » (le précédent est fermé).
+name: Veille
+
+on:
+  schedule:
+    - cron: '23 5 * * 1' # lundi matin
+  workflow_dispatch:
+    inputs:
+      jours:
+        description: Période couverte (jours)
+        default: '7'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  veille:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: carte-live/package-lock.json
+      - name: Dépendances
+        working-directory: carte-live
+        run: npm ci
+      - name: Protobufs officiels
+        run: git clone --depth 1 https://github.com/meshtastic/protobufs "$RUNNER_TEMP/officiel"
+      - name: Rapport
+        id: rapport
+        working-directory: carte-live
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node outils/veille.js --jours "${{ inputs.jours || '7' }}" --officiel "$RUNNER_TEMP/officiel" --protos "$RUNNER_TEMP/essai" > "$RUNNER_TEMP/rapport.md"
+      - name: Décodage avec les derniers protobufs officiels
+        working-directory: carte-live
+        run: |
+          {
+            echo '## 6. Décodage testé avec les derniers protobufs officiels'
+            echo
+            if PROTOBUFS_DIR="$RUNNER_TEMP/essai" node --test tests/radio.js > "$RUNNER_TEMP/tests.txt" 2>&1; then
+              echo "✅ Tous les tests de décodage passent ($(grep -c '^ok ' "$RUNNER_TEMP/tests.txt") tests) : mettre à jour carte-live/protobufs ne casse rien."
+            else
+              echo '❌ **Des tests de décodage échouent avec la nouvelle version : ne pas mettre à jour carte-live/protobufs sans corriger.**'
+              echo; echo '```'; grep -E '^not ok|Error|expected|actual' "$RUNNER_TEMP/tests.txt" | head -40; echo '```'
+            fi
+          } >> "$RUNNER_TEMP/rapport.md"
+      - name: Ticket de veille
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat "$RUNNER_TEMP/rapport.md" >> "$GITHUB_STEP_SUMMARY"
+          gh label create veille --color 0E8A16 --description "Rapport de veille automatique" 2>/dev/null || true
+          for n in $(gh issue list --label veille --state open --json number -q '.[].number'); do gh issue close "$n" --comment "Remplacé par le rapport de la semaine." ; done
+          gh issue create --label veille --title "Veille du $(date +%Y-%m-%d)" --body-file "$RUNNER_TEMP/rapport.md"

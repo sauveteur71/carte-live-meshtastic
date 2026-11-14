@@ -6,7 +6,8 @@ const crypto = require('crypto');
 const protobuf = require('protobufjs');
 
 const racine = new protobuf.Root();
-const dossierProtos = path.join(__dirname, '..', 'protobufs');
+// PROTOBUFS_DIR : protobufs d'essai (la veille hebdomadaire y met la dernière version officielle pour tester le décodage)
+const dossierProtos = process.env.PROTOBUFS_DIR || path.join(__dirname, '..', 'protobufs');
 const dossierGoogle = path.dirname(require.resolve('protobufjs/package.json'));
 racine.resolvePath = (_origine, cible) =>
   cible.startsWith('google/') ? path.join(dossierGoogle, cible) : path.join(dossierProtos, cible);

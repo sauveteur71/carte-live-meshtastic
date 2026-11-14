@@ -1,0 +1,23 @@
+# Mises à jour automatiques proposées chaque semaine : chaque proposition passe par les Vérifications
+# (syntaxe, décodage radio, interface dans un vrai navigateur) avant d'être fusionnée à la main.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /carte-live
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      correctifs:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: leaflet # 2.0 change l'API : migration à faire à la main
+        update-types: [version-update:semver-major]
+  - package-ecosystem: gomod
+    directory: /agent
+    schedule: { interval: weekly, day: monday }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly, day: monday }
