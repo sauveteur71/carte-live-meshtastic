@@ -3202,8 +3202,9 @@ async function couvertureIci(latlng, hauteur) {
   for (let essai = 0; essai < 20; essai++) {
     r = await voirCouvertureSite(p, 'Point choisi', h, { cadrer: true, erreurs: true, preset: etat.vueReseau === 'meshcore' ? 'MESHCORE_FR' : undefined });
     if (!r || !r.erreur || !/chargement/.test(r.erreur)) break;
-    $('#fiche-contenu').innerHTML = `<div class="vide">${esc(r.erreur)}<br><small>Nouvel essai automatique dans 20 s (${essai + 1}/20)…</small></div>`;
-    await new Promise((ok) => setTimeout(ok, 20000));
+    const delai = /ouverture en cours/.test(r.erreur) ? 3 : 20; // relief déjà sur le disque : quelques secondes
+    $('#fiche-contenu').innerHTML = `<div class="vide">${esc(r.erreur)}<br><small>Nouvel essai automatique dans ${delai} s (${essai + 1}/20)…</small></div>`;
+    await new Promise((ok) => setTimeout(ok, delai * 1000));
     if (!$('#fiche-contenu').textContent.includes('Nouvel essai')) return; // fiche fermée ou remplacée
   }
   if (!r || r.erreur) { $('#fiche-contenu').innerHTML = `<div class="vide">${esc(r && r.erreur ? r.erreur : 'Calcul impossible.')}</div>`; return; }

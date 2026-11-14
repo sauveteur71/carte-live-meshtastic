@@ -539,13 +539,27 @@ function Rdep(req, depForce) {
   if (precharge.instance && precharge.courant === dep) return precharge.instance;
   if (!reliefsEtude.has(dep)) {
     if (!listeDepartements.some((d) => d.code === dep)) return relief;
-    if (reliefsEtude.size >= 2) { const [k, v] = reliefsEtude.entries().next().value; v.arreter(); reliefsEtude.delete(k); }
+    if (reliefsEtude.size >= 6) { const [k, v] = reliefsEtude.entries().next().value; v.arreter(); reliefsEtude.delete(k); }
     journal(`[Relief] étude du département ${dep} : chargement du relief IGN et des points hauts`);
     reliefsEtude.set(dep, creerRelief(config, journal, { ...fournisseursRelief, envDefaut: () => { const c = relief.calibration(); return c && c.perteEnvironnementDb != null ? c.perteEnvironnementDb : null; } }, { code: dep }));
   } else { const v = reliefsEtude.get(dep); reliefsEtude.delete(dep); reliefsEtude.set(dep, v); }
   return reliefsEtude.get(dep);
 }
 
+// Relief d'un département déjà préparé sur le disque : il s'ouvre en une à deux secondes. On attend qu'il soit prêt
+// plutôt que de répondre « en cours de chargement » (le navigateur ne réessayait que 20 s plus tard).
+async function reliefPret(RR, ms = 12000) {
+  const fin = Date.now() + ms;
+  while (!RR.pret() && Date.now() < fin) {
+    const e = RR.etat ? RR.etat() : {};
+    if (e.mnt === 'erreur' || (RR.code && !reliefSurDisque(RR.code))) break; // téléchargement IGN : plusieurs minutes, inutile d'attendre ici
+    await new Promise((ok) => setTimeout(ok, 200));
+  }
+  return RR.pret();
+}
+const messageChargement = (RR) => (RR.code && reliefSurDisque(RR.code)
+  ? `Relief du département ${RR.code} : ouverture en cours, quelques secondes`
+  : `Relief du département ${RR.code || ''} en cours de chargement (IGN) : réessayez dans quelques minutes`);
 app.get('/api/relief/france', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const surDisque = listeDepartements.filter((d) => d.code === String(config.departement.code).toUpperCase() || reliefSurDisque(d.code)).length;
@@ -586,24 +600,26 @@ app.post('/api/relief/recalculer', (req, res) => {
   R(req).calculerClassement(optsRelief(req.body || {}));
   res.json({ ok: true });
 });
-app.get('/api/relief/couvrir', (req, res) => {
+app.get('/api/relief/couvrir', async (req, res) => {
   const lat = Number(req.query.lat), lon = Number(req.query.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ erreur: 'Point invalide' });
   const o = optsRelief(req.query);
   if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
-  try { res.json(R(req, { lat, lon }).couvrirPoint({ lat, lon }, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
+  const RR = R(req, { lat, lon }); await reliefPret(RR);
+  try { res.json(RR.couvrirPoint({ lat, lon }, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
 });
 // Un seul site pour plusieurs points : ?pts=lat,lon;lat,lon;…
-app.get('/api/relief/couvrir-points', (req, res) => {
+app.get('/api/relief/couvrir-points', async (req, res) => {
   const cibles = String(req.query.pts || '').split(';').map((x) => x.split(',').map(Number)).filter((x) => x.length === 2 && x.every(Number.isFinite)).slice(0, 5).map(([lat, lon], i) => ({ lat, lon, nom: `Point ${i + 1}` }));
   if (cibles.length < 2) return res.status(400).json({ erreur: 'Indiquer au moins deux points' });
   const o = optsRelief(req.query);
   if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
-  try { res.json(R(req, ...cibles).couvrirPoints(cibles, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
+  const RR = R(req, ...cibles); await reliefPret(RR);
+  try { res.json(RR.couvrirPoints(cibles, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
 });
 // Répéteurs MeshCore positionnés et entendus depuis 24 h (relais existants pour « Relier » et « Couvrir »)
 const repeteursMc = () => { const lim = Date.now() - 24 * 3600000; return reseauMc.q.noeuds.all().filter((n) => n.lat != null && ['repeteur', 'salon'].includes(n.role) && (n.dernier_vu || 0) >= lim).map((n) => ({ num: n.cle, nom: n.nom || n.cle.slice(0, 8), lat: n.lat, lon: n.lon })); };
-app.get('/api/relief/relier', (req, res) => {
+app.get('/api/relief/relier', async (req, res) => {
   const q = req.query, n = (v) => Number(v);
   const a = { lat: n(q.aLat), lon: n(q.aLon), nom: q.aNom ? String(q.aNom).slice(0, 60) : 'Départ' }, b = { lat: n(q.bLat), lon: n(q.bLon), nom: q.bNom ? String(q.bNom).slice(0, 60) : 'Arrivée' };
   if (![a.lat, a.lon, b.lat, b.lon].every(Number.isFinite)) return res.status(400).json({ erreur: 'Points invalides' });
@@ -611,7 +627,8 @@ app.get('/api/relief/relier', (req, res) => {
   if (q.hA) o.hauteurA = Math.min(Math.max(Number(q.hA) || 2, 0.5), 60);
   if (q.hB) o.hauteurB = Math.min(Math.max(Number(q.hB) || 2, 0.5), 60);
   if (q.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
-  try { res.json(R(req, a, b).relierPoints(a, b, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
+  const RR = R(req, a, b); await reliefPret(RR);
+  try { res.json(RR.relierPoints(a, b, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
 });
 const cacheCouverture = new Map();
 const calculsPublics = new Map();
@@ -621,12 +638,12 @@ function limiterCalcul(ip) {
   if (calculsPublics.size > 2000) calculsPublics.clear();
   return l.length > 20;
 }
-app.get('/api/relief/couverture', (req, res) => {
+app.get('/api/relief/couverture', async (req, res) => {
   const lat = Number(req.query.lat), lon = Number(req.query.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ erreur: 'Point invalide' });
   const RR = R(req, { lat, lon });
   if (!dansEmprise({ lat, lon }, RR.emprise())) return res.status(400).json({ erreur: estMembre(req) ? 'Point hors de France métropolitaine : pas de relief disponible' : 'Point hors de la zone couverte par le modèle de relief (département et ses abords)' });
-  if (!RR.pret()) return res.status(503).json({ erreur: `Relief du département ${RR.code || ''} en cours de chargement (IGN) : réessayez dans quelques minutes` });
+  if (!(await reliefPret(RR))) return res.status(503).json({ erreur: messageChargement(RR) });
   const o = optsRelief(req.query);
   const cle = JSON.stringify([RR.code, lat.toFixed(4), lon.toFixed(4), o, (RR.calibration() || {}).date]);
   let r = cacheCouverture.get(cle);
@@ -642,12 +659,12 @@ app.get('/api/relief/couverture', (req, res) => {
   res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), departement: RR.etat().departement, surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sol: r.sol, env: r.env, rayonKm: r.rayonKm });
 });
 // Couverture cumulée : ?pts=lat,lon[,hauteur];lat,lon[,hauteur];… (2 à 10 sites)
-app.get('/api/relief/couverture-multi', (req, res) => {
+app.get('/api/relief/couverture-multi', async (req, res) => {
   const sites = String(req.query.pts || '').split(';').map((x) => x.split(',').map(Number)).filter((x) => x.length >= 2 && x.slice(0, 2).every(Number.isFinite)).slice(0, 10)
     .map(([lat, lon, h]) => ({ lat, lon, h: Number.isFinite(h) ? Math.min(Math.max(h, 0.5), 100) : undefined }));
   if (!sites.length) return res.status(400).json({ erreur: 'Aucun site' });
   const RR = R(req, ...sites);
-  if (!RR.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
+  if (!(await reliefPret(RR))) return res.status(503).json({ erreur: messageChargement(RR) });
   const o = optsRelief(req.query);
   const cle = JSON.stringify(['multi', RR.code, sites, o, (RR.calibration() || {}).date]);
   let r = cacheCouverture.get(cle);
@@ -673,9 +690,9 @@ function couvertureReseauCachee(RR, o, reseauCle) {
   }
   return r;
 }
-app.get('/api/relief/couverture-reseau', (req, res) => {
+app.get('/api/relief/couverture-reseau', async (req, res) => {
   const RR = R(req);
-  if (!RR.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
+  if (!(await reliefPret(RR))) return res.status(503).json({ erreur: messageChargement(RR) });
   const o = optsRelief(req.query);
   if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
   if (req.query.hn) o.hn = Math.min(Math.max(Number(req.query.hn) || 6, 0.5), 60);
@@ -699,9 +716,9 @@ async function villesDepartement(code) {
 }
 // Déplacer des relais existants : calcul en arrière-plan (1 à 3 min), résultat gardé jusqu'au prochain classement
 const optimisations = new Map(); // clé -> { etat, progression, resultat, erreur }
-app.get('/api/relief/optimisation', (req, res) => {
+app.get('/api/relief/optimisation', async (req, res) => {
   const RR = R(req);
-  if (!RR.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
+  if (!(await reliefPret(RR))) return res.status(503).json({ erreur: messageChargement(RR) });
   const rayon = Math.min(Math.max(Number(req.query.rayon) || 6, 2), 15);
   const acces = ['voiture', '4x4', 'pied'].includes(req.query.acces) ? req.query.acces : null;
   const cle = JSON.stringify([RR.code, rayon, acces, (RR.classement() || {}).date, Math.floor(Date.now() / 3600000)]);
@@ -722,7 +739,7 @@ app.get('/api/sites-routiers', async (req, res) => { res.set('Cache-Control', 'p
 const evaluationsRoutiers = new Map();
 app.get('/api/relief/sites-routiers', async (req, res) => {
   const RR = R(req);
-  if (!RR.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
+  if (!(await reliefPret(RR))) return res.status(503).json({ erreur: messageChargement(RR) });
   const h = Math.min(Math.max(Number(req.query.h) || 6, 2), 30);
   const cle = JSON.stringify([RR.code, h, (RR.classement() || {}).date, Math.floor(Date.now() / 3600000)]);
   let o = evaluationsRoutiers.get(cle);
@@ -762,7 +779,7 @@ app.get('/api/relief/budget', async (req, res) => {
 // Simulation « et si… » : { retirer: [num…], ajouter: [{ lat, lon, h, nom }…] }
 app.post('/api/relief/simulation', async (req, res) => {
   const RR = R(req);
-  if (!RR.pret()) return res.status(503).json({ erreur: 'Le modèle de terrain est en cours de chargement' });
+  if (!(await reliefPret(RR))) return res.status(503).json({ erreur: messageChargement(RR) });
   const b = req.body || {};
   const o = optsRelief(req.query);
   if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
