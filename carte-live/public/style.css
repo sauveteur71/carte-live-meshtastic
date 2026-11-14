@@ -1150,11 +1150,28 @@ a.bouton-lien { text-decoration: none; display: inline-flex; align-items: center
   .outils > * { flex: none; }
   .outils #sel-zone { max-width: 190px; }
   .menu-couches .menu, .menu-outils .menu { position: fixed; top: auto; bottom: calc(var(--h-outils, 54px) + 6px); max-height: 70vh; overflow-y: auto; }
-  .recherche-lieu { top: 84px; left: calc(var(--l-panneau) + 24px); right: 12px; width: auto; min-width: 0; }
   body .bandeau-consultation { bottom: calc(var(--h-outils, 54px) + 10px); }
   .legende { display: none; }
   .leaflet-bottom.leaflet-right { bottom: var(--h-outils, 54px); }
   .rejeu { bottom: calc(var(--h-outils, 54px) + 10px); }
+  /* Moins tassé : recherche repliée en loupe (s'ouvre au toucher), outils en icônes avec un petit libellé dessous,
+     bandeau du haut réduit au nom et à l'état */
+  .recherche-lieu { top: 12px; left: auto; right: 66px; width: 46px; min-width: 0; transition: width .2s ease; }
+  .recherche-lieu:focus-within { width: min(520px, calc(100vw - var(--l-panneau) - 100px)); }
+  .recherche-lieu:not(:focus-within) input { color: transparent; cursor: pointer; padding: 0; height: 44px; background-position: center; background-size: 20px; }
+  .recherche-lieu input { height: 44px; }
+  body .fab-plus { left: auto; transform: none; right: 16px; bottom: calc(var(--h-outils, 60px) + 16px); }
+  .recherche-lieu:not(:focus-within) input::placeholder { color: transparent; }
+  .marque .sous, .marque .lien-github { display: none; }
+  .outils { gap: 2px; align-items: stretch; }
+  .outils > details > summary, .outils > button, .outils > .choix { display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10.5px; line-height: 1.15; min-width: 64px; padding: 4px 6px; gap: 2px; }
+  .outils > details > summary::before, .outils > button::before { font-size: 20px; line-height: 1; }
+  .outils > details.menu-couches:not(.menu-radio):not(.menu-outils) > summary::before { content: '🗂️'; }
+  .outils > details.menu-radio > summary::before { content: '📡'; }
+  .outils > details.menu-outils > summary::before { content: '🧰'; }
+  .outils > #btn-rejeu::before { content: '⏯️'; }
+  .outils > #btn-chercher-reglage { font-size: 18px; }
+  .outils > .choix select { font-size: 13px; padding: 2px 4px; }
   .groupes { padding-right: 30px; justify-content: space-between; }
   .groupes button[data-groupe] { font-size: 12.5px; padding-left: 3px; padding-right: 3px; flex: none; }
 }
