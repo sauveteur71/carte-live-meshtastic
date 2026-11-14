@@ -8135,7 +8135,7 @@ async function dessinerFeux() {
     g.addTo(carte);
     if (coucheFeux) coucheFeux.remove();
     coucheFeux = g;
-    if (!(r.foyers || []).length) annonce(`🔥 Aucun foyer satellite en France ces dernières 24 h${r.maj ? ` (lu ${ilYa(r.maj)})` : ''}`);
+    if (!(r.foyers || []).length) annonce(`🔥 Aucun foyer satellite autour de la carte ces dernières 24 h${r.maj ? ` (lu ${ilYa(r.maj)})` : ''}`);
   } catch (e) { annonce('⚠ Feux actifs indisponibles : ' + e.message, 'erreur'); }
   minuteurFeux = setTimeout(dessinerFeux, 10 * 60000);
 }

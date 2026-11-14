@@ -8,20 +8,35 @@ const { ecrireSur, lireJson } = require('./fichiers');
 const { versDfci } = require('../public/dfci.js');
 
 const BASE = 'https://firms.modaps.eosdis.nasa.gov/data/active_fire/';
-const SOURCES = [
-  { id: 'VIIRS NOAA-20', url: 'noaa-20-viirs-c2/csv/J1_VIIRS_C2_Europe_24h.csv' },
-  { id: 'VIIRS NOAA-21', url: 'noaa-21-viirs-c2/csv/J2_VIIRS_C2_Europe_24h.csv' },
-  { id: 'VIIRS Suomi-NPP', url: 'suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Europe_24h.csv' },
-  { id: 'MODIS', url: 'modis-c6.1/csv/MODIS_C6_1_Europe_24h.csv' },
+// Fichiers par région du monde ; la région suit le centre de la carte
+const SOURCES = (region) => [
+  { id: 'VIIRS NOAA-20', url: `noaa-20-viirs-c2/csv/J1_VIIRS_C2_${region}_24h.csv` },
+  { id: 'VIIRS NOAA-21', url: `noaa-21-viirs-c2/csv/J2_VIIRS_C2_${region}_24h.csv` },
+  { id: 'VIIRS Suomi-NPP', url: `suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_${region}_24h.csv` },
+  { id: 'MODIS', url: `modis-c6.1/csv/MODIS_C6_1_${region}_24h.csv` },
 ];
 const FRANCE = [41.2, -5.6, 51.2, 9.8]; // sud, ouest, nord, est
+function regionFirms(lat, lon) {
+  if (lat >= 34 && lat <= 72 && lon >= -25 && lon <= 45) return 'Europe';
+  if (lat >= 49 && lon >= -170 && lon <= -130) return 'Alaska';
+  if (lat >= 41.5 && lon >= -141 && lon <= -52) return 'Canada';
+  if (lat >= 15 && lat < 50 && lon >= -170 && lon <= -60) return 'USA_contiguous_and_Hawaii';
+  if (lat >= 5 && lat < 33 && lon >= -120 && lon <= -60) return 'Central_America';
+  if (lat < 15 && lon >= -95 && lon <= -30) return 'South_America';
+  if (lat >= -5 && lat < 38 && lon >= -25 && lon <= 60) return 'Northern_and_Central_Africa';
+  if (lat < -5 && lon >= 5 && lon <= 60) return 'Southern_Africa';
+  if (lat <= -9 && lon >= 110) return 'Australia_NewZealand';
+  if (lat < 30 && lon >= 60 && lon < 95) return 'South_Asia';
+  if (lat < 30 && lon >= 95) return 'SouthEast_Asia';
+  return 'Russia_Asia';
+}
 // Meteosat (SEVIRI, géostationnaire) : produit FRP-PIXEL du LSA SAF (EUMETSAT), une image toutes les 15 min.
 // La liste des fichiers est publique ; leur téléchargement demande un compte gratuit (LSASAF_UTILISATEUR,
 // LSASAF_MOT_DE_PASSE dans le .env). Pixel d'environ 4 km sur la France : position approchée. Licence CC BY 4.0.
 const LSASAF = 'https://datalsasaf.lsasvcs.ipma.pt/PRODUCTS/MSG/FRP-PIXEL/HDF5/';
 
 // Lecture d'un fichier « ListProduct » (HDF5, parfois compressé en bzip2) : un foyer par ligne
-async function lireListeMeteosat(buf, heure) {
+async function lireListeMeteosat(buf, heure, emprise = FRANCE) {
   if (buf.slice(0, 3).toString() === 'BZh') buf = Buffer.from(require('seek-bzip').decode(buf));
   const h5 = await import('h5wasm/node');
   await h5.ready;
@@ -45,7 +60,7 @@ async function lireListeMeteosat(buf, heure) {
     const l = [];
     for (let i = 0; i < lat.length; i++) {
       const la = lat[i], lo = lon[i];
-      if (!(la >= FRANCE[0] && la <= FRANCE[2] && lo >= FRANCE[1] && lo <= FRANCE[3])) continue;
+      if (!(la >= emprise[0] && la <= emprise[2] && lo >= emprise[1] && lo <= emprise[3])) continue;
       const c = conf ? conf[i] : null;
       l.push({ lat: Math.round(la * 1e4) / 1e4, lon: Math.round(lo * 1e4) / 1e4, heure, source: 'Meteosat SEVIRI', geo: true,
         confiance: c == null ? 'normale' : (c > 1 ? c / 100 : c) >= 0.8 ? 'haute' : (c > 1 ? c / 100 : c) >= 0.5 ? 'normale' : 'faible',
@@ -63,7 +78,7 @@ function confiance(v) {
   return { h: 'haute', high: 'haute', n: 'normale', nominal: 'normale', l: 'faible', low: 'faible' }[s] || 'normale';
 }
 
-function lireCsv(txt, source) {
+function lireCsv(txt, source, emprise = FRANCE) {
   const lignes = txt.split(/\r?\n/).filter(Boolean);
   if (lignes.length < 1) return [];
   const t = lignes[0].split(',');
@@ -74,7 +89,7 @@ function lireCsv(txt, source) {
   for (const ligne of lignes.slice(1)) {
     const c = ligne.split(',');
     const lat = Number(c[iLat]), lon = Number(c[iLon]);
-    if (!(lat >= FRANCE[0] && lat <= FRANCE[2] && lon >= FRANCE[1] && lon <= FRANCE[3])) continue;
+    if (!(lat >= emprise[0] && lat <= emprise[2] && lon >= emprise[1] && lon <= emprise[3])) continue;
     const h = String(c[iHeure] || '0').padStart(4, '0');
     const heure = Date.parse(`${c[iDate]}T${h.slice(0, 2)}:${h.slice(2)}:00Z`);
     if (!heure) continue;
@@ -85,20 +100,26 @@ function lireCsv(txt, source) {
 
 function creerFeux({ config, journal = () => {}, diffuser = () => {} }) {
   const fichier = path.join(path.dirname(config.fichierBase), 'feux.json');
+  // Emprise gardée : la France métropolitaine si la carte y est, sinon sa zone élargie de 3°
+  const z = config.zone || FRANCE, cLat = (z[0] + z[2]) / 2, cLon = (z[1] + z[3]) / 2;
+  const enFrance = cLat >= FRANCE[0] && cLat <= FRANCE[2] && cLon >= FRANCE[1] && cLon <= FRANCE[3];
+  const emprise = enFrance ? FRANCE : [z[0] - 3, z[1] - 3, z[2] + 3, z[3] + 3];
+  const region = regionFirms(cLat, cLon);
   let foyers = [], maj = null, erreur = null;
   const msg = { actif: !!(process.env.LSASAF_UTILISATEUR && process.env.LSASAF_MOT_DE_PASSE), dernier: null, maj: null, erreur: null };
   try { const d = lireJson(fichier); foyers = Array.isArray(d.foyers) ? d.foyers : []; maj = d.maj || null; msg.dernier = d.meteosatDernier || null; } catch { /* aucun */ }
 
   async function lire() {
     const nouveaux = [], erreurs = [];
-    for (const s of SOURCES) {
+    const sources = SOURCES(region);
+    for (const s of sources) {
       try {
         const r = await fetch(BASE + s.url, { headers: { 'User-Agent': 'carte-live-meshtastic' }, signal: AbortSignal.timeout(60000) });
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        nouveaux.push(...lireCsv(await r.text(), s.id));
+        nouveaux.push(...lireCsv(await r.text(), s.id, emprise));
       } catch (e) { erreurs.push(`${s.id} : ${e.message}`); }
     }
-    if (erreurs.length === SOURCES.length) { erreur = erreurs.join(' · '); journal('[Feux] lecture impossible :', erreur); return; }
+    if (erreurs.length === sources.length) { erreur = erreurs.join(' · '); journal('[Feux] lecture impossible :', erreur); return; }
     erreur = erreurs.length ? erreurs.join(' · ') : null;
     // Fusion : un même foyer (même satellite, même passage, même point) n'est gardé qu'une fois
     const cle = (f) => `${f.source}|${f.heure}|${f.lat.toFixed(4)}|${f.lon.toFixed(4)}`;
@@ -135,7 +156,7 @@ function creerFeux({ config, journal = () => {}, diffuser = () => {} }) {
         const r = await fetch(LSASAF + x.dossier + x.nom, { headers: { Authorization: auth, 'User-Agent': 'carte-live-meshtastic' }, signal: AbortSignal.timeout(60000) });
         if (r.status === 401 || r.status === 403) throw new Error('identifiants LSA SAF refusés (LSASAF_UTILISATEUR, LSASAF_MOT_DE_PASSE)');
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        const l = await lireListeMeteosat(Buffer.from(await r.arrayBuffer()), heureDe(x.ts));
+        const l = await lireListeMeteosat(Buffer.from(await r.arrayBuffer()), heureDe(x.ts), emprise);
         const vus = new Set(foyers.map((f) => `${f.source}|${f.heure}|${f.lat}|${f.lon}`));
         for (const f of l) if (!vus.has(`${f.source}|${f.heure}|${f.lat}|${f.lon}`)) foyers.push(f);
         msg.dernier = x.ts;
