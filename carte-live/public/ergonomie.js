@@ -287,8 +287,8 @@ async function ficheDiagnostic() {
   const pb = r.controles.filter((c) => c.etat === 'ko' || c.etat === 'attention').length;
   const groupes = [...new Set(r.controles.map((c) => c.groupe))];
   z.innerHTML = `<div class="diagnostic"><h2>🩺 Diagnostic</h2>
-    <p class="note"><b>${pb ? pb + ' point(s) à regarder' : 'Tout va bien'}</b> · vérifié à ${new Date(r.heure).toLocaleTimeString('fr-FR')} <button type="button" class="mini" id="diag-relancer">↻ Revérifier</button></p>
-    ${groupes.map((g) => `<h3>${esc(g)}</h3>${r.controles.filter((c) => c.groupe === g).map((c) => `<div class="controle ${c.etat}"><span class="ic" aria-hidden="true">${IC[c.etat]}</span><div><b>${esc(c.titre)}</b>${c.detail ? `<small>${esc(c.detail)}</small>` : ''}${c.action && ACTIONS[c.action] && c.etat !== 'ok' ? `<button type="button" class="mini principal" data-diag="${c.action}">${esc(ACTIONS[c.action][0])} ›</button>` : ''}</div></div>`).join('')}`).join('')}</div>`;
+    <p class="note"><b>${pb ? pb + ' point(s) à regarder' : 'Tout va bien'}</b> · <span>vérifié à ${new Date(r.heure).toLocaleTimeString(window.LANGUE === 'en' ? 'en-GB' : 'fr-FR')}</span> <button type="button" class="mini" id="diag-relancer">↻ Revérifier</button></p>
+    ${groupes.map((g) => `<h3>${esc(g)}</h3>${r.controles.filter((c) => c.groupe === g).map((c) => `<div class="controle ${c.etat}"><span class="ic" aria-hidden="true">${IC[c.etat]}</span><div><b>${esc(c.titre)}</b>${c.detail ? `<small>${esc(c.detail)}</small>` : ''}${c.action && ACTIONS[c.action] && c.etat !== 'ok' ? `<button type="button" class="mini principal" data-diag="${c.action}"><span>${esc(ACTIONS[c.action][0])}</span> ›</button>` : ''}</div></div>`).join('')}`).join('')}</div>`;
   $('#diag-relancer').onclick = ficheDiagnostic;
   z.querySelectorAll('[data-diag]').forEach((b) => (b.onclick = () => ACTIONS[b.dataset.diag][1]()));
 }

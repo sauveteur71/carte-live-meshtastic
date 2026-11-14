@@ -13,7 +13,7 @@ Petit programme (Windows, Linux, Raspberry Pi) qui relie à la carte :
 Sous Windows, il propose de se lancer tout seul à l'ouverture de session.
 
 ## Plusieurs modules
-L'agent garde autant de connexions que vous voulez (*USB*, *Le Monteil*, *QRA*…). Chacune n'apparaît dans la carte **que lorsque son module est présent** : port USB branché, ou module Wi-Fi sur le même réseau que le PC.
+L'agent garde autant de connexions que vous voulez (*USB*, *Maison*, *QRA*…). Chacune n'apparaît dans la carte **que lorsque son module est présent** : port USB branché, ou module Wi-Fi sur le même réseau que le PC.
 
 Options : `-configurer` (ajouter `a`, modifier `m 2`, retirer `r 2`, serveur et code `s`), `-ajouter`, `-liste`, `-demarrage-auto`, `-sans-demarrage-auto`.
 

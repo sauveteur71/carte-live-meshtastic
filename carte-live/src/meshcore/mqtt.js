@@ -87,7 +87,7 @@ function creerPublicateurMc(config, journal) {
         if (e) { stats.erreurs++; stats.refus = e.message; } else { stats.publies++; stats.dernier = Date.now(); }
       });
     },
-    etat: () => ({ ...stats, actif: !!cfg.republier, sujet: cleClient ? prefixe(cleClient) + '/packets' : `${cfg.racine}/${cfg.iata}/<clé du companion>/packets` }),
+    etat: () => ({ ...stats, actif: !!cfg.republier, sujet: cleClient ? prefixe(cleClient) + '/packets' : `${cfg.racine}/${cfg.iata}/<CLÉ>/packets` }),
     fermer() { if (client) { try { client.publish(prefixe(cleClient) + '/status', statut('offline'), { qos: 0, retain: true }); client.end(); } catch { /* ignoré */ } } },
   };
 }

@@ -76,7 +76,7 @@ Limites :
 - Depuis une même page, un seul module Bluetooth ou USB par réseau. Les autres se relient par adresse IP ou par agent.
 - Un PC qui sert de relais du réseau local ([[Agent Gaulix]] 1.6) ne relaie qu'un module à la fois.
 
-Exemple : le module de Saint-Vincent reste principal, le companion du Monteil est en écoute par son adresse IP, et le module de la voiture est en écoute en Bluetooth pendant un déplacement.
+Exemple : le module de Saint-Vincent reste principal, le companion de la maison est en écoute par son adresse IP, et le module de la voiture est en écoute en Bluetooth pendant un déplacement.
 
 ## Un seul client à la fois
 Un module Meshtastic n'accepte qu'un client Wi-Fi, et un companion MeshCore qu'un client. Si l'appli du téléphone se connecte au même module, la carte est « évincée » et réessaie plus tard.

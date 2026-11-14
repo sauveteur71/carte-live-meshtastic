@@ -5,7 +5,7 @@
 // l'agent ouvre alors le port USB (ou la connexion Wi-Fi du module) et fait suivre le flux Meshtastic
 // dans les deux sens, sans le modifier. Le module n'est occupé que pendant ce temps.
 //
-// Plusieurs connexions peuvent être gardées en mémoire (ex. « USB », « Le Monteil », « QRA ») : chacune apparaît
+// Plusieurs connexions peuvent être gardées en mémoire (ex. « USB », « Maison », « QRA ») : chacune apparaît
 // dans la carte comme un module distinct, mais seulement quand le module est présent (port USB branché,
 // ou module Wi-Fi sur le même réseau local que le PC).
 package main
@@ -34,7 +34,7 @@ const version = "1.6"
 
 // Une connexion gardée en mémoire : un module et le nom sous lequel il apparaît dans la carte
 type Connexion struct {
-	Nom    string `json:"nom"`    // nom affiché dans la carte (ex. Le Monteil)
+	Nom    string `json:"nom"`    // nom affiché dans la carte (ex. Maison)
 	Source string `json:"source"` // port série (COM5, /dev/ttyACM0) ou adresse Wi-Fi du module (192.168.1.40[:4403])
 	Debit  int    `json:"debit,omitempty"`
 	// Module Wi-Fi joignable par une route (VPN, routeur) : ne pas exiger qu'il soit sur le réseau local du PC
@@ -205,7 +205,7 @@ func configurerServeur(r *Reglages) {
 func saisirConnexion(r *Reglages, cx Connexion, exclure int) (Connexion, bool) {
 	fmt.Println()
 	for {
-		cx.Nom = demander("Nom de ce module dans la carte (ex. Le Monteil, QRA, USB)", cx.Nom)
+		cx.Nom = demander("Nom de ce module dans la carte (ex. Maison, QRA, USB)", cx.Nom)
 		if cx.Nom == "" {
 			return cx, false
 		}
