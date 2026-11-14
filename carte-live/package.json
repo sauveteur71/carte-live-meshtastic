@@ -9,7 +9,7 @@
   },
   "license": "GPL-3.0-only",
   "dependencies": {
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3": "^13.0.3",
     "compression": "^1.8.1",
     "express": "^4.21.2",
     "h5wasm": "^0.10.3",
