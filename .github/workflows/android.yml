@@ -1,0 +1,60 @@
+# Application Android (APK) : une fenêtre sur la carte de votre serveur (adresse choisie au premier lancement).
+# - À chaque envoi qui touche android/ : construite et vérifiée (fichier téléchargeable dans l'onglet Actions).
+# - À chaque version publiée (workflow « Image Docker » avec « publier ») : l'APK est jointe à la version GitHub.
+# Signature : clé fixe dans les secrets ANDROID_CLE (keystore en base64) et ANDROID_CLE_MOT_DE_PASSE, pour que
+# chaque nouvelle version s'installe par-dessus l'ancienne.
+name: Android
+
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', '.github/workflows/android.yml']
+  workflow_run:
+    workflows: ['Image Docker']
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    # Après « Image Docker » : seulement quand une version vient d'être publiée (lancement manuel réussi)
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Clé de signature
+        env:
+          ANDROID_CLE: ${{ secrets.ANDROID_CLE }}
+        run: |
+          if [ -n "$ANDROID_CLE" ]; then echo "$ANDROID_CLE" | base64 -d > "$RUNNER_TEMP/carte-live.jks"; echo "ANDROID_CLE_FICHIER=$RUNNER_TEMP/carte-live.jks" >> "$GITHUB_ENV";
+          else echo "::warning::Secret ANDROID_CLE absent : APK signée avec une clé de test (à réinstaller à chaque version)"; fi
+      - name: Construction
+        working-directory: android
+        env:
+          ANDROID_CLE_MOT_DE_PASSE: ${{ secrets.ANDROID_CLE_MOT_DE_PASSE }}
+        run: |
+          gradle --no-daemon assembleRelease
+          v=$(node -p "require('../carte-live/package.json').version")
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/carte-live-$v.apk"
+          echo "APK=$RUNNER_TEMP/carte-live-$v.apk" >> "$GITHUB_ENV"
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: carte-live-android
+          path: ${{ env.APK }}
+      - name: Jointe à la version
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "v$VERSION" "$APK" --clobber -R "$GITHUB_REPOSITORY"

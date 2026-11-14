@@ -21,3 +21,10 @@ Thumbs.db
 
 # Résultats des tests de l’interface (captures, journal)
 carte-live/tests/resultats/
+
+# Android
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+*.jks

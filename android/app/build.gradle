@@ -1,0 +1,36 @@
+// Application Android de la carte live : une fenêtre sur la carte de votre serveur (adresse choisie au premier lancement)
+plugins { id 'com.android.application' }
+
+def versionCarte = new groovy.json.JsonSlurper().parse(file('../../carte-live/package.json')).version
+def parts = versionCarte.tokenize('.').collect { it as int }
+
+android {
+    namespace 'fr.carte.live'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'fr.carte.live'
+        minSdk 24
+        targetSdk 35
+        versionName versionCarte
+        versionCode parts[0] * 10000 + parts[1] * 100 + parts[2]
+    }
+    signingConfigs {
+        // Clé de signature fixe (secrets GitHub) : indispensable pour installer les nouvelles versions par-dessus
+        publication {
+            storeFile file(System.getenv('ANDROID_CLE_FICHIER') ?: 'inexistant.jks')
+            storePassword System.getenv('ANDROID_CLE_MOT_DE_PASSE') ?: ''
+            keyAlias System.getenv('ANDROID_CLE_ALIAS') ?: 'carte-live'
+            keyPassword System.getenv('ANDROID_CLE_MOT_DE_PASSE') ?: ''
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig System.getenv('ANDROID_CLE_FICHIER') ? signingConfigs.publication : signingConfigs.debug
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carte live</title>
+<style>
+  :root { --fond: #0f172a; --carte: #1e293b; --texte: #f1f5f9; --doux: #94a3b8; --accent: #2dd4bf; --danger: #f87171; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fond); color: var(--texte); font: 17px/1.45 system-ui, sans-serif; padding: 20px 16px 40px; }
+  h1 { font-size: 24px; margin: 8px 0 4px; display: flex; align-items: center; gap: 10px; }
+  h1 .rond { width: 30px; height: 30px; border-radius: 50%; background: radial-gradient(circle, var(--accent) 35%, transparent 37%, transparent 52%, var(--accent) 54%, var(--accent) 60%, transparent 62%); }
+  p.doux, .doux { color: var(--doux); font-size: 15px; }
+  .carte { background: var(--carte); border-radius: 12px; padding: 14px; margin: 12px 0; display: flex; align-items: center; gap: 10px; }
+  .carte .txt { flex: 1; min-width: 0; }
+  .carte b { display: block; font-size: 18px; }
+  .carte span { color: var(--doux); font-size: 14px; word-break: break-all; }
+  button { font: inherit; border: 0; border-radius: 10px; padding: 12px 16px; background: var(--accent); color: #04121a; font-weight: 700; }
+  button.second { background: transparent; color: var(--doux); border: 1px solid #334155; padding: 10px 12px; font-weight: 400; }
+  button.danger { background: transparent; color: var(--danger); padding: 10px; font-weight: 400; }
+  label { display: block; margin: 14px 0 4px; color: var(--doux); font-size: 15px; }
+  input { width: 100%; font: inherit; padding: 12px; border-radius: 10px; border: 1px solid #334155; background: #0b1222; color: var(--texte); }
+  .erreur { background: #451a1a; color: #fecaca; border-radius: 10px; padding: 12px; margin: 12px 0; font-size: 15px; word-break: break-word; }
+  .ligne { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .exemples code { color: var(--accent); }
+</style>
+</head>
+<body>
+  <h1><span class="rond"></span>Carte live</h1>
+  <p class="doux">Meshtastic et MeshCore : choisissez la carte à ouvrir.</p>
+  <div id="erreur" class="erreur" hidden></div>
+  <div id="liste"></div>
+
+  <h2 style="font-size:19px;margin-top:26px">Ajouter une carte</h2>
+  <label for="adresse">Adresse de la carte</label>
+  <input id="adresse" type="url" inputmode="url" autocapitalize="off" autocorrect="off" placeholder="http://192.168.0.10:8095">
+  <label for="nom">Nom (facultatif)</label>
+  <input id="nom" type="text" placeholder="Ma carte">
+  <div class="ligne"><button id="ajouter">Ajouter et ouvrir</button><button class="second" id="demo">Essayer la démonstration</button></div>
+  <p class="doux exemples">Exemples : <code>http://192.168.0.198:8095</code> (réseau de la maison), l’adresse Tailscale du serveur (<code>http://nas:8095</code> ou <code>http://100.x.x.x:8095</code>) ou un nom de domaine. Hors de chez vous, la carte n’est joignable que si son serveur l’est (Tailscale, VPN ou adresse publique).</p>
+  <p class="doux" id="version"></p>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  const DEMO = 'http://saint-appo.fr:8095/?consultation';
+  const lire = () => { try { return JSON.parse(Appli.cartes()) || []; } catch (e) { return []; } };
+  const ecrire = (l) => Appli.enregistrerCartes(JSON.stringify(l));
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  function normaliser(u) {
+    u = String(u || '').trim();
+    if (!u) return '';
+    if (!/^https?:\/\//i.test(u)) u = 'http://' + u;
+    try { const x = new URL(u); if (!x.port && x.protocol === 'http:' && /^(\d+\.){3}\d+$|^[^.]+$/.test(x.hostname)) x.port = '8095'; return x.toString(); } catch (e) { return ''; }
+  }
+  function dessiner() {
+    const l = lire(), cour = Appli.courante();
+    $('#liste').innerHTML = l.length ? l.map((c, i) => `<div class="carte"><div class="txt"><b>${esc(c.nom || c.url)}</b><span>${esc(c.url)}${c.url === cour ? ' · dernière ouverte' : ''}</span></div>
+      <button data-ouvrir="${i}">Ouvrir</button><button class="danger" data-retirer="${i}" aria-label="Retirer">✕</button></div>`).join('')
+      : '<p class="doux">Aucune carte enregistrée : ajoutez l’adresse de la vôtre ci-dessous, ou essayez la démonstration.</p>';
+    document.querySelectorAll('[data-ouvrir]').forEach((b) => (b.onclick = () => Appli.ouvrir(l[+b.dataset.ouvrir].url)));
+    document.querySelectorAll('[data-retirer]').forEach((b) => (b.onclick = () => { if (confirm('Retirer cette carte de la liste ?')) { l.splice(+b.dataset.retirer, 1); ecrire(l); dessiner(); } }));
+  }
+  $('#ajouter').onclick = () => {
+    const url = normaliser($('#adresse').value);
+    if (!url) { $('#adresse').focus(); return; }
+    const l = lire().filter((c) => c.url !== url);
+    l.unshift({ url, nom: $('#nom').value.trim() });
+    ecrire(l);
+    Appli.ouvrir(url);
+  };
+  $('#demo').onclick = () => Appli.ouvrir(DEMO);
+  const m = /#erreur=(.*)$/.exec(location.href);
+  if (m) { const e = $('#erreur'); e.hidden = false; e.textContent = 'Carte injoignable : ' + decodeURIComponent(m[1]) + '. Vérifiez l’adresse, que le serveur est allumé, et que le téléphone est sur le même réseau (ou sur Tailscale).'; }
+  try { $('#version').textContent = 'Application ' + Appli.version(); } catch (e) { /* hors appli */ }
+  dessiner();
+</script>
+</body>
+</html>
