@@ -8414,3 +8414,14 @@ async function dessinerRadar() {
   } catch (e) { annonce('⚠ Radar de pluie indisponible : ' + e.message, 'erreur'); }
   minuteurRadar = setTimeout(dessinerRadar, 10 * 60000);
 }
+
+// La barre du haut peut grandir (badge « vX disponible », nom long, autre langue) : sur téléphone, la recherche de
+// lieu se place juste en dessous au lieu de la chevaucher
+(() => {
+  const barre = document.querySelector('.barre');
+  if (!barre) return;
+  const maj = () => document.documentElement.style.setProperty('--bas-barre', Math.round(barre.getBoundingClientRect().bottom) + 'px');
+  if (window.ResizeObserver) new ResizeObserver(maj).observe(barre);
+  addEventListener('resize', maj);
+  maj();
+})();

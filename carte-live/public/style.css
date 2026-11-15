@@ -1103,7 +1103,7 @@ a.bouton-lien { text-decoration: none; display: inline-flex; align-items: center
   .marque { padding: 5px 10px; gap: 8px; }
   .marque .nom { font-size: 13px; }
   .marque .sous, .marque .version { font-size: 10px; }
-  .recherche-lieu { top: 56px; left: 6px; right: 6px; }
+  .recherche-lieu { top: calc(var(--bas-barre, 50px) + 6px); left: 6px; right: 6px; }
   .recherche-lieu input { padding-top: 7px; padding-bottom: 7px; }
   .outils { left: 0; right: 0; bottom: 0; top: auto; border-radius: 0; border-width: 1px 0 0; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; scrollbar-width: none; gap: 4px; }
   .outils::-webkit-scrollbar { display: none; }
@@ -1128,7 +1128,7 @@ a.bouton-lien { text-decoration: none; display: inline-flex; align-items: center
   .poignee-fiche { display: none; }
   /* Noms des nœuds seulement en zoomant (sinon ils se chevauchent sur un petit écran) */
   body:not(.zoom-proche) .mk .lbl, body:not(.zoom-proche) .mkc .lbl { display: none; }
-  .leaflet-top.leaflet-right { top: 100px; }
+  .leaflet-top.leaflet-right { top: calc(var(--bas-barre, 50px) + 50px); }
   .leaflet-bottom.leaflet-right { bottom: calc(var(--h-outils, 50px) + var(--h-tiroir-reel, 96px)); }
   .rejeu { bottom: calc(var(--h-outils, 50px) + 104px); }
   .menu-couches .menu, .menu-outils .menu { position: fixed; left: 8px; right: 8px; top: auto; bottom: calc(var(--h-outils, 50px) + 6px); max-height: 60vh; overflow-y: auto; }
