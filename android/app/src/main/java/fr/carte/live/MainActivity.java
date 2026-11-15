@@ -246,83 +246,23 @@ public class MainActivity extends Activity {
     }
     private static int entier(String s) { try { return Integer.parseInt(s.replaceAll("[^0-9].*$", "")); } catch (Exception e) { return 0; } }
 
+    // Téléchargement confié au gestionnaire de téléchargements d'Android : sa notification « Téléchargement terminé »
+    // lance l'installation. L'appli n'a ainsi besoin d'aucune permission pour installer ou désinstaller des applis,
+    // ce qui évite les alertes « appli dangereuse » de Play Protect
     private void installer(String lien, String tag) {
-        if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
-            Toast.makeText(this, "Autorisez « Carte live » à installer des applications, puis relancez la mise à jour", Toast.LENGTH_LONG).show();
-            startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
-            return;
-        }
-        Toast.makeText(this, "Téléchargement de la version " + tag + "…", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            try {
-                File f = new File(getExternalFilesDir(null), "carte-live.apk");
-                HttpURLConnection c = (HttpURLConnection) new URL(lien).openConnection();
-                c.setInstanceFollowRedirects(true);
-                c.setRequestProperty("User-Agent", "CarteLiveAndroid");
-                int code = c.getResponseCode();
-                if (code / 100 == 3) { c = (HttpURLConnection) new URL(c.getHeaderField("Location")).openConnection(); }
-                try (java.io.InputStream in = c.getInputStream(); FileOutputStream o = new FileOutputStream(f)) {
-                    byte[] t = new byte[16384]; int n;
-                    while ((n = in.read(t)) > 0) o.write(t, 0, n);
-                }
-                // Nouvelle clé de signature (passage à la clé privée) : Android refuserait d'installer par-dessus.
-                // On l'explique et on guide : télécharger la nouvelle version, désinstaller, installer (une seule fois)
-                if (!memeSignature(f)) { runOnUiThread(() -> nouvelleCle(lien, tag)); return; }
-                Uri u = androidx_fichier(f);
-                Intent i = new Intent(Intent.ACTION_VIEW).setDataAndType(u, "application/vnd.android.package-archive")
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-                runOnUiThread(() -> startActivity(i));
-            } catch (Exception e) {
-                runOnUiThread(() -> Toast.makeText(this, "Téléchargement impossible : " + e.getMessage(), Toast.LENGTH_LONG).show());
-            }
-        }).start();
-    }
-
-    // Empreintes des certificats de signature : de l'appli installée et de l'APK téléchargé
-    @SuppressWarnings("deprecation")
-    private static java.util.Set<String> empreintes(android.content.pm.PackageInfo pi) {
-        java.util.Set<String> r = new java.util.HashSet<>();
-        if (pi == null) return r;
-        android.content.pm.Signature[] sig = null;
-        if (Build.VERSION.SDK_INT >= 28 && pi.signingInfo != null) sig = pi.signingInfo.hasMultipleSigners() ? pi.signingInfo.getApkContentsSigners() : pi.signingInfo.getSigningCertificateHistory();
-        else sig = pi.signatures;
-        if (sig != null) for (android.content.pm.Signature x : sig) r.add(x.toCharsString());
-        return r;
-    }
-    @SuppressWarnings("deprecation")
-    private boolean memeSignature(File apk) {
         try {
-            int drapeau = Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
-            java.util.Set<String> moi = empreintes(getPackageManager().getPackageInfo(getPackageName(), drapeau));
-            java.util.Set<String> lui = empreintes(getPackageManager().getPackageArchiveInfo(apk.getPath(), drapeau));
-            if (moi.isEmpty() || lui.isEmpty()) return true; // illisible : on laisse Android décider
-            for (String x : lui) if (moi.contains(x)) return true;
-            return false;
-        } catch (Exception e) { return true; }
-    }
-    private void nouvelleCle(String lien, String tag) {
-        new AlertDialog.Builder(this).setTitle("Réinstallation nécessaire (une seule fois)")
-                .setMessage("La version " + tag + " est signée avec la nouvelle clé de sécurité de l'application. Android ne peut pas l'installer par-dessus l'ancienne.\n\n"
-                        + "1. Touchez « Télécharger » : le navigateur enregistre la nouvelle version.\n"
-                        + "2. Touchez « Désinstaller » pour retirer cette version.\n"
-                        + "3. Ouvrez le fichier téléchargé (notification ou dossier Téléchargements) pour installer la nouvelle.\n\n"
-                        + "Les cartes enregistrées sont à rajouter ensuite (la recherche sur le Wi-Fi les retrouve). Les mises à jour suivantes redeviennent automatiques.")
-                .setPositiveButton("Télécharger", (d, w) -> {
-                    try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(lien))); } catch (Exception e) { /* aucun navigateur */ }
-                    nouvelleCleEtape2();
-                })
-                .setNegativeButton("Plus tard", null).show();
-    }
-    private void nouvelleCleEtape2() {
-        new AlertDialog.Builder(this).setTitle("Téléchargement lancé")
-                .setMessage("Quand le téléchargement est terminé, désinstallez cette version, puis ouvrez le fichier téléchargé pour installer la nouvelle.")
-                .setPositiveButton("Désinstaller", (d, w) -> {
-                    try { startActivity(new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + getPackageName()))); }
-                    catch (Exception e) { // sinon : fiche de l'appli dans les paramètres (bouton « Désinstaller »)
-                        try { startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); } catch (Exception e2) { /* ignoré */ }
-                    }
-                })
-                .setNegativeButton("Plus tard", null).show();
+            DownloadManager.Request d = new DownloadManager.Request(Uri.parse(lien));
+            d.setTitle("Carte live " + tag);
+            d.setMimeType("application/vnd.android.package-archive");
+            d.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            d.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "carte-live-" + tag + ".apk");
+            ((DownloadManager) getSystemService(DOWNLOAD_SERVICE)).enqueue(d);
+            new AlertDialog.Builder(this).setTitle("Téléchargement de la version " + tag)
+                    .setMessage("Quand le téléchargement est terminé, touchez la notification (ou ouvrez le fichier dans Téléchargements) pour installer la nouvelle version. Vos cartes enregistrées sont gardées.")
+                    .setPositiveButton("OK", null).show();
+        } catch (Exception e) {
+            ouvrirAilleurs(Uri.parse(lien)); // sinon : le navigateur s'en charge
+        }
     }
 
     // Adresse « content:// » du fichier téléchargé, servie par le fournisseur de fichiers de l'application
