@@ -82,6 +82,7 @@ function appliquerVueReseau() {
   document.querySelectorAll('.outils-mc').forEach((el) => (el.hidden = !etat.config.meshcore || etat.vueReseau === 'meshtastic'));
   document.querySelectorAll('.outils-mt').forEach((el) => (el.hidden = etat.vueReseau === 'meshcore'));
   if (!mc.actif) etat.vueReseau = 'meshtastic';
+  setTimeout(() => { if (typeof majBadgesMessages === 'function') majBadgesMessages(); }, 0); // compteur Messages selon le réseau affiché
   try { localStorage.setItem('gaulix_reseau', etat.vueReseau); } catch { /* stockage indisponible */ }
   document.body.dataset.reseau = etat.vueReseau;
   document.querySelectorAll('.choix-reseau button').forEach((b) => b.classList.toggle('actif', b.dataset.reseau === etat.vueReseau));

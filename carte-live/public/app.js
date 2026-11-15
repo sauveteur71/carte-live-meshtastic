@@ -1515,7 +1515,10 @@ function afficherAlerteDirect(titre, texte) {
   clearTimeout(afficherAlerteDirect.t); afficherAlerteDirect.t = setTimeout(() => { a.hidden = true; }, 60000);
 }
 function majBadgesMessages() {
-  const total = Object.entries(nonLus).filter(([k]) => !k.startsWith('mc')).reduce((a, [, n]) => a + n, 0);
+  // Le compteur de l'onglet Messages suit le réseau affiché : Meshtastic, MeshCore ou les deux
+  const vue = etat.vueReseau || 'les-deux';
+  const compte = (k) => (vue === 'meshtastic' ? !k.startsWith('mc') : vue === 'meshcore' ? k.startsWith('mc') : true);
+  const total = Object.entries(nonLus).filter(([k]) => compte(k)).reduce((a, [, n]) => a + n, 0);
   if (typeof mcMajBadgeMessages === 'function') mcMajBadgeMessages();
   const b = $('#onglet-messages');
   if (b) {
@@ -1523,7 +1526,7 @@ function majBadgesMessages() {
     if (!s) { b.insertAdjacentHTML('beforeend', ' <span class="badge-non-lus"></span>'); s = b.querySelector('.badge-non-lus'); }
     s.textContent = total ? String(total) : '';
     s.hidden = !total;
-    s.classList.toggle('direct', !!nonLus.direct);
+    s.classList.toggle('direct', !!((vue !== 'meshcore' && nonLus.direct) || (vue !== 'meshtastic' && nonLus.mcdirect)));
   }
   const tout = Object.values(nonLus).reduce((a, n) => a + n, 0);
   document.title = (tout ? `(${tout}) ` : '') + document.title.replace(/^\(\d+\) /, '');
