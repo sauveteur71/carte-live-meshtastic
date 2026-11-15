@@ -23,6 +23,10 @@
   .erreur { background: #451a1a; color: #fecaca; border-radius: 10px; padding: 12px; margin: 12px 0; font-size: 15px; word-break: break-word; }
   .ligne { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
   .exemples code { color: var(--accent); }
+  .reglage { display: flex; align-items: center; gap: 12px; background: var(--carte); border-radius: 12px; padding: 14px; margin: 12px 0; }
+  .reglage .txt { flex: 1; }
+  .reglage input { width: 26px; height: 26px; accent-color: var(--accent); }
+  #trouvees .carte { border: 1px solid var(--accent); }
 </style>
 </head>
 <body>
@@ -32,12 +36,17 @@
   <div id="liste"></div>
 
   <h2 style="font-size:19px;margin-top:26px">Ajouter une carte</h2>
+  <div class="ligne"><button class="second" id="chercher">🔎 Chercher la carte sur ce réseau Wi-Fi</button></div>
+  <div id="trouvees"></div>
   <label for="adresse">Adresse de la carte</label>
   <input id="adresse" type="url" inputmode="url" autocapitalize="off" autocorrect="off" placeholder="http://192.168.0.10:8095">
   <label for="nom">Nom (facultatif)</label>
   <input id="nom" type="text" placeholder="Ma carte">
   <div class="ligne"><button id="ajouter">Ajouter et ouvrir</button><button class="second" id="demo">Essayer la démonstration</button></div>
   <p class="doux exemples">Exemples : <code>http://192.168.0.198:8095</code> (réseau de la maison), l’adresse Tailscale du serveur (<code>http://nas:8095</code> ou <code>http://100.x.x.x:8095</code>) ou un nom de domaine. Hors de chez vous, la carte n’est joignable que si son serveur l’est (Tailscale, VPN ou adresse publique).</p>
+  <h2 style="font-size:19px;margin-top:26px">Réglages</h2>
+  <label class="reglage"><span class="txt"><b>Notifications</b><br><span class="doux">Messages directs, alertes critiques et signalements, même application fermée (une notification discrète reste affichée pendant la veille).</span></span><input type="checkbox" id="notif"></label>
+  <div class="ligne"><button class="second" id="maj">Rechercher une mise à jour de l’application</button></div>
   <p class="doux" id="version"></p>
 
 <script>
@@ -71,6 +80,29 @@
   $('#demo').onclick = () => Appli.ouvrir(DEMO);
   const m = /#erreur=(.*)$/.exec(location.href);
   if (m) { const e = $('#erreur'); e.hidden = false; e.textContent = 'Carte injoignable : ' + decodeURIComponent(m[1]) + '. Vérifiez l’adresse, que le serveur est allumé, et que le téléphone est sur le même réseau (ou sur Tailscale).'; }
+  // Recherche des cartes du réseau local (le Pi ou le serveur de la maison, port 8095)
+  $('#chercher').onclick = () => {
+    const b = $('#chercher');
+    b.disabled = true; b.textContent = 'Recherche en cours (jusqu’à 30 s)…';
+    $('#trouvees').innerHTML = '';
+    try { Appli.chercher(); } catch (e) { b.disabled = false; }
+  };
+  window.cartesTrouvees = (l) => {
+    const b = $('#chercher');
+    b.disabled = false; b.textContent = '🔎 Chercher la carte sur ce réseau Wi-Fi';
+    const connues = lire().map((c) => c.url);
+    $('#trouvees').innerHTML = l.length ? l.map((u, i) => `<div class="carte"><div class="txt"><b>Carte trouvée</b><span>${esc(u)}${connues.includes(u + '/') ? ' · déjà enregistrée' : ''}</span></div><button data-trouvee="${i}">Ajouter et ouvrir</button></div>`).join('')
+      : '<p class="doux">Aucune carte trouvée sur ce réseau. Vérifiez que le téléphone est sur le même Wi-Fi que le serveur, ou saisissez son adresse ci-dessous.</p>';
+    document.querySelectorAll('[data-trouvee]').forEach((x) => (x.onclick = () => {
+      const url = normaliser(l[+x.dataset.trouvee]);
+      const liste = lire().filter((c) => c.url !== url);
+      liste.unshift({ url, nom: '' });
+      ecrire(liste);
+      Appli.ouvrir(url);
+    }));
+  };
+  try { $('#notif').checked = Appli.notifications(); $('#notif').onchange = () => Appli.reglerNotifications($('#notif').checked); } catch (e) { /* hors appli */ }
+  $('#maj').onclick = () => { try { Appli.verifierMaj(); } catch (e) { /* hors appli */ } };
   try { $('#version').textContent = 'Application ' + Appli.version(); } catch (e) { /* hors appli */ }
   dessiner();
 </script>

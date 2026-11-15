@@ -34,10 +34,24 @@ import android.widget.Toast;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     private static final String ACCUEIL = "file:///android_asset/accueil.html";
-    private static final int DEMANDE_POSITION = 1, DEMANDE_FICHIER = 2;
+    private static final int DEMANDE_POSITION = 1, DEMANDE_FICHIER = 2, DEMANDE_NOTIF = 3;
+    private static final String DEPOT = "sauveteur71/carte-live-meshtastic";
     private WebView vue;
     private SharedPreferences prefs;
     private GeolocationPermissions.Callback rappelPosition;
@@ -139,6 +153,9 @@ public class MainActivity extends Activity {
             }
         });
 
+        Veille.creerCanaux(this);
+        lancerVeille();
+        verifierMiseAJour(false);
         if (etatSauve != null) { vue.restoreState(etatSauve); return; }
         String courante = prefs.getString("courante", "");
         vue.loadUrl(courante.isEmpty() ? ACCUEIL : courante);
@@ -171,8 +188,140 @@ public class MainActivity extends Activity {
         try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception e) { return "?"; }
     }
 
+    // Veille des messages (service en arrière-plan) : demande la permission de notifier (Android 13+) puis démarre
+    private void lancerVeille() {
+        if (!prefs.getBoolean("notifications", true) || prefs.getString("courante", "").isEmpty()) return;
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, DEMANDE_NOTIF);
+            return;
+        }
+        try { Veille.demarrer(this); } catch (Exception e) { /* refusé par Android */ }
+    }
+
+    // Nouvelle version de l'APK publiée sur GitHub : proposée une fois par jour (ou à la demande), téléchargée puis
+    // installée par-dessus (même clé de signature) ; les cartes enregistrées sont gardées
+    private void verifierMiseAJour(boolean demande) {
+        long der = prefs.getLong("majVerifiee", 0);
+        if (!demande && System.currentTimeMillis() - der < 20 * 3600000L) return;
+        new Thread(() -> {
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL("https://api.github.com/repos/" + DEPOT + "/releases/latest").openConnection();
+                c.setConnectTimeout(10000); c.setReadTimeout(15000);
+                c.setRequestProperty("Accept", "application/vnd.github+json");
+                c.setRequestProperty("User-Agent", "CarteLiveAndroid");
+                if (c.getResponseCode() != 200) return;
+                java.io.InputStream in = c.getInputStream();
+                java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+                byte[] t = new byte[8192]; int n;
+                while ((n = in.read(t)) > 0) o.write(t, 0, n);
+                JSONObject r = new JSONObject(o.toString("UTF-8"));
+                prefs.edit().putLong("majVerifiee", System.currentTimeMillis()).apply();
+                String tag = r.optString("tag_name", "").replaceFirst("^v", "");
+                String apk = null;
+                JSONArray a = r.optJSONArray("assets");
+                for (int i = 0; a != null && i < a.length(); i++) if (a.getJSONObject(i).optString("name").endsWith(".apk")) apk = a.getJSONObject(i).optString("browser_download_url");
+                final String lien = apk;
+                boolean plusRecente = comparer(tag, version()) > 0;
+                runOnUiThread(() -> {
+                    if (plusRecente && lien != null) {
+                        new AlertDialog.Builder(this).setTitle("Nouvelle version " + tag)
+                                .setMessage("Une nouvelle version de l'application est disponible (installée : " + version() + "). La télécharger et l'installer ? Vos cartes enregistrées sont gardées.")
+                                .setPositiveButton("Installer", (d, w) -> installer(lien, tag))
+                                .setNegativeButton("Plus tard", null).show();
+                    } else if (demande) Toast.makeText(this, "L'application est à jour (" + version() + ")", Toast.LENGTH_LONG).show();
+                });
+            } catch (Exception e) {
+                if (demande) runOnUiThread(() -> Toast.makeText(this, "Vérification impossible : " + e.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        }).start();
+    }
+
+    private static int comparer(String a, String b) {
+        String[] x = a.split("\\."), y = b.split("\\.");
+        for (int i = 0; i < Math.max(x.length, y.length); i++) {
+            int u = i < x.length ? entier(x[i]) : 0, v = i < y.length ? entier(y[i]) : 0;
+            if (u != v) return Integer.compare(u, v);
+        }
+        return 0;
+    }
+    private static int entier(String s) { try { return Integer.parseInt(s.replaceAll("[^0-9].*$", "")); } catch (Exception e) { return 0; } }
+
+    private void installer(String lien, String tag) {
+        if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+            Toast.makeText(this, "Autorisez « Carte live » à installer des applications, puis relancez la mise à jour", Toast.LENGTH_LONG).show();
+            startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
+            return;
+        }
+        Toast.makeText(this, "Téléchargement de la version " + tag + "…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try {
+                File f = new File(getExternalFilesDir(null), "carte-live.apk");
+                HttpURLConnection c = (HttpURLConnection) new URL(lien).openConnection();
+                c.setInstanceFollowRedirects(true);
+                c.setRequestProperty("User-Agent", "CarteLiveAndroid");
+                int code = c.getResponseCode();
+                if (code / 100 == 3) { c = (HttpURLConnection) new URL(c.getHeaderField("Location")).openConnection(); }
+                try (java.io.InputStream in = c.getInputStream(); FileOutputStream o = new FileOutputStream(f)) {
+                    byte[] t = new byte[16384]; int n;
+                    while ((n = in.read(t)) > 0) o.write(t, 0, n);
+                }
+                Uri u = androidx_fichier(f);
+                Intent i = new Intent(Intent.ACTION_VIEW).setDataAndType(u, "application/vnd.android.package-archive")
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                runOnUiThread(() -> startActivity(i));
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(this, "Téléchargement impossible : " + e.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        }).start();
+    }
+
+    // Adresse « content:// » du fichier téléchargé, servie par le fournisseur de fichiers de l'application
+    private Uri androidx_fichier(File f) {
+        return Uri.parse("content://" + getPackageName() + ".fichiers/maj/" + f.getName());
+    }
+
+    // Cherche une carte live sur le réseau local (Wi-Fi de la maison, point d'accès d'un Pi autonome) : toutes les
+    // adresses du sous-réseau, port 8095, réponse de /sante
+    private void chercherCartes() {
+        new Thread(() -> {
+            List<String> trouvees = Collections.synchronizedList(new ArrayList<>());
+            try {
+                List<String> prefixes = new ArrayList<>();
+                for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                    if (!ni.isUp() || ni.isLoopback()) continue;
+                    for (InetAddress ad : Collections.list(ni.getInetAddresses())) {
+                        if (!(ad instanceof Inet4Address) || !ad.isSiteLocalAddress()) continue;
+                        String ip = ad.getHostAddress();
+                        String p = ip.substring(0, ip.lastIndexOf('.') + 1);
+                        if (!prefixes.contains(p)) prefixes.add(p);
+                    }
+                }
+                ExecutorService ex = Executors.newFixedThreadPool(48);
+                for (String p : prefixes) for (int k = 1; k < 255; k++) {
+                    final String base = "http://" + p + k + ":8095";
+                    ex.submit(() -> {
+                        try {
+                            HttpURLConnection c = (HttpURLConnection) new URL(base + "/sante").openConnection();
+                            c.setConnectTimeout(700); c.setReadTimeout(1200);
+                            if (c.getResponseCode() == 200) {
+                                java.io.InputStream in = c.getInputStream(); byte[] t = new byte[200]; int n = in.read(t);
+                                if (n > 0 && new String(t, 0, n).contains("\"ok\"")) trouvees.add(base);
+                            }
+                            c.disconnect();
+                        } catch (Exception e) { /* rien à cette adresse */ }
+                    });
+                }
+                ex.shutdown();
+                ex.awaitTermination(25, TimeUnit.SECONDS);
+            } catch (Exception e) { /* réseau indisponible */ }
+            JSONArray r = new JSONArray(trouvees);
+            runOnUiThread(() -> vue.evaluateJavascript("window.cartesTrouvees && window.cartesTrouvees(" + r + ")", null));
+        }).start();
+    }
+
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+        if (code == DEMANDE_NOTIF) { try { Veille.demarrer(this); } catch (Exception e) { /* refusé */ } return; }
         if (code == DEMANDE_POSITION && rappelPosition != null) {
             rappelPosition.invoke(origineDemandee, aPosition(), false);
             rappelPosition = null;
@@ -202,9 +351,10 @@ public class MainActivity extends Activity {
         if (String.valueOf(vue.getUrl()).startsWith(ACCUEIL)) { finish(); return; }
         new AlertDialog.Builder(this)
                 .setTitle("Carte live")
-                .setItems(new String[]{"Changer de carte", "Recharger", "Quitter"}, (d, i) -> {
+                .setItems(new String[]{"Changer de carte", "Recharger", "Rechercher une mise à jour", "Quitter"}, (d, i) -> {
                     if (i == 0) vue.loadUrl(ACCUEIL);
                     else if (i == 1) vue.reload();
+                    else if (i == 2) verifierMiseAJour(true);
                     else finish();
                 })
                 .show();
@@ -223,12 +373,27 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void ouvrir(String url) {
-            prefs.edit().putString("courante", url).apply();
-            runOnUiThread(() -> { vue.clearHistory(); vue.loadUrl(url); });
+            prefs.edit().putString("courante", url).putLong("notifDepuis", System.currentTimeMillis()).apply();
+            runOnUiThread(() -> { vue.clearHistory(); vue.loadUrl(url); lancerVeille(); });
         }
 
         @JavascriptInterface
         public String version() { return MainActivity.this.version(); }
+
+        @JavascriptInterface
+        public boolean notifications() { return prefs.getBoolean("notifications", true); }
+
+        @JavascriptInterface
+        public void reglerNotifications(boolean oui) {
+            prefs.edit().putBoolean("notifications", oui).apply();
+            runOnUiThread(() -> { if (oui) lancerVeille(); else Veille.arreter(MainActivity.this); });
+        }
+
+        @JavascriptInterface
+        public void chercher() { chercherCartes(); }
+
+        @JavascriptInterface
+        public void verifierMaj() { runOnUiThread(() -> verifierMiseAJour(true)); }
 
         @JavascriptInterface
         public void nomFichier(String nom) { prefs.edit().putString("dernierNom", nom == null ? "" : nom).apply(); }
