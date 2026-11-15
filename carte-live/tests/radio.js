@@ -128,6 +128,25 @@ test('MeshCore : message du canal Public déchiffré (expéditeur et texte)', ()
   assert.equal(p.contenu.texte, 'Essai depuis le Mézenc 📡');
 });
 
+// Non-régression (15/11) : un message de canal reçu par MQTT (observateur) doit être signalé une seule fois comme nouveau,
+// sinon les cartes n'incrémentent pas le compteur de messages non lus
+test('MeshCore : message de canal entendu par un observateur signalé comme nouveau une seule fois', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-msg-'));
+  process.env.FICHIER_BASE = path.join(dossier, 'x.db');
+  const config = require('../src/config');
+  const { creerStockage } = require('../src/base');
+  const { creerReseauMc } = require('../src/meshcore/reseau');
+  const st = creerStockage(path.join(dossier, 'x.db'));
+  const r = creerReseauMc(st.db, config, PUBLIC);
+  const brut = messagePublic('F4XYZ: Coucou le réseau');
+  const a = r.integrer({ brut, observateur: 'AB'.repeat(32), snr: 5, rssi: -90, heure: Date.now() });
+  const b = r.integrer({ brut, observateur: 'CD'.repeat(32), snr: 3, rssi: -100, heure: Date.now() });
+  assert.ok(a && a.nouveauMessage, 'première réception : nouveau message');
+  assert.equal(a.texte, 'Coucou le réseau');
+  assert.ok(!b || !b.nouveauMessage, 'deuxième observateur : pas un nouveau message');
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
 test('MeshCore : canal #nom dérivé du nom', () => {
   const [c] = mc.preparerCanauxMc(['#velay']);
   assert.equal(c.secret, crypto.createHash('sha256').update('#velay').digest().subarray(0, 16).toString('hex'));

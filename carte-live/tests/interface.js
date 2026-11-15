@@ -154,6 +154,31 @@ async function essaiCarteFrancais(contexte) {
     if (m) m.remove(); d.remove(); return t;
   }).catch((e) => 'erreur ' + e.message);
   if (/Fiche du nœud/.test(menu) && /Message direct/.test(menu)) ok('auteur de message : menu fiche et message direct'); else ko('auteur de message : ' + menu);
+  // --- Non-régression : bugs signalés le 15/11 ---
+  // 1. « Alertes météo » : la fiche s'affiche même sans choix de canaux mémorisé (et ne garde pas l'ancienne fiche)
+  const ao = await page.evaluate(async () => {
+    try { localStorage.removeItem('gaulix_canaux_envoi'); } catch { /* */ }
+    $('#fiche-contenu').innerHTML = '<div id="ancienne-fiche">fiche d’un nœud supprimé</div>';
+    ao.info = await fetch('/api/alertes-officielles').then((x) => x.json());
+    let err = null; try { ficheAlertesOff(); } catch (e) { err = e.message; }
+    return { err, ancienne: !!document.getElementById('ancienne-fiche'), alertes: !!document.querySelector('#fiche-contenu .alertes-off'), cache: $('#fiche').hidden };
+  }).catch((e) => ({ err: e.message }));
+  if (!ao.err && !ao.ancienne && ao.alertes && !ao.cache) ok('alertes météo : fiche affichée, l’ancienne fiche est remplacée'); else ko('alertes météo : ' + JSON.stringify(ao));
+  // 2. Nouveaux messages : la pastille de la rubrique « Messages » suit le compteur aussitôt
+  const nl = await page.evaluate(() => {
+    nonLus['mc:public'] = 3; majBadgesMessages();
+    const g = document.querySelector('.groupes button[data-groupe="messages"] .pastille-groupe');
+    const t = g ? g.textContent : '';
+    delete nonLus['mc:public']; majBadgesMessages();
+    return { t, apres: !!document.querySelector('.groupes button[data-groupe="messages"] .pastille-groupe') };
+  }).catch((e) => ({ t: 'erreur ' + e.message }));
+  if (nl.t === '3' && !nl.apres) ok('nouveaux messages : pastille de la rubrique Messages'); else ko('pastille Messages : ' + JSON.stringify(nl));
+  // 3. Programmer (MeshCore) : les opérations lancées par la carte elle-même sont marquées « automatique »
+  const auto = await page.evaluate(async () => {
+    const src = await fetch('/meshcore.js').then((x) => x.text());
+    return /etiquette-auto/.test(src) && /🤖 automatique/.test(src);
+  }).catch(() => false);
+  if (auto) ok('programmer : opérations automatiques signalées'); else ko('programmer : étiquette « automatique » absente');
   await capture(page, 'carte-fr');
   bilanErreurs(erreurs, 'carte en français');
   await page.close();

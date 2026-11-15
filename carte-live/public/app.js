@@ -1532,6 +1532,8 @@ function majBadgesMessages() {
     s.hidden = !total;
     s.classList.toggle('direct', !!((vue !== 'meshcore' && nonLus.direct) || (vue !== 'meshtastic' && nonLus.mcdirect)));
   }
+  // La pastille de la rubrique « Messages » (barre du haut) suit le compteur tout de suite, sans attendre un changement d'onglet
+  if (typeof majGroupes === 'function') { try { majGroupes(); } catch { /* rubriques pas encore installées */ } }
   const tout = Object.values(nonLus).reduce((a, n) => a + n, 0);
   document.title = (tout ? `(${tout}) ` : '') + document.title.replace(/^\(\d+\) /, '');
 }
@@ -8213,11 +8215,11 @@ function blocAlertesOff() {
   const meteo = (r.meteo || []);
   const feuxZone = masquee('feux') ? [] : (etat.alertes || []).filter((a) => a.type === 'feu');
   // Canaux d'envoi à la demande : dernier choix mémorisé dans ce navigateur, sinon ceux de la diffusion automatique
+  const rg = r.reglages || {};
   const choixEnv = lireLs('gaulix_canaux_envoi', null);
   const mcChoisi = choixEnv && (r.envoi && r.envoi.canauxMc || []).includes(choixEnv.mc) ? choixEnv.mc : choixEnv && choixEnv.mc === '' ? '' : (rg.canalMc || (r.envoi && r.envoi.canauxMc[0]));
   const mtCoche = (c) => (choixEnv ? (choixEnv.mt || []).some((x) => x.toLowerCase() === c.toLowerCase()) : (rg.canaux || []).some((x) => x.toLowerCase() === c.toLowerCase()) && !r.envoi.canauxMc.length);
   const nv = r.niveauxVigipirate || {};
-  const rg = r.reglages || {};
   return `<div class="alertes-off"><h3>🌦️ Alertes officielles</h3>
     <h4>Vigilance Météo-France${(rg.departements || []).length > 1 ? ` (${rg.departements.length} départements)` : ''}</h4>
     ${(meteo.length || feuxZone.length) && etat.gestion && r.envoi && (r.envoi.canauxMc.length || r.envoi.canauxMt.length) ? `<div class="ao-envoi"><b>📡 Envoyer une vigilance par radio</b> — canaux :

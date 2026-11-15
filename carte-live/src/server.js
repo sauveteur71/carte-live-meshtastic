@@ -2765,7 +2765,7 @@ function verPasserelle(m) {
       const n = reseauMc.q.noeud.get(m.de);
       if (n && n.role === 'companion' && n.lat != null) passerelle.recevoirPosition({ reseau: 'mc', de: n.cle, nom: n.nom || n.cle.slice(0, 8), lat: n.lat, lon: n.lon });
     } else if (m.genre === 'mc-paquet' && m.premiere && m.texte && m.canal) passerelle.recevoir({ reseau: 'mc', canal: m.canal, de: null, nom: m.expediteur || null, texte: m.texte });
-    else if (m.genre === 'mc-message' && m.sens === 'recu' && !m.direct && m.canal && m.texte) passerelle.recevoir({ reseau: 'mc', canal: m.canal, de: null, nom: m.nomDe || null, texte: m.texte });
+    else if (m.genre === 'mc-message' && m.sens === 'recu' && !m.direct && !m.dejaPasserelle && m.canal && m.texte) passerelle.recevoir({ reseau: 'mc', canal: m.canal, de: null, nom: m.nomDe || null, texte: m.texte });
   } catch (e) { journal('[Passerelle]', e.message); }
 }
 // Paquets Meshtastic décodés (MQTT, module, agents) : positions et signalements pour la passerelle, si une liaison les relaie
@@ -2829,6 +2829,12 @@ function dansPerimetreMc(cleObs, iata) {
   const code = String(iata || '').toUpperCase();
   return code === config.meshcore.iata || config.meshcore.iataVoisins.includes(code);
 }
+// Paquet MeshCore intégré ; un message de canal déchiffré depuis le paquet brut (observateur MQTT ou companion)
+// part aussi comme « mc-message » : les cartes des membres le comptent dans les non-lus et rafraîchissent la liste
+function diffuserSortieMc(sortie) {
+  diffuser(sortie);
+  if (sortie.nouveauMessage && sortie.texte) diffuser({ genre: 'mc-message', id: sortie.nouveauMessage, sens: 'recu', canal: sortie.canal, texte: sortie.texte, nomDe: sortie.expediteur, heure: Date.now(), dejaPasserelle: true });
+}
 function messageMc(topic, message) {
   compteurMc.recus++;
   const m = lireMessageMc(topic, message);
@@ -2841,7 +2847,7 @@ function messageMc(topic, message) {
   if (!dansPerimetreMc(m.cle, m.iata)) { compteurMc.horsPerimetre = (compteurMc.horsPerimetre || 0) + 1; return; }
   if (m.nom) reseauMc.noterObservateur(m.cle, { nom: m.nom, details: { iata: m.iata } });
   const sortie = reseauMc.integrer(m.obs);
-  if (sortie) { compteurMc.observations++; diffuser(sortie); }
+  if (sortie) { compteurMc.observations++; diffuserSortieMc(sortie); }
 }
 clientMqtt.on('connect', () => {
   statsMqtt.depuis = Date.now();
@@ -2971,7 +2977,7 @@ const companion = creerCompanion(config, {
   surObservation: (obs) => {
     try {
       const sortie = reseauMc.integrer(obs);
-      if (sortie) diffuser(sortie);
+      if (sortie) diffuserSortieMc(sortie);
       const c = companion.etat();
       if (obs.observateur && config.meshcore.republier) publicateurMc.publier(obs, decoderPaquetMc(obs.brut), c);
     } catch (e) { journal('[MeshCore] observation non traitée :', e.message); }
@@ -3022,7 +3028,7 @@ function fabriquerCompanionEcoute({ cible, nom }) {
     surObservation: (obs) => {
       try {
         const sortie = reseauMc.integrer(obs);
-        if (sortie) diffuser(sortie);
+        if (sortie) diffuserSortieMc(sortie);
         if (obs.observateur && config.meshcore.republier && inst) publicateurMc.publier(obs, decoderPaquetMc(obs.brut), inst.etat());
       } catch (e) { journal('[MeshCore] observation non traitée :', e.message); }
     },
