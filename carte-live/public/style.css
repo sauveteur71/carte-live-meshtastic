@@ -1499,3 +1499,13 @@ body.consultation #btn-admin, body.consultation .lien-inscription, body.consulta
 
 .tache-maj { margin: 8px 0 0; padding: 6px 8px; border-left: 2px solid var(--bord); font-size: 13px; }
 #maj-detail { margin-left: 6px; }
+
+/* Panneau détaché (fenêtre à part, ?panneau=…) : le panneau occupe toute la fenêtre, sans la carte */
+.onglets:has(.detacher:not([hidden])) { padding-right: 54px; }
+.onglets .detacher { position: absolute; right: 28px; top: 2px; background: none; border: 0; color: var(--doux); font-size: 16px; padding: 6px 6px; cursor: pointer; }
+.onglets .detacher:hover { color: var(--texte); }
+@media (max-width: 700px) { .onglets .detacher { display: none; } .onglets:has(.detacher) { padding-right: 26px; } }
+body.panneau-seul #carte, body.panneau-seul .outils, body.panneau-seul .barre, body.panneau-seul .kpis, body.panneau-seul .legende,
+body.panneau-seul .recherche-lieu, body.panneau-seul #deplier, body.panneau-seul .fab-plus, body.panneau-seul .replier, body.panneau-seul .rejeu { display: none !important; }
+body.panneau-seul .panneau { position: fixed !important; inset: 0 !important; width: auto !important; height: auto !important; max-width: none !important; border-radius: 0 !important; transform: none !important; }
+body.panneau-seul .fiche { position: fixed !important; inset: 0 0 0 auto !important; width: min(480px, 100vw) !important; top: 0 !important; height: auto !important; border-radius: 0 !important; transform: none !important; }

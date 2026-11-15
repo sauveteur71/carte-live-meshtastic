@@ -6436,6 +6436,7 @@ function brancherInterface() {
   { const b = $('#outil-installer'); if (b) b.onclick = async () => { if (!invitationInstall) return; invitationInstall.prompt(); await invitationInstall.userChoice.catch(() => null); invitationInstall = null; b.hidden = true; }; }
   $('#replier').onclick = () => { $('#panneau').classList.add('replie'); $('#deplier').hidden = false; document.body.classList.add('panneau-replie'); };
   $('#deplier').onclick = () => { $('#panneau').classList.remove('replie'); $('#deplier').hidden = true; document.body.classList.remove('panneau-replie'); };
+  installerDetachement();
   $('#fermer-fiche').onclick = () => { $('#fiche').hidden = true; etat.selection = null; if (etat.trajet) { etat.trajet.remove(); etat.trajet = null; } };
   document.body.addEventListener('click', (e) => {
     const el = e.target.closest('.ligne[data-num], .alerte[data-num], .paquet[data-num]');
@@ -6931,7 +6932,49 @@ async function rendreFondHorsLigne() {
 }
 
 // Téléphone : panneau en tiroir (réduit / moitié / plein), poignée à tirer ou à toucher, état gardé
+// Panneau détachable : Messages, Réglages, Gérer… dans une fenêtre à part, à poser sur un deuxième écran.
+// La fenêtre détachée est la même application, en mode « panneau seul » (?panneau=messages) ; ce qui doit se voir
+// sur la carte (centrer sur un nœud, cadrer une zone) est envoyé à la fenêtre principale.
+const PANNEAU_SEUL = new URLSearchParams(location.search).get('panneau');
+const canalFenetres = typeof BroadcastChannel === 'function' ? new BroadcastChannel('carte-live-fenetres') : null;
+function installerDetachement() {
+  const b = $('#detacher');
+  if (PANNEAU_SEUL) {
+    document.body.classList.add('panneau-seul');
+    if (b) b.hidden = true;
+    document.title = 'Panneau · ' + document.title;
+    // Rubrique demandée, dès que l'interface est prête
+    let essais = 0;
+    const aller = () => { const g = document.querySelector(`.groupes button[data-groupe="${PANNEAU_SEUL}"]`); if (g && typeof allerGroupe === 'function') allerGroupe(PANNEAU_SEUL); else if (++essais < 40) setTimeout(aller, 250); };
+    setTimeout(aller, 300);
+    // Les mouvements de carte demandés ici partent vers la fenêtre principale
+    if (canalFenetres && carte) for (const m of ['setView', 'flyTo', 'fitBounds', 'flyToBounds', 'panTo']) {
+      carte[m] = (...a) => { canalFenetres.postMessage({ carte: m, args: JSON.parse(JSON.stringify(a)) }); return carte; };
+    }
+    return;
+  }
+  if (canalFenetres) canalFenetres.onmessage = (e) => {
+    const d = e.data || {};
+    if (!d.carte || !carte) return;
+    const a = d.args || [];
+    const bornes = (x) => (x && x._southWest ? L.latLngBounds(x._southWest, x._northEast) : x);
+    if (/Bounds$/.test(d.carte)) carte[d.carte === 'flyToBounds' ? 'flyToBounds' : 'fitBounds'](bornes(a[0]), a[1]);
+    else L.Map.prototype[d.carte].apply(carte, a);
+  };
+  if (!b) return;
+  b.onclick = () => {
+    const g = (typeof ergo !== 'undefined' && ergo.groupe) || 'messages';
+    const q = new URLSearchParams(location.search); q.set('panneau', g);
+    const w = window.open(location.pathname + '?' + q.toString(), 'carte-live-panneau', 'popup,width=760,height=980');
+    if (!w) { alert('Le navigateur a bloqué la nouvelle fenêtre : autorisez les fenêtres surgissantes pour cette carte.'); return; }
+    // La carte prend toute la place ici ; le panneau revient quand la fenêtre détachée est fermée
+    $('#replier').click();
+    const suivi = setInterval(() => { if (w.closed) { clearInterval(suivi); $('#deplier').click(); } }, 1000);
+  };
+}
+
 function installerTiroir() {
+  if (PANNEAU_SEUL) return; // fenêtre détachée : panneau plein écran, pas de tiroir
   const mq = matchMedia('(max-width: 700px)');
   const p = $('#panneau');
   if (!p.querySelector('.poignee-tiroir')) p.insertAdjacentHTML('afterbegin', '<div class="poignee-tiroir" title="Tirer ou toucher pour agrandir / réduire"></div>');

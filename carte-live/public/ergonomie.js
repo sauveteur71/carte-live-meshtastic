@@ -334,7 +334,7 @@ async function ouvrirAide(page) {
 
 // ---- Visite guidée (première visite, ou Réglages › Revoir la visite) ------------------------------------------
 function visiteGuidee(forcer) {
-  if (!forcer && (lireLs('gaulix_visite', false) || etat.config.installation)) return;
+  if (!forcer && (lireLs('gaulix_visite', false) || etat.config.installation || new URLSearchParams(location.search).has('panneau'))) return;
   const etapes = [
     ['.groupes', 'Les 5 rubriques', 'Réseau, Messages, Couverture, Gérer et Réglages : tout part d’ici. Les sous-rubriques s’affichent juste dessous.'],
     ['#accueil', 'Que voulez-vous faire ?', 'Les grandes tuiles mènent à l’essentiel. Le tableau de bord complet est replié en dessous.'],
