@@ -1,17 +1,32 @@
-// Langue de l'interface : français (texte d'origine) ou anglais, traduit à l'affichage.
-// Le code reste écrit en français ; en anglais, chaque texte affiché (nœuds texte, title, placeholder, aria-label,
-// boîtes alert/confirm/prompt) passe par le dictionnaire /i18n/en.json. Les « {} » d'une entrée valent n'importe quel
-// morceau variable (nom, nombre…), lui-même traduit s'il est connu. Le contenu des utilisateurs (messages, noms) porte
-// translate="no" et n'est jamais touché.
+// Langue de l'interface : français (texte d'origine), anglais, espagnol, allemand, italien ou portugais, traduits à
+// l'affichage. Le code reste écrit en français ; dans une autre langue, chaque texte affiché (nœuds texte, title,
+// placeholder, aria-label, boîtes alert/confirm/prompt) passe par le dictionnaire /i18n-xx.json, complété par
+// l'anglais pour ce qui n'y est pas encore. Les « {} » d'une entrée valent n'importe quel morceau variable (nom,
+// nombre…), lui-même traduit s'il est connu. Le contenu des utilisateurs (messages, noms) porte translate="no" et
+// n'est jamais touché.
 (function () {
+  const LANGUES = { fr: 'Français', en: 'English', es: 'Español', de: 'Deutsch', it: 'Italiano', pt: 'Português' };
+  const LOCALES = { fr: 'fr-FR', en: 'en-GB', es: 'es-ES', de: 'de-DE', it: 'it-IT', pt: 'pt-PT' };
+  const DEFAUT = 'en'; // langue par défaut de l'édition quand celle du navigateur n'est pas proposée
   const lire = () => { try { return localStorage.getItem('gaulix_langue'); } catch { return null; } };
-  const choix = lire() || ((navigator.language || 'fr').toLowerCase().startsWith('fr') ? 'fr' : 'en');
+  const nav = String(navigator.language || '').slice(0, 2).toLowerCase();
+  let choix = lire() || (LANGUES[nav] ? nav : DEFAUT);
+  if (!LANGUES[choix]) choix = DEFAUT;
+  window.LANGUES = LANGUES;
   window.LANGUE = choix;
+  window.LOCALE = LOCALES[choix];
   window.choisirLangue = (l) => { try { localStorage.setItem('gaulix_langue', l); } catch { /* navigation privée */ } location.reload(); };
+  // Liste <option> des langues, pour les sélecteurs de l'interface
+  window.optionsLangues = () => Object.entries(LANGUES).map(([k, v]) => `<option value="${k}" ${k === choix ? 'selected' : ''}>${v}</option>`).join('');
   // Traduction d'un texte isolé (pour le code qui en a besoin) : identité en français
   window.tr = (t) => t;
-  if (choix !== 'en') return;
-  document.documentElement.lang = 'en';
+  if (choix === 'fr') return;
+  document.documentElement.lang = choix;
+  // Dates et nombres écrits « à la française » dans le code : au format de la langue choisie
+  const loc = (l) => (l === 'fr-FR' || l === 'fr' ? LOCALES[choix] : l);
+  for (const [P, fs] of [[Date.prototype, ['toLocaleString', 'toLocaleDateString', 'toLocaleTimeString']], [Number.prototype, ['toLocaleString']]]) {
+    for (const f of fs) { const o = P[f]; P[f] = function (l, ...r) { return o.call(this, loc(l), ...r); }; }
+  }
 
   const exact = new Map(); // texte -> traduction
   const motifs = new Map(); // premier mot littéral (ou '') -> [{ re, en }]
@@ -127,8 +142,15 @@
     window[f] = (m, ...r) => o(m == null ? m : String(m).split('\n').map((l) => traduire(l)).join('\n'), ...r);
   }
   const v = (document.currentScript && document.currentScript.src.match(/\?v=([^&]+)/)) || [];
-  fetch('/i18n-en.json' + (v[1] ? '?v=' + v[1] : ''))
-    .then((r) => r.json())
-    .then((d) => { charger(d); if (document.body) demarrer(); else document.addEventListener('DOMContentLoaded', demarrer); })
+  const dico = (l) => fetch(`/i18n-${l}.json` + (v[1] ? '?v=' + v[1] : '')).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+  Promise.all([dico('en'), choix === 'en' ? {} : dico(choix)])
+    .then(([en, autre]) => {
+      // Entrée « = » : identique au français ; sans traduction dans la langue choisie : l'anglais
+      const d = {};
+      for (const [k, x] of Object.entries(en)) d[k] = x === '=' ? k : x;
+      for (const [k, x] of Object.entries(autre)) if (x) d[k] = x === '=' ? k : x;
+      charger(d);
+      if (document.body) demarrer(); else document.addEventListener('DOMContentLoaded', demarrer);
+    })
     .catch(() => { /* dictionnaire indisponible : l'interface reste en français */ });
 })();

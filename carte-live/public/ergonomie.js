@@ -194,7 +194,7 @@ function rendreAccueil() {
   z.innerHTML = `<h2 class="titre-accueil">Que voulez-vous faire ?</h2>
     <div class="tuiles-accueil">${tuiles.map((x, i) => `<button type="button" class="tuile-accueil" data-i="${i}"><span class="ic" aria-hidden="true">${x.ic}</span><b>${esc(x.nom)}</b><small>${esc(x.aide)}</small></button>`).join('')}</div>
     ${favoris.length ? `<div class="raccourcis"><span class="note">⭐ Mes raccourcis</span>${favoris.map((e) => `<button type="button" class="mini" data-fav="${esc(e.t)}">${esc(e.t)}</button>`).join('')}</div>` : ''}
-    <div class="pied-accueil"><button type="button" class="mini" id="acc-chercher">🔎 Chercher une fonction</button><label class="note">Affichage <select id="acc-niveau" aria-label="Niveau d’affichage">${Object.entries(NIVEAUX).map(([k, v]) => `<option value="${k}" ${k === ergo.niveau ? 'selected' : ''}>${v}</option>`).join('')}</select></label><label class="note" translate="no">🌐 Langue · Language <select id="acc-langue" aria-label="Langue · Language"><option value="fr" ${window.LANGUE !== 'en' ? 'selected' : ''}>Français</option><option value="en" ${window.LANGUE === 'en' ? 'selected' : ''}>English</option></select></label></div>`;
+    <div class="pied-accueil"><button type="button" class="mini" id="acc-chercher">🔎 Chercher une fonction</button><label class="note">Affichage <select id="acc-niveau" aria-label="Niveau d’affichage">${Object.entries(NIVEAUX).map(([k, v]) => `<option value="${k}" ${k === ergo.niveau ? 'selected' : ''}>${v}</option>`).join('')}</select></label><label class="note" translate="no">🌐 Langue · Language <select id="acc-langue" aria-label="Langue · Language">${window.optionsLangues ? window.optionsLangues() : ''}</select></label></div>`;
   z.querySelectorAll('[data-i]').forEach((b) => (b.onclick = () => tuiles[Number(b.dataset.i)].go()));
   z.querySelectorAll('[data-fav]').forEach((b) => (b.onclick = () => { const e = index.find((x) => x.t === b.dataset.fav); if (e) e.go(); }));
   $('#acc-chercher').onclick = () => ouvrirRechercheReglages();
@@ -254,7 +254,7 @@ function rendreHubReglages() {
       <small class="note">Simple : l’essentiel. Opérateur : couverture avancée, trafic, outils de terrain. Expert : tout.</small>
       <label class="case"><input type="checkbox" id="hub-grand" ${document.body.classList.contains('grand-texte') ? 'checked' : ''}> Grand texte</label>
       <label class="case"><input type="checkbox" id="hub-clair" ${document.body.classList.contains('theme-clair') ? 'checked' : ''}> Thème clair (plein soleil)</label>
-      <label translate="no">🌐 Langue · Language <select id="hub-langue" aria-label="Langue · Language"><option value="fr" ${window.LANGUE !== 'en' ? 'selected' : ''}>Français</option><option value="en" ${window.LANGUE === 'en' ? 'selected' : ''}>English</option></select></label>
+      <label translate="no">🌐 Langue · Language <select id="hub-langue" aria-label="Langue · Language">${window.optionsLangues ? window.optionsLangues() : ''}</select></label>
       <div class="actions-prop"><button type="button" class="mini" id="hub-visite">🧭 Revoir la visite guidée</button><button type="button" class="mini" id="hub-aide">❓ Aide</button></div>
     </div>
     ${bloc('Compte', compte)}${bloc('Modules et réseaux', modules)}${etat.admin && etat.config.meshcore && !lesDeux ? `<p class="note">${vue === 'meshtastic' ? 'Réglages MeshCore et passerelle : choisissez « MeshCore » ou « Les deux » en haut du panneau.' : 'Réglages Meshtastic (équipes) et passerelle : choisissez « Meshtastic » ou « Les deux » en haut du panneau.'}</p>` : ''}${bloc('La carte (administrateur)', carteL)}
@@ -285,7 +285,7 @@ async function ficheDiagnostic() {
   const pb = r.controles.filter((c) => c.etat === 'ko' || c.etat === 'attention').length;
   const groupes = [...new Set(r.controles.map((c) => c.groupe))];
   z.innerHTML = `<div class="diagnostic"><h2>🩺 Diagnostic</h2>
-    <p class="note"><b>${pb ? pb + ' point(s) à regarder' : 'Tout va bien'}</b> · <span>vérifié à ${new Date(r.heure).toLocaleTimeString(window.LANGUE === 'en' ? 'en-GB' : 'fr-FR')}</span> <button type="button" class="mini" id="diag-relancer">↻ Revérifier</button></p>
+    <p class="note"><b>${pb ? pb + ' point(s) à regarder' : 'Tout va bien'}</b> · <span>vérifié à ${new Date(r.heure).toLocaleTimeString(window.LOCALE || 'fr-FR')}</span> <button type="button" class="mini" id="diag-relancer">↻ Revérifier</button></p>
     ${groupes.map((g) => `<h3>${esc(g)}</h3>${r.controles.filter((c) => c.groupe === g).map((c) => `<div class="controle ${c.etat}"><span class="ic" aria-hidden="true">${IC[c.etat]}</span><div><b>${esc(c.titre)}</b>${c.detail ? `<small>${esc(c.detail)}</small>` : ''}${c.action && ACTIONS[c.action] && c.etat !== 'ok' ? `<button type="button" class="mini principal" data-diag="${c.action}"><span>${esc(ACTIONS[c.action][0])}</span> ›</button>` : ''}</div></div>`).join('')}`).join('')}</div>`;
   $('#diag-relancer').onclick = ficheDiagnostic;
   z.querySelectorAll('[data-diag]').forEach((b) => (b.onclick = () => ACTIONS[b.dataset.diag][1]()));
@@ -325,7 +325,7 @@ async function ouvrirAide(page) {
   const z = $('#fiche-contenu');
   z.innerHTML = '<div class="vide">Chargement de l’aide…</div>';
   let r;
-  try { r = await api('/api/aide/' + encodeURIComponent(page) + (window.LANGUE === 'en' ? '?langue=en' : '')); } catch (e) { z.innerHTML = `<div class="vide">Aide indisponible sur ce serveur (${esc(e.message)}).</div>`; return; }
+  try { r = await api('/api/aide/' + encodeURIComponent(page) + (window.LANGUE && window.LANGUE !== 'fr' ? '?langue=en' : '')); } catch (e) { z.innerHTML = `<div class="vide">Aide indisponible sur ce serveur (${esc(e.message)}).</div>`; return; }
   z.innerHTML = `<div class="aide"><div class="actions-prop"><button type="button" class="mini" data-aide="Home">📚 Sommaire</button><button type="button" class="mini" id="aide-chercher">🔎 Chercher une fonction</button></div><div ${r.langue === window.LANGUE ? '' : 'translate="no"'}>${markdownSimple(r.texte)}</div></div>`;
   z.scrollTop = 0;
   z.querySelectorAll('[data-aide]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); ouvrirAide(a.dataset.aide); }));

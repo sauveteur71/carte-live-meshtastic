@@ -1845,7 +1845,7 @@ function ouvrirRechercheReglages() {
   const rendre = () => {
     const mots = sansAccent(inp.value).split(/\s+/).filter(Boolean);
     res = !mots.length ? index.slice(0, 12) : index.map((e) => {
-      const h = sansAccent(`${e.t} ${e.ch} ${e.m}` + (window.LANGUE === 'en' ? ` ${tr(e.t)} ${tr(e.ch || '')} ${tr(e.m || '')}` : '')), ti = sansAccent(window.LANGUE === 'en' ? tr(e.t) : e.t);
+      const h = sansAccent(`${e.t} ${e.ch} ${e.m}` + (window.LANGUE !== 'fr' ? ` ${tr(e.t)} ${tr(e.ch || '')} ${tr(e.m || '')}` : '')), ti = sansAccent(window.LANGUE !== 'fr' ? tr(e.t) : e.t);
       if (!mots.every((w) => h.includes(w))) return null;
       return { e, score: (ti.startsWith(mots[0]) ? 0 : ti.includes(mots[0]) ? 1 : 2) + ti.length / 200 };
     }).filter(Boolean).sort((a, b) => a.score - b.score).map((x) => x.e).slice(0, 14);
