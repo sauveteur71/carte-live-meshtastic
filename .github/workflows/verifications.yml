@@ -51,7 +51,7 @@ jobs:
         run: node tests/interface.js
       - name: Captures et journal en cas d'échec
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: resultats-interface
           path: carte-live/tests/resultats/
