@@ -1517,3 +1517,15 @@ body.panneau-seul .fiche { position: fixed !important; inset: 0 0 0 auto !import
 .va-origine { font-size: 11px; padding: 0 6px; border-radius: 8px; background: #334155; color: #e2e8f0; }
 .va-origine.va-carte { background: #14532d; color: #dcfce7; }
 .va-origine.va-env { background: #1e3a8a; color: #dbeafe; }
+
+/* ---- Haut de l'écran sans chevauchement (calculé par app.js : --bas-barre, --bas-outils, --bas-haut) ----
+   Écran à 150 %, nom de carte long, badge de mise à jour ou alerte : les derniers compteurs se masquent, puis la
+   barre d'outils passe sous la barre ; recherche, panneau, fiche et légende se placent en dessous. */
+.kpis .kpi.kpi-cache, .kpis.kpis-vides { display: none !important; }
+@media (min-width: 1101px) {
+  body.outils-dessous .outils { top: calc(var(--bas-barre, 72px) + 8px); left: calc(var(--l-panneau, 360px) + 24px); }
+  .recherche-lieu { top: max(84px, calc(var(--bas-haut, 0px) + 10px)); }
+  .panneau { top: max(84px, calc(var(--bas-barre, 0px) + 6px)); }
+  .fiche { top: max(64px, calc(var(--bas-outils, 0px) + 6px)); }
+  .legende { max-height: calc(100vh - var(--bas-outils, 60px) - 40px); overflow-y: auto; }
+}

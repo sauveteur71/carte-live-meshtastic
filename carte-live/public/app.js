@@ -8415,13 +8415,36 @@ async function dessinerRadar() {
   minuteurRadar = setTimeout(dessinerRadar, 10 * 60000);
 }
 
-// La barre du haut peut grandir (badge « vX disponible », nom long, autre langue) : sur téléphone, la recherche de
-// lieu se place juste en dessous au lieu de la chevaucher
+// Haut de l'écran : la barre (nom + compteurs) et la barre d'outils ne doivent jamais se chevaucher, quelle que
+// soit la largeur (écran à 150 %, nom long, badge « vX disponible », alerte, autre langue). Sur ordinateur, on retire
+// d'abord les derniers compteurs ; s'il n'y a toujours pas la place, les outils passent sous la barre. Les positions
+// obtenues (--bas-barre, --bas-haut, --bas-outils) placent la recherche, le panneau et la légende juste en dessous.
 (() => {
-  const barre = document.querySelector('.barre');
+  const barre = document.querySelector('.barre'), outils = document.querySelector('.outils'), racine = document.documentElement;
   if (!barre) return;
-  const maj = () => document.documentElement.style.setProperty('--bas-barre', Math.round(barre.getBoundingClientRect().bottom) + 'px');
-  if (window.ResizeObserver) new ResizeObserver(maj).observe(barre);
-  addEventListener('resize', maj);
+  let prevu = false;
+  const boite = (e) => e.getBoundingClientRect();
+  const maj = () => {
+    prevu = false;
+    const kpis = [...document.querySelectorAll('.kpis .kpi')];
+    const bloc = document.querySelector('.kpis');
+    kpis.forEach((k) => k.classList.remove('kpi-cache'));
+    if (bloc) bloc.classList.remove('kpis-vides');
+    document.body.classList.remove('outils-dessous');
+    if (outils && innerWidth > 1100 && getComputedStyle(outils).position === 'fixed') {
+      const chevauche = () => { const b = boite(barre), o = boite(outils); return b.right + 8 > o.left && o.top < b.bottom && o.bottom > b.top; };
+      for (let i = kpis.length - 1; i >= 0 && chevauche(); i--) if (kpis[i].offsetParent) kpis[i].classList.add('kpi-cache');
+      if (bloc && !kpis.some((k) => k.offsetParent)) bloc.classList.add('kpis-vides');
+      if (chevauche()) document.body.classList.add('outils-dessous');
+    }
+    const bb = Math.round(boite(barre).bottom);
+    racine.style.setProperty('--bas-barre', bb + 'px');
+    const bo = outils ? Math.round(boite(outils).bottom) : 0;
+    racine.style.setProperty('--bas-outils', bo + 'px');
+    racine.style.setProperty('--bas-haut', (document.body.classList.contains('outils-dessous') ? Math.max(bb, bo) : bb) + 'px');
+  };
+  const demander = () => { if (!prevu) { prevu = true; requestAnimationFrame(maj); } };
+  if (window.ResizeObserver) { const ro = new ResizeObserver(demander); ro.observe(barre); if (outils) ro.observe(outils); }
+  addEventListener('resize', demander);
   maj();
 })();

@@ -289,6 +289,25 @@ async function essaiDemoVisiteur(navig) {
   await contexte.close();
 }
 
+async function essaiEcran150(navig) {
+  console.log('Ordinateur à 150 % (1280 × 620)');
+  const contexte = await navig.newContext({ viewport: { width: 1280, height: 620 }, locale: 'fr-FR' });
+  await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(contexte, '/');
+  await page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); const v = document.querySelector('.marque .version'); if (v) v.textContent = 'v2.22.0 · v2.22.1 disponible'; });
+  await page.waitForTimeout(400);
+  const g = await page.evaluate(() => {
+    const b = (q) => { const e = document.querySelector(q); return e && e.offsetParent !== null ? e.getBoundingClientRect() : null; };
+    const croise = (x, y) => !!x && !!y && x.left < y.right && y.left < x.right && x.top < y.bottom && y.top < x.bottom;
+    const barre = b('.barre'), outils = b('.outils'), rech = b('.recherche-lieu'), pan = b('.panneau'), leg = b('.legende');
+    return { barreOutils: croise(barre, outils), rechOutils: croise(rech, outils), rechBarre: croise(rech, barre), panOutils: croise(pan, outils), legOutils: croise(leg, outils) };
+  });
+  if (!Object.values(g).some(Boolean)) ok('écran à 150 % : barre, outils, recherche, panneau et légende sans chevauchement'); else ko('écran à 150 % : chevauchement ' + JSON.stringify(g));
+  await capture(page, 'ecran-150');
+  bilanErreurs(erreurs.filter((e) => !/HTTP 401|401/.test(e)), 'écran à 150 %');
+  await contexte.close();
+}
+
 async function essaiTelephone(navig) {
   console.log('Téléphone (portrait)');
   const contexte = await navig.newContext({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'fr-FR' });
@@ -334,6 +353,7 @@ async function essaiPagesPubliques(navig) {
     await essaiConsultation(contexte);
     await contexte.close();
     await essaiDemoVisiteur(navigateur);
+    await essaiEcran150(navigateur);
     await essaiTelephone(navigateur);
     await essaiPagesPubliques(navigateur);
     code = echecs ? 1 : 0;
