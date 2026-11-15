@@ -228,8 +228,10 @@ function rendreHubReglages() {
   const carteL = !etat.admin ? [] : [
     ['🗺️', 'Carte et réseau', 'Nom, département, canaux Meshtastic à déchiffrer, conservation', () => ouvrirDlg('reglages', '[name=titre]')],
     ['📶', 'Serveur MQTT', 'Adresse, identifiants, sujets', () => ouvrirDlg('reglages', '[name=mqttUrl]')],
+    ['📡', 'Broker MQTT : état et brokers supplémentaires', 'Connexion, test, autres brokers écoutés en même temps (bulle voisine)', () => ouvrirBroker()],
     ['👥', 'Comptes des utilisateurs', 'Créer, valider, rôles, secteurs', () => ouvrirDlg('comptes')],
     ['🩺', 'Diagnostic', 'Pourquoi ça ne marche pas ? Vérifie MQTT, canaux, modules, MeshCore, passerelle', () => ficheDiagnostic()],
+    ['🧩', 'Réglages avancés', 'Seuils d’alerte, fond de carte, MeshMonitor, exports, feux Meteosat… tout ce qui était dans le fichier .env', () => ficheReglagesAvances()],
     ['💾', 'Sauvegardes des réglages', 'Sauvegarder ou restaurer les réglages et les comptes', () => ouvrirDlg('sauvegardes')],
     ['👁️', 'Fonctions affichées', 'Masquer les signalements, Vigipirate, FR-Alert, la main courante ou les alertes Bipper / GerMaCrise (pour ne garder que la vigilance météo, par exemple)', () => dlgFonctionsMasquees()],
     ['📦', 'Sauvegarde complète', 'Tout télécharger en un fichier (base, réglages, comptes) pour changer de serveur', async () => { if (await confirmer('Télécharger la sauvegarde complète ? Le fichier contient les comptes et les clés des canaux : gardez-le en lieu sûr.', { ok: 'Télécharger' })) location.href = '/api/sauvegarde-complete'; }],
@@ -270,6 +272,45 @@ function rendreHubReglages() {
 }
 
 // ---- Diagnostic « Pourquoi ça ne marche pas ? » ----------------------------------------------------------------
+// ---- Réglages avancés : les variables du fichier .env, réglables ici (enregistrées sur le serveur, priment sur le .env) ----
+async function ficheReglagesAvances() {
+  $('#fiche').hidden = false; etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.innerHTML = '<div class="vide">Chargement…</div>';
+  let r;
+  try { r = await api('/api/reglages/variables'); } catch (x) { z.innerHTML = `<div class="vide">${esc(x.message)}</div>`; return; }
+  const groupes = [...new Set(r.variables.map((v) => v.groupe))];
+  const ORIGINES = { carte: 'réglé ici', env: 'fichier .env', defaut: 'par défaut' };
+  const champ = (v) => {
+    const id = 'va-' + v.nom;
+    let saisie;
+    if (v.type === 'choix') saisie = `<select id="${id}" data-va="${v.nom}">${v.choix.map(([c, t]) => `<option value="${esc(c)}" ${String(v.valeur) === c ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+    else if (v.type === 'secret') saisie = `<input id="${id}" data-va="${v.nom}" type="password" autocomplete="new-password" placeholder="${v.defini ? '(défini, inchangé)' : '(vide)'}">`;
+    else saisie = `<input id="${id}" data-va="${v.nom}" ${v.type === 'nombre' ? `inputmode="decimal" placeholder="${v.defaut ?? ''}"` : ''} value="${esc(v.valeur || '')}" spellcheck="false" autocomplete="off">`;
+    return `<div class="va-ligne" data-ligne="${v.nom}"><label for="${id}"><b>${esc(v.libelle)}</b> <small class="va-origine va-${v.origine}" translate="no">${esc(v.nom)}</small> <small class="va-origine va-${v.origine}">${ORIGINES[v.origine]}</small></label>
+      ${saisie}${v.aide ? `<small class="note">${esc(v.aide)}</small>` : ''}${v.origine === 'carte' ? `<button type="button" class="mini" data-va-env="${v.nom}" title="Oublier la valeur réglée ici et reprendre celle du fichier .env (ou la valeur par défaut)">↺ Revenir au .env</button>` : ''}</div>`;
+  };
+  z.innerHTML = `<h2>🧩 Réglages avancés</h2>
+    <p class="note">Les réglages qu’on ne trouvait jusqu’ici que dans le fichier <span class="mono">.env</span>. Une valeur réglée ici prime sur le fichier ; « ↺ Revenir au .env » l’oublie. Champ vide = valeur par défaut. Enregistrer redémarre le service (quelques secondes). Seuls le port, la base, le code d’installation et le secret de session restent dans le fichier, car une erreur rendrait la carte injoignable.</p>
+    <form id="f-avances" class="form-edit">
+      ${groupes.map((g) => `<details class="va-groupe" ${g === groupes[0] ? 'open' : ''}><summary>${esc(g)} <small>(${r.variables.filter((v) => v.groupe === g).length})</small></summary>${r.variables.filter((v) => v.groupe === g).map(champ).join('')}</details>`).join('')}
+      <div class="actions-prop"><button type="submit" class="principal">Enregistrer et redémarrer</button><span class="note" id="va-nb"></span></div>
+      <p class="erreur" id="va-retour"></p>
+    </form>`;
+  const f = $('#f-avances');
+  const initial = Object.fromEntries(r.variables.map((v) => [v.nom, v.type === 'secret' ? '' : String(v.valeur ?? '')]));
+  const modifs = {};
+  const compter = () => { const n = Object.keys(modifs).length; $('#va-nb').textContent = n ? `${n} réglage(s) modifié(s)` : ''; };
+  f.querySelectorAll('[data-va]').forEach((el) => (el.oninput = el.onchange = () => { const n = el.dataset.va; if (el.value !== initial[n]) modifs[n] = el.value; else delete modifs[n]; compter(); }));
+  f.querySelectorAll('[data-va-env]').forEach((b) => (b.onclick = () => { modifs[b.dataset.vaEnv] = null; b.textContent = '↺ au prochain enregistrement'; b.disabled = true; compter(); }));
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    if (!Object.keys(modifs).length) { $('#va-retour').textContent = 'Aucun changement.'; return; }
+    if (!(await confirmer(`Enregistrer ${Object.keys(modifs).length} réglage(s) ? Le service redémarre (quelques secondes).`, { ok: 'Enregistrer' }))) return;
+    try { await postJson('/api/reglages/variables', { variables: modifs }); $('#va-retour').textContent = ''; f.innerHTML = '<div class="alerte info-lecture">Enregistré : redémarrage du service… la page se recharge.</div>'; setTimeout(() => location.reload(), 9000); }
+    catch (x) { $('#va-retour').textContent = x.message; }
+  };
+}
 async function ficheDiagnostic() {
   $('#fiche').hidden = false; etat.selection = null;
   const z = $('#fiche-contenu');

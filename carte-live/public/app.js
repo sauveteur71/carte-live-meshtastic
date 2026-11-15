@@ -1777,6 +1777,8 @@ const CATALOGUE_REGLAGES = [
   ['Nom de la carte', 'Compte › Réglages', 'titre', 'admin', () => ouvrirDlg('reglages', '[name=titre]')],
   ['Département de la carte', 'Compte › Réglages', 'zone contour centrage relief', 'admin', () => ouvrirDlg('reglages', '[name=departement]')],
   ['Serveur MQTT (broker)', 'Compte › Réglages', 'mqtt url broker adresse serveur connexion', 'admin', () => ouvrirDlg('reglages', '[name=mqttUrl]')],
+  ['Réglages avancés', 'Réglages', 'env fichier seuils alerte tension batterie canal fond tuiles meshmonitor export jeton postgres lsa saf meteosat passerelle variables', 'admin', () => ficheReglagesAvances()],
+  ['Brokers MQTT supplémentaires', 'Réseau › Broker MQTT', 'mqtt broker plusieurs autre bulle voisine supplementaire', 'admin', () => ouvrirBroker()],
   ['Sujet racine MQTT', 'Compte › Réglages', 'mqtt topic racine msh', 'admin', () => ouvrirDlg('reglages', '[name=mqttRacine]')],
   ['Utilisateur et mot de passe MQTT', 'Compte › Réglages', 'mqtt identifiant login', 'admin', () => ouvrirDlg('reglages', '[name=mqttUtilisateur]')],
   ['Sujets MQTT supplémentaires', 'Compte › Réglages', 'mqtt topics abonnement', 'admin', () => ouvrirDlg('reglages', '[name=mqttSujets]')],
@@ -6309,7 +6311,7 @@ async function ouvrirBroker() {
     ${m.derniereErreur ? `<div class="alerte attention">Dernière erreur (${ilYa(m.derniereErreur.heure)}) : ${esc(m.derniereErreur.message)}</div>` : ''}
     <p class="note">Abonnement : <span class="mono">${esc(m.sujets.join(', '))}</span></p>
     ${(m.brokersSupplementaires || []).length ? `<h4>Brokers supplémentaires</h4>${m.brokersSupplementaires.map((b) => `<div class="mesure-ligne"><b class="${b.connecte ? 'ok' : 'ko'}">●</b> <span class="mono">${esc(b.url)}</span> · ${esc(b.racine)} · ${b.messages} message(s)${b.derniereErreur && !b.connecte ? ` · <span class="ko">${esc(b.derniereErreur.message)}</span>` : ''}</div>`).join('')}
-      <p class="note">${m.doublonsIgnores || 0} paquet(s) reçu(s) en double par plusieurs brokers, ignoré(s). Réglage : MQTT_BROKERS_SUPPLEMENTAIRES dans le fichier .env.</p>` : '<p class="note">Un autre broker à écouter en même temps (bulle voisine) ? Réglage MQTT_BROKERS_SUPPLEMENTAIRES dans le fichier .env.</p>'}
+      <p class="note">${m.doublonsIgnores || 0} paquet(s) reçu(s) en double par plusieurs brokers, ignoré(s). Liste réglable plus bas.</p>` : '<p class="note">Un autre broker à écouter en même temps (bulle voisine) ? Ajoutez-le plus bas, dans « Brokers supplémentaires ».</p>'}
     <h4>Passerelles entendues par le broker (${m.passerelles.length})</h4>
     ${m.passerelles.length ? `<div class="defil-gw"><table class="voisins"><thead><tr><th>Passerelle</th><th>Sujet</th><th class="num">Messages</th><th>Dernier</th></tr></thead><tbody>
       ${m.passerelles.map((g) => `<tr><td>${esc(g.nom || g.id)}<br><small class="mono">${esc(g.id)}</small></td><td class="mono petit">${esc(g.sujet)}</td><td class="num">${g.messages}</td><td>${ilYa(g.derniere)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vide">Aucune passerelle depuis le démarrage.</div>'}
@@ -6325,13 +6327,15 @@ async function ouvrirBroker() {
         <label>Utilisateur <input name="utilisateur" value="${esc(m.utilisateur || '')}" autocomplete="off"></label>
         <label>Mot de passe <input name="motDePasse" type="password" placeholder="${m.motDePasseDefini ? '(inchangé)' : ''}" autocomplete="new-password"></label>
         <label style="grid-column: 1 / -1">Sujets supplémentaires (séparés par des virgules) <input name="sujetsSupplementaires" value="${esc(m.sujetsSupplementaires || '')}"></label>
+        <label style="grid-column: 1 / -1">Brokers supplémentaires écoutés en même temps (5 au plus, un par ligne) <textarea name="brokers" rows="3" spellcheck="false" autocomplete="off" placeholder="mqtts://nom:motdepasse@broker-voisin:8883|msh/EU_868">${esc(m.brokersReglage || '')}</textarea></label>
       </div>
+      <p class="note">Brokers supplémentaires : une ligne par broker, « adresse » ou « adresse|racine » (racine vide = celle du broker principal). Chacun est écouté pour Meshtastic et pour MeshCore ; un paquet reçu par plusieurs brokers n’est compté qu’une fois. Identifiant et mot de passe dans l’adresse ; un mot de passe affiché <span class="mono">***</span> reste celui déjà enregistré. Ligne effacée = broker retiré.</p>
       <div class="actions-prop"><button type="button" id="broker-tester">🔌 Tester ces réglages (10 s)</button><button type="submit" class="principal">Enregistrer et redémarrer</button></div>
       <div id="broker-test"></div>
       <p class="note">Le test se connecte avec ces réglages <b>sans toucher</b> à la connexion actuelle, s’abonne à la racine et compte les messages reçus pendant 10 s. Mot de passe vide = celui déjà enregistré.</p>
     </form>`;
   const fo = $('#f-broker');
-  const valeurs = () => ({ url: fo.url.value.trim() || undefined, racine: fo.racine.value.trim(), utilisateur: fo.utilisateur.value.trim(), motDePasse: fo.motDePasse.value, sujetsSupplementaires: fo.sujetsSupplementaires.value });
+  const valeurs = () => ({ url: fo.url.value.trim() || undefined, racine: fo.racine.value.trim(), utilisateur: fo.utilisateur.value.trim(), motDePasse: fo.motDePasse.value, sujetsSupplementaires: fo.sujetsSupplementaires.value, brokers: fo.brokers.value });
   $('#broker-tester').onclick = async () => {
     const b = $('#broker-tester'), zt = $('#broker-test');
     b.disabled = true; zt.innerHTML = '<div class="alerte info-lecture"><span class="sablier"></span> Test en cours (connexion puis 10 s d’écoute)…</div>';
@@ -6348,7 +6352,7 @@ async function ouvrirBroker() {
     e.preventDefault();
     if (!(await confirmer('Enregistrer ces réglages ? Le service redémarre (quelques secondes) et se reconnecte au broker.'))) return;
     const v = valeurs();
-    const corps = { mqtt: { racine: v.racine, utilisateur: v.utilisateur, motDePasse: v.motDePasse, sujetsSupplementaires: v.sujetsSupplementaires } };
+    const corps = { mqtt: { racine: v.racine, utilisateur: v.utilisateur, motDePasse: v.motDePasse, sujetsSupplementaires: v.sujetsSupplementaires, brokers: v.brokers } };
     if (v.url) corps.mqtt.url = v.url;
     try { await postJson('/api/reglages', corps); $('#broker-test').innerHTML = '<div class="alerte info-lecture">Enregistré : redémarrage du service… la page se recharge.</div>'; setTimeout(() => location.reload(), 9000); }
     catch (err) { $('#broker-test').innerHTML = `<div class="alerte attention">${esc(err.message)}</div>`; }

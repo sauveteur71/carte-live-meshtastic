@@ -147,6 +147,24 @@ test('MeshCore : message de canal entendu par un observateur signalé comme nouv
   fs.rmSync(dossier, { recursive: true, force: true });
 });
 
+test('Réglages avancés : une variable réglée sur la carte prime sur le .env, les inconnues sont ignorées', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'variables-'));
+  const avant = { FICHIER_BASE: process.env.FICHIER_BASE, SEUIL_TENSION_VOLTS: process.env.SEUIL_TENSION_VOLTS, PORT: process.env.PORT };
+  process.env.FICHIER_BASE = path.join(dossier, 'x.db');
+  process.env.SEUIL_TENSION_VOLTS = '3.3';
+  fs.writeFileSync(path.join(dossier, 'reglages.json'), JSON.stringify({ variables: { SEUIL_TENSION_VOLTS: '3.7', PORT: '1' } }));
+  delete require.cache[require.resolve('../src/variables')];
+  const v = require('../src/variables');
+  v.appliquer();
+  assert.equal(process.env.SEUIL_TENSION_VOLTS, '3.7');
+  assert.notEqual(process.env.PORT, '1');
+  assert.equal(v.vue().find((x) => x.nom === 'SEUIL_TENSION_VOLTS').origine, 'carte');
+  assert.throws(() => v.valider('SEUIL_BATTERIE_POURCENT', '250'));
+  assert.equal(v.valider('SEUIL_TENSION_VOLTS', '3,6'), '3.6');
+  for (const [k, x] of Object.entries(avant)) { if (x === undefined) delete process.env[k]; else process.env[k] = x; }
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
 test('MeshCore : canal #nom dérivé du nom', () => {
   const [c] = mc.preparerCanauxMc(['#velay']);
   assert.equal(c.secret, crypto.createHash('sha256').update('#velay').digest().subarray(0, 16).toString('hex'));

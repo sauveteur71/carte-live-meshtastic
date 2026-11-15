@@ -711,7 +711,7 @@ async function mcRendreGestion() {
     <div id="mc-g-outil"></div>
     <div id="mc-g-tache"></div>
     <h4>Dernières opérations</h4>
-    <p class="note">Les lignes <b>🤖 automatique</b> sont lancées par la carte elle-même, sans rien cocher : état des répéteurs et salons de la zone toutes les 3 h (réglage MESHCORE_SUPERVISION_HEURES du fichier .env, 0 = jamais), relevé des capteurs et traces de nuit vers 3 h. Les cases ci-dessus ne servent qu’aux opérations que vous lancez.</p>
+    <p class="note">Les lignes <b>🤖 automatique</b> sont lancées par la carte elle-même, sans rien cocher : état des répéteurs et salons de la zone (fréquence réglable dans Module MeshCore, en bas, « jamais » pour arrêter), relevé des capteurs et traces de nuit vers 3 h. Les cases ci-dessus ne servent qu’aux opérations que vous lancez.</p>
     <div class="liste">${i.taches.map((t) => `<div class="ligne" data-mc-tache="${t.id}"><span class="point ${t.statut === 'ok' ? 'actif' : t.statut === 'en_cours' || t.statut === 'en_attente' ? 'recent' : 'alerte'}"></span><span class="titre">${esc(MC_TACHES[t.type] || t.type)}${/^(supervision|capteurs)/.test(String(t.auteur || '')) ? ' <span class="etiquette-auto" title="Lancée par la carte elle-même (supervision des répéteurs surveillés, relevé des capteurs, traces de nuit), sans rien cocher">🤖 automatique</span>' : ''}<small>${t.cles.map((k) => esc(t.noms[k] || k.slice(0, 6))).join(', ')}${t.reprises ? ' · reprise après redémarrage' : ''}</small></span><span class="meta">${MC_STATUTS[t.statut]} · ${ilYa(t.creee)}</span></div>`).join('') || '<div class="vide">Aucune.</div>'}</div>`;
   z.querySelectorAll('[data-mc-sel]').forEach((c) => (c.onchange = () => { if (c.checked) sel.add(c.dataset.mcSel); else sel.delete(c.dataset.mcSel); z.querySelector('.actions-prop .note').textContent = `${sel.size} coché(s)`; }));
   z.querySelector('[data-mc-tout]').onclick = () => { liste.forEach((n) => sel.add(n.cle)); mcRendreGestion(); };
@@ -1276,6 +1276,7 @@ function mcRendreCompanion() {
         <label>Paquets conservés <select name="perimetre">${[['departement', 'captés dans le département'], ['voisins', 'captés dans le département et ses voisins'], ['national', 'tout le flux national (lourd)']].map(([v, t]) => `<option value="${v}" ${e.reglages.perimetre === v ? 'selected' : ''}>${t}</option>`).join('')}</select><small>${e.reglages.horsPerimetre ? `${e.reglages.horsPerimetre} paquets ignorés depuis le démarrage` : 'selon la position de l’observateur qui les capte'}</small></label>
         <label>Liaisons déduites des chemins <select name="liensOctetsMin">${[[1, 'tous les chemins (1 octet compris)'], [2, 'chemins en 2 octets ou plus'], [3, 'chemins en 3 octets seulement']].map(([v, t]) => `<option value="${v}" ${Number(e.reglages.liensOctetsMin || 2) === v ? 'selected' : ''}>${t}</option>`).join('')}</select><small>à 1 octet, deux répéteurs peuvent avoir le même préfixe : liaisons parfois fausses</small></label>
         <label>Codes de zone voisins <input name="iataVoisins" value="${esc(e.reglages.iataVoisins || '')}" placeholder="ex. CFE, LYS, EBU"><small>pour les observateurs sans position connue</small></label>
+        <label>Relevé automatique de l’état des répéteurs <select name="supervisionHeures">${[[0, 'jamais'], [1, 'toutes les heures'], [3, 'toutes les 3 h'], [6, 'toutes les 6 h'], [12, 'toutes les 12 h'], [24, 'une fois par jour']].map(([v, t]) => `<option value="${v}" ${Number(e.reglages.supervisionHeures ?? 3) === v ? 'selected' : ''}>${t}</option>`).join('')}</select><small>par le companion, sans rien cocher (lignes « 🤖 automatique » de Programmer)</small></label>
         <label style="grid-column:1/-1">Canaux à déchiffrer (un par ligne) <textarea name="canaux" rows="3">${esc(e.reglages.canaux)}</textarea><small>Public · #nom (canal « hashtag ») · nom=secret (32 caractères hexadécimaux)</small></label>
       </div>
       <div class="actions-prop"><button type="submit" class="principal">Enregistrer et redémarrer</button></div>
@@ -1321,7 +1322,7 @@ function mcRendreCompanion() {
     ev.preventDefault();
     const f = ev.target;
     if (!(await confirmer('Enregistrer ces réglages MeshCore ? Le service redémarre (quelques secondes).'))) return;
-    try { await postJson('/api/mc/reglages', { iata: f.iata.value.trim(), racine: f.racine.value.trim(), republier: f.republier.checked, canaux: f.canaux.value, perimetre: f.perimetre.value, liensOctetsMin: Number(f.liensOctetsMin.value), iataVoisins: f.iataVoisins.value }); attendreRedemarrage('Réglages MeshCore enregistrés'); } catch (err) { retour(err.message); }
+    try { await postJson('/api/mc/reglages', { iata: f.iata.value.trim(), racine: f.racine.value.trim(), republier: f.republier.checked, canaux: f.canaux.value, perimetre: f.perimetre.value, liensOctetsMin: Number(f.liensOctetsMin.value), iataVoisins: f.iataVoisins.value, supervisionHeures: Number(f.supervisionHeures.value) }); attendreRedemarrage('Réglages MeshCore enregistrés'); } catch (err) { retour(err.message); }
   };
 }
 

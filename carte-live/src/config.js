@@ -182,7 +182,7 @@ config.reglages = {};
 // d'où vient chaque valeur, et pour pouvoir revenir au .env
 config.env = {
   titre: config.carte.titre, departement: { ...config.departement }, inscriptions: config.inscriptions,
-  mqtt: { url: config.mqtt.url, utilisateur: config.mqtt.utilisateur, racine: config.mqtt.racine, motDePasseDefini: !!config.mqtt.motDePasse },
+  mqtt: { url: config.mqtt.url, utilisateur: config.mqtt.utilisateur, racine: config.mqtt.racine, motDePasseDefini: !!config.mqtt.motDePasse, brokers: config.mqtt.brokers.map((b) => ({ ...b })) },
   canaux: config.canaux.map((c) => `${c.nom}=${c.cle}`).join('\n'),
 };
 function appliquerReglages(r) {
@@ -196,6 +196,8 @@ function appliquerReglages(r) {
   if (r.mqtt) {
     for (const k of ['url', 'utilisateur', 'motDePasse', 'racine']) if (typeof r.mqtt[k] === 'string' && r.mqtt[k] !== '') config.mqtt[k] = r.mqtt[k];
     if (Array.isArray(r.mqtt.sujetsSupplementaires)) config.mqtt.sujetsSupplementaires = r.mqtt.sujetsSupplementaires;
+    // Brokers supplémentaires réglés dans la page d'administration (remplacent MQTT_BROKERS_SUPPLEMENTAIRES)
+    if (Array.isArray(r.mqtt.brokers)) config.mqtt.brokers = r.mqtt.brokers.filter((b) => b && /^(mqtts?|wss?):\/\//.test(String(b.url || ''))).map((b) => ({ url: String(b.url).trim(), racine: String(b.racine || '').trim().replace(/\/+$/, '') })).slice(0, 5);
     config.mqtt.racine = config.mqtt.racine.replace(/\/+$/, '');
   }
   if (typeof r.canaux === 'string' && r.canaux.trim()) config.canaux = lireCanaux(r.canaux);
@@ -213,6 +215,7 @@ function appliquerReglages(r) {
     if ([1, 2, 3].includes(m.liensOctetsMin)) config.meshcore.liensOctetsMin = m.liensOctetsMin;
     if (Array.isArray(m.iataVoisins)) config.meshcore.iataVoisins = m.iataVoisins.map((x) => String(x).toUpperCase()).filter((x) => /^[A-Z0-9]{2,8}$/.test(x));
     if (Array.isArray(m.canaux) && m.canaux.length) config.meshcore.canaux = m.canaux.map(String);
+    if (Number.isInteger(m.supervisionHeures) && m.supervisionHeures >= 0 && m.supervisionHeures <= 48) config.meshcore.supervisionHeures = m.supervisionHeures;
   }
 }
 try {

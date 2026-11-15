@@ -179,6 +179,25 @@ async function essaiCarteFrancais(contexte) {
     return /etiquette-auto/.test(src) && /🤖 automatique/.test(src);
   }).catch(() => false);
   if (auto) ok('programmer : opérations automatiques signalées'); else ko('programmer : étiquette « automatique » absente');
+  // 4. Réglages avancés (variables du .env) : liste, fiche, refus d'une valeur hors bornes (sans redémarrer)
+  const va = await page.evaluate(async () => {
+    const l = await fetch('/api/reglages/variables').then((x) => x.json());
+    const secretVisible = l.variables.some((v) => v.type === 'secret' && v.valeur !== undefined);
+    const refus = await fetch('/api/reglages/variables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ variables: { SEUIL_BATTERIE_POURCENT: '250' } }) });
+    const inconnu = await fetch('/api/reglages/variables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ variables: { PORT: '80' } }) });
+    await ficheReglagesAvances();
+    const n = document.querySelectorAll('#f-avances [data-va]').length;
+    return { nb: l.variables.length, secretVisible, refus: refus.status, inconnu: inconnu.status, champs: n };
+  }).catch((e) => ({ erreur: e.message }));
+  if (va.nb > 30 && !va.secretVisible && va.refus === 400 && va.inconnu === 400 && va.champs === va.nb) ok(`réglages avancés : ${va.nb} réglages, secrets jamais renvoyés, valeurs hors bornes refusées`); else ko('réglages avancés : ' + JSON.stringify(va));
+  // 5. Brokers supplémentaires réglables dans la fenêtre Broker MQTT ; adresse invalide refusée (sans redémarrer)
+  const bk = await page.evaluate(async () => {
+    const m = await fetch('/api/mqtt').then((x) => x.json());
+    const refus = await fetch('/api/reglages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mqtt: { brokers: 'http://pas-un-broker' } }) });
+    const masque = await fetch('/api/reglages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mqtt: { brokers: 'mqtts://nom:***@inconnu:8883' } }) });
+    return { champ: typeof m.brokersReglage === 'string', refus: refus.status, masque: masque.status };
+  }).catch((e) => ({ erreur: e.message }));
+  if (bk.champ && bk.refus === 400 && bk.masque === 400) ok('brokers supplémentaires : réglables, adresses invalides refusées'); else ko('brokers supplémentaires : ' + JSON.stringify(bk));
   await capture(page, 'carte-fr');
   bilanErreurs(erreurs, 'carte en français');
   await page.close();

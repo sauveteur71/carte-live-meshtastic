@@ -1,6 +1,10 @@
 'use strict';
 // Carte live Meshtastic — serveur : MQTT -> décodage -> SQLite -> API REST + WebSocket temps réel
 
+// Réglages avancés faits depuis la carte : appliqués avant toute lecture de la configuration (ils priment sur le .env)
+const variables = require('./variables');
+variables.appliquer();
+
 const http = require('http');
 const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
@@ -2048,6 +2052,24 @@ function preparerReglages(b, existants = {}) {
     if (typeof b.mqtt.motDePasse === 'string' && b.mqtt.motDePasse !== '') m.motDePasse = b.mqtt.motDePasse.slice(0, 200);
     if (txt(b.mqtt.racine, 120)) m.racine = txt(b.mqtt.racine, 120);
     if (typeof b.mqtt.sujetsSupplementaires === 'string') m.sujetsSupplementaires = b.mqtt.sujetsSupplementaires.split(/[,\n]/).map((x) => x.trim()).filter(Boolean).slice(0, 10);
+    // Brokers supplémentaires : une ligne « adresse » ou « adresse|racine » ; un mot de passe affiché masqué (nom:***@)
+    // reprend celui déjà enregistré pour le même compte et le même serveur
+    if (typeof b.mqtt.brokers === 'string') {
+      const lignes = b.mqtt.brokers.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
+      if (lignes.length > 5) throw new Error('5 brokers supplémentaires au plus');
+      m.brokers = lignes.map((l) => {
+        const [u, racine] = l.split('|').map((x) => (x || '').trim());
+        if (!/^(mqtts?|wss?):\/\/[^\s]+$/.test(u)) throw new Error(`Broker « ${masquerUrl(u)} » : adresse mqtt://, mqtts://, ws:// ou wss:// attendue`);
+        let url = u;
+        const masque = u.match(/^([a-z]+:\/\/)([^:@/]*):\*\*\*@(.+)$/i);
+        if (masque) {
+          const ancien = config.mqtt.brokers.find((x) => { const a = x.url.match(/^([a-z]+:\/\/)([^:@/]*):([^@/]*)@(.+)$/i); return a && a[1] === masque[1] && a[2] === masque[2] && a[4] === masque[3]; });
+          if (!ancien) throw new Error(`Broker « ${u} » : mot de passe masqué inconnu, retapez-le en entier`);
+          url = ancien.url;
+        }
+        return { url, racine: racine.replace(/\/+$/, '') };
+      });
+    }
     r.mqtt = m;
   }
   if (typeof b.canaux === 'string' && b.canaux.trim()) {
@@ -2073,6 +2095,7 @@ function sansValeursEnv(r) {
   if (r.mqtt) {
     for (const k of ['url', 'utilisateur', 'racine']) if (r.mqtt[k] !== undefined && String(r.mqtt[k]) === String(e.mqtt[k] || '')) delete r.mqtt[k];
     if (Array.isArray(r.mqtt.sujetsSupplementaires) && !r.mqtt.sujetsSupplementaires.length) delete r.mqtt.sujetsSupplementaires;
+    if (Array.isArray(r.mqtt.brokers) && JSON.stringify(r.mqtt.brokers) === JSON.stringify(e.mqtt.brokers || [])) delete r.mqtt.brokers;
     if (!Object.keys(r.mqtt).length) delete r.mqtt;
   }
   return r;
@@ -2197,6 +2220,7 @@ app.get('/api/mqtt', (req, res) => {
     url: masquerUrl(config.mqtt.url), utilisateur: config.mqtt.utilisateur, motDePasseDefini: !!config.mqtt.motDePasse,
     racine: config.mqtt.racine, sujetsSupplementaires: config.mqtt.sujetsSupplementaires.join(', '), sujets,
     connecte: !!(clientMqtt && clientMqtt.connected), depuis: statsMqtt.depuis, reconnexions: statsMqtt.reconnexions, derniereErreur: statsMqtt.derniereErreur,
+    brokersReglage: config.mqtt.brokers.map((b) => b.url.replace(/\/\/([^:@/]*):[^@/]*@/, '//$1:***@') + (b.racine ? '|' + b.racine : '')).join('\n'),
     brokersSupplementaires: (typeof brokersSup !== 'undefined' ? brokersSup : []).map((b) => b.etat), doublonsIgnores: compteur.doublons || 0,
     dernierMessage: statsMqtt.dernierMessage, parMinute: +(n10 / 10).toFixed(1), ...compteur,
     passerelles: [...statsMqtt.passerelles.entries()].sort((a, b) => b[1].derniere - a[1].derniere).slice(0, 40).map(([id, e]) => ({ id, nom: noeuds.get(id) || null, ...e })),
@@ -2321,7 +2345,7 @@ function etatMc(admin) {
   if (admin) {
     e.companion = { ...c, canaux: companion.canaux() };
     e.republication = publicateurMc.etat();
-    e.reglages = { iata: config.meshcore.iata, racine: config.meshcore.racine, republier: config.meshcore.republier, canaux: config.meshcore.canaux.join('\n'), perimetre: config.meshcore.perimetre, liensOctetsMin: config.meshcore.liensOctetsMin, iataVoisins: config.meshcore.iataVoisins.join(', '), horsPerimetre: compteurMc.horsPerimetre || 0 };
+    e.reglages = { iata: config.meshcore.iata, racine: config.meshcore.racine, republier: config.meshcore.republier, canaux: config.meshcore.canaux.join('\n'), perimetre: config.meshcore.perimetre, liensOctetsMin: config.meshcore.liensOctetsMin, iataVoisins: config.meshcore.iataVoisins.join(', '), supervisionHeures: config.meshcore.supervisionHeures, horsPerimetre: compteurMc.horsPerimetre || 0 };
     e.agents = agents.liste();
     e.ecoutes = ecoutes.liste().meshcore;
   }
@@ -2631,6 +2655,33 @@ app.post('/api/mc/admin/mot-de-passe', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Réglages avancés : variables du fichier .env réglables depuis la carte ----
+app.get('/api/reglages/variables', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.set('Cache-Control', 'no-store').json({ variables: variables.vue() });
+});
+// Corps : { variables: { NOM: valeur | null } } ; null = revenir à la valeur du .env ; secret vide = inchangé
+app.post('/api/reglages/variables', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const b = (req.body || {}).variables;
+  if (!b || typeof b !== 'object') return res.status(400).json({ erreur: 'Aucun réglage' });
+  const v = { ...((config.reglages || {}).variables || {}) };
+  try {
+    for (const [nom, val] of Object.entries(b)) {
+      const def = variables.PAR_NOM.get(nom);
+      if (!def) throw new Error(`Réglage inconnu : ${nom}`);
+      if (val === null) { delete v[nom]; continue; }
+      if (def.type === 'secret' && String(val) === '') continue;
+      v[nom] = variables.valider(nom, val);
+    }
+  } catch (e) { return res.status(400).json({ erreur: e.message }); }
+  const r = { ...config.reglages };
+  if (Object.keys(v).length) r.variables = v; else delete r.variables;
+  res.json({ ok: true, redemarrage: true });
+  enregistrerReglagesEtRedemarrer(r, u.identifiant);
+});
+
 app.post('/api/mc/reglages', (req, res) => {
   const u = utilisateur(req);
   if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
@@ -2642,6 +2693,7 @@ app.post('/api/mc/reglages', (req, res) => {
   if (['departement', 'voisins', 'national'].includes(b.perimetre)) m.perimetre = b.perimetre;
   if ([1, 2, 3].includes(Number(b.liensOctetsMin))) m.liensOctetsMin = Number(b.liensOctetsMin);
   if (typeof b.iataVoisins === 'string') m.iataVoisins = b.iataVoisins.split(/[,;\s]+/).map((x) => x.trim().toUpperCase()).filter((x) => /^[A-Z0-9]{2,8}$/.test(x)).slice(0, 20);
+  if (b.supervisionHeures !== undefined) { const h = Number(b.supervisionHeures); if (!Number.isInteger(h) || h < 0 || h > 48) return res.status(400).json({ erreur: 'Supervision : 0 à 48 heures' }); m.supervisionHeures = h; }
   if (typeof b.canaux === 'string') {
     const l = b.canaux.split(/[;\n]/).map((x) => x.trim()).filter(Boolean).slice(0, 20);
     const ok = preparerCanauxMc(l);
