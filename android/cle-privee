@@ -1,0 +1,2 @@
+Ce fichier active la signature de l’application Android avec la clé privée (secrets ANDROID_CLE et ANDROID_CLE_MOT_DE_PASSE).
+Le supprimer ferait revenir à la clé publique : ne pas le faire, les téléphones devraient réinstaller une deuxième fois.
