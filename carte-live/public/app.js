@@ -55,7 +55,7 @@ const etat = {
   alertes: [],
   stats: null,
   couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true, federation: true, releves: true, routiers: false, dfci: false, radar: false, feux: false },
-  filtresPorts: new Set(Object.keys(PORTS)),
+  filtresPorts: new Set([...Object.keys(PORTS), 'pki']),
   selection: null,
   trajet: null,
   // Secteur : 'dep' (département configuré), 'voisins' (département + limitrophes) ou 'france'
@@ -1167,9 +1167,13 @@ function rendreNoeuds() {
 }
 
 // ---- Panneau : trafic ------------------------------------------------------------
+// Messages privés (chiffrés de bout en bout, PKI) : filtre à part, distinct des paquets d'un canal dont on n'a pas la clé
+const FILTRE_PKI = { nom: 'Messages privés (PKI)', couleur: '#a855f7' };
+const estPki = (p) => p.port === 'chiffre' && (!!p.pki || /PKI/.test(p.resume || ''));
+const cleFiltre = (p) => (estPki(p) ? 'pki' : p.port);
 function rendreFiltres() {
-  $('#filtres').innerHTML = Object.entries(PORTS).map(([cle, p]) =>
-    `<button data-port="${cle}" class="${etat.filtresPorts.has(cle) ? 'actif' : ''}"><i style="background:${p.couleur}"></i>${esc(p.nom)}</button>`).join('');
+  $('#filtres').innerHTML = [...Object.entries(PORTS), ['pki', FILTRE_PKI]].map(([cle, p]) =>
+    `<button data-port="${cle}" class="${etat.filtresPorts.has(cle) ? 'actif' : ''}" ${cle === 'pki' ? 'title="Messages directs chiffrés de bout en bout : la carte voit qu’ils passent, jamais leur contenu"' : ''}><i style="background:${p.couleur}"></i>${esc(p.nom)}</button>`).join('');
 }
 function lignePaquet(p, nouveau) {
   const info = portInfo(p.port);
@@ -1189,7 +1193,7 @@ function lignePaquet(p, nouveau) {
     ${radio ? `<div class="radio">${radio}</div>` : ''}</div>`;
 }
 function ajouterAuFlux(p) {
-  if (!p.premiere || !etat.filtresPorts.has(p.port)) return;
+  if (!p.premiere || !etat.filtresPorts.has(cleFiltre(p))) return;
   if (etat.zone && !dansZoneNum(p.de) && !dansZoneNum(p.passerelle)) return;
   const flux = $('#flux');
   flux.insertAdjacentHTML('afterbegin', lignePaquet(p, true));
@@ -1205,7 +1209,7 @@ async function chargerActiviteInitiale() {
 }
 async function chargerFlux() {
   const paquets = await api('/api/paquets?limite=200');
-  $('#flux').innerHTML = paquets.filter((p) => etat.filtresPorts.has(p.port)).map((p) => {
+  $('#flux').innerHTML = paquets.filter((p) => etat.filtresPorts.has(cleFiltre(p))).map((p) => {
     const r = (p.receptions || [])[0] || {};
     if (etat.zone && !dansZoneNum(p.de) && !dansZoneNum(r.passerelle)) return '';
     return lignePaquet({ ...p, passerelle: r.passerelle, snr: r.snr, rssi: r.rssi }, false);
@@ -6302,6 +6306,8 @@ async function ouvrirBroker() {
     </div>
     ${m.derniereErreur ? `<div class="alerte attention">Dernière erreur (${ilYa(m.derniereErreur.heure)}) : ${esc(m.derniereErreur.message)}</div>` : ''}
     <p class="note">Abonnement : <span class="mono">${esc(m.sujets.join(', '))}</span></p>
+    ${(m.brokersSupplementaires || []).length ? `<h4>Brokers supplémentaires</h4>${m.brokersSupplementaires.map((b) => `<div class="mesure-ligne"><b class="${b.connecte ? 'ok' : 'ko'}">●</b> <span class="mono">${esc(b.url)}</span> · ${esc(b.racine)} · ${b.messages} message(s)${b.derniereErreur && !b.connecte ? ` · <span class="ko">${esc(b.derniereErreur.message)}</span>` : ''}</div>`).join('')}
+      <p class="note">${m.doublonsIgnores || 0} paquet(s) reçu(s) en double par plusieurs brokers, ignoré(s). Réglage : MQTT_BROKERS_SUPPLEMENTAIRES dans le fichier .env.</p>` : '<p class="note">Un autre broker à écouter en même temps (bulle voisine) ? Réglage MQTT_BROKERS_SUPPLEMENTAIRES dans le fichier .env.</p>'}
     <h4>Passerelles entendues par le broker (${m.passerelles.length})</h4>
     ${m.passerelles.length ? `<div class="defil-gw"><table class="voisins"><thead><tr><th>Passerelle</th><th>Sujet</th><th class="num">Messages</th><th>Dernier</th></tr></thead><tbody>
       ${m.passerelles.map((g) => `<tr><td>${esc(g.nom || g.id)}<br><small class="mono">${esc(g.id)}</small></td><td class="mono petit">${esc(g.sujet)}</td><td class="num">${g.messages}</td><td>${ilYa(g.derniere)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vide">Aucune passerelle depuis le démarrage.</div>'}

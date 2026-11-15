@@ -51,6 +51,9 @@ const config = {
     racine: texte('MQTT_RACINE', 'msh/EU_868').replace(/\/+$/, ''),
     // Sujets supplémentaires, séparés par des virgules (ex. flux déjà déchiffré d'un autre serveur)
     sujetsSupplementaires: texte('MQTT_SUJETS_SUPPLEMENTAIRES').split(',').map((s) => s.trim()).filter(Boolean),
+    // Brokers supplémentaires écoutés en même temps (bulle régionale + broker voisin…) : « url » ou « url|racine »,
+    // séparés par des virgules ; identifiant et mot de passe dans l'adresse (mqtts://nom:motdepasse@hote:8883)
+    brokers: texte('MQTT_BROKERS_SUPPLEMENTAIRES').split(',').map((x) => x.trim()).filter(Boolean).map((x) => { const [url, racine] = x.split('|'); return { url: url.trim(), racine: (racine || '').trim().replace(/\/+$/, '') }; }).filter((b) => /^(mqtts?|wss?):\/\//.test(b.url)).slice(0, 5),
   },
   canaux: lireCanaux(texte('CANAUX', 'LongFast=AQ==')),
   // Canaux dont les messages texte sont conservés (admin uniquement). Vide = tous les canaux déchiffrés.

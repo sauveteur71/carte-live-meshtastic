@@ -2173,6 +2173,7 @@ app.get('/api/mqtt', (req, res) => {
     url: masquerUrl(config.mqtt.url), utilisateur: config.mqtt.utilisateur, motDePasseDefini: !!config.mqtt.motDePasse,
     racine: config.mqtt.racine, sujetsSupplementaires: config.mqtt.sujetsSupplementaires.join(', '), sujets,
     connecte: !!(clientMqtt && clientMqtt.connected), depuis: statsMqtt.depuis, reconnexions: statsMqtt.reconnexions, derniereErreur: statsMqtt.derniereErreur,
+    brokersSupplementaires: (typeof brokersSup !== 'undefined' ? brokersSup : []).map((b) => b.etat), doublonsIgnores: compteur.doublons || 0,
     dernierMessage: statsMqtt.dernierMessage, parMinute: +(n10 / 10).toFixed(1), ...compteur,
     passerelles: [...statsMqtt.passerelles.entries()].sort((a, b) => b[1].derniere - a[1].derniere).slice(0, 40).map(([id, e]) => ({ id, nom: noeuds.get(id) || null, ...e })),
     canaux: [...statsMqtt.canaux.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([canal, messages]) => ({ canal, messages })),
@@ -2827,7 +2828,30 @@ clientMqtt.on('connect', () => {
 clientMqtt.on('close', () => { statsMqtt.depuis = null; diffuser({ genre: 'mqtt', connecte: false }); });
 clientMqtt.on('reconnect', () => { statsMqtt.reconnexions++; });
 clientMqtt.on('error', (e) => { statsMqtt.derniereErreur = { message: e.message, heure: Date.now() }; journal('Erreur MQTT :', e.message); });
-clientMqtt.on('message', (topic, message) => {
+// Le même paquet peut arriver par deux brokers (ponts entre bulles) : ignoré s'il a déjà été vu dans les 2 minutes
+const vusMqtt = new Map();
+function dejaVuMqtt(topic, message) {
+  const k = topic + '|' + crypto.createHash('sha1').update(message).digest('base64').slice(0, 16);
+  const t = Date.now(), v = vusMqtt.get(k);
+  if (v && t - v < 120000) return true;
+  vusMqtt.set(k, t);
+  if (vusMqtt.size > 20000) { for (const [x, h] of vusMqtt) { if (t - h > 120000) vusMqtt.delete(x); } if (vusMqtt.size > 20000) vusMqtt.clear(); }
+  return false;
+}
+clientMqtt.on('message', (topic, message) => traiterMessageMqtt(topic, message));
+// Brokers supplémentaires (MQTT_BROKERS_SUPPLEMENTAIRES) : mêmes traitements que le broker principal
+const brokersSup = config.mqtt.brokers.map((b) => {
+  const etatB = { url: b.url.replace(/\/\/[^@]*@/, '//'), racine: b.racine || config.mqtt.racine, connecte: false, depuis: null, messages: 0, derniereErreur: null };
+  const c = mqtt.connect(b.url, { clientId: 'carte-live-' + crypto.randomBytes(3).toString('hex'), reconnectPeriod: 10000, rejectUnauthorized: !config.mqtt.tlsNonVerifie });
+  const sujetsB = [etatB.racine + '/#', ...(config.meshcore.actif ? [config.meshcore.racine + '/#'] : [])];
+  c.on('connect', () => { Object.assign(etatB, { connecte: true, depuis: Date.now() }); journal(`MQTT supplémentaire connecté à ${etatB.url}, abonnement à ${sujetsB.join(', ')}`); c.subscribe(sujetsB, { qos: 0 }); });
+  c.on('close', () => { etatB.connecte = false; etatB.depuis = null; });
+  c.on('error', (e) => { etatB.derniereErreur = { message: e.message, heure: Date.now() }; });
+  c.on('message', (topic, message) => { etatB.messages++; traiterMessageMqtt(topic, message); });
+  return { client: c, etat: etatB };
+});
+function traiterMessageMqtt(topic, message) {
+  if ((brokersSup.length || config.mqtt.dedoublonner) && dejaVuMqtt(topic, message)) { compteur.doublons = (compteur.doublons || 0) + 1; return; }
   compteur.recus++;
   if (config.meshcore.actif && topic.startsWith(prefixeMc)) { compteurMc.recusMqtt = (compteurMc.recusMqtt || 0) + 1; try { messageMc(topic, message); } catch (e) { compteurMc.erreurs++; journal('Erreur MeshCore :', e.message, topic); } return; }
   noterMessageMqtt(topic);
@@ -2845,7 +2869,7 @@ clientMqtt.on('message', (topic, message) => {
     compteur.erreurs++;
     journal('Erreur de traitement :', e.message, topic);
   }
-});
+}
 
 // ---- Tâches périodiques ---------------------------------------------------
 let dernieresAlertes = [];
