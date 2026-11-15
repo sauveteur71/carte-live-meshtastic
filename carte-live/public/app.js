@@ -1982,6 +1982,24 @@ async function formSignalement(lat, lon) {
   // Tronçon ou zone : les points suivants se posent en touchant la carte ; le premier point reste celui du signalement
   const trace = [[lat, lon]];
   let dessin = null;
+  // Zone : le périmètre est formé des points posés sur la carte (le point du signalement, souvent au milieu de la
+  // zone, reste l'épingle et n'entre pas dans le contour, sinon le polygone se croisait en « nœud papillon ») ;
+  // si les points posés se croisent quand même, ils sont remis dans l'ordre autour de leur centre.
+  const seCroisent = (l) => {
+    const cote = (a, b, c) => (b[1] - a[1]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[1] - a[1]);
+    for (let i = 0; i < l.length; i++) for (let j = i + 2; j < l.length; j++) {
+      if (i === 0 && j === l.length - 1) continue;
+      const [a, b, c, d] = [l[i], l[(i + 1) % l.length], l[j], l[(j + 1) % l.length]];
+      if (cote(a, b, c) * cote(a, b, d) < 0 && cote(c, d, a) * cote(c, d, b) < 0) return true;
+    }
+    return false;
+  };
+  const demeler = (l) => {
+    if (l.length < 4 || !seCroisent(l)) return l;
+    const cy = l.reduce((x, p) => x + p[0], 0) / l.length, cx = l.reduce((x, p) => x + p[1], 0) / l.length;
+    return [...l].sort((p, q) => Math.atan2(p[0] - cy, p[1] - cx) - Math.atan2(q[0] - cy, q[1] - cx));
+  };
+  const contour = (forme) => (forme !== 'zone' ? trace : demeler(trace.length >= 4 ? trace.slice(1) : trace));
   const finTrace = () => { carte.off('click', poser); document.body.classList.remove('choix-point'); };
   const majTrace = () => {
     const forme = $('#sig-forme') ? $('#sig-forme').value : 'point', zt = $('#sig-trace');
@@ -1989,23 +2007,23 @@ async function formSignalement(lat, lon) {
     if (!zt) { finTrace(); return; }
     if (forme === 'point') { zt.hidden = true; finTrace(); return; }
     zt.hidden = false;
-    zt.innerHTML = `<b>${trace.length} point(s)</b> : touchez la carte pour ajouter les points ${forme === 'zone' ? 'du périmètre (3 au moins)' : 'du tronçon (2 au moins)'}. <button type="button" class="mini" id="sig-trace-annuler">↩ Retirer le dernier</button>`;
+    zt.innerHTML = `<b>${forme === 'zone' ? trace.length - 1 : trace.length} point(s)</b> : touchez la carte pour ajouter les points ${forme === 'zone' ? 'du périmètre, en faisant le tour de la zone (3 au moins)' : 'du tronçon (2 au moins)'}. <button type="button" class="mini" id="sig-trace-annuler">↩ Retirer le dernier</button>`;
     $('#sig-trace-annuler').onclick = () => { if (trace.length > 1) trace.pop(); majTrace(); };
-    if (trace.length > 1) dessin = (forme === 'zone' ? L.polygon(trace, { color: '#f59e0b', dashArray: '6 6' }) : L.polyline(trace, { color: '#f59e0b', weight: 5, dashArray: '6 6' })).addTo(carte);
+    if (trace.length > 1) dessin = (forme === 'zone' ? L.polygon(contour('zone'), { color: '#f59e0b', dashArray: '6 6' }) : L.polyline(trace, { color: '#f59e0b', weight: 5, dashArray: '6 6' })).addTo(carte);
     carte.off('click', poser); carte.on('click', poser); document.body.classList.add('choix-point');
   };
   function poser(ev) { if (!document.querySelector('#fiche-contenu .form-sig')) { finTrace(); if (dessin) dessin.remove(); return; } if (trace.length < 40) trace.push([ev.latlng.lat, ev.latlng.lng]); majTrace(); }
   $('#sig-forme').onchange = majTrace;
   $('#sig-envoyer').onclick = async () => {
     const forme = $('#sig-forme').value;
-    if (forme !== 'point' && trace.length < (forme === 'zone' ? 3 : 2)) { $('#sig-retour').textContent = forme === 'zone' ? 'Posez au moins 3 points sur la carte pour la zone.' : 'Posez au moins un deuxième point sur la carte pour le tronçon.'; return; }
+    if (forme !== 'point' && trace.length < (forme === 'zone' ? 4 : 2)) { $('#sig-retour').textContent = forme === 'zone' ? 'Posez au moins 3 points sur la carte pour la zone.' : 'Posez au moins un deuxième point sur la carte pour le tronçon.'; return; }
     const mt = [...z.querySelectorAll('[data-mt]:checked')].map((x) => Number(x.dataset.mt)), mc = $('#sig-mc') ? $('#sig-mc').value : '';
     const texte = $('#sig-texte') ? $('#sig-texte').checked : true;
     if (!mt.length && mc === '' && !(await confirmer('Aucun réseau choisi : le signalement restera seulement sur la carte. Continuer ?'))) return;
     const b = $('#sig-envoyer'); b.disabled = true; b.textContent = 'Envoi…';
     ecrireLs('gaulix_sig', { mt, mc, cat, texte });
     try {
-      const corpsSig = { lat, lon, type, titre: $('#sig-titre').value, details: $('#sig-details').value, dureeH: Number($('#sig-duree').value), mt, mc, texte, forme, trace: forme === 'point' ? null : trace };
+      const corpsSig = { lat, lon, type, titre: $('#sig-titre').value, details: $('#sig-details').value, dureeH: Number($('#sig-duree').value), mt, mc, texte, forme, trace: forme === 'point' ? null : contour(forme) };
       let s;
       try { if (!navigator.onLine) throw new TypeError('Failed to fetch'); s = await postJson('/api/signalements', corpsSig); }
       catch (x) {
