@@ -2325,7 +2325,7 @@ function ouvrirMenu(ancre, titre, items) {
   m.onclick = (e) => { const x = e.target.closest('[data-i]'); if (!x) return; fermer(); items[Number(x.dataset.i)][1](); };
   const premier = m.querySelector('button'); if (premier) premier.focus();
 }
-function menuNoeud(num, ancre) {
+function menuAuteur(num, ancre) {
   num = num >>> 0;
   const n = etat.noeuds.get(num);
   const moi = etat.radio && etat.radio.noeudLocal === num;
@@ -2341,7 +2341,7 @@ function menuNoeud(num, ancre) {
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-auteur]'); if (!b) return;
   e.preventDefault(); e.stopPropagation();
-  menuNoeud(Number(b.dataset.auteur), b);
+  menuAuteur(Number(b.dataset.auteur), b);
 });
 
 // Clic sur un message : le formulaire bascule sur le bon canal (ou en direct vers l'expéditeur) pour répondre
