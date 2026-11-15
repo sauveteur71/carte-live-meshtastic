@@ -41,7 +41,7 @@
         </receiver>
         <provider
             android:name=".Fichiers"
-            android:authorities="fr.carte.live.fichiers"
+            android:authorities="${applicationId}.fichiers"
             android:exported="false"
             android:grantUriPermissions="true" />
     </application>

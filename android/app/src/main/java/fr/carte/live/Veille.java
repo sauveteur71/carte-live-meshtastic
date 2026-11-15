@@ -82,7 +82,7 @@ public class Veille extends Service {
             if (!carte.isEmpty() && prefs.getBoolean("notifications", true)) {
                 Uri0 u = Uri0.de(carte);
                 long depuis = prefs.getLong("notifDepuis", System.currentTimeMillis() - 600000);
-                HttpURLConnection c = (HttpURLConnection) new URL(u.base + "/api/notifications?depuis=" + depuis).openConnection();
+                HttpURLConnection c = (HttpURLConnection) new URL(u.base + "/api/notifications?depuis=" + depuis + "&langue=" + java.util.Locale.getDefault().getLanguage()).openConnection();
                 c.setConnectTimeout(10000);
                 c.setReadTimeout(15000);
                 String cookie = CookieManager.getInstance().getCookie(u.base);

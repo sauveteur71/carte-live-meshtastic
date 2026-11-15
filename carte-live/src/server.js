@@ -1812,6 +1812,8 @@ app.get('/api/messages', (req, res) => {
 app.get('/api/notifications', (req, res) => {
   if (!estMembre(req) || req.demoLecture) return res.status(401).json({ erreur: 'Connexion requise' });
   const depuis = Math.max(Number(req.query.depuis) || 0, Date.now() - 24 * 3600000);
+  // Langue du téléphone (?langue=en) : alertes et libellés traduits ; les messages reçus restent tels quels
+  const tr = String(req.query.langue || '').toLowerCase().startsWith('en') ? require('./traduction').traduire : (t) => t;
   const l = [];
   try {
     const moi = sourceRadio ? sourceRadio.etat().noeudLocal : null;
@@ -1822,8 +1824,8 @@ app.get('/api/notifications', (req, res) => {
   try {
     for (const m of reseauMc.messages(200)) if ((m.heure || 0) > depuis && m.sens === 'recu' && m.genre === 'direct') l.push({ id: 'mc-' + m.id, genre: 'direct', heure: m.heure, titre: `✉️ ${m.nomDe || 'MeshCore'} (MeshCore)`, texte: m.texte });
   } catch { /* MeshCore absent */ }
-  for (const a of dernieresAlertes) if (a.niveau === 'critique' && (a.depuis || 0) > depuis) l.push({ id: 'al-' + a.cle, genre: 'alerte', heure: a.depuis, titre: '⚠️ Alerte', texte: a.message });
-  try { for (const x of signalements.lister()) if (x.actif && (x.cree || 0) > depuis) l.push({ id: 'sg-' + x.id, genre: 'signalement', heure: x.cree, titre: '📍 Signalement', texte: [x.titre, x.details].filter(Boolean).join(' : ') }); } catch { /* pas prêt */ }
+  for (const a of dernieresAlertes) if (a.niveau === 'critique' && (a.depuis || 0) > depuis) l.push({ id: 'al-' + a.cle, genre: 'alerte', heure: a.depuis, titre: '⚠️ ' + tr('Alerte'), texte: tr(a.message) });
+  try { for (const x of signalements.lister()) if (x.actif && (x.cree || 0) > depuis) l.push({ id: 'sg-' + x.id, genre: 'signalement', heure: x.cree, titre: '📍 ' + tr('Signalement'), texte: [x.titre, x.details].filter(Boolean).join(' : ') }); } catch { /* pas prêt */ }
   res.set('Cache-Control', 'no-store').json({ maintenant: Date.now(), notifications: l.sort((a, b) => a.heure - b.heure).slice(-20) });
 });
 function nomNoeudServeur(num) { try { const n = stockage.q.noeud.get(num >>> 0); return (n && (n.nom_long || n.nom_court)) || '!' + (num >>> 0).toString(16); } catch { return '!' + (num >>> 0).toString(16); } }
