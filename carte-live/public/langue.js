@@ -1,12 +1,12 @@
-// Langue de l'interface : français (texte d'origine), anglais, espagnol, allemand, italien ou portugais, traduits à
-// l'affichage. Le code reste écrit en français ; dans une autre langue, chaque texte affiché (nœuds texte, title,
+// Langue de l'interface : français (texte d'origine), anglais, espagnol, allemand, italien, portugais, néerlandais,
+// polonais ou tchèque, traduits à l'affichage. Le code reste écrit en français ; dans une autre langue, chaque texte affiché (nœuds texte, title,
 // placeholder, aria-label, boîtes alert/confirm/prompt) passe par le dictionnaire /i18n-xx.json, complété par
 // l'anglais pour ce qui n'y est pas encore. Les « {} » d'une entrée valent n'importe quel morceau variable (nom,
 // nombre…), lui-même traduit s'il est connu. Le contenu des utilisateurs (messages, noms) porte translate="no" et
 // n'est jamais touché.
 (function () {
-  const LANGUES = { fr: 'Français', en: 'English', es: 'Español', de: 'Deutsch', it: 'Italiano', pt: 'Português' };
-  const LOCALES = { fr: 'fr-FR', en: 'en-GB', es: 'es-ES', de: 'de-DE', it: 'it-IT', pt: 'pt-PT' };
+  const LANGUES = { fr: 'Français', en: 'English', es: 'Español', de: 'Deutsch', it: 'Italiano', pt: 'Português', nl: 'Nederlands', pl: 'Polski', cs: 'Čeština' };
+  const LOCALES = { fr: 'fr-FR', en: 'en-GB', es: 'es-ES', de: 'de-DE', it: 'it-IT', pt: 'pt-PT', nl: 'nl-NL', pl: 'pl-PL', cs: 'cs-CZ' };
   const DEFAUT = 'en'; // langue par défaut de l'édition quand celle du navigateur n'est pas proposée
   const lire = () => { try { return localStorage.getItem('gaulix_langue'); } catch { return null; } };
   const nav = String(navigator.language || '').slice(0, 2).toLowerCase();
