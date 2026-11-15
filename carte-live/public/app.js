@@ -1664,12 +1664,30 @@ const RE_EPINGLE = /(?:meshand:|geo:|📍)\s*(-?\d{1,2}\.\d{3,7})\s*[,;]\s*(-?\d
 // Aussi, comme l'appli MeshCore : « 45.0451, 3.8852 » seul (3 décimales au moins), et un code DFCI (« KD42F7.5 »)
 const RE_COORDS_NUES = /(?:^|[\s(:])(-?\d{1,2}\.\d{3,7})\s*,\s*(-?\d{1,3}\.\d{3,7})(?![\d.])/;
 const RE_DFCI_MSG = /(?:^|[^A-Z0-9])([A-HK-N]{2}[02468]{2}[A-HK-L]\d(?:\.[1-5])?)(?![A-Z0-9])/;
+// Zone ou tronçon d'un signalement d'une autre carte live : « (zone CODE) » / « (trace CODE) », points en polyline
+// (précision 1e-4°) comptés depuis l'épingle
+const RE_TRACE_MSG = /\((zone|trace) ([?-~]{2,120})\)/;
+function lirePolyline(code, origine) {
+  const pts = [], prec = [Math.round(origine[0] * 1e4), Math.round(origine[1] * 1e4)];
+  let i = 0, k = 0, cour = [];
+  while (i < code.length) {
+    let r = 0, dec = 0, b;
+    do { b = code.charCodeAt(i++) - 63; r |= (b & 0x1f) << dec; dec += 5; } while (b >= 0x20 && i < code.length);
+    const d = r & 1 ? ~(r >> 1) : r >> 1;
+    prec[k] += d; cour.push(prec[k] / 1e4);
+    if (++k === 2) { pts.push(cour); cour = []; k = 0; }
+  }
+  return pts;
+}
 function lireEpingle(texte) {
   const t = String(texte || '');
   const m = RE_EPINGLE.exec(t) || RE_COORDS_NUES.exec(t);
   if (m) {
     const lat = Number(m[1]), lon = Number(m[2]);
-    return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0) ? { lat, lon } : null;
+    if (!(Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0))) return null;
+    const z = RE_TRACE_MSG.exec(t);
+    if (z) { try { const pts = lirePolyline(z[2], [lat, lon]); if (pts.length >= (z[1] === 'zone' ? 3 : 1) && pts.every((p) => Math.abs(p[0] - lat) < 1 && Math.abs(p[1] - lon) < 1.5)) return { lat, lon, forme: z[1] === 'zone' ? 'zone' : 'ligne', trace: z[1] === 'zone' ? pts : [[lat, lon], ...pts] }; } catch { /* code abîmé : épingle seule */ } }
+    return { lat, lon };
   }
   const d = typeof DFCI !== 'undefined' && RE_DFCI_MSG.exec(t);
   if (d) { const r = DFCI.depuisDfci(d[1]); if (r) return { lat: r.lat, lon: r.lon, dfci: r.code }; }
@@ -1679,15 +1697,19 @@ function lireEpingle(texte) {
 function texteMessageHtml(texte, qui, heureMsg) {
   const e = lireEpingle(texte);
   if (!e) return esc(texte);
-  return `${esc(texte)} <button type="button" class="mini epingle-msg" data-epingle="${e.lat},${e.lon}" data-qui="${esc(qui || '')}" data-heure="${heureMsg || ''}" title="Afficher la position sur la carte">📍 Voir sur la carte</button>`;
+  return `${esc(texte)} <button type="button" class="mini epingle-msg" data-epingle="${e.lat},${e.lon}" ${e.trace ? `data-trace="${esc(JSON.stringify(e.trace))}" data-forme="${e.forme}"` : ''} data-qui="${esc(qui || '')}" data-heure="${heureMsg || ''}" title="Afficher la position sur la carte">📍 Voir sur la carte</button>`;
 }
 etat.coucheEpingles = null;
 const epinglesVues = new Map(); // "lat,lon" -> marqueur
-function poserEpingle(lat, lon, qui, h, ouvrir) {
+function poserEpingle(lat, lon, qui, h, ouvrir, trace, forme) {
   if (!etat.coucheEpingles) etat.coucheEpingles = L.layerGroup().addTo(carte);
   const k = `${lat},${lon}`;
   let m = epinglesVues.get(k);
   if (!m) {
+    // Zone ou tronçon transmis avec le message : dessinés comme sur la carte qui a fait le signalement
+    const dessin = Array.isArray(trace) && trace.length > 1
+      ? (forme === 'zone' ? L.polygon(trace, { color: '#dc2626', weight: 3, fillOpacity: 0.18, pane: 'traces', interactive: false }) : L.polyline(trace, { color: '#dc2626', weight: 6, opacity: 0.85, pane: 'traces', interactive: false })).addTo(etat.coucheEpingles)
+      : null;
     const div = document.createElement('div');
     div.className = 'popup-lieu';
     div.innerHTML = `<b>📍 Position partagée</b><div class="meta-longue">${qui ? 'par ' + esc(qui) : ''}${h ? ' · ' + ilYa(h) : ''}</div>${blocCoords(lat, lon)}
@@ -1700,7 +1722,7 @@ function poserEpingle(lat, lon, qui, h, ouvrir) {
       const a = ev.target.closest('button[data-a]'); if (!a) return;
       carte.closePopup();
       if (a.dataset.a === 'ici') couvertureIci(L.latLng(lat, lon), 6);
-      else { etat.coucheEpingles.removeLayer(m); epinglesVues.delete(k); }
+      else { etat.coucheEpingles.removeLayer(m); if (dessin) etat.coucheEpingles.removeLayer(dessin); epinglesVues.delete(k); }
     };
     epinglesVues.set(k, m);
   }
@@ -1709,14 +1731,15 @@ function poserEpingle(lat, lon, qui, h, ouvrir) {
 // Positions des messages des 12 dernières heures : épinglées d'office
 function epinglerMessages(liste) {
   const limite = Date.now() - 12 * 3600000;
-  for (const m of liste || []) { if ((m.heure || 0) < limite) continue; const e = lireEpingle(m.texte); if (e) poserEpingle(e.lat, e.lon, m.qui, m.heure, false); }
+  for (const m of liste || []) { if ((m.heure || 0) < limite) continue; const e = lireEpingle(m.texte); if (e) poserEpingle(e.lat, e.lon, m.qui, m.heure, false, e.trace, e.forme); }
 }
 document.addEventListener('click', (ev) => {
   const b = ev.target.closest('[data-epingle]');
   if (!b) return;
   ev.preventDefault(); ev.stopPropagation();
   const [lat, lon] = b.dataset.epingle.split(',').map(Number);
-  poserEpingle(lat, lon, b.dataset.qui, Number(b.dataset.heure) || null, true);
+  let tr = null; try { tr = b.dataset.trace ? JSON.parse(b.dataset.trace) : null; } catch { /* sans tracé */ }
+  poserEpingle(lat, lon, b.dataset.qui, Number(b.dataset.heure) || null, true, tr, b.dataset.forme);
 }, true);
 // Partager un point : dans le formulaire MeshCore si la vue MeshCore est affichée, sinon dans celui de Meshtastic
 // ---- Recherche d'un réglage ou d'une fonction (Ctrl+K) ------------------------------------------------------

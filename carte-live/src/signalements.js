@@ -121,11 +121,41 @@ function creerSignalements({ config, radio, administration, companion, reseauMc,
     try { radio.injecter({ ...paquet, from: i.noeudLocal, rxTime: Math.floor(Date.now() / 1000), hopStart: i.hopLimit }); } catch { /* historique seulement */ }
   }
 
+  // Tracé d'une zone ou d'un tronçon dans le texte : points en « polyline » (algorithme de Google, précision 1e-4°,
+  // ≈ 11 m), le premier écart compté depuis l'épingle. Une autre carte live le relit et redessine la zone ; pour les
+  // autres applications, ce n'est qu'un court code entre parenthèses. Simplifié pour tenir dans le message.
+  function polyline(pts, origine) {
+    let out = '', prec = [Math.round(origine[0] * 1e4), Math.round(origine[1] * 1e4)];
+    for (const p of pts) for (let k = 0; k < 2; k++) {
+      const v = Math.round(p[k] * 1e4); let d = v - prec[k]; prec[k] = v;
+      d = d < 0 ? ~(d << 1) : d << 1;
+      while (d >= 0x20) { out += String.fromCharCode((0x20 | (d & 0x1f)) + 63); d >>= 5; }
+      out += String.fromCharCode(d + 63);
+    }
+    return out;
+  }
+  function codeTrace(s, max = 80) {
+    if (!s.trace || !['zone', 'ligne'].includes(s.forme)) return '';
+    let pts = s.trace;
+    const origine = [Number(s.lat.toFixed(5)), Number(s.lon.toFixed(5))];
+    let c = polyline(pts, origine);
+    for (let pas = 2; c.length > max && pts.length > (s.forme === 'zone' ? 3 : 2); pas++) {
+      pts = s.trace.filter((_, i) => i % pas === 0 || i === s.trace.length - 1);
+      c = polyline(pts, origine);
+    }
+    return c.length <= max ? c : '';
+  }
   function texteAnnonce(s, fin) {
     const t = TYPES[s.type] || TYPES.autre;
     if (fin) return `✅ Fin : ${t.icone} ${s.titre || t.nom} · ${coords(s)}`;
-    const suite = s.trace && s.forme === 'ligne' ? ` → ${s.trace[s.trace.length - 1][0].toFixed(5)},${s.trace[s.trace.length - 1][1].toFixed(5)}` : s.forme === 'zone' ? ' (zone)' : '';
-    return `${t.icone} ${s.titre || t.nom}${s.details ? ' : ' + s.details : ''} · ${coords(s)}${suite} · ${s.auteur}`;
+    const code = codeTrace(s);
+    const suite = s.forme === 'zone' ? (code ? ` (zone ${code})` : ' (zone)')
+      : s.trace && s.forme === 'ligne' ? ` → ${s.trace[s.trace.length - 1][0].toFixed(5)},${s.trace[s.trace.length - 1][1].toFixed(5)}${code && s.trace.length > 2 ? ` (trace ${code})` : ''}` : '';
+    const debut = `${t.icone} ${s.titre || t.nom}`, fin2 = ` · ${coords(s)}${suite} · ${s.auteur}`;
+    // Le tracé et les coordonnées passent avant les précisions : celles-ci sont raccourcies si le message déborde
+    const place = 200 - Buffer.byteLength(debut) - Buffer.byteLength(fin2) - 3;
+    const details = s.details ? (place > 8 ? ' : ' + couper(s.details, place) : '') : '';
+    return debut + details + fin2;
   }
 
   // Envoie sur les réseaux demandés ; chaque canal a son propre état (une panne n'empêche pas les autres)
