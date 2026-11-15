@@ -36,9 +36,11 @@ jobs:
       - name: Clé de signature
         env:
           ANDROID_CLE: ${{ secrets.ANDROID_CLE }}
+        # La clé privée n'est utilisée qu'à partir du moment où le fichier android/cle-privee existe : la version
+        # d'avant (signée avec la clé publique) sait déjà expliquer aux téléphones la réinstallation à faire une fois
         run: |
-          if [ -n "$ANDROID_CLE" ]; then echo "$ANDROID_CLE" | base64 -d > "$RUNNER_TEMP/carte-live.jks"; echo "ANDROID_CLE_FICHIER=$RUNNER_TEMP/carte-live.jks" >> "$GITHUB_ENV";
-          fi
+          if [ -n "$ANDROID_CLE" ] && [ -f android/cle-privee ]; then echo "$ANDROID_CLE" | base64 -d > "$RUNNER_TEMP/carte-live.jks"; echo "ANDROID_CLE_FICHIER=$RUNNER_TEMP/carte-live.jks" >> "$GITHUB_ENV"; echo "Signature : clé privée";
+          else echo "Signature : clé publique (android/app/cle-publique.jks)"; fi
       - name: Construction
         working-directory: android
         env:

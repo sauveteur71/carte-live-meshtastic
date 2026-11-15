@@ -265,6 +265,9 @@ public class MainActivity extends Activity {
                     byte[] t = new byte[16384]; int n;
                     while ((n = in.read(t)) > 0) o.write(t, 0, n);
                 }
+                // Nouvelle clé de signature (passage à la clé privée) : Android refuserait d'installer par-dessus.
+                // On l'explique et on guide : télécharger la nouvelle version, désinstaller, installer (une seule fois)
+                if (!memeSignature(f)) { runOnUiThread(() -> nouvelleCle(lien, tag)); return; }
                 Uri u = androidx_fichier(f);
                 Intent i = new Intent(Intent.ACTION_VIEW).setDataAndType(u, "application/vnd.android.package-archive")
                         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -273,6 +276,53 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> Toast.makeText(this, "Téléchargement impossible : " + e.getMessage(), Toast.LENGTH_LONG).show());
             }
         }).start();
+    }
+
+    // Empreintes des certificats de signature : de l'appli installée et de l'APK téléchargé
+    @SuppressWarnings("deprecation")
+    private static java.util.Set<String> empreintes(android.content.pm.PackageInfo pi) {
+        java.util.Set<String> r = new java.util.HashSet<>();
+        if (pi == null) return r;
+        android.content.pm.Signature[] sig = null;
+        if (Build.VERSION.SDK_INT >= 28 && pi.signingInfo != null) sig = pi.signingInfo.hasMultipleSigners() ? pi.signingInfo.getApkContentsSigners() : pi.signingInfo.getSigningCertificateHistory();
+        else sig = pi.signatures;
+        if (sig != null) for (android.content.pm.Signature x : sig) r.add(x.toCharsString());
+        return r;
+    }
+    @SuppressWarnings("deprecation")
+    private boolean memeSignature(File apk) {
+        try {
+            int drapeau = Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
+            java.util.Set<String> moi = empreintes(getPackageManager().getPackageInfo(getPackageName(), drapeau));
+            java.util.Set<String> lui = empreintes(getPackageManager().getPackageArchiveInfo(apk.getPath(), drapeau));
+            if (moi.isEmpty() || lui.isEmpty()) return true; // illisible : on laisse Android décider
+            for (String x : lui) if (moi.contains(x)) return true;
+            return false;
+        } catch (Exception e) { return true; }
+    }
+    private void nouvelleCle(String lien, String tag) {
+        new AlertDialog.Builder(this).setTitle("Réinstallation nécessaire (une seule fois)")
+                .setMessage("La version " + tag + " est signée avec la nouvelle clé de sécurité de l'application. Android ne peut pas l'installer par-dessus l'ancienne.\n\n"
+                        + "1. Touchez « Télécharger » : le navigateur enregistre la nouvelle version.\n"
+                        + "2. Touchez « Désinstaller » pour retirer cette version.\n"
+                        + "3. Ouvrez le fichier téléchargé (notification ou dossier Téléchargements) pour installer la nouvelle.\n\n"
+                        + "Les cartes enregistrées sont à rajouter ensuite (la recherche sur le Wi-Fi les retrouve). Les mises à jour suivantes redeviennent automatiques.")
+                .setPositiveButton("Télécharger", (d, w) -> {
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(lien))); } catch (Exception e) { /* aucun navigateur */ }
+                    nouvelleCleEtape2();
+                })
+                .setNegativeButton("Plus tard", null).show();
+    }
+    private void nouvelleCleEtape2() {
+        new AlertDialog.Builder(this).setTitle("Téléchargement lancé")
+                .setMessage("Quand le téléchargement est terminé, désinstallez cette version, puis ouvrez le fichier téléchargé pour installer la nouvelle.")
+                .setPositiveButton("Désinstaller", (d, w) -> {
+                    try { startActivity(new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + getPackageName()))); }
+                    catch (Exception e) { // sinon : fiche de l'appli dans les paramètres (bouton « Désinstaller »)
+                        try { startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); } catch (Exception e2) { /* ignoré */ }
+                    }
+                })
+                .setNegativeButton("Plus tard", null).show();
     }
 
     // Adresse « content:// » du fichier téléchargé, servie par le fournisseur de fichiers de l'application
