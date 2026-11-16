@@ -242,6 +242,45 @@ test('Nœuds d’un autre preset : preset déduit du canal MQTT par défaut, lis
   fs.rmSync(dossier, { recursive: true, force: true });
 });
 
+test('Alertes officielles : vigilance et foyer déjà envoyés par radio, mémorisés et rechargés', async () => {
+  const fs = require('fs'), os = require('os'), path = require('path');
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-'));
+  const http = require('http');
+  const flux = `<feed><entry><title>Yellow avalanches Warning</title><cap:areaDesc>Haute-Loire</cap:areaDesc><cap:event>Yellow avalanches warning</cap:event>
+    <cap:onset>${new Date(Date.now() - 3600000).toISOString()}</cap:onset><cap:expires>${new Date(Date.now() + 86400000).toISOString()}</cap:expires><cap:status>Actual</cap:status></entry></feed>`;
+  const srv = http.createServer((q, r) => r.end(flux)).listen(0);
+  await new Promise((ok) => srv.once('listening', ok));
+  process.env.METEOALARM_URL = `http://127.0.0.1:${srv.address().port}/flux`;
+  delete require.cache[require.resolve('../src/alertes-officielles')];
+  const { creerAlertesOfficielles } = require('../src/alertes-officielles');
+  const envoyes = [];
+  const creer = () => creerAlertesOfficielles({
+    config: { fichierBase: path.join(dossier, 'base.db') }, journal: () => {},
+    departementsSuivis: () => [{ code: '43', nom: 'Haute-Loire' }],
+    envoyer: async (canal, texte) => envoyes.push([canal, texte]), envoyerMc: async () => {}, diffuser: () => {},
+  });
+  const ao = creer();
+  await ao.regler({}); // relit la vigilance
+  await new Promise((ok) => setTimeout(ok, 300));
+  let v = ao.etat().meteo[0];
+  assert.equal(v.phenomene, 'avalanches');
+  assert.equal(v.envoi, null);
+  await ao.envoyerVigilance({ dep: '43', phenomene: 'avalanches', canaux: ['Alerte'] }, 'F4GLD');
+  v = ao.etat().meteo[0];
+  assert.equal(v.envoi.par, 'F4GLD');
+  assert.deepEqual(v.envoi.canaux, ['Alerte']);
+  ao.noterEnvoi('feu|F1', 'F4GLD', [{ canal: 'MeshCore #meteo', statut: 'envoye' }]);
+  ao.noterEnvoi('feu|F2', 'F4GLD', [{ canal: 'Alerte', statut: 'echec' }]); // échec : pas noté
+  assert.deepEqual(Object.keys(ao.etat().envoisFeux), ['F1']);
+  // Après relecture du flux et redémarrage, l'envoi est toujours connu
+  const ao2 = creer();
+  await ao2.regler({});
+  await new Promise((ok) => setTimeout(ok, 300));
+  assert.equal(ao2.etat().meteo[0].envoi.par, 'F4GLD');
+  assert.ok(ao2.etat().envoisFeux.F1);
+  srv.close();
+});
+
 test('Domotique : découverte Home Assistant, état, relais et message LoRa reçu de la domotique', () => {
   const { EventEmitter } = require('events');
   const { creerDomotique, lireReglages } = require('../src/domotique');

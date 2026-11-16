@@ -2,6 +2,14 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.27.0
+
+### 📡 Alertes envoyées par radio
+- **Vigilances et foyers déjà envoyés bien visibles** : bord vert, coche « Déjà envoyée par radio », heure, auteur et canaux ; le bouton devient « Renvoyer ». Les nouvelles alertes gardent leur couleur. L'information est partagée par tous les utilisateurs et survit au redémarrage.
+
+### ⚠ Installer un relais dans les règles
+- **Avertissement sur les sites proposés** : un point haut n'est pas un site autorisé. Accord du propriétaire ou de la commune, pas de relais dans un cimetière ou un lieu de culte, avis de l'Architecte des Bâtiments de France près des monuments historiques, loi Littoral et espaces naturels protégés.
+
 ## 2.26.0
 
 ### 🔌 Brancher un module, sans réglage

@@ -3662,7 +3662,12 @@ app.post('/api/feux/envoyer', async (req, res) => {
   const u = utilisateur(req);
   if (!u || !estGestion(req)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });
   const b = req.body || {};
-  try { res.json(await alertesOff.envoyerTexte(feux.texteAlerte(String(b.cle || '')), { canaux: Array.isArray(b.canaux) ? b.canaux : [], canalMc: String(b.canalMc || '').slice(0, 32) }, u.indicatif || u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+  try {
+    const r = await alertesOff.envoyerTexte(feux.texteAlerte(String(b.cle || '')), { canaux: Array.isArray(b.canaux) ? b.canaux : [], canalMc: String(b.canalMc || '').slice(0, 32) }, u.indicatif || u.identifiant);
+    alertesOff.noterEnvoi('feu|' + String(b.cle || ''), u.indicatif || u.identifiant, r.envois);
+    diffuser({ genre: 'alertes-officielles' });
+    res.json(r);
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 app.post('/api/alertes-officielles/envoyer', async (req, res) => {
   const u = utilisateur(req);

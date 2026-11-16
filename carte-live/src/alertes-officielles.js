@@ -36,9 +36,12 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
     frAlert: d.frAlert || [], // [{ id, texte, zone, date, par, envois }]
     meteo: [], // vigilances en cours pour les départements suivis
     dejaDiffuse: d.dejaDiffuse || {}, // clé (département|phénomène|couleur|fin) → date
+    // Envois réellement partis en LoRa (à la demande ou automatiquement) : clé → { t, par, canaux }
+    // vigilance : « département|phénomène|couleur|fin » ; foyer de feu : « feu|<clé de l'alerte> »
+    envoyes: d.envoyes || {},
     maj: null, erreur: null,
   };
-  const sauver = () => { try { ecrireSur(fichier, JSON.stringify({ reglages: etat.reglages, vigipirate: etat.vigipirate, frAlert: etat.frAlert.slice(0, 50), dejaDiffuse: etat.dejaDiffuse })); } catch (e) { journal('[Alertes] sauvegarde :', e.message); } };
+  const sauver = () => { try { ecrireSur(fichier, JSON.stringify({ reglages: etat.reglages, vigipirate: etat.vigipirate, frAlert: etat.frAlert.slice(0, 50), dejaDiffuse: etat.dejaDiffuse, envoyes: etat.envoyes })); } catch (e) { journal('[Alertes] sauvegarde :', e.message); } };
 
   async function diffuserTexte(texte) {
     const envois = [];
@@ -52,6 +55,16 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
     return envois;
   }
 
+  const cleVig = (a) => `${a.dep}|${a.phenomene}|${a.couleur}|${a.fin}`;
+  // Note un envoi réussi (au moins un canal) : la carte l'affiche comme « déjà envoyé », pour tous les utilisateurs
+  function noterEnvoi(cle, par, envois) {
+    const ok = (envois || []).filter((e) => e.statut === 'envoye').map((e) => e.canal);
+    if (!ok.length) return;
+    const avant = etat.envoyes[cle];
+    etat.envoyes[cle] = { t: Date.now(), par, canaux: [...new Set([...(avant ? avant.canaux : []), ...ok])].slice(0, 8), fois: ((avant && avant.fois) || 0) + 1 };
+    for (const [k, v] of Object.entries(etat.envoyes)) if (Date.now() - v.t > 7 * 86400000) delete etat.envoyes[k];
+    sauver();
+  }
   const texteVigilance = (a) => {
     const h = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', weekday: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
     return `${ICONE[a.couleur]} Vigilance ${a.couleur} ${a.phenomene} · ${a.depNom}${a.debut ? ' · du ' + h(a.debut) : ''}${a.fin ? ' au ' + h(a.fin) : ''} (Météo-France)`;
@@ -62,6 +75,7 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
     if (!a) throw new Error('Vigilance terminée ou inconnue : rechargez la liste');
     const r = await envoyerTexte(texteVigilance(a), { canaux, canalMc }, par);
     a.envois = [...(a.envois || []), ...r.envois];
+    noterEnvoi(cleVig(a), par, r.envois);
     diffuser({ genre: 'alertes-officielles' });
     return r;
   }
@@ -119,6 +133,7 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
           etat.dejaDiffuse[k] = maintenant;
           const texte = texteVigilance(a);
           a.envois = await diffuserTexte(texte);
+          noterEnvoi(k, 'automatique', a.envois);
           journal(`[Alertes] diffusé : ${texte}`);
         }
         for (const [k, t] of Object.entries(etat.dejaDiffuse)) if (maintenant - t > 7 * 86400000) delete etat.dejaDiffuse[k];
@@ -137,7 +152,8 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
     NIVEAUX_VIGIPIRATE,
     envoyerVigilance,
     envoyerTexte,
-    etat: () => ({ meteo: etat.meteo, vigipirate: etat.vigipirate && { ...etat.vigipirate, ...NIVEAUX_VIGIPIRATE[etat.vigipirate.niveau] }, frAlert: etat.frAlert.filter((x) => !x.fin && Date.now() - x.date < 3 * 86400000), reglages: etat.reglages, maj: etat.maj, erreur: etat.erreur }),
+    noterEnvoi,
+    etat: () => ({ meteo: etat.meteo.map((a) => ({ ...a, envoi: etat.envoyes[cleVig(a)] || null })), envoisFeux: Object.fromEntries(Object.entries(etat.envoyes).filter(([k]) => k.startsWith('feu|')).map(([k, v]) => [k.slice(4), v])), vigipirate: etat.vigipirate && { ...etat.vigipirate, ...NIVEAUX_VIGIPIRATE[etat.vigipirate.niveau] }, frAlert: etat.frAlert.filter((x) => !x.fin && Date.now() - x.date < 3 * 86400000), reglages: etat.reglages, maj: etat.maj, erreur: etat.erreur }),
     regler(r) {
       if (typeof r.diffuser === 'boolean') etat.reglages.diffuser = r.diffuser;
       if (Array.isArray(r.departements)) etat.reglages.departements = [...new Set(r.departements.map((c) => String(c).trim().toUpperCase()).filter((c) => /^(\d{2,3}|2A|2B)$/.test(c)))].slice(0, 30);
