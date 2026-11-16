@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-14 -12 228 252" width="228" height="252" role="img" aria-labelledby="titre">
+<title id="titre">Carte live</title>
+<style>
+.cl-pin{stroke-dasharray:720;stroke-dashoffset:720;fill-opacity:0;animation:cl-trace 1.1s cubic-bezier(.6,0,.3,1) forwards,cl-remplir .5s .9s ease-out forwards}
+.cl-lien{stroke-dasharray:100;stroke-dashoffset:100;animation:cl-lien .45s ease-out forwards}
+.cl-l1{animation-delay:1.25s}.cl-l2{animation-delay:1.35s}.cl-l3{animation-delay:1.45s}.cl-l4{animation-delay:1.6s}.cl-l5{animation-delay:1.7s}.cl-l6{animation-delay:1.8s}
+.cl-noeud{transform-box:fill-box;transform-origin:center;transform:scale(0);animation:cl-pop .5s cubic-bezier(.3,1.6,.5,1) forwards}
+.cl-n1{animation-delay:1.05s}.cl-n2{animation-delay:1.2s}.cl-n3{animation-delay:1.35s}
+.cl-live{transform-box:fill-box;transform-origin:center;transform:scale(0);animation:cl-pop .5s 1.75s cubic-bezier(.3,1.6,.5,1) forwards,cl-battre 1.2s 2.4s ease-in-out infinite}
+.cl-onde{transform-box:fill-box;transform-origin:center;opacity:0;animation:cl-onde 1.8s ease-out infinite}
+.cl-o1{animation-delay:2.2s}.cl-o2{animation-delay:2.45s}
+.cl-ride{transform-box:fill-box;transform-origin:center;opacity:0;animation:cl-ride 2.4s 2.4s ease-out infinite}
+.cl-paquet{opacity:0}
+.cl-p1{animation:cl-p1 1.6s 2.6s linear infinite}.cl-p2{animation:cl-p2 1.6s 3.1s linear infinite}
+.cl-p3{animation:cl-p3 1.6s 3.6s linear infinite}.cl-p4{animation:cl-p4 1.6s 4.1s linear infinite}
+.cl-mot1{opacity:0;transform:translateX(40px);animation:cl-entrer .7s 1.9s cubic-bezier(.2,.8,.2,1) forwards}
+.cl-mot2{opacity:0;transform:translateX(40px);animation:cl-entrer .7s 2.15s cubic-bezier(.2,.8,.2,1) forwards}
+.cl-point{opacity:0;animation:cl-clignote 1.2s 2.6s ease-in-out infinite}
+.cl-devise{opacity:0;transform:translateY(10px);animation:cl-entrer .9s 2.6s ease-out forwards}
+@keyframes cl-trace{to{stroke-dashoffset:0}}
+@keyframes cl-remplir{to{fill-opacity:1}}
+@keyframes cl-lien{to{stroke-dashoffset:0}}
+@keyframes cl-pop{to{transform:scale(1)}}
+@keyframes cl-battre{0%,100%{transform:scale(1)}50%{transform:scale(1.18)}}
+@keyframes cl-onde{0%{opacity:0;transform:scale(.85)}30%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.12)}}
+@keyframes cl-ride{0%{opacity:.75;transform:scale(1)}100%{opacity:0;transform:scale(4.5)}}
+@keyframes cl-p1{0%{opacity:1;transform:translate(100px,52px)}90%{opacity:1;transform:translate(62px,122px)}100%{opacity:0;transform:translate(62px,122px)}}
+@keyframes cl-p2{0%{opacity:1;transform:translate(100px,96px)}90%{opacity:1;transform:translate(138px,122px)}100%{opacity:0;transform:translate(138px,122px)}}
+@keyframes cl-p3{0%{opacity:1;transform:translate(62px,122px)}90%{opacity:1;transform:translate(138px,122px)}100%{opacity:0;transform:translate(138px,122px)}}
+@keyframes cl-p4{0%{opacity:1;transform:translate(138px,122px)}90%{opacity:1;transform:translate(100px,52px)}100%{opacity:0;transform:translate(100px,52px)}}
+@keyframes cl-entrer{to{opacity:1;transform:none}}
+@keyframes cl-clignote{0%,100%{opacity:1}50%{opacity:.25}}
+@media (prefers-reduced-motion: reduce){.cl-pin,.cl-lien,.cl-noeud,.cl-live,.cl-mot1,.cl-mot2,.cl-devise{animation-duration:.01s;animation-delay:0s}.cl-onde,.cl-point{animation:none;opacity:1}.cl-paquet,.cl-ride{animation:none;opacity:0}}
+</style>
+<path class="cl-onde cl-o1" d="M54 16.3 A92 92 0 0 0 13.5 64.5" fill="none" stroke="#2ee6c0" stroke-width="10" stroke-linecap="round"/>
+<path class="cl-onde cl-o2" d="M45 0.7 A110 110 0 0 0 -3.4 58.4" fill="none" stroke="#2ee6c0" stroke-width="10" stroke-linecap="round"/>
+<path class="cl-onde cl-o1" d="M146 16.3 A92 92 0 0 1 186.5 64.5" fill="none" stroke="#2ee6c0" stroke-width="10" stroke-linecap="round"/>
+<path class="cl-onde cl-o2" d="M155 0.7 A110 110 0 0 1 203.4 58.4" fill="none" stroke="#2ee6c0" stroke-width="10" stroke-linecap="round"/>
+<path class="cl-pin" d="M100 228 C100 228 24 152 24 96 A76 76 0 1 1 176 96 C176 152 100 228 100 228 Z" fill="#0f1922" stroke="#2ee6c0" stroke-width="12" stroke-linejoin="round"/>
+<g stroke="#f2f6f8" stroke-width="7" stroke-linecap="round">
+<line class="cl-lien cl-l1" x1="100" y1="52" x2="62" y2="122"/>
+<line class="cl-lien cl-l2" x1="100" y1="52" x2="138" y2="122"/>
+<line class="cl-lien cl-l3" x1="62" y1="122" x2="138" y2="122"/>
+<line class="cl-lien cl-l4" x1="100" y1="96" x2="100" y2="52"/>
+<line class="cl-lien cl-l5" x1="100" y1="96" x2="62" y2="122"/>
+<line class="cl-lien cl-l6" x1="100" y1="96" x2="138" y2="122"/>
+</g>
+<circle class="cl-ride" cx="100" cy="96" r="15" fill="none" stroke="#ff8a1f" stroke-width="3"/>
+<circle class="cl-paquet cl-p1" r="6" fill="#ff8a1f"/>
+<circle class="cl-paquet cl-p2" r="6" fill="#ff8a1f"/>
+<circle class="cl-paquet cl-p3" r="6" fill="#ff8a1f"/>
+<circle class="cl-paquet cl-p4" r="6" fill="#ff8a1f"/>
+<circle class="cl-noeud cl-n1" cx="100" cy="52" r="11" fill="#2ee6c0" stroke="#070b10" stroke-width="4"/>
+<circle class="cl-noeud cl-n2" cx="62" cy="122" r="11" fill="#2ee6c0" stroke="#070b10" stroke-width="4"/>
+<circle class="cl-noeud cl-n3" cx="138" cy="122" r="11" fill="#2ee6c0" stroke="#070b10" stroke-width="4"/>
+<circle class="cl-live" cx="100" cy="96" r="15" fill="#ff8a1f" stroke="#070b10" stroke-width="4"/>
+</svg>
