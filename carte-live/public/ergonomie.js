@@ -230,6 +230,7 @@ function rendreHubReglages() {
     ['📶', 'Serveur MQTT', 'Adresse, identifiants, sujets', () => ouvrirDlg('reglages', '[name=mqttUrl]')],
     ['📡', 'Broker MQTT : état et brokers supplémentaires', 'Connexion, test, autres brokers écoutés en même temps (bulle voisine)', () => ouvrirBroker()],
     ['👥', 'Comptes des utilisateurs', 'Créer, valider, rôles, secteurs', () => ouvrirDlg('comptes')],
+    ['🤝', 'Page « Rejoindre le réseau »', 'Page publique pour les nouveaux venus : QR du canal, preset et rôles conseillés, règles, antennes, relais et dons', () => ficheRejoindre()],
     ['📣', 'Nœuds à inviter', 'Nœuds d’un autre preset (LongFast…) autour du réseau : les repérer sur la carte et leur envoyer une invitation', () => ficheAutresPresets()],
     ['🩺', 'Diagnostic', 'Pourquoi ça ne marche pas ? Vérifie MQTT, canaux, modules, MeshCore, passerelle', () => ficheDiagnostic()],
     ['🧩', 'Réglages avancés', 'Seuils d’alerte, fond de carte, MeshMonitor, exports, feux Meteosat… tout ce qui était dans le fichier .env', () => ficheReglagesAvances()],

@@ -69,6 +69,7 @@ async function demarrer() {
   installerZone();
   majTitre();
   // Lien vers la carte complète : seulement pour un administrateur connecté (la carte publique sert à consulter)
+  if (config.rejoindre) document.getElementById('lien-rejoindre').hidden = false;
   fetch('/api/compte').then((r) => r.json()).then((u) => { if (u && u.role === 'admin') document.getElementById('lien-complet').hidden = false; }).catch(() => {});
   carte = L.map('carte', { zoomControl: false, attributionControl: true }).setView(config.centre, config.zoom);
   // « Explorer en détail » : la carte complète en consultation, sur la même vue

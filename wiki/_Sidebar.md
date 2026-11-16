@@ -16,6 +16,7 @@
 - [[Programmation à distance]]
 - [[Équipes]]
 - [[Signalements]]
+- [[Faire grandir le réseau]]
 - [[MeshCore]]
 - [[Passerelle inter-réseaux]]
 - [[Comptes et sécurité]]
