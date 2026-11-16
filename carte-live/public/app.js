@@ -4590,12 +4590,25 @@ async function rendreModules(force) {
     <div id="retour-modules" class="note"></div>
     <details id="bloc-agents" ${ouvertAgents ? 'open' : ''}><summary>Module par agent : USB sur un PC, ou module d’un autre réseau</summary>
       <p class="note">L’agent est un petit programme lancé sur le PC où le module est branché en USB (ou sur un appareil du réseau où se trouve un module Wi-Fi, ex. une maison voisine). Il se connecte au NAS par Tailscale et relaie le module : la carte l’utilise comme les autres.</p>
+      <div class="agent-pret">
+        <b>⬇️ Agent prêt à l’emploi : rien à configurer</b>
+        <div class="actions-prop"><a class="lien-agent principal" href="/api/agent/pret/agent-gaulix-windows.exe" download>Windows</a><a class="lien-agent" href="/api/agent/pret/agent-gaulix-linux-amd64" download>Linux</a><a class="lien-agent" href="/api/agent/pret/agent-gaulix-raspberrypi-arm64" download>Raspberry Pi 64 bits</a><a class="lien-agent" href="/api/agent/pret/agent-gaulix-raspberrypi-armv7" download>Raspberry Pi 32 bits</a></div>
+        <ol class="note etapes-agent">
+          <li>Téléchargez-le sur le PC où vous branchez vos modules : il contient déjà l’adresse de cette carte et le code secret.</li>
+          <li>Lancez-le (double-clic sous Windows ; sous Linux <span class="mono">chmod +x</span> puis lancez-le). Sous Windows, il se relancera ensuite tout seul à chaque démarrage.</li>
+          <li>Branchez un module en USB : Meshtastic ou companion MeshCore, il est reconnu et relié tout seul à la carte. Débranché, il est libéré ; le suivant branché prend sa place.</li>
+        </ol>
+        ${/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.)|\.ts\.net$|\.local$|\.lan$|\.home$/i.test(location.hostname) ? '' : `<p class="note attention">Vous ouvrez la carte par <b class="mono">${esc(location.hostname)}</b> : l’agent risque de ne pas joindre la carte à cette adresse (port ${(r.agents && r.agents.port) || 4404}, jamais ouvert sur la box). Ouvrez plutôt la carte par son adresse Tailscale (…ts.net) ou locale avant de télécharger l’agent.</p>`}
+        <p class="note">Windows peut prévenir que le programme n’est pas signé : « Informations complémentaires » puis « Exécuter quand même ». Fermez l’appli Meshtastic / MeshCore du PC qui utiliserait le même module.</p>
+      </div>
+      <details class="agent-classique"><summary>Agent classique (questions au premier lancement, modules Wi-Fi)</summary>
       <ol class="note etapes-agent">
         <li>Téléchargez l’agent : <a href="/agent/agent-gaulix-windows.exe" download>Windows</a> · <a href="/agent/agent-gaulix-linux-amd64" download>Linux</a> · <a href="/agent/agent-gaulix-raspberrypi-arm64" download>Raspberry Pi 64 bits</a> · <a href="/agent/agent-gaulix-raspberrypi-armv7" download>Raspberry Pi 32 bits</a></li>
         <li>Lancez-le et répondez aux questions : adresse du serveur <b class="mono">${esc(location.hostname)}:${(r.agents && r.agents.port) || 4404}</b> (ou son adresse Tailscale), le code ci-dessous, un nom (ex. Voiture), le port USB (COM5…) ou l’adresse du module Wi-Fi.</li>
         <li>Le module apparaît ici avec le badge « agent » : cliquez sur Connecter.</li>
       </ol>
       <p class="note"><b>Plusieurs modules</b> (ex. USB, maison, QRA) : relancez l’agent avec <span class="mono">-configurer</span> puis <b>a</b> pour ajouter une connexion. Chacune apparaît ici sous son nom quand son module est présent (port USB branché, ou PC sur le réseau du module Wi-Fi).</p>
+      </details>
       <div class="code-agent">Code secret : <b class="mono" id="code-agent">••••-••••-••••</b> <button type="button" id="voir-code">Afficher</button> <button type="button" id="nouveau-code" title="Les agents déjà configurés devront recevoir le nouveau code">Nouveau code</button></div>
       <p class="note">Fermez l’appli Meshtastic du PC pendant ce temps (un port USB ne sert qu’un programme). Pour administrer vos nœuds avec ce module, sa clé publique doit figurer dans leurs clés d’administration.</p>
     </details>`;

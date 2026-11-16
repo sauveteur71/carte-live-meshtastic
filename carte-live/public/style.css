@@ -531,6 +531,11 @@ svg.signal .t-rssi { fill: #f4a261; }
 #bloc-agents summary { cursor: pointer; font-weight: 600; font-size: 13px; }
 .etapes-agent { padding-left: 18px; margin: 6px 0; }
 .etapes-agent li { margin: 3px 0; }
+.agent-pret { border: 1px solid rgba(62,230,196,.45); border-radius: 8px; padding: 8px 10px; margin: 8px 0; background: rgba(62,230,196,.05); }
+.agent-pret .actions-prop { flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+#bloc-agents a.lien-agent { display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--bord); color: var(--texte, #e6edf3); text-decoration: none; font-weight: 600; }
+#bloc-agents a.lien-agent.principal { background: var(--accent, #2dd4bf); border-color: var(--accent, #2dd4bf); color: #04221d; }
+.agent-classique { margin-top: 6px; }
 .code-agent { font-size: 13px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .mono { font-family: ui-monospace, monospace; }
 

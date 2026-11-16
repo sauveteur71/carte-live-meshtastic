@@ -920,6 +920,24 @@ app.post('/api/radio/agents/code', (req, res) => {
   if (!exigerAdmin(req, res)) return;
   res.json({ code: agents.renouvelerCode() });
 });
+// Agent prêt à l'emploi (admin) : le programme de l'agent, avec l'adresse de cette carte et le code secret ajoutés à la
+// fin du fichier. L'agent 1.7 les y lit : aucune question au premier lancement, il relie tout seul les modules branchés.
+const AGENTS_PRETS = ['agent-gaulix-windows.exe', 'agent-gaulix-linux-amd64', 'agent-gaulix-raspberrypi-arm64', 'agent-gaulix-raspberrypi-armv7', 'agent-gaulix-macos-arm64'];
+app.get('/api/agent/pret/:fichier', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const f = String(req.params.fichier || '');
+  if (!AGENTS_PRETS.includes(f)) return res.status(404).json({ erreur: 'Agent inconnu' });
+  let binaire;
+  try { binaire = fs.readFileSync(path.join(__dirname, '..', 'public', 'agent', f)); } catch {
+    return res.status(404).json({ erreur: 'Agent absent de cette installation (il est compilé dans l’image Docker) : prenez-le sur la page des versions GitHub' });
+  }
+  // Adresse par laquelle ce navigateur joint la carte (réseau local ou Tailscale), puis celles données dans AGENTS_ADRESSES
+  const hotes = [String(req.hostname || ''), ...String(process.env.AGENTS_ADRESSES || '').split(',')].map((h) => h.trim()).filter((h) => /^[a-z0-9.-]+(:\d+)?$/i.test(h));
+  const serveurs = [...new Set(hotes.map((h) => (/:\d+$/.test(h) ? h : `${h}:${agents.port}`)))];
+  const reglages = { serveurs, code: agents.code(), carte: String(config.titre || '').slice(0, 60), role: req.query.role === 'ecoute' ? 'ecoute' : 'principal' };
+  res.set({ 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${f}"`, 'Cache-Control': 'no-store' });
+  res.send(Buffer.concat([binaire, Buffer.from('\nCARTE-LIVE-AGENT' + JSON.stringify(reglages) + '\n')]));
+});
 app.post('/api/radio/connecter', (req, res) => {
   if (!exigerAdmin(req, res)) return;
   const { hote } = req.body || {};
@@ -2759,16 +2777,19 @@ wssModule.on('connection', (ws, req) => {
   const q = new URL(req.url, 'http://x').searchParams;
   const nom = (q.get('nom') || `Navigateur ${u ? u.identifiant : ''}`).slice(0, 40);
   const source = (q.get('source') || 'USB').slice(0, 40);
-  const flux = fluxWebSocket(ws);
-  if (q.get('role') === 'ecoute') {
-    // En plus du module principal : passerelle d'écoute tant que la page reste ouverte
-    const h = agents.ajouterVirtuel(nom, source + ' (navigateur)', flux, (req.socket.remoteAddress || '').replace(/^::ffff:/, ''));
+  brancherModuleFlux(fluxWebSocket(ws), nom, source + ' (navigateur)', (req.socket.remoteAddress || '').replace(/^::ffff:/, ''), q.get('role') === 'ecoute' ? 'ecoute' : 'principal');
+});
+// Module Meshtastic déjà ouvert (page web ou agent 1.7 « direct ») : principal tant que le flux reste ouvert, puis
+// retour au module utilisé avant ; ou passerelle d'écoute en plus du principal
+function brancherModuleFlux(flux, nom, source, ip, role, version) {
+  if (role === 'ecoute') {
+    const h = agents.ajouterVirtuel(nom, source, flux, ip, version);
     ecoutes.ajouterRadio(h, 1, nom, { navigateur: true, source });
     flux.on('close', () => { ecoutes.retirerRadio(h, 1); rafraichirEtat(); diffuser({ genre: 'statut' }); });
     return;
   }
   const precedent = sourceRadio.modules().actif;
-  const hote = agents.ajouterVirtuel(nom, source + ' (navigateur)', flux, (req.socket.remoteAddress || '').replace(/^::ffff:/, ''));
+  const hote = agents.ajouterVirtuel(nom, source, flux, ip, version);
   sourceRadio.ajouterModule(hote, 1, nom);
   sourceRadio.connecterA(hote, 1);
   // À la déconnexion du navigateur, on revient au module utilisé avant
@@ -2781,15 +2802,20 @@ wssModule.on('connection', (ws, req) => {
     rafraichirEtat(); diffuser({ genre: 'statut' });
   });
   rafraichirEtat(); diffuser({ genre: 'statut' });
-});
+}
 // Companion MeshCore branché sur le PC de l'utilisateur, relayé par la page
 function brancherCompanionNavigateur(ws, req) {
   const u = utilisateur(req);
   const q = new URL(req.url, 'http://x').searchParams;
   const source = q.get('source') === 'Bluetooth' ? 'Bluetooth' : 'USB';
   const nom = (q.get('nom') || `${source} ${u ? u.identifiant : ''}`).slice(0, 40);
-  if (q.get('role') === 'ecoute') { ecoutes.ajouterCompanion(null, nom, { navigateur: fluxWebSocket(ws), source }); diffuserEtatMc(); return; }
-  companion.brancherNavigateur(fluxWebSocket(ws), nom, source);
+  brancherCompanionFlux(fluxWebSocket(ws), nom, source, q.get('role') === 'ecoute' ? 'ecoute' : 'principal');
+}
+// Companion MeshCore déjà ouvert (page web ou agent 1.7 « direct ») : principal tant que le flux reste ouvert, ou en écoute
+function brancherCompanionFlux(flux, nom, source, role) {
+  if (!config.meshcore.actif) throw new Error('companion MeshCore reconnu, mais MeshCore n’est pas activé dans cette carte');
+  if (role === 'ecoute') ecoutes.ajouterCompanion(null, nom, { navigateur: flux, source });
+  else companion.brancherNavigateur(flux, nom, source);
   diffuserEtatMc();
 }
 wss.on('connection', (ws, req) => {
@@ -3016,11 +3042,18 @@ app.post('/api/postgres/tester', async (req, res) => {
   try { res.json(await archivePg.tester(req.body || {})); } catch (e) { res.status(400).json({ erreur: 'Connexion impossible : ' + e.message }); }
 });
 // Agents (module USB sur un PC, ou module Wi-Fi d'un autre réseau) : ils se connectent au port 4404
-const agents = creerAgents(config, { surArrivee: (hote, nom, protocole) => {
-  if (protocole !== 'meshtastic' && typeof companion !== 'undefined' && companion) companion.agentDisponible(hote);
-  if (protocole !== 'meshcore' && typeof sourceRadio !== 'undefined' && sourceRadio) { sourceRadio.agentDisponible(hote, nom); rafraichirEtat(); diffuser({ genre: 'statut' }); }
-  if (typeof ecoutes !== 'undefined' && ecoutes) ecoutes.agentDisponible(hote, nom, protocole);
-} });
+const agents = creerAgents(config, {
+  surArrivee: (hote, nom, protocole) => {
+    if (protocole !== 'meshtastic' && typeof companion !== 'undefined' && companion) companion.agentDisponible(hote);
+    if (protocole !== 'meshcore' && typeof sourceRadio !== 'undefined' && sourceRadio) { sourceRadio.agentDisponible(hote, nom); rafraichirEtat(); diffuser({ genre: 'statut' }); }
+    if (typeof ecoutes !== 'undefined' && ecoutes) ecoutes.agentDisponible(hote, nom, protocole);
+  },
+  // Agent 1.7 : module branché sur son PC, déjà reconnu ; relié tout de suite (débranché : retour au module d'avant)
+  surDirect: ({ flux, nom, source, ip, protocole, role, version }) => {
+    if (protocole === 'meshcore') brancherCompanionFlux(flux, nom, source.startsWith('USB') ? 'USB' : source, role);
+    else brancherModuleFlux(flux, nom, source + ' (agent)', ip, role, version);
+  },
+});
 // Companion MeshCore (observateur de la carte) et republication sur le broker
 const publicateurMc = creerPublicateurMc(config, (...a) => journal('[MeshCore]', ...a));
 const companion = creerCompanion(config, {
