@@ -5,10 +5,17 @@ A small program (Windows, Linux, Raspberry Pi) that links to the map:
 - a **Wi-Fi node on another network** (another house);
 - and, since version **1.6**, **any Wi-Fi node on its local network**, reached by its IP address from *Connect a node*.
 
-## Installation
+## Ready-to-use agent (1.7): no questions
+1. In the map, *Network › Nodes › Node via agent*: **⬇️ Ready-to-use agent** (Windows, Linux, Raspberry Pi). The downloaded file already contains the map’s address and the secret code. Download it from the map’s **Tailscale or local** address (port 4404 is never opened on the internet router).
+2. Start it (on Linux: `chmod +x` first). On Windows, it installs itself at startup; Windows may warn that the program is not signed (“More info” › “Run anyway”).
+3. **Plug in a node over USB**: Meshtastic or MeshCore companion, it is recognised and connected to the map right away. Unplugged, it is released and the map goes back to the previous node; the next one plugged in takes its place.
+
+Only the USB chips of common LoRa nodes are queried (CP210x, CH340, FTDI, ESP32-S3, nRF52, RP2040…): nothing is sent to a 3D printer or an Arduino. Options: `-ecoute` (nodes listening rather than main), `-tous-ports` (query all USB serial ports), `-sans-detection`.
+
+## Classic installation (questions at first launch)
 1. Download the agent from the map: `/agent/agent-gaulix-windows.exe` (or the Linux and Raspberry Pi versions).
 2. Start it. It asks for the **server address** (port 4404, over the local network or Tailscale) and the **agents code** shown in the map (*Network › Radio nodes › Node via agent*).
-3. Add your connections: USB port (`COM5`, `/dev/ttyACM0`) or a node's Wi-Fi address.
+3. USB nodes are then recognised by plugging them in; `-configurer` adds a Wi-Fi node from another network.
 
 On Windows, it offers to start by itself at login.
 

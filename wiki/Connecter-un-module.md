@@ -28,6 +28,8 @@ Pour limiter les coupures :
 ## USB
 Bouton **🔌 USB**, puis choisissez le port. Fermez d'abord tout ce qui l'utilise déjà (appli, agent, autre onglet). Même conditions : HTTPS, Chrome ou Edge.
 
+**Ensuite, plus rien à faire** : un module autorisé une fois est relié tout seul, au chargement de la page et dès qu'on le branche. Meshtastic ou companion MeshCore est reconnu automatiquement ; débranché, il est libéré, et le suivant branché prend sa place. Réglage dans *Réseau › Modules*, cadre « Module de ce PC » (« 🔁 Relier tout seul les modules USB de ce PC », comme module principal ou en écoute). Pour un PC où la page n'est pas ouverte, utilisez l'[[Agent Gaulix]] prêt à l'emploi.
+
 ## USB du serveur (module branché sur le NAS ou le Raspberry Pi)
 Le module (Meshtastic ou companion MeshCore USB) est branché **sur la machine qui fait tourner la carte**, comme avec Remote Terminal for MeshCore ou MeshMonitor. Ni navigateur ni agent : la liaison est permanente et reprend seule après un redémarrage.
 
@@ -53,6 +55,15 @@ Deux cas :
 2. **Le module est sur un autre réseau** (autre maison, autre box) : la carte passe automatiquement par un PC de ce réseau qui fait tourner l'**[[Agent Gaulix]] 1.6 ou plus**. Rien à configurer sur l'agent.
 
 Si aucun des deux n'est possible, la carte l'explique et propose le Bluetooth, l'USB ou l'installation de l'agent.
+
+## Écoute du réseau local (UDP, sans occuper le module)
+Les modules **Meshtastic** en Wi-Fi (firmware 2.6 ou plus) peuvent diffuser sur le réseau local tout ce qu'ils entendent. La carte les écoute sans se connecter à eux : **l'appli du téléphone reste connectée**, et chaque module de la maison alimente la carte sans agent ni réglage par module.
+
+1. Sur chaque module : appli Meshtastic › *Réseau* › *Protocoles activés* › **UDP broadcast**.
+2. Dans la carte : *Réglages › Réglages avancés › « Écouter les modules Meshtastic du réseau local »* → **oui**.
+3. Avec Docker, le multicast du réseau local n'atteint le conteneur qu'en **réseau « host »** : dans `docker-compose.yml`, service `carte-live`, ajoutez `network_mode: host` et retirez la section `ports:` (la carte répond alors directement sur le port 8095 de la machine).
+
+L'état (paquets reçus, modules entendus) se lit dans *Réseau › Broker MQTT*, rubrique « Modules du réseau local (UDP) ». Les paquets sont chiffrés comme sur l'air : la carte les déchiffre avec les clés de canaux qu'elle connaît.
 
 ## Plusieurs modules en même temps
 Pour chaque réseau, Meshtastic et MeshCore, la carte a **un module principal**. Il écoute, envoie les messages, lance les traceroutes et sert à l'administration.

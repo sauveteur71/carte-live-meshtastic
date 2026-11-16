@@ -28,6 +28,8 @@ To limit dropouts:
 ## USB
 **🔌 USB** button, then choose the port. First close anything already using it (app, agent, other tab). Same conditions: HTTPS, Chrome or Edge.
 
+**After that, nothing more to do**: a node allowed once is connected automatically, when the page loads and as soon as it is plugged in. Meshtastic or MeshCore companion is recognised automatically; unplugged, it is released, and the next one plugged in takes its place. Setting in *Network › Nodes*, “This PC’s node” box (“🔁 Connect this PC’s USB nodes automatically”, as main node or listening). For a PC where the page is not open, use the ready-to-use [[Agent Gaulix]].
+
 ## Server USB (node plugged into the NAS or Raspberry Pi)
 The node (Meshtastic or MeshCore USB companion) is plugged **into the machine running the map**, as with Remote Terminal for MeshCore or MeshMonitor. No browser or agent: the link is permanent and resumes by itself after a restart.
 
@@ -53,6 +55,15 @@ Two cases:
 2. **The node is on another network** (another house, another router): the map automatically goes through a PC on that network running the **[[agent|Agent Gaulix]] 1.6 or later**. Nothing to configure on the agent.
 
 If neither is possible, the map explains it and suggests Bluetooth, USB or installing the agent.
+
+## Local network listening (UDP, without occupying the node)
+**Meshtastic** Wi-Fi nodes (firmware 2.6 or later) can broadcast everything they hear on the local network. The map listens without connecting to them: **the phone app stays connected**, and every node in the house feeds the map with no agent and no per-node setting.
+
+1. On each node: Meshtastic app › *Network* › *Enabled protocols* › **UDP broadcast**.
+2. In the map: *Settings › Advanced settings › “Listen to Meshtastic nodes on the local network”* → **yes**.
+3. With Docker, local network multicast only reaches the container in **“host” network mode**: in `docker-compose.yml`, `carte-live` service, add `network_mode: host` and remove the `ports:` section (the map then answers directly on the machine’s port 8095).
+
+The status (packets received, nodes heard) is in *Network › MQTT broker*, “Local network nodes (UDP)”. Packets are encrypted as on air: the map decrypts them with the channel keys it knows.
 
 ## Several nodes at the same time
 For each network, Meshtastic and MeshCore, the map has **one main node**. It listens, sends messages, starts traceroutes and is used for administration.

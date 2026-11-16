@@ -194,6 +194,32 @@ test('DFCI : aller-retour et code connu au Puy-en-Velay', () => {
 });
 
 // ---------- Passerelle ----------
+test('Meshtastic : paquet d’un module du réseau local reçu par UDP multicast et déchiffré', async (t) => {
+  const dgram = require('dgram');
+  const { creerUdpMeshtastic } = require('../src/udp-meshtastic');
+  const MeshPacket = mt.racine.lookupType('meshtastic.MeshPacket');
+  const recus = [];
+  const u = creerUdpMeshtastic({ types: { MeshPacket }, journal: () => {}, surPaquet: (p, ip) => recus.push({ p, ip }) });
+  u.demarrer();
+  await new Promise((r) => setTimeout(r, 300));
+  if (!u.etat().actif || !u.etat().groupes.length) { u.arreter(); t.skip('pas de multicast sur cette machine'); return; }
+  const cle = mt.etendreCle('AQ==');
+  const de = 0x43aabbcc, id = 0x1234abcd;
+  const data = mt.types.Data.encode({ portnum: 1, payload: Buffer.from('Bonjour par UDP') }).finish();
+  const paquet = MeshPacket.encode({ from: de, to: 0xffffffff, id, channel: mt.hachageCanal('LongFast', cle), encrypted: mt.dechiffrer(cle, id, de, Buffer.from(data)), hopLimit: 3, hopStart: 3 }).finish();
+  const s = dgram.createSocket('udp4');
+  await new Promise((r) => s.send(Buffer.from(paquet), 4403, '239.0.0.69', r));
+  s.close();
+  await new Promise((r) => setTimeout(r, 500));
+  u.arreter();
+  if (!recus.length) { t.skip('multicast non bouclé sur cette machine'); return; }
+  const env = mt.types.ServiceEnvelope.encode({ packet: recus[0].p }).finish();
+  const evt = mt.decoderMessage('udp/2/e/LAN/x', Buffer.from(env), mt.preparerCanaux([{ nom: 'LongFast', cle: 'AQ==' }]));
+  assert.equal(evt.de, de);
+  assert.equal(evt.canal, 'LongFast');
+  assert.equal(evt.texte, 'Bonjour par UDP');
+});
+
 test('Passerelle : positions et signalements relayés une fois, sans écho', async () => {
   const { creerPasserelle } = require('../src/passerelle');
   const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'passerelle-'));
