@@ -440,6 +440,8 @@ svg.profil .curseur-profil text.mauvais { fill: #ff8a95; }
 .mk.alerte .c { box-shadow: 0 0 0 2.5px var(--critique), 0 0 12px var(--critique) !important; }
 .mk.passerelle .c::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid #22c55e; opacity: .95; }
 .mk.passerelle-hs .c::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 1.5px dashed #6b7785; opacity: .8; }
+.mk.autre-preset .c::before { content: ""; position: absolute; inset: -7px; border-radius: 50%; border: 2px dashed #ff9f1c; }
+.badge.autre-preset { background: rgba(255,159,28,.18); border-color: #ff9f1c; color: #ffc46b; }
 .mk.infra.passerelle .c::after, .mk.infra.passerelle-hs .c::after { border-radius: 3px; }
 
 .legende { padding: 6px 10px; min-width: 300px; max-width: 360px; }

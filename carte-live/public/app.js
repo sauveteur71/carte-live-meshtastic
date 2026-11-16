@@ -335,6 +335,7 @@ function iconeNoeud(n, alerte) {
   if (n.infrastructure) classes.push('infra');
   if (n.passerelle) classes.push(passerelleEnLigne(n) ? 'passerelle' : 'passerelle-hs');
   if (alerte && etat.legende.alertes) classes.push('alerte');
+  if (etat.autresPresets && etat.autresPresets.nums.has(n.num)) classes.push('autre-preset');
   const coul = categorie(n).couleur;
   const montrerNom = n.infrastructure || n.passerelle || carte.getZoom() >= 11;
   return L.divIcon({
@@ -1778,6 +1779,7 @@ const CATALOGUE_REGLAGES = [
   ['Département de la carte', 'Compte › Réglages', 'zone contour centrage relief', 'admin', () => ouvrirDlg('reglages', '[name=departement]')],
   ['Serveur MQTT (broker)', 'Compte › Réglages', 'mqtt url broker adresse serveur connexion', 'admin', () => ouvrirDlg('reglages', '[name=mqttUrl]')],
   ['Réglages avancés', 'Réglages', 'env fichier seuils alerte tension batterie canal fond tuiles meshmonitor export jeton postgres lsa saf meteosat passerelle variables', 'admin', () => ficheReglagesAvances()],
+  ['Nœuds à inviter (autre preset)', 'Outils', 'longfast preset autre inviter recruter sentinelle longmoderate', 'admin', () => ficheAutresPresets()],
   ['Brokers MQTT supplémentaires', 'Réseau › Broker MQTT', 'mqtt broker plusieurs autre bulle voisine supplementaire', 'admin', () => ouvrirBroker()],
   ['Sujet racine MQTT', 'Compte › Réglages', 'mqtt topic racine msh', 'admin', () => ouvrirDlg('reglages', '[name=mqttRacine]')],
   ['Utilisateur et mot de passe MQTT', 'Compte › Réglages', 'mqtt identifiant login', 'admin', () => ouvrirDlg('reglages', '[name=mqttUtilisateur]')],
@@ -2587,7 +2589,7 @@ async function ouvrirFiche(num) {
       <span class="badge ${n.statut}">${{ actif: 'Actif', recent: 'Récent', inactif: 'Inactif' }[n.statut]}</span>
       <span class="badge ${n.infrastructure ? 'infra' : ''}">${esc(n.roleFr)}</span>
       ${n.passerelle ? `<span class="badge passerelle">Passerelle MQTT · ${n.etatPasserelle === 'offline' ? 'hors ligne' : 'en ligne'}</span>` : ''}
-      ${n.preset ? `<span class="badge">${esc(n.preset)}</span>` : ''}
+      ${n.preset ? `<span class="badge ${etat.autresPresets && etat.autresPresets.nums.has(n.num) ? 'autre-preset' : ''}" ${etat.autresPresets && etat.autresPresets.nums.has(n.num) ? `title="Autre preset que le réseau (${esc(nomPreset(etat.autresPresets.preset))}) : voir Outils › Nœuds à inviter"` : ''}>${esc(n.preset)}</span>` : ''}
       ${[...new Set(d.paquets.map((p) => p.canal).filter(Boolean))].slice(0, 4).map((c) => `<span class="badge canal">${esc(c)}</span>`).join('')}
       ${n.materiel ? `<span class="badge">${esc(n.materiel)}</span>` : ''}
     </div>
@@ -6601,6 +6603,7 @@ function brancherInterface() {
   { const bs = $('#outil-signalements'); if (bs) bs.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; if (masquee('signalements')) ficheAlertesOff(); else ficheSignalements(); }; }
   { const bt = $('#outil-trafic'); if (bt) bt.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTrafic(); }; }
   { const bc = $('#outil-connecter'); if (bc) bc.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ouvrirConnexion(); }; }
+  { const bi = $('#outil-inviter'); if (bi) { bi.hidden = !etat.admin || !!etat.consultation; bi.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheAutresPresets(); }; } }
   $('#outil-portee').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; testPortee(null); };
   $('#outil-terrain').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTerrain(); };
   $('#outil-partager').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; fichePartager(); };
@@ -8538,3 +8541,68 @@ async function dessinerRadar() {
   addEventListener('resize', demander);
   maj();
 })();
+
+// ---- Nœuds d'un autre preset (ex. LongFast autour d'un réseau en LongModerate) : les repérer et les inviter ---------
+// Ils n'entendent pas le réseau, et le réseau ne les entend pas. La carte les connaît par MQTT (rapport de carte, ou
+// canal au nom par défaut d'un preset) ou par un module « sentinelle » en écoute réglé sur leur preset, qui peut aussi
+// leur envoyer un message direct d'invitation.
+const NOMS_PRESETS = { LONG_FAST: 'LongFast', LONG_MODERATE: 'LongModerate', LONG_SLOW: 'LongSlow', VERY_LONG_SLOW: 'VeryLongSlow', MEDIUM_FAST: 'MediumFast', MEDIUM_SLOW: 'MediumSlow', SHORT_FAST: 'ShortFast', SHORT_SLOW: 'ShortSlow', SHORT_TURBO: 'ShortTurbo', LONG_TURBO: 'LongTurbo', MEDIUM_TURBO: 'MediumTurbo' };
+const nomPreset = (p) => NOMS_PRESETS[p] || p || '?';
+etat.autresPresets = null; // { preset, nums: Set, noeuds, sentinelles }
+async function chargerAutresPresets() {
+  if (!etat.admin || etat.consultation) return null;
+  try {
+    const r = await api('/api/autres-presets');
+    etat.autresPresets = { ...r, nums: new Set(r.noeuds.map((n) => n.num)) };
+    if (typeof dessinerNoeuds === 'function') try { dessinerNoeuds(); } catch { /* carte pas prête */ }
+    return etat.autresPresets;
+  } catch { return null; }
+}
+setTimeout(() => { chargerAutresPresets(); setInterval(chargerAutresPresets, 5 * 60000); }, 8000);
+
+async function ficheAutresPresets() {
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.innerHTML = '<h2>📣 Nœuds à inviter</h2><p class="note">Chargement…</p>';
+  const r = await chargerAutresPresets();
+  if (!r) { z.innerHTML = '<h2>📣 Nœuds à inviter</h2><p class="note">Réservé aux administrateurs.</p>'; return; }
+  const c = carte.getCenter();
+  const dist = (n) => (n.lat != null && n.lon != null ? carte.distance(c, [n.lat, n.lon]) / 1000 : null);
+  const l = r.noeuds.map((n) => ({ ...n, km: dist(n) })).sort((a, b) => (a.km ?? 1e9) - (b.km ?? 1e9));
+  const parPreset = {};
+  for (const n of l) parPreset[n.preset] = (parPreset[n.preset] || 0) + 1;
+  const sentinelle = (p) => r.sentinelles.find((s) => s.preset === p);
+  z.innerHTML = `<h2>📣 Nœuds à inviter</h2>
+    <p class="note">Votre réseau est en <b>${esc(nomPreset(r.preset))}</b>.<br>Ces nœuds utilisent un autre preset : ils n’entendent pas le réseau et le réseau ne les entend pas. La carte les connaît par MQTT (rapport de carte, ou canal au nom par défaut d’un preset) ou par un module « sentinelle ». Triés par distance au centre de la carte.</p>
+    <div class="badges">${Object.entries(parPreset).map(([p, k]) => `<span class="badge autre-preset">${esc(nomPreset(p))} · ${k}</span>`).join('') || '<span class="badge">aucun</span>'}</div>
+    <h4>Modules sentinelles</h4>
+    ${r.sentinelles.length ? r.sentinelles.map((s) => `<div class="mesure-ligne"><b class="ok">●</b> ${esc(s.nom)} · ${esc(nomPreset(s.preset))}</div>`).join('')
+      : `<p class="note">Aucun. Pour entendre ces nœuds par radio et leur écrire : un petit module (un Heltec V3 suffit) réglé sur leur preset, relié à la carte <b>en écoute</b> (Outils › Connecter un module › « en écoute, en plus »). Il ne sert qu’à écouter et à envoyer les invitations que vous validez.</p>`}
+    <h4>${l.length} nœud(s) vu(s) ces 30 derniers jours</h4>
+    <div class="liste">${l.slice(0, 200).map((n) => `<div class="ligne">
+      <span class="titre"><b>${esc(n.nom_long || n.nom_court || n.id)}</b><small>${esc(n.id)} · ${esc(nomPreset(n.preset))}${n.presetDeduit ? ' (déduit du canal ' + esc(n.canalVu) + ')' : ''} · ${ilYa(n.dernier_vu)}${n.km != null ? ' · ' + fmt(n.km, n.km < 10 ? 1 : 0, ' km') : ' · position inconnue'}</small></span>
+      <span class="meta">${n.lat != null ? `<button class="mini" data-ap-voir="${n.num}">Voir</button>` : ''}${sentinelle(n.preset) ? `<button class="mini principal" data-ap-inviter="${n.num}">✉️ Inviter</button>` : ''}</span>
+    </div>`).join('') || '<div class="vide">Aucun nœud d’un autre preset ces 30 derniers jours.</div>'}</div>
+    <div id="ap-invitation"></div>`;
+  z.querySelectorAll('[data-ap-voir]').forEach((b) => (b.onclick = () => { const n = l.find((x) => x.num === Number(b.dataset.apVoir)); carte.setView([n.lat, n.lon], Math.max(carte.getZoom(), 12)); ouvrirFiche(n.num); }));
+  z.querySelectorAll('[data-ap-inviter]').forEach((b) => (b.onclick = () => {
+    const n = l.find((x) => x.num === Number(b.dataset.apInviter));
+    const s = sentinelle(n.preset);
+    const zone = $('#ap-invitation');
+    const defaut = tr(`Bonjour ! Le réseau Meshtastic du secteur est en ${nomPreset(r.preset)}. Passez votre nœud dans ce preset pour nous rejoindre. Carte : ${location.host}`);
+    zone.innerHTML = `<h4>Invitation à ${esc(n.nom_long || n.id)}</h4>
+      <p class="note">Message direct envoyé par la sentinelle « ${esc(s.nom)} » (${esc(nomPreset(s.preset))}). Relisez-le : 200 octets au plus.</p>
+      <textarea id="ap-texte" rows="4" maxlength="200">${esc(defaut)}</textarea>
+      <div class="actions-prop"><small id="ap-octets"></small><button class="principal" id="ap-envoyer">✉️ Envoyer l’invitation</button></div>
+      <div id="ap-retour" class="note"></div>`;
+    const t = $('#ap-texte'), compte = () => { const o = new TextEncoder().encode(t.value).length; $('#ap-octets').textContent = `${o} / 200 octets`; $('#ap-envoyer').disabled = o > 200 || !t.value.trim(); };
+    t.oninput = compte; compte();
+    zone.scrollIntoView({ behavior: 'smooth' });
+    $('#ap-envoyer').onclick = async () => {
+      $('#ap-envoyer').disabled = true;
+      try { await postJson('/api/autres-presets/inviter', { num: n.num, hote: s.hote, port: s.port, texte: t.value }); $('#ap-retour').textContent = '✓ Invitation envoyée. Sa réponse arrivera sur la sentinelle, dans les messages.'; }
+      catch (e) { $('#ap-retour').textContent = '✗ ' + e.message; $('#ap-envoyer').disabled = false; }
+    };
+  }));
+}

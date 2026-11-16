@@ -321,6 +321,26 @@ function simulerUsb() {
 
 // Agent 1.7 « direct » simulé : il annonce un module déjà reconnu, la carte le relie tout de suite ; débranché, il disparaît.
 // Puis l'agent prêt à l'emploi : le programme téléchargé porte l'adresse de la carte et le code à la fin.
+// Nœuds d'un autre preset et écoute UDP : les panneaux s'ouvrent et s'affichent sans erreur
+async function essaiAutresPresets(navig, cookie) {
+  console.log('Nœuds à inviter et écoute UDP');
+  const contexte = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
+  await contexte.addCookies([cookie]);
+  await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(contexte, '/');
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  const t = await page.evaluate(async () => { await ficheAutresPresets(); return document.querySelector('#fiche-contenu').textContent; });
+  if (/Nœuds à inviter/.test(t) && /Votre réseau est en/.test(t) && /Modules sentinelles/.test(t)) ok('panneau « Nœuds à inviter » : preset du réseau, sentinelles, liste'); else ko('panneau « Nœuds à inviter » : ' + t.slice(0, 200));
+  const bouton = await page.evaluate(() => { const b = document.querySelector('#outil-inviter'); return b ? !b.hidden : null; });
+  if (bouton) ok('bouton « Nœuds à inviter » dans Outils pour l’administrateur'); else ko('bouton « Nœuds à inviter » absent');
+  await page.evaluate(() => ouvrirBroker());
+  await page.waitForTimeout(1500);
+  const b = await page.evaluate(() => document.querySelector('#mqtt-contenu').textContent);
+  if (/Modules du réseau local \(UDP\)/.test(b) && /Désactivé/.test(b)) ok('broker : rubrique « Modules du réseau local (UDP) », désactivée par défaut'); else ko('broker : rubrique UDP absente');
+  bilanErreurs(erreurs, 'nœuds à inviter');
+  await contexte.close();
+}
+
 async function essaiAgentDirect(cookie) {
   console.log('Agent zéro question (simulé)');
   const net = require('net');
@@ -451,6 +471,7 @@ async function essaiPagesPubliques(navig) {
     await essaiConsultation(contexte);
     await contexte.close();
     await essaiDemoVisiteur(navigateur);
+    await essaiAutresPresets(navigateur, cookie);
     await essaiAgentDirect(cookie);
     await essaiUsbAuto(navigateur, cookie);
     await essaiEcran150(navigateur);

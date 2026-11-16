@@ -85,11 +85,13 @@ function creerEcoutes({ config, fabriquerRadio, fabriquerCompanion, journal, sur
     if (protocole !== 'meshtastic') for (const c of companions.values()) if (c.cible && c.cible.type === 'agent' && c.cible.hote === hote) c.instance.agentDisponible(hote);
   }
 
+  // Instance d'un module Meshtastic en écoute (envoi d'une invitation par un module « sentinelle »)
+  function radio(hote, port) { const r = radios.get(cleRadio(hote, Number(port))); return r ? r.instance : null; }
   function liste() {
     return {
       meshtastic: [...radios.values()].map((r) => {
         const e = r.instance.etat();
-        return { hote: r.hote, port: r.port, nom: e.nomLocal || r.nom, navigateur: r.navigateur, source: r.source, depuis: r.depuis, connecte: !!e.connecte, noeud: e.noeudLocal, paquets: e.paquets || 0, erreur: e.erreur || null, reprise: e.reprise || null };
+        return { hote: r.hote, port: r.port, nom: e.nomLocal || r.nom, navigateur: r.navigateur, source: r.source, depuis: r.depuis, connecte: !!e.connecte, noeud: e.noeudLocal, paquets: e.paquets || 0, erreur: e.erreur || null, reprise: e.reprise || null, preset: e.preset || null };
       }),
       meshcore: [...companions.values()].map((c) => {
         const e = c.instance.etat();
@@ -113,7 +115,7 @@ function creerEcoutes({ config, fabriquerRadio, fabriquerCompanion, journal, sur
     if (n) journal(`${n} module(s) en écoute`);
   }
 
-  return { ajouterRadio, retirerRadio, estRadio, ajouterCompanion, retirerCompanion, estCompanion, cleCompanion, agentDisponible, liste, demarrer, companions: () => [...companions.values()].map((c) => c.instance) };
+  return { ajouterRadio, retirerRadio, estRadio, radio, ajouterCompanion, retirerCompanion, estCompanion, cleCompanion, agentDisponible, liste, demarrer, companions: () => [...companions.values()].map((c) => c.instance) };
 }
 
 module.exports = { creerEcoutes };
