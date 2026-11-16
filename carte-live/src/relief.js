@@ -1357,9 +1357,35 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     return vide ? null : png(T, T, rgba);
   }
 
+  // ---- Relief en 3D : tuile d'altitudes au format « Terrarium » (MapLibre), calculée à partir du MNT ----------
+  // altitude = R × 256 + V + B / 256 − 32768. Hors du modèle, l'altitude du bord est prolongée (pas de falaise).
+  function terrainTuile(z, x, y) {
+    if (etat.mnt !== 'pret' || !Z) return null;
+    const n = 2 ** z, T = 256;
+    const lonDeX = (px) => (px / (n * T)) * 360 - 180;
+    const latDeY = (py) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * py) / (n * T)))) * 180) / Math.PI;
+    const nord = latDeY(y * T), sud = latDeY((y + 1) * T), ouest = lonDeX(x * T), est = lonDeX((x + 1) * T);
+    const e = { sud: emprise.sud, ouest: emprise.ouest, nord: emprise.sud + (nLat - 1) * pasLat, est: emprise.ouest + (nLon - 1) * pasLon };
+    if (sud > e.nord || nord < e.sud || ouest > e.est || est < e.ouest) return null;
+    const borne = (v, a, b) => Math.min(Math.max(v, a), b);
+    const rgba = Buffer.alloc(T * T * 4);
+    for (let j = 0; j < T; j++) {
+      const lat = borne(latDeY(y * T + j + 0.5), e.sud, e.nord - 1e-9);
+      for (let i = 0; i < T; i++) {
+        let h = alt(lat, borne(lonDeX(x * T + i + 0.5), e.ouest, e.est - 1e-9));
+        if (!Number.isFinite(h)) h = 0;
+        const v = Math.min(Math.max(h + 32768, 0), 65535.99);
+        const k = (j * T + i) * 4;
+        rgba[k] = Math.floor(v / 256); rgba[k + 1] = Math.floor(v) % 256; rgba[k + 2] = 0; rgba[k + 3] = 255; // au mètre près : la tuile se compresse bien mieux
+      }
+    }
+    return png(T, T, rgba);
+  }
+
   return {
     code: codeDep,
     ombrageTuile,
+    terrainTuile,
     arreter: () => { arrete = true; for (const m of minuteries) { clearTimeout(m); clearInterval(m); } try { acces.arreter(); } catch { /* déjà */ } },
     accesEtat: () => acces.etat(),
     etat: () => ({ ...etat, departement: { code: codeDep, nom: options.nom || (options.code ? nomDepartement(codeDep) : config.zoneNom) }, zone: z0, grille: { nLat, nLon, pasM: 250 }, calibration: calibration && { liaisons: calibration.liaisons, ecartMedianDb: calibration.ecartMedianDb, perteEnvironnementDb: calibration.perteEnvironnementDb } }),

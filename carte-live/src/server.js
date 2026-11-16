@@ -201,6 +201,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use('/vendor/leaflet', express.static(path.join(path.dirname(require.resolve('leaflet/package.json')), 'dist'), { maxAge: '7d' }));
+app.use('/vendor/maplibre', express.static(path.join(path.dirname(require.resolve('maplibre-gl/package.json')), 'dist'), { maxAge: '7d' }));
 app.use('/vendor/protomaps-leaflet', express.static(path.join(path.dirname(require.resolve('protomaps-leaflet/package.json')), 'dist'), { maxAge: '7d' }));
 // Pages : jamais gardées en cache, et leurs feuilles de style et scripts portent le numéro de version
 // (après une mise à jour, le navigateur charge forcément les nouveaux fichiers, sans Ctrl+F5)
@@ -2043,6 +2044,22 @@ app.get('/fonds/fond.pmtiles', (req, res) => {
   const f = fondsHorsLigne.fichier();
   if (!f) return res.status(404).end();
   res.sendFile(f, { acceptRanges: true, cacheControl: true, maxAge: '1d' });
+});
+// Altitudes pour la vue 3D (format Terrarium) : grille de 250 m, inutile au-delà du zoom 12
+const cacheTerrain = new Map();
+app.get('/api/relief/terrain/:z/:x/:y.png', (req, res) => {
+  const [z, x, y] = ['z', 'x', 'y'].map((k) => Number(req.params[k]));
+  if (![z, x, y].every(Number.isInteger) || z < 5 || z > 12) return res.status(404).end();
+  if (!relief.pret()) return res.status(404).end();
+  const cle = `${z}/${x}/${y}`;
+  let t = cacheTerrain.get(cle);
+  if (t === undefined) {
+    try { t = relief.terrainTuile(z, x, y); } catch { t = null; }
+    cacheTerrain.set(cle, t);
+    if (cacheTerrain.size > 600) cacheTerrain.delete(cacheTerrain.keys().next().value);
+  }
+  if (!t) return res.status(404).end();
+  res.set('Content-Type', 'image/png').set('Cache-Control', 'public, max-age=86400').send(t);
 });
 const cacheOmbrage = new Map();
 app.get('/api/relief/ombrage/:z/:x/:y.png', (req, res) => {
