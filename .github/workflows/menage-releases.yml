@@ -1,0 +1,48 @@
+# Ménage des releases : garde la dernière version et « relief-france », supprime les autres pages de release.
+# Les tags Git et les images Docker ne sont pas touchés. Lancement manuel uniquement (onglet Actions).
+name: Ménage des releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmer:
+        description: 'Tapez SUPPRIMER pour confirmer (garde la dernière version et relief-france)'
+        required: true
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  menage:
+    if: github.event.inputs.confirmer == 'SUPPRIMER'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DEPOT: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Ajouter l'historique à la note de la dernière version
+        run: |
+          derniere=$(gh api "repos/$DEPOT/releases/latest" --jq .tag_name)
+          echo "Dernière version : $derniere"
+          id=$(gh api "repos/$DEPOT/releases/latest" --jq .id)
+          gh api "repos/$DEPOT/releases/latest" --jq .body > note.md
+          if ! grep -q "Historique des versions précédentes" note.md; then
+            printf '\n' >> note.md
+            cat .github/historique-releases.md >> note.md
+            jq -Rs '{body: .}' note.md > corps.json
+            gh api -X PATCH "repos/$DEPOT/releases/$id" --input corps.json --jq .tag_name
+          fi
+          echo "DERNIERE=$derniere" >> "$GITHUB_ENV"
+      - name: Supprimer les autres releases (les tags restent)
+        run: |
+          gh api "repos/$DEPOT/releases?per_page=100" --paginate --jq '.[].tag_name' | while read -r tag; do
+            if [ "$tag" = "$DERNIERE" ] || [ "$tag" = "relief-france" ]; then
+              echo "Gardée : $tag"
+            else
+              gh release delete "$tag" -R "$DEPOT" --yes && echo "Supprimée : $tag"
+            fi
+          done
+          echo "Restent :"; gh api "repos/$DEPOT/releases?per_page=100" --jq '.[].tag_name'
+          echo "Tags conservés : $(gh api "repos/$DEPOT/tags?per_page=100" --paginate --jq '.[].name' | wc -l)"
