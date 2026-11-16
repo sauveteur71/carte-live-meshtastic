@@ -5,10 +5,17 @@ Petit programme (Windows, Linux, Raspberry Pi) qui relie à la carte :
 - un module **Wi-Fi d'un autre réseau** (autre maison) ;
 - et, depuis la version **1.6**, **n'importe quel module Wi-Fi de son réseau local**, joint par son adresse IP depuis *Connecter un module*.
 
-## Installation
+## Agent prêt à l'emploi (1.7) : aucune question
+1. Dans la carte, *Réseau › Modules › Module par agent* : **⬇️ Agent prêt à l'emploi** (Windows, Linux, Raspberry Pi). Le fichier téléchargé contient déjà l'adresse de la carte et le code secret. Téléchargez-le depuis l'adresse **Tailscale ou locale** de la carte (le port 4404 n'est jamais ouvert sur la box).
+2. Lancez-le (sous Linux : `chmod +x` d'abord). Sous Windows, il s'installe tout seul au démarrage ; Windows peut prévenir que le programme n'est pas signé (« Informations complémentaires » › « Exécuter quand même »).
+3. **Branchez un module en USB** : Meshtastic ou companion MeshCore, il est reconnu et relié tout de suite à la carte. Débranché, il est libéré et la carte revient au module d'avant ; le suivant branché prend sa place.
+
+Seules les puces USB des modules LoRa courants sont interrogées (CP210x, CH340, FTDI, ESP32-S3, nRF52, RP2040…) : rien n'est envoyé à une imprimante 3D ou à un Arduino. Options : `-ecoute` (modules en écoute plutôt que principaux), `-tous-ports` (interroger tous les ports USB-série), `-sans-detection`.
+
+## Installation classique (questions au premier lancement)
 1. Téléchargez l'agent depuis la carte : `/agent/agent-gaulix-windows.exe` (ou les versions Linux et Raspberry Pi).
 2. Lancez-le. Il demande l'**adresse du serveur** (port 4404, par le réseau local ou Tailscale) et le **code des agents** affiché dans la carte (*Réseau › Modules radio › Module par agent*).
-3. Ajoutez vos connexions : port USB (`COM5`, `/dev/ttyACM0`) ou adresse Wi-Fi d'un module.
+3. Les modules USB sont ensuite reconnus en les branchant ; `-configurer` permet d'ajouter un module Wi-Fi d'un autre réseau.
 
 Sous Windows, il propose de se lancer tout seul à l'ouverture de session.
 

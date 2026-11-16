@@ -35,6 +35,7 @@ const CATALOGUE = [
   { nom: 'LIEN_DISTANCE_MAX_KM', groupe: 'Seuils et alertes', libelle: 'Liaison directe jugée impossible au-delà de (km)', type: 'nombre', min: 5, max: 1000, defaut: 120 },
   // Messages et MQTT
   { nom: 'CANAUX_TEXTE', groupe: 'Messages et MQTT', libelle: 'Canaux dont les messages sont conservés', type: 'texte', aide: 'Séparés par des virgules. Vide = tous les canaux déchiffrés.' },
+  { nom: 'UDP_MESHTASTIC', groupe: 'Messages et MQTT', libelle: 'Écouter les modules Meshtastic du réseau local (UDP multicast)', type: 'choix', choix: OUI_NON, aide: 'Les modules en Wi-Fi réglés sur « UDP » (Réseau › Protocoles, firmware 2.6+) diffusent ce qu’ils entendent : la carte écoute sans occuper le module. Docker : réseau « host » nécessaire.' },
   { nom: 'MQTT_TLS_NON_VERIFIE', groupe: 'Messages et MQTT', libelle: 'Accepter un certificat auto-signé (mqtts, wss)', type: 'choix', choix: OUI_NON, aide: 'Déconseillé : la connexion n’est plus authentifiée.' },
   // Module radio
   { nom: 'RADIO_PAUSE_MINUTES', groupe: 'Module radio', libelle: 'Pause de la carte quand une appli utilise le module (min)', type: 'nombre', min: 1, max: 240, defaut: 10 },

@@ -2240,6 +2240,7 @@ app.get('/api/mqtt', (req, res) => {
     connecte: !!(clientMqtt && clientMqtt.connected), depuis: statsMqtt.depuis, reconnexions: statsMqtt.reconnexions, derniereErreur: statsMqtt.derniereErreur,
     brokersReglage: config.mqtt.brokers.map((b) => b.url.replace(/\/\/([^:@/]*):[^@/]*@/, '//$1:***@') + (b.racine ? '|' + b.racine : '')).join('\n'),
     brokersSupplementaires: (typeof brokersSup !== 'undefined' ? brokersSup : []).map((b) => b.etat), doublonsIgnores: compteur.doublons || 0,
+    udp: typeof udpMt !== 'undefined' ? { ...udpMt.etat(), demande: String(process.env.UDP_MESHTASTIC || 'non').toLowerCase() === 'oui', noeuds: Object.fromEntries([...ipVersNoeud.entries()].map(([ip, n]) => [ip, noeuds.get('!' + n.toString(16).padStart(8, '0')) || '!' + n.toString(16).padStart(8, '0')])) } : null,
     dernierMessage: statsMqtt.dernierMessage, parMinute: +(n10 / 10).toFixed(1), ...compteur,
     passerelles: [...statsMqtt.passerelles.entries()].sort((a, b) => b[1].derniere - a[1].derniere).slice(0, 40).map(([id, e]) => ({ id, nom: noeuds.get(id) || null, ...e })),
     canaux: [...statsMqtt.canaux.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([canal, messages]) => ({ canal, messages })),
@@ -2963,6 +2964,10 @@ function traiterMessageMqtt(topic, message) {
   compteur.recus++;
   if (config.meshcore.actif && topic.startsWith(prefixeMc)) { compteurMc.recusMqtt = (compteurMc.recusMqtt || 0) + 1; try { messageMc(topic, message); } catch (e) { compteurMc.erreurs++; journal('Erreur MeshCore :', e.message, topic); } return; }
   noterMessageMqtt(topic);
+  traiterEnveloppeMt(topic, message);
+}
+// Enveloppe Meshtastic (MQTT, ou paquet du réseau local remis sous forme d'enveloppe) : décodage puis carte
+function traiterEnveloppeMt(topic, message) {
   try {
     const evt = decoderMessage(topic, message, canaux);
     if (!evt) return;
@@ -2978,6 +2983,27 @@ function traiterMessageMqtt(topic, message) {
     journal('Erreur de traitement :', e.message, topic);
   }
 }
+
+// ---- Modules Meshtastic du réseau local, écoutés par UDP multicast (UDP_MESHTASTIC=oui) ---------------------------
+// Le module qui diffuse est repéré par ses propres paquets (sans mesure radio) : il devient la « passerelle » des paquets
+// qu'il entend, comme une passerelle MQTT.
+const { creerUdpMeshtastic } = require('./udp-meshtastic');
+const ipVersNoeud = new Map();
+const udpMt = creerUdpMeshtastic({
+  types: { MeshPacket: require('./decodeur').racine.lookupType('meshtastic.MeshPacket') },
+  journal: (...a) => journal('[UDP]', ...a),
+  surPaquet: (p, ip) => {
+    const de = p.from >>> 0;
+    if (!p.rxSnr && !p.rxRssi && (!p.hopStart || p.hopStart === p.hopLimit)) ipVersNoeud.set(ip, de);
+    const gw = ipVersNoeud.get(ip);
+    const gatewayId = gw != null ? '!' + gw.toString(16).padStart(8, '0') : undefined;
+    const env = ServiceEnvelopeUdp.encode({ packet: p, gatewayId }).finish();
+    compteur.udp = (compteur.udp || 0) + 1;
+    traiterEnveloppeMt(`udp/2/e/LAN/${gatewayId || ip}`, Buffer.from(env));
+  },
+});
+const ServiceEnvelopeUdp = require('./decodeur').types.ServiceEnvelope;
+if (String(process.env.UDP_MESHTASTIC || 'non').toLowerCase() === 'oui') udpMt.demarrer();
 
 // ---- Tâches périodiques ---------------------------------------------------
 let dernieresAlertes = [];
