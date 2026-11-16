@@ -25,6 +25,7 @@ Carte en temps réel, supervision et **administration à distance** d'un réseau
 - [[MeshCore]] : companion, répéteurs, traces, régions, republication MQTT.
 - [[Comptes et sécurité]] : rôles, gestionnaires de secteur, double authentification, journal.
 - [[Archive PostgreSQL]] : historique complet, conservation, taille maximale.
+- [[Domotique et supervision]] : Home Assistant, Node-RED (y compris envoyer un message LoRa), Prometheus / Grafana pour surveiller les relais, modules Wi-Fi retrouvés par mDNS.
 
 ## Aide
 

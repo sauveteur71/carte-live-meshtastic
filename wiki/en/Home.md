@@ -25,6 +25,7 @@ Real-time map, monitoring and **remote administration** of a [Meshtastic](https:
 - [[MeshCore]]: companion, repeaters, traces, regions, MQTT republishing.
 - [[Accounts and security|Comptes et sécurité]]: roles, area managers, two-factor authentication, log.
 - [[PostgreSQL archive|Archive PostgreSQL]]: full history, retention, maximum size.
+- [[Home automation and monitoring|Domotique-et-supervision]]: Home Assistant, Node-RED (including sending a LoRa message), Prometheus / Grafana to watch the relays, Wi-Fi nodes found by mDNS.
 - [[Versions and compatibility|Versions et compatibilité]]: supported firmware, Meshtastic 2.8.
 
 ## Help

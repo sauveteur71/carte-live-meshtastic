@@ -1138,6 +1138,26 @@ app.post('/api/connexion/ip', async (req, res) => {
 });
 
 let scanEnCours = false;
+// Modules Meshtastic en Wi-Fi annoncés par mDNS (_meshtastic._tcp) : ajoutés à la liste des modules (sans connexion),
+// au démarrage puis toutes les 15 minutes, et à chaque « Rechercher »
+const { chercherMeshtastic } = require('./mdns');
+let derniersMdns = [];
+async function chercherModulesMdns() {
+  try {
+    derniersMdns = await chercherMeshtastic();
+    const connus = sourceRadio.modules().modules || [];
+    for (const m of derniersMdns) {
+      const ex = connus.find((x) => x.hote === m.hote && x.port === m.port);
+      if (!ex) journal(`[mDNS] module Meshtastic trouvé : ${m.nom} (${m.hote}:${m.port})`);
+      if (!ex || !ex.nom) sourceRadio.ajouterModule(m.hote, m.port, m.nom); // le nom choisi par l'administrateur reste
+    }
+  } catch (e) { journal('[mDNS]', e.message); }
+  return derniersMdns;
+}
+if (String(process.env.MDNS_MESHTASTIC || 'oui').toLowerCase() !== 'non') {
+  setTimeout(chercherModulesMdns, 20000).unref();
+  setInterval(chercherModulesMdns, 15 * 60000).unref();
+}
 app.post('/api/radio/scanner', async (req, res) => {
   if (!exigerAdmin(req, res)) return;
   const prefixe = String((req.body || {}).prefixe || '');
@@ -1145,7 +1165,11 @@ app.post('/api/radio/scanner', async (req, res) => {
   if (!/^(192\.168\.\d{1,3}|10\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3})$/.test(prefixe)) return res.status(400).json({ erreur: 'Réseau privé attendu, ex. 192.168.0' });
   if (scanEnCours) return res.status(409).json({ erreur: 'Recherche déjà en cours' });
   scanEnCours = true;
-  try { res.json({ trouves: await sourceRadio.scanner(prefixe), ...sourceRadio.modules() }); } finally { scanEnCours = false; }
+  try {
+    // Sondage du port 4403 et, en même temps, annonces mDNS des modules (nom du module, même sur un autre réseau Wi-Fi local)
+    const [trouves, mdns] = await Promise.all([sourceRadio.scanner(prefixe), chercherModulesMdns()]);
+    res.json({ trouves: [...new Set([...trouves, ...mdns.map((m) => m.hote)])], mdns, ...sourceRadio.modules() });
+  } finally { scanEnCours = false; }
 });
 
 // ---- Administration des nœuds par LoRa (admin) ---------------------------------------------
@@ -2241,6 +2265,7 @@ app.get('/api/mqtt', (req, res) => {
     connecte: !!(clientMqtt && clientMqtt.connected), depuis: statsMqtt.depuis, reconnexions: statsMqtt.reconnexions, derniereErreur: statsMqtt.derniereErreur,
     brokersReglage: config.mqtt.brokers.map((b) => b.url.replace(/\/\/([^:@/]*):[^@/]*@/, '//$1:***@') + (b.racine ? '|' + b.racine : '')).join('\n'),
     brokersSupplementaires: (typeof brokersSup !== 'undefined' ? brokersSup : []).map((b) => b.etat), doublonsIgnores: compteur.doublons || 0,
+    domotique: typeof domotique !== 'undefined' ? domotique.etat() : null,
     udp: typeof udpMt !== 'undefined' ? { ...udpMt.etat(), demande: String(process.env.UDP_MESHTASTIC || 'non').toLowerCase() === 'oui', noeuds: Object.fromEntries([...ipVersNoeud.entries()].map(([ip, n]) => [ip, noeuds.get('!' + n.toString(16).padStart(8, '0')) || '!' + n.toString(16).padStart(8, '0')])) } : null,
     dernierMessage: statsMqtt.dernierMessage, parMinute: +(n10 / 10).toFixed(1), ...compteur,
     passerelles: [...statsMqtt.passerelles.entries()].sort((a, b) => b[1].derniere - a[1].derniere).slice(0, 40).map(([id, e]) => ({ id, nom: noeuds.get(id) || null, ...e })),
@@ -3105,6 +3130,7 @@ function diffuserEtatMc() {
   alertesMc = reseauMc.calculerAlertes({ administres: adminMc.memorises(), companion: { cible: c.cible || c.navigateur, connecte: c.connecte, nom: c.nom, cle: c.cle, erreur: c.erreur } });
   try { alertesMc = [...alertesMc, ...capteursMc.alertes(nomNoeudMc)]; } catch (e) { journal('alertes des capteurs :', e.message); }
   try { if (typeof maintenanceMc !== 'undefined') alertesMc = [...alertesMc, ...maintenanceMc.alertes()]; } catch (e) { journal('alertes de maintenance :', e.message); }
+  try { alertesMc = [...alertesMc, ...adminMc.alertesSupervision()]; } catch (e) { journal('alertes de supervision :', e.message); }
   diffuser({ genre: 'mc-etat', ...etatMc(false) });
 }
 function planifierEtatMc() { if (!minuterieEtatMc) minuterieEtatMc = setTimeout(() => { minuterieEtatMc = null; diffuserEtatMc(); }, 15000); } // statuts d'observateurs fréquents : au plus toutes les 15 s
@@ -3867,7 +3893,7 @@ app.post('/api/federation/partenaires', async (req, res) => {
 app.delete('/api/federation/partenaires', (req, res) => { if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); federation.retirer(String(req.query.url || '')); res.json({ ok: true }); });
 
 // ---- Exports et intégrations (GeoJSON, Prometheus/Grafana, Home Assistant) ------------------------
-const exportsCarte = creerExports({ config, stockage, reseau, reseauMc, maintenance, santeCarte: { etat: () => santeCarte.etat() }, relief, alertes: () => dernieresAlertes });
+const exportsCarte = creerExports({ config, stockage, reseau, reseauMc, maintenance, santeCarte: { etat: () => santeCarte.etat() }, relief, alertes: () => dernieresAlertes, alertesMc: () => (config.meshcore.actif ? alertesMc : []), adminMc });
 const exporter = (f, type) => (req, res) => {
   if (!exportsCarte.jetonOk(req)) return res.status(401).json({ erreur: 'Jeton d’export requis (?jeton=…)' });
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -3880,6 +3906,31 @@ app.get('/api/export/resume.json', exporter(() => exportsCarte.resume(), 'applic
 app.get('/publique', envoyerPage('publique.html'));
 app.get('/metrics', exporter(() => exportsCarte.metriques(), 'text'));
 app.get('/api/export/relais.gpx', exporter(() => exportsCarte.relaisGpx(), 'application/gpx+xml'));
+
+// ---- Domotique : Home Assistant et Node-RED par MQTT (DOMOTIQUE_MQTT_URL) --------------------------------------
+const domotique = require('./domotique').creerDomotique({
+  mqtt, version: VERSION, nomCarte: String(config.titre || 'Carte live'), journal,
+  resume: () => exportsCarte.resume(),
+  alertes: () => [...dernieresAlertes, ...(config.meshcore.actif ? alertesMc : [])],
+  noeuds: () => {
+    const t = Date.now();
+    const l = stockage.q.noeuds.all().filter((n) => reseau.estSurveille(n)).map((n) => {
+      const v = reseau.vueNoeud(n, false, t);
+      return { id: n.id, nom: n.nom_long || n.nom_court || n.id, reseau: 'meshtastic', role: n.role, vu: n.dernier_vu, enLigne: !!n.dernier_vu && t - n.dernier_vu <= config.seuils.muetMinutes * 60000, batterie: n.batterie != null && n.batterie <= 100 ? n.batterie : null, tension: n.tension, lat: v.lat, lon: v.lon };
+    });
+    if (config.meshcore.actif) {
+      try {
+        for (const n of reseauMc.surveilles(adminMc.memorises())) l.push({ id: 'mc-' + n.cle.slice(0, 12), nom: n.nom || n.cle.slice(0, 8), reseau: 'meshcore', role: n.role, vu: n.dernier_vu, enLigne: !!n.dernier_vu && t - n.dernier_vu <= config.meshcore.muetHeures * 3600000, lat: n.lat, lon: n.lon });
+      } catch (e) { journal('[Domotique]', e.message); }
+    }
+    return l.slice(0, 300);
+  },
+  envoyer: (b) => {
+    const r = administration.envoyerTexte(b, 'domotique');
+    setTimeout(() => diffuser({ genre: 'statut' }), 500);
+    return r;
+  },
+});
 
 // ---- Historique long (résumés horaires et journaliers) ---------------------------------------
 const historique = creerHistorique(stockage.db, config, {

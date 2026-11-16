@@ -521,6 +521,14 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     t.courant = null;
     const res = Object.values(t.resultats);
     t.statut = t.arret ? 'annule' : res.length && res.every((r) => r.ok) && res.length === t.cles.length ? 'ok' : 'echec';
+    // Supervision : répéteurs qui ne répondent plus à la demande d'état (essais successifs sans réponse)
+    if (t.auteur === 'supervision' && t.type === 'statut' && !t.arret) {
+      for (const c of t.cles) {
+        const r = t.resultats[c];
+        if (r && r.ok) sansReponse.delete(c);
+        else { const x = sansReponse.get(c) || { essais: 0, depuis: Date.now(), nom: (t.noms && t.noms[c]) || null }; x.essais++; x.dernier = Date.now(); sansReponse.set(c, x); }
+      }
+    }
     // Bilan dans le journal : nœud par nœud, réussite ou raison de l'échec (dernière étape en erreur)
     if (t.auteur !== 'supervision' || t.statut !== 'ok') {
       const nom = (c) => (t.noms && t.noms[c]) || String(c).slice(0, 8);
@@ -562,6 +570,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
 
   // Supervision : interrogation périodique de l'état des répéteurs surveillés, quand le companion est relié
   let derniereSupervision = 0;
+  const sansReponse = new Map(); // clé -> { essais, depuis, dernier, nom }
   setInterval(() => {
     const h = config.meshcore.supervisionHeures;
     if (!h || enCours || file.length || !companion.etat().pret || Date.now() - derniereSupervision < h * 3600000) return;
@@ -620,7 +629,18 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     modeles: () => modeles,
     enregistrerModele,
     supprimerModele(id) { modeles = modeles.filter((x) => x.id !== id); ecrire(fModeles, modeles); },
-    supervision: () => ({ derniere: derniereSupervision || null, intervalleHeures: config.meshcore.supervisionHeures }),
+    supervision: () => ({ derniere: derniereSupervision || null, intervalleHeures: config.meshcore.supervisionHeures, sansReponse: Object.fromEntries(sansReponse) }),
+    // Alerte quand un répéteur ne répond plus à 2 supervisions de suite (il peut être entendu, mais ne répond plus)
+    alertesSupervision() {
+      const l = [];
+      for (const [cle, x] of sansReponse) {
+        if (x.essais < 2) continue;
+        const n = reseauMc.q.noeud.get(cle);
+        const nom = (n && n.nom) || x.nom || cle.slice(0, 8);
+        l.push({ cle: 'mc-supervision:' + cle, noeud: cle, type: 'sans-reponse', niveau: 'attention', nom, depuis: x.depuis, message: `Répéteur MeshCore ${nom} : pas de réponse à ${x.essais} demandes d’état de suite` });
+      }
+      return l;
+    },
     lancer,
     existe: (cle) => !!reseauMc.q.noeud.get(String(cle).toUpperCase()),
     tache: (id) => { const t = taches.get(id); return t ? vue(t) : null; },

@@ -3,7 +3,7 @@
 // Mêmes règles de confidentialité que la carte publique : positions des clients arrondies, pas de messages.
 // Si EXPORT_JETON est défini, chaque export exige ?jeton=… ou l'en-tête « Authorization: Bearer … ».
 
-function creerExports({ config, stockage, reseau, reseauMc, maintenance, santeCarte, relief, alertes }) {
+function creerExports({ config, stockage, reseau, reseauMc, maintenance, santeCarte, relief, alertes, alertesMc = () => [], adminMc = null }) {
   const jetonOk = (req) => {
     const j = config.exportJeton;
     if (!j) return true;
@@ -77,6 +77,30 @@ function creerExports({ config, stockage, reseau, reseauMc, maintenance, santeCa
     g('processeur_pourcent', 'Processeur utilisé par la carte', [['', r.carte.processeurPct]]);
     g('memoire_mo', 'Mémoire utilisée par la carte', [['', r.carte.memoireMo]]);
     g('mqtt_connecte', 'Broker MQTT connecté (1/0)', [['', r.carte.mqttConnecte ? 1 : 0]]);
+    // Nœuds surveillés (relais, passerelles, nœuds suivis) : un relevé par nœud, pour alerter depuis Prometheus /
+    // Alertmanager quand l'un d'eux se tait (même principe que mesh-metrics)
+    const t = Date.now();
+    const mt = stockage.q.noeuds.all().filter((n) => reseau.estSurveille(n));
+    const lt = (n) => `{reseau="meshtastic",id="${e(n.id)}",nom="${e(n.nom_long || n.nom_court || n.id)}",role="${e(n.role || '')}"}`;
+    let mc = [];
+    try { if (config.meshcore.actif) mc = reseauMc.surveilles(adminMc ? adminMc.memorises() : []); } catch { /* MeshCore pas prêt */ }
+    const lc = (n) => `{reseau="meshcore",id="${e(n.cle.slice(0, 12))}",nom="${e(n.nom || n.cle.slice(0, 8))}",role="${e(n.role || '')}"}`;
+    const age = (v) => (v ? Math.round((t - v) / 1000) : null);
+    g('noeud_vu_secondes', 'Secondes depuis le dernier paquet entendu du nœud', [...mt.map((n) => [lt(n), age(n.dernier_vu)]), ...mc.map((n) => [lc(n), age(n.dernier_vu)])]);
+    g('noeud_en_ligne', 'Nœud surveillé entendu récemment (1/0)', [
+      ...mt.map((n) => [lt(n), n.dernier_vu && t - n.dernier_vu <= config.seuils.muetMinutes * 60000 ? 1 : 0]),
+      ...mc.map((n) => [lc(n), n.dernier_vu && t - n.dernier_vu <= config.meshcore.muetHeures * 3600000 ? 1 : 0]),
+    ]);
+    g('noeud_batterie_pourcent', 'Batterie du nœud', mt.filter((n) => n.batterie != null && n.batterie <= 100).map((n) => [lt(n), n.batterie]));
+    g('noeud_tension_volts', 'Tension du nœud', mt.map((n) => [lt(n), n.tension]));
+    if (adminMc) {
+      const sup = (adminMc.supervision() || {}).sansReponse || {};
+      g('meshcore_etat_lu_secondes', 'Secondes depuis la dernière réponse du répéteur à une demande d’état', mc.map((n) => [lc(n), age(((adminMc.lecture(n.cle) || {}).statut || {}).heure)]));
+      g('meshcore_sans_reponse', 'Demandes d’état restées sans réponse de suite', mc.map((n) => [lc(n), (sup[n.cle] || {}).essais || 0]));
+    }
+    let toutes = [];
+    try { toutes = [...alertes(), ...alertesMc()]; } catch { /* ignoré */ }
+    g('alerte_active', 'Alerte active (une ligne par alerte)', toutes.map((a, i) => [`{cle="${e(a.cle || a.num || i)}",type="${e(a.type || '')}",niveau="${e(a.niveau || '')}",nom="${e(a.nom || '')}"}`, 1]));
     return l.join('\n') + '\n';
   }
 

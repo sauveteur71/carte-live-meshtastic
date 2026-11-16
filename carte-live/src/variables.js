@@ -37,7 +37,16 @@ const CATALOGUE = [
   { nom: 'CANAUX_TEXTE', groupe: 'Messages et MQTT', libelle: 'Canaux dont les messages sont conservés', type: 'texte', aide: 'Séparés par des virgules. Vide = tous les canaux déchiffrés.' },
   { nom: 'UDP_MESHTASTIC', groupe: 'Messages et MQTT', libelle: 'Écouter les modules Meshtastic du réseau local (UDP multicast)', type: 'choix', choix: OUI_NON, aide: 'Les modules en Wi-Fi réglés sur « UDP » (Réseau › Protocoles, firmware 2.6+) diffusent ce qu’ils entendent : la carte écoute sans occuper le module. Docker : réseau « host » nécessaire.' },
   { nom: 'MQTT_TLS_NON_VERIFIE', groupe: 'Messages et MQTT', libelle: 'Accepter un certificat auto-signé (mqtts, wss)', type: 'choix', choix: OUI_NON, aide: 'Déconseillé : la connexion n’est plus authentifiée.' },
+  // Domotique (Home Assistant, Node-RED)
+  { nom: 'DOMOTIQUE_MQTT_URL', groupe: 'Domotique (Home Assistant, Node-RED)', libelle: 'Broker MQTT de la domotique', type: 'texte', aide: 'Par exemple mqtt://homeassistant.local:1883 (le broker « Mosquitto » de Home Assistant). Vide = pas de publication vers la domotique.' },
+  { nom: 'DOMOTIQUE_MQTT_UTILISATEUR', groupe: 'Domotique (Home Assistant, Node-RED)', libelle: 'Utilisateur du broker de la domotique', type: 'texte' },
+  { nom: 'DOMOTIQUE_MQTT_MOT_DE_PASSE', groupe: 'Domotique (Home Assistant, Node-RED)', libelle: 'Mot de passe du broker de la domotique', type: 'secret' },
+  { nom: 'DOMOTIQUE_RACINE', groupe: 'Domotique (Home Assistant, Node-RED)', libelle: 'Racine des sujets publiés', type: 'texte', aide: 'Par défaut carte-live : carte-live/etat, carte-live/alertes, carte-live/alerte, carte-live/noeud/…, carte-live/envoyer.' },
+  { nom: 'DOMOTIQUE_DECOUVERTE', groupe: 'Domotique (Home Assistant, Node-RED)', libelle: 'Découverte automatique par Home Assistant', type: 'choix', choix: OUI_NON, aide: 'Par défaut oui : Home Assistant crée tout seul les capteurs, les relais et leur position.' },
+  { nom: 'DOMOTIQUE_ENVOI_LORA', groupe: 'Domotique (Home Assistant, Node-RED)', libelle: 'Accepter les messages à envoyer en LoRa', type: 'choix', choix: OUI_NON, aide: 'Par défaut non. Un message publié sur carte-live/envoyer part par le module radio (200 octets au plus, un toutes les 20 s).' },
+  { nom: 'DOMOTIQUE_CANAL_ENVOI', groupe: 'Domotique (Home Assistant, Node-RED)', libelle: 'Canal Meshtastic des messages de la domotique', type: 'nombre', min: 0, max: 7, defaut: 0 },
   // Module radio
+  { nom: 'MDNS_MESHTASTIC', groupe: 'Module radio', libelle: 'Retrouver les modules Wi-Fi du réseau local (mDNS)', type: 'choix', choix: OUI_NON, aide: 'Par défaut oui : les modules Meshtastic en Wi-Fi qui s’annoncent sur le réseau local sont ajoutés tout seuls à la liste des modules (sans connexion).' },
   { nom: 'RADIO_PAUSE_MINUTES', groupe: 'Module radio', libelle: 'Pause de la carte quand une appli utilise le module (min)', type: 'nombre', min: 1, max: 240, defaut: 10 },
   { nom: 'TRACEROUTE_ESPACEMENT_SECONDES', groupe: 'Module radio', libelle: 'Écart entre deux traceroutes automatiques (s)', type: 'nombre', min: 30, max: 3600, defaut: 90 },
   { nom: 'TRACEROUTE_EMISSION_MAX_POURCENT', groupe: 'Module radio', libelle: 'Pas de traceroute si le module émet plus de (%)', type: 'nombre', min: 1, max: 100, defaut: 6 },

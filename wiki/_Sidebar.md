@@ -21,6 +21,7 @@
 - [[Passerelle inter-réseaux]]
 - [[Comptes et sécurité]]
 - [[Archive PostgreSQL]]
+- [[Domotique et supervision]]
 
 **Aide**
 - [[Dépannage]]
