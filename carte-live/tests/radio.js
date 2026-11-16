@@ -242,6 +242,86 @@ test('Nœuds d’un autre preset : preset déduit du canal MQTT par défaut, lis
   fs.rmSync(dossier, { recursive: true, force: true });
 });
 
+test('Domotique : découverte Home Assistant, état, relais et message LoRa reçu de la domotique', () => {
+  const { EventEmitter } = require('events');
+  const { creerDomotique, lireReglages } = require('../src/domotique');
+  const publies = [];
+  const client = Object.assign(new EventEmitter(), {
+    publish: (sujet, charge, o) => publies.push({ sujet, charge, garder: !!(o && o.retain) }),
+    subscribe: () => {}, end: () => {},
+  });
+  const envois = [];
+  const d = creerDomotique({
+    mqtt: { connect: () => client },
+    reglages: lireReglages({ DOMOTIQUE_MQTT_URL: 'mqtt://ha.local:1883', DOMOTIQUE_ENVOI_LORA: 'oui', DOMOTIQUE_CANAL_ENVOI: '2' }),
+    resume: () => ({ noeudsActifs: 12, passerellesEnLigne: 3, alertes: 1, alertesCritiques: 1 }),
+    alertes: () => [{ cle: 'muet:1', type: 'muet', niveau: 'critique', nom: 'Relais Mézenc', message: 'muet' }],
+    noeuds: () => [{ id: '!a1b2c3d4', nom: 'Relais Mézenc', reseau: 'meshtastic', role: 'ROUTER', vu: 1763280000000, enLigne: true, batterie: 87, tension: 4.1, lat: 44.9, lon: 4.2 }],
+    envoyer: (b) => { envois.push(b); return { id: 42 }; },
+  });
+  client.emit('connect');
+  const sujets = publies.map((p) => p.sujet);
+  assert.ok(sujets.includes('carte-live/disponibilite'));
+  const etat = publies.find((p) => p.sujet === 'carte-live/etat');
+  assert.equal(JSON.parse(etat.charge).noeudsActifs, 12);
+  assert.ok(etat.garder);
+  assert.ok(sujets.includes('homeassistant/binary_sensor/carte-live/alerte_critique/config'));
+  assert.ok(sujets.includes('homeassistant/text/carte-live/message_lora/config'));
+  assert.ok(sujets.includes('homeassistant/device_tracker/carte-live/noeud_a1b2c3d4/config'));
+  const n = JSON.parse(publies.find((p) => p.sujet === 'carte-live/noeud/a1b2c3d4').charge);
+  assert.equal(n.batterie, 87);
+  assert.equal(n.enLigne, true);
+  // Message de la domotique : envoyé sur le canal réglé ; un second trop tôt est refusé
+  client.emit('message', 'carte-live/envoyer', Buffer.from('Test depuis Home Assistant'));
+  client.emit('message', 'carte-live/envoyer', Buffer.from('{"texte":"encore"}'));
+  assert.deepEqual(envois, [{ texte: 'Test depuis Home Assistant', canal: 2, dest: undefined }]);
+  const res = publies.filter((p) => p.sujet === 'carte-live/envoyer/resultat').map((p) => JSON.parse(p.charge));
+  assert.equal(res[0].ok, true);
+  assert.equal(res[1].ok, false);
+  // Rien n'est republié quand rien n'a changé
+  const avant = publies.length;
+  d.cycle();
+  assert.equal(publies.length, avant);
+  d.arreter();
+});
+
+test('mDNS : modules Meshtastic Wi-Fi retrouvés par leur annonce _meshtastic._tcp', async (t) => {
+  const mdns = require('../src/mdns');
+  // Réponse construite comme celle du firmware : PTR → instance, SRV (port 4403), TXT (shortname, id), A
+  const rr = (nom, type, donnees) => {
+    const n = mdns.encoderNom(nom), e = Buffer.alloc(10);
+    e.writeUInt16BE(type, 0); e.writeUInt16BE(0x8001, 2); e.writeUInt32BE(120, 4); e.writeUInt16BE(donnees.length, 8);
+    return Buffer.concat([n, e, donnees]);
+  };
+  const srv = Buffer.concat([Buffer.from([0, 0, 0, 0, 0x11, 0x33]), mdns.encoderNom('Meshtastic_c3d4.local')]);
+  const txt = Buffer.concat(['shortname=MZNC', 'id=!a1b2c3d4'].map((x) => Buffer.concat([Buffer.from([x.length]), Buffer.from(x)])));
+  const entete = Buffer.alloc(12); entete.writeUInt16BE(0x8400, 2); entete.writeUInt16BE(1, 6); entete.writeUInt16BE(3, 10);
+  const reponse = Buffer.concat([entete,
+    rr(mdns.SERVICE, 12, mdns.encoderNom('Meshtastic_c3d4.' + mdns.SERVICE)),
+    rr('Meshtastic_c3d4.' + mdns.SERVICE, 33, srv), rr('Meshtastic_c3d4.' + mdns.SERVICE, 16, txt),
+    rr('Meshtastic_c3d4.local', 1, Buffer.from([192, 168, 1, 57]))]);
+  const m = mdns.assembler(mdns.lireReponses(reponse), '192.168.1.99');
+  assert.deepEqual(m, [{ nom: 'MZNC', instance: 'Meshtastic_c3d4', hote: '192.168.1.57', port: 4403, id: '!a1b2c3d4', nomCourt: 'MZNC' }]);
+  // Requête : une question PTR pour _meshtastic._tcp.local
+  const q = mdns.requete();
+  assert.equal(q.readUInt16BE(4), 1);
+  assert.ok(q.includes(Buffer.from('_meshtastic')));
+  // Pour de vrai sur la machine : un faux module répond sur 5353 (ignoré si le multicast n'est pas disponible ici)
+  const dgram = require('dgram');
+  const faux = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+  const pret = await new Promise((ok) => {
+    faux.once('error', () => ok(false));
+    faux.bind(5353, () => { try { faux.addMembership('224.0.0.251'); ok(true); } catch { ok(false); } });
+  });
+  if (!pret) { try { faux.close(); } catch { /* fermée */ } return t.skip('multicast indisponible'); }
+  faux.on('message', (msg, r) => { if (msg.includes(Buffer.from('_meshtastic'))) faux.send(reponse, r.port, r.address); });
+  const trouves = await mdns.chercherMeshtastic({ duree: 1200 });
+  faux.close();
+  if (!trouves.length) return t.skip('aucune interface multicast');
+  assert.equal(trouves[0].nom, 'MZNC');
+  assert.equal(trouves[0].port, 4403);
+});
+
 test('Passerelle : positions et signalements relayés une fois, sans écho', async () => {
   const { creerPasserelle } = require('../src/passerelle');
   const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'passerelle-'));
