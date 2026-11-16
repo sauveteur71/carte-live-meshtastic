@@ -7658,9 +7658,15 @@ function blocUsbNavigateur() {
     ${!https ? '<p class="note">USB et Bluetooth demandent la carte en <b>HTTPS</b> (adresse en …ts.net) et Chrome ou Edge.</p>'
       : m.etat === 'relie' || m.etat === 'connexion' || m.etat === 'reconnexion' ? '<div class="actions-prop"><button data-usb="stop">Débrancher</button></div>'
       : `<div class="actions-prop"><button data-usb="usb" class="principal-usb">🔌 Brancher en USB</button><button data-usb="ble">📶 Bluetooth</button></div>`}
+    ${https && 'serial' in navigator ? `<label class="usb-auto"><input type="checkbox" data-usb-auto ${usbAuto.actif ? 'checked' : ''}> 🔁 Relier tout seul les modules USB de ce PC
+      <select data-usb-auto-role title="Rôle d’un module relié tout seul"><option value="principal" ${usbAuto.role === 'principal' ? 'selected' : ''}>comme module principal</option><option value="ecoute" ${usbAuto.role === 'ecoute' ? 'selected' : ''}>👂 en écoute, en plus</option></select></label>
+      <small class="note">Autorisez un module une fois avec « Brancher en USB » : ensuite, il suffit de le brancher, Meshtastic ou MeshCore est reconnu tout seul. Débranché, il est libéré ; le suivant branché le remplace.</small>` : ''}
   </div>`;
 }
 function brancherBoutonsUsb(zone) {
+  const auto = zone.querySelector('[data-usb-auto]'), roleAuto = zone.querySelector('[data-usb-auto-role]');
+  if (auto) auto.onchange = () => { usbAuto.actif = auto.checked; ecrireLs(CLE_USB_AUTO, usbAuto.actif); if (usbAuto.actif) chercherUsbAuto(); };
+  if (roleAuto) roleAuto.onchange = () => { usbAuto.role = roleAuto.value; ecrireLs(CLE_USB_AUTO_ROLE, usbAuto.role); };
   zone.querySelectorAll('[data-usb]').forEach((b) => (b.onclick = () => {
     if (b.dataset.usb !== 'stop') moduleNav.role = 'principal';
     if (b.dataset.usb === 'usb') brancherUsb(); else if (b.dataset.usb === 'ble') brancherBle(); else debrancherModuleNav();
@@ -7815,6 +7821,67 @@ async function debrancherModuleNav(raison, auto = false) {
   majModuleNav(auto === true ? 'reconnexion' : 'aucun', typeof raison === 'string' ? raison : null);
   setTimeout(() => { if (typeof chargerEtat === 'function') chargerEtat().catch(() => {}); }, 1500);
 }
+// ---- Modules USB de ce PC reliés tout seuls ------------------------------------------------------------------------
+// Un module autorisé une fois dans ce navigateur (bouton « Brancher en USB ») est ensuite relié automatiquement : au
+// chargement de la page et dès qu'on le branche. Meshtastic ou MeshCore est reconnu et le module prend la place de son
+// réseau ; débranché, il est libéré, et le suivant branché le remplace. Un seul onglet s'en charge (verrou du navigateur),
+// pour ne pas se disputer le port.
+const CLE_USB_AUTO = 'gaulix_usb_auto', CLE_USB_AUTO_ROLE = 'gaulix_usb_auto_role';
+const usbAuto = { actif: lireLs(CLE_USB_AUTO, true) !== false, role: lireLs(CLE_USB_AUTO_ROLE, 'principal') === 'ecoute' ? 'ecoute' : 'principal', meneur: false, file: Promise.resolve() };
+const portPrisParLaPage = (port) => moduleNav.port === port || (typeof mc !== 'undefined' && mc.nav && mc.nav.port === port);
+const usbAutoPossible = () => usbAuto.actif && usbAuto.meneur && 'serial' in navigator && window.isSecureContext && !!etat.admin && !etat.consultation && !etat.demo;
+function relierUsbAuto(port) {
+  usbAuto.file = usbAuto.file.then(() => relierUsbAutoUn(port)).catch(() => {});
+  return usbAuto.file;
+}
+async function relierUsbAutoUn(port) {
+  if (!usbAutoPossible() || portPrisParLaPage(port) || port.readable) return;
+  await new Promise((r) => setTimeout(r, 1200)); // le module démarre juste après le branchement
+  if (!usbAutoPossible() || portPrisParLaPage(port) || port.readable) return;
+  try { if (!(await navigator.serial.getPorts()).includes(port)) return; } catch { return; } // débranché entre-temps
+  let r;
+  try { r = await reconnaitreUsb(port); } catch (e) {
+    // Port déjà pris par une autre appli (Meshtastic, MeshCore, agent, autre navigateur) : on le laisse sans rien dire
+    if (!(e.name === 'NetworkError' || e.name === 'InvalidStateError' || /open|busy|access/i.test(e.message))) annonce('🔌 Module USB : ' + e.message, 'erreur');
+    return;
+  }
+  if (!r.type) { annonce('🔌 Module USB branché, mais il ne répond ni comme Meshtastic ni comme companion MeshCore (firmware répéteur, room server ou « companion BLE » ?)', 'erreur'); return; }
+  const role = usbAuto.role, enEcoute = role === 'ecoute' ? ' (en écoute)' : '';
+  if (r.type === 'meshcore') {
+    if (!mcActif()) { annonce('🔌 Companion MeshCore branché, mais MeshCore n’est pas activé dans cette carte', 'erreur'); return; }
+    if (mc.nav.etat === 'relie' || mc.nav.etat === 'connexion') { annonce('🔌 Companion MeshCore branché : un autre est déjà relié par cette page, débranchez-le d’abord'); return; }
+    mc.nav.role = role;
+    await mcBrancherUsb(port);
+    const ok = mc.nav.etat === 'relie';
+    annonce(ok ? `🔌 Companion MeshCore relié à la carte${enEcoute}` : '🔌 Companion MeshCore : ' + (mc.nav.erreur || 'échec de la liaison'), ok ? 'ok' : 'erreur');
+  } else {
+    if (moduleNav.etat === 'relie' || moduleNav.etat === 'connexion') { annonce('🔌 Module Meshtastic branché : un autre est déjà relié par cette page, débranchez-le d’abord'); return; }
+    moduleNav.role = role;
+    await brancherUsb(port);
+    const ok = moduleNav.etat === 'relie';
+    annonce(ok ? `🔌 Module Meshtastic relié à la carte${role === 'ecoute' ? enEcoute : ' comme module principal'}` : '🔌 Module Meshtastic : ' + (moduleNav.erreur || 'échec de la liaison'), ok ? 'ok' : 'erreur');
+  }
+}
+async function chercherUsbAuto() {
+  if (!usbAutoPossible()) return;
+  try { (await navigator.serial.getPorts()).forEach(relierUsbAuto); } catch { /* USB indisponible */ }
+}
+if ('serial' in navigator && window.isSecureContext) {
+  navigator.serial.addEventListener('connect', (e) => relierUsbAuto(e.target));
+  // Débranché : libéré tout de suite, sans essais de reconnexion sur un port qui n'existe plus
+  navigator.serial.addEventListener('disconnect', (e) => {
+    const port = e.target;
+    if (moduleNav.port === port || (moduleNav.type === 'usb' && moduleNav.appareilBle === port)) debrancherModuleNav('module débranché');
+    if (typeof mc !== 'undefined' && mc.nav && (mc.nav.port === port || (mc.nav.type === 'usb' && mc.nav.appareilBle === port))) mcDebrancherNav('companion débranché');
+  });
+  const demarrerUsbAuto = async () => {
+    usbAuto.meneur = true;
+    for (let i = 0; i < 120 && !etat.config; i++) await new Promise((r) => setTimeout(r, 500)); // la page finit de démarrer
+    chercherUsbAuto();
+  };
+  if (navigator.locks) navigator.locks.request('gaulix-usb-auto', () => { demarrerUsbAuto(); return new Promise(() => {}); }).catch(() => {});
+  else demarrerUsbAuto();
+}
 window.addEventListener('beforeunload', (e) => { if (moduleNav.etat === 'relie' || moduleNav.etat === 'reconnexion') { e.preventDefault(); e.returnValue = ''; } });
 document.addEventListener('DOMContentLoaded', () => {
   const o = $('#outil-usb'), b = $('#outil-ble');
@@ -7830,6 +7897,49 @@ async function etatConnexions() {
   try { const m = await api('/api/radio/modules'); r.mt = m.etat || null; r.mtModules = m.modules || []; r.mtEcoutes = m.ecoutes || []; } catch { /* non admin */ }
   try { r.mc = await api('/api/mc/etat'); } catch { /* MeshCore absent */ }
   return r;
+}
+// Reconnaît le module branché sur un port USB : MeshCore (DEVICE_QUERY, réponse « > » code 13) ou Meshtastic
+// (want_config_id, réponse 0x94 0xC3). Questions reposées toutes les 2,5 s : le module peut redémarrer à l'ouverture
+// du port. Le port est refermé à la fin. Renvoie { type: 'meshcore' | 'meshtastic' | null, texte }.
+async function reconnaitreUsb(port, duree = 8000) {
+  let type = null, tampon = new Uint8Array(0);
+  await port.open({ baudRate: 115200 });
+  try {
+    await reglerSignauxUsb(port);
+    const w = port.writable.getWriter();
+    const questionner = async () => {
+      try {
+        await w.write(new Uint8Array([0x3c, 0x02, 0x00, 22, 3]));
+        await w.write(new Uint8Array(32).fill(0xc3));
+        await w.write(new Uint8Array([0x94, 0xc3, 0x00, 0x03, 0x18, 0xb9, 0x60])); // ToRadio { want_config_id: 12345 }
+      } catch { /* port fermé */ }
+    };
+    await questionner();
+    const relances = [setTimeout(questionner, 2500), setTimeout(questionner, 5000)];
+    const lecteur = port.readable.getReader();
+    const limite = Date.now() + duree;
+    const minut = setTimeout(() => lecteur.cancel().catch(() => {}), duree + 100);
+    try {
+      while (Date.now() < limite) {
+        const { value, done } = await lecteur.read();
+        if (done) break;
+        const n = new Uint8Array(tampon.length + value.length); n.set(tampon); n.set(value, tampon.length); tampon = n;
+        const i = tampon.indexOf(0x3e);
+        if (i >= 0 && i + 3 < tampon.length && (tampon[i + 3] === 13 || (tampon[i + 3] === 1 && (tampon[i + 1] | (tampon[i + 2] << 8)) <= 4))) { type = 'meshcore'; break; }
+        for (let k = 0; k + 1 < tampon.length; k++) if (tampon[k] === 0x94 && tampon[k + 1] === 0xc3) { type = 'meshtastic'; break; }
+        if (type) break;
+        if (tampon.length > 8192) tampon = tampon.slice(-4096);
+      }
+    } catch { /* fin de lecture */ }
+    relances.forEach(clearTimeout);
+    clearTimeout(minut);
+    try { await lecteur.cancel(); } catch { /* déjà */ }
+    try { lecteur.releaseLock(); } catch { /* déjà */ }
+    try { w.releaseLock(); } catch { /* déjà */ }
+  } finally {
+    try { await port.close(); } catch { /* déjà */ }
+  }
+  return { type, texte: new TextDecoder().decode(tampon).replace(/[^\x20-\x7e\n]/g, '').trim() };
 }
 async function ouvrirConnexion(message) {
   if (!etat.admin) { alert('Connectez-vous en administrateur pour relier un module à la carte.'); return; }
@@ -7925,46 +8035,7 @@ async function ouvrirConnexion(message) {
     try { port = await navigator.serial.requestPort({}); } catch { return; }
     retour('Port ouvert, reconnaissance du module (jusqu’à 8 s : il redémarre souvent à l’ouverture du port)…');
     let type = null, texteRecu = '';
-    try {
-      await port.open({ baudRate: 115200 });
-      await reglerSignauxUsb(port);
-      // Deux questions : MeshCore (DEVICE_QUERY, réponse « > » code 13) et Meshtastic (want_config_id, réponse 0x94 0xC3).
-      // Reposées toutes les 2,5 s : le module peut être en train de redémarrer.
-      const w = port.writable.getWriter();
-      const questionner = async () => {
-        try {
-          await w.write(new Uint8Array([0x3c, 0x02, 0x00, 22, 3]));
-          await w.write(new Uint8Array(32).fill(0xc3));
-          await w.write(new Uint8Array([0x94, 0xc3, 0x00, 0x03, 0x18, 0xb9, 0x60])); // ToRadio { want_config_id: 12345 }
-        } catch { /* port fermé */ }
-      };
-      await questionner();
-      const relances = [setTimeout(questionner, 2500), setTimeout(questionner, 5000)];
-      const lecteur = port.readable.getReader();
-      let tampon = new Uint8Array(0);
-      const limite = Date.now() + 8000;
-      const minut = setTimeout(() => lecteur.cancel().catch(() => {}), 8100);
-      try {
-        while (Date.now() < limite) {
-          const { value, done } = await lecteur.read();
-          if (done) break;
-          const n = new Uint8Array(tampon.length + value.length); n.set(tampon); n.set(value, tampon.length); tampon = n;
-          const i = tampon.indexOf(0x3e);
-          if (i >= 0 && i + 3 < tampon.length && (tampon[i + 3] === 13 || (tampon[i + 3] === 1 && (tampon[i + 1] | (tampon[i + 2] << 8)) <= 4))) { type = 'meshcore'; break; }
-          for (let k = 0; k + 1 < tampon.length; k++) if (tampon[k] === 0x94 && tampon[k + 1] === 0xc3) { type = 'meshtastic'; break; }
-          if (type) break;
-          if (tampon.length > 8192) tampon = tampon.slice(-4096);
-        }
-      } catch { /* fin de lecture */ }
-      relances.forEach(clearTimeout);
-      clearTimeout(minut);
-      texteRecu = new TextDecoder().decode(tampon).replace(/[^\x20-\x7e\n]/g, '').trim();
-      try { await lecteur.cancel(); } catch { /* déjà */ }
-      try { lecteur.releaseLock(); } catch { /* déjà */ }
-      try { w.releaseLock(); } catch { /* déjà */ }
-      await port.close();
-    } catch (e) {
-      try { await port.close(); } catch { /* déjà */ }
+    try { ({ type, texte: texteRecu } = await reconnaitreUsb(port)); } catch (e) {
       retour(`✗ USB : ${esc(e.name === 'NetworkError' || /open/i.test(e.message) ? 'port déjà utilisé (fermez l’appli Meshtastic / MeshCore, l’agent ou une autre page)' : e.message)}`, 'ko');
       return;
     }

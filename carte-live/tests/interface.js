@@ -289,6 +289,58 @@ async function essaiDemoVisiteur(navig) {
   await contexte.close();
 }
 
+// Modules USB simulés (Web Serial) : un module Meshtastic répond 0x94 0xC3, un companion MeshCore répond « > » code 13
+function simulerUsb() {
+  const ecoutes = { connect: [], disconnect: [] };
+  class Port {
+    constructor(genre) { this.genre = genre; this.readable = null; this.writable = null; }
+    getInfo() { return { usbVendorId: 0x10c4, usbProductId: 0xea60 }; }
+    async open() {
+      if (this.readable) throw new DOMException('port already open', 'InvalidStateError');
+      const p = this; let ctl;
+      this.readable = new ReadableStream({ start(c) { ctl = c; } });
+      this.fermer = () => { try { ctl.close(); } catch { /* déjà */ } };
+      this.writable = new WritableStream({ write(o) {
+        try {
+          if (p.genre === 'mt' && o[0] === 0x94) ctl.enqueue(new Uint8Array([0x94, 0xc3, 0, 2, 8, 1]));
+          if (p.genre === 'mc' && o[0] === 0x3c) ctl.enqueue(new Uint8Array([0x3e, 4, 0, 13, 9, 1, 2, 3]));
+        } catch { /* flux fermé */ }
+      } });
+    }
+    async close() { if (this.fermer) this.fermer(); this.readable = null; this.writable = null; }
+    async setSignals() {}
+  }
+  const ports = [new Port('mt')];
+  const serie = { getPorts: async () => ports.slice(), requestPort: async () => { throw new DOMException('aucun', 'NotFoundError'); }, addEventListener: (t, f) => ecoutes[t] && ecoutes[t].push(f) };
+  Object.defineProperty(Navigator.prototype, 'serial', { get: () => serie, configurable: true });
+  window.__usb = {
+    brancher(genre) { const p = new Port(genre); ports.push(p); ecoutes.connect.forEach((f) => f({ target: p })); },
+    debrancher(genre) { const i = ports.findIndex((p) => p.genre === genre); if (i < 0) return; const p = ports.splice(i, 1)[0]; ecoutes.disconnect.forEach((f) => f({ target: p })); },
+  };
+}
+
+async function essaiUsbAuto(navig, cookie) {
+  console.log('Modules USB de ce PC reliés tout seuls (simulés)');
+  const contexte = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
+  await contexte.addCookies([cookie]);
+  await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  await contexte.addInitScript(simulerUsb);
+  const { page, erreurs } = await ouvrir(contexte, '/');
+  const attendre = async (f, ms = 15000) => { const fin = Date.now() + ms; while (Date.now() < fin) { if (await page.evaluate(f)) return true; await page.waitForTimeout(300); } return false; };
+  if (await attendre(() => moduleNav.etat === 'relie')) ok('module Meshtastic déjà autorisé : relié tout seul au chargement'); else ko('module Meshtastic non relié au chargement (état ' + await page.evaluate(() => moduleNav.etat + ' ' + moduleNav.erreur) + ')');
+  await page.evaluate(() => window.__usb.debrancher('mt'));
+  if (await attendre(() => moduleNav.etat === 'aucun', 5000)) ok('module débranché : libéré tout de suite, sans reconnexion'); else ko('module débranché toujours occupé (' + await page.evaluate(() => moduleNav.etat) + ')');
+  await page.evaluate(() => window.__usb.brancher('mc'));
+  if (await attendre(() => mc.nav.etat === 'relie')) ok('companion MeshCore branché : reconnu et relié tout seul'); else ko('companion MeshCore non relié (' + await page.evaluate(() => mc.nav.etat + ' ' + mc.nav.erreur) + ')');
+  await page.evaluate(() => window.__usb.brancher('mt'));
+  if (await attendre(() => moduleNav.etat === 'relie')) ok('nouveau module Meshtastic branché : relié à côté du companion'); else ko('nouveau module Meshtastic non relié');
+  const annonces = await page.evaluate(() => [...document.querySelectorAll('#annonces .annonce')].map((d) => d.textContent).join(' | '));
+  if (/Meshtastic relié/.test(annonces) && /MeshCore relié/.test(annonces)) ok('annonces « relié » affichées'); else ko('annonces manquantes : ' + annonces);
+  await page.evaluate(() => { debrancherModuleNav(); mcDebrancherNav(); });
+  bilanErreurs(erreurs.filter((e) => !/HTTP 401|401|WebSocket/.test(e)), 'USB automatique');
+  await contexte.close();
+}
+
 async function essaiEcran150(navig) {
   console.log('Ordinateur à 150 % (1280 × 620)');
   const contexte = await navig.newContext({ viewport: { width: 1280, height: 620 }, locale: 'fr-FR' });
@@ -353,6 +405,7 @@ async function essaiPagesPubliques(navig) {
     await essaiConsultation(contexte);
     await contexte.close();
     await essaiDemoVisiteur(navigateur);
+    await essaiUsbAuto(navigateur, cookie);
     await essaiEcran150(navigateur);
     await essaiTelephone(navigateur);
     await essaiPagesPubliques(navigateur);
