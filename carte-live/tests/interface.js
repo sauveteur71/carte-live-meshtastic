@@ -30,7 +30,7 @@ fs.writeFileSync(path.join(donnees, 'feux.json'), JSON.stringify({ maj: Date.now
 ] }));
 function demarrerServeur() {
   serveur = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
-    env: { ...process.env, PORT: String(PORT), FICHIER_BASE: path.join(donnees, 'carte-live.db'), MQTT_URL: 'mqtt://127.0.0.1:1', DEPARTEMENT: '43', MESHCORE: 'oui', ADMIN_MOT_DE_PASSE: '' },
+    env: { ...process.env, PORT: String(PORT), FICHIER_BASE: path.join(donnees, 'carte-live.db'), MQTT_URL: 'mqtt://127.0.0.1:1', DEPARTEMENT: '43', MESHCORE: 'oui', ADMIN_MOT_DE_PASSE: '', AGENTS_PORT: String(PORT + 5) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const log = fs.createWriteStream(path.join(sorties, 'serveur.log'));
@@ -319,6 +319,52 @@ function simulerUsb() {
   };
 }
 
+// Agent 1.7 « direct » simulé : il annonce un module déjà reconnu, la carte le relie tout de suite ; débranché, il disparaît.
+// Puis l'agent prêt à l'emploi : le programme téléchargé porte l'adresse de la carte et le code à la fin.
+async function essaiAgentDirect(cookie) {
+  console.log('Agent zéro question (simulé)');
+  const net = require('net');
+  const entetes = { Cookie: `${cookie.name}=${cookie.value}` };
+  const ag = await (await fetch(BASE + '/api/radio/agents', { headers: entetes })).json();
+  const sock = net.connect(ag.port, '127.0.0.1');
+  const reponse = await new Promise((okp, kop) => {
+    sock.once('error', kop);
+    sock.once('connect', () => sock.write(JSON.stringify({ v: 1, code: ag.code, nom: 'PC-ESSAI · ttyUSB0', source: 'USB ttyUSB0', version: '1.7', direct: true, protocole: 'meshtastic', role: 'principal' }) + '\n'));
+    let t = ''; sock.on('data', (x) => { t += x.toString('latin1'); if (t.includes('\n')) okp(t.split('\n')[0]); });
+    setTimeout(() => okp(t || '(rien)'), 5000);
+  });
+  if (reponse === 'OK direct') ok('agent direct accepté par la carte'); else ko('agent direct : réponse ' + reponse);
+  await new Promise((r) => setTimeout(r, 800));
+  const actif = async () => ((await (await fetch(BASE + '/api/radio/modules', { headers: entetes })).json()).actif || {}).hote;
+  const a1 = await actif();
+  if (a1 === 'agent-pc-essai-ttyusb0') ok('module de l’agent devenu module principal tout de suite'); else ko('module principal après l’agent : ' + a1);
+  sock.destroy();
+  await new Promise((r) => setTimeout(r, 1200));
+  const a2 = await actif();
+  if (a2 !== 'agent-pc-essai-ttyusb0') ok('module débranché : retiré, retour au module d’avant'); else ko('module de l’agent toujours principal après débranchement');
+  const refus = await new Promise((okp) => {
+    const s2 = net.connect(ag.port, '127.0.0.1', () => s2.write(JSON.stringify({ v: 1, code: 'FAUX-FAUX-FAUX', nom: 'Intrus', direct: true, protocole: 'meshtastic' }) + '\n'));
+    let t = ''; s2.on('data', (x) => { t += x; }); s2.on('close', () => okp(t)); s2.on('error', () => okp(t)); setTimeout(() => { s2.destroy(); okp(t); }, 5000);
+  });
+  if (/^ERREUR/.test(refus)) ok('agent direct avec un faux code refusé'); else ko('faux code : ' + refus);
+  const dossier = path.join(__dirname, '..', 'public', 'agent'), f = path.join(dossier, 'agent-gaulix-linux-amd64');
+  const creeDossier = !fs.existsSync(dossier);
+  fs.mkdirSync(dossier, { recursive: true }); fs.writeFileSync(f, Buffer.from('\x7fELF programme factice'));
+  try {
+    const r = await fetch(BASE + '/api/agent/pret/agent-gaulix-linux-amd64', { headers: entetes });
+    const b = Buffer.from(await r.arrayBuffer());
+    const m = b.toString('utf8').match(/\nCARTE-LIVE-AGENT(\{.*\})\n$/);
+    const j = m ? JSON.parse(m[1]) : {};
+    if (r.ok && b.subarray(0, 4).toString('latin1') === '\x7fELF' && j.code === ag.code && j.serveurs && j.serveurs[0] === `127.0.0.1:${ag.port}`) ok('agent prêt à l’emploi : programme intact, adresse et code ajoutés à la fin');
+    else ko('agent prêt à l’emploi : ' + r.status + ' ' + JSON.stringify(j));
+    const visiteur = await fetch(BASE + '/api/agent/pret/agent-gaulix-linux-amd64');
+    if (visiteur.status === 401 || visiteur.status === 403) ok('agent prêt à l’emploi refusé sans compte administrateur'); else ko('agent prêt à l’emploi sans compte : HTTP ' + visiteur.status);
+  } finally {
+    fs.rmSync(f, { force: true });
+    if (creeDossier) fs.rmSync(dossier, { recursive: true, force: true });
+  }
+}
+
 async function essaiUsbAuto(navig, cookie) {
   console.log('Modules USB de ce PC reliés tout seuls (simulés)');
   const contexte = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
@@ -405,6 +451,7 @@ async function essaiPagesPubliques(navig) {
     await essaiConsultation(contexte);
     await contexte.close();
     await essaiDemoVisiteur(navigateur);
+    await essaiAgentDirect(cookie);
     await essaiUsbAuto(navigateur, cookie);
     await essaiEcran150(navigateur);
     await essaiTelephone(navigateur);

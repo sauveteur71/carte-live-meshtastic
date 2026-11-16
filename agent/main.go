@@ -30,7 +30,7 @@ import (
 	"go.bug.st/serial"
 )
 
-const version = "1.6"
+const version = "1.7"
 
 // Une connexion gardée en mémoire : un module et le nom sous lequel il apparaît dans la carte
 type Connexion struct {
@@ -42,8 +42,11 @@ type Connexion struct {
 }
 
 type Reglages struct {
-	Serveur    string      `json:"serveur"` // ex. 100.64.1.2:4404 (adresse Tailscale ou locale du serveur)
-	Code       string      `json:"code"`    // code secret affiché dans la carte
+	Serveur string `json:"serveur"` // ex. 100.64.1.2:4404 (adresse Tailscale ou locale du serveur)
+	// Adresses données par la carte au téléchargement de l'agent prêt à l'emploi (essayées dans l'ordre)
+	Serveurs   []string    `json:"serveurs,omitempty"`
+	Role       string      `json:"role,omitempty"` // modules reconnus tout seuls : « principal » (défaut) ou « ecoute »
+	Code       string      `json:"code"`           // code secret affiché dans la carte
 	Connexions []Connexion `json:"connexions"`
 	// La question du démarrage automatique a déjà été posée
 	AutoDemande bool `json:"demarrageDemande,omitempty"`
@@ -324,6 +327,9 @@ func main() {
 	liste := flag.Bool("liste", false, "afficher les connexions enregistrées")
 	auto := flag.Bool("demarrage-auto", false, "lancer l'agent automatiquement à l'ouverture de session (Windows)")
 	sansAuto := flag.Bool("sans-demarrage-auto", false, "ne plus lancer l'agent automatiquement")
+	sansDetection := flag.Bool("sans-detection", false, "ne pas relier tout seuls les modules branchés en USB")
+	tousPorts := flag.Bool("tous-ports", false, "interroger tous les ports USB-série, pas seulement les puces des modules LoRa courants")
+	enEcoute := flag.Bool("ecoute", false, "modules reconnus tout seuls : en écoute, en plus du module principal de la carte")
 	flag.Parse()
 	if *sansAuto {
 		retirerDemarrageAuto()
@@ -338,6 +344,23 @@ func main() {
 		return
 	}
 	modifie := false
+	// Agent prêt à l'emploi : adresse de la carte et code secret écrits par la carte à la fin du programme
+	integres := (*ReglagesIntegres)(nil)
+	if exe, err := os.Executable(); err == nil {
+		integres = lireReglagesIntegres(exe)
+	}
+	if integres != nil {
+		if r.Code != integres.Code || strings.Join(r.Serveurs, ",") != strings.Join(integres.Serveurs, ",") {
+			r.Serveurs = integres.Serveurs
+			r.Serveur = integres.Serveurs[0]
+			r.Code = integres.Code
+			if integres.Role == "ecoute" {
+				r.Role = "ecoute"
+			}
+			modifie = true
+		}
+		journal("réglages fournis par la carte%s : rien à configurer", map[bool]string{true: " « " + integres.Carte + " »", false: ""}[integres.Carte != ""])
+	}
 	if r.Serveur == "" || r.Code == "" {
 		configurerServeur(&r)
 		modifie = true
@@ -348,7 +371,9 @@ func main() {
 			modifie = true
 		}
 	}
-	if *refaire || len(r.Connexions) == 0 {
+	// Plus besoin de déclarer les modules USB : ils sont reconnus en les branchant (-configurer reste possible, par
+	// exemple pour un module Wi-Fi)
+	if *refaire || (len(r.Connexions) == 0 && *sansDetection) {
 		gererConnexions(&r)
 		modifie = true
 	}
@@ -357,7 +382,10 @@ func main() {
 	}
 	// Une seule fois : proposer le lancement automatique (plus besoin de relancer l'agent à la main)
 	if runtime.GOOS == "windows" && !r.AutoDemande && !demarrageAutoActif() {
-		if rep := strings.ToLower(demander("Lancer l'agent automatiquement à chaque démarrage de Windows ? (o/n)", "o")); strings.HasPrefix(rep, "o") || rep == "y" {
+		// Agent prêt à l'emploi : aucune question, il se lancera tout seul (retrait : -sans-demarrage-auto)
+		if integres != nil {
+			installerDemarrageAuto()
+		} else if rep := strings.ToLower(demander("Lancer l'agent automatiquement à chaque démarrage de Windows ? (o/n)", "o")); strings.HasPrefix(rep, "o") || rep == "y" {
 			installerDemarrageAuto()
 		}
 		r.AutoDemande = true
@@ -367,8 +395,26 @@ func main() {
 	if *auto {
 		installerDemarrageAuto()
 	}
-	journal("carte %s — %d connexion(s) : pour en ajouter ou en retirer, relancez avec -configurer", r.Serveur, len(r.Connexions))
+	journal("carte %s — %d connexion(s) enregistrée(s) (-configurer pour en ajouter, par exemple un module Wi-Fi)", strings.Join(serveursDe(r), " ou "), len(r.Connexions))
 	var g sync.WaitGroup
+	// Modules USB reconnus et reliés en les branchant (sauf les ports déjà déclarés dans les connexions)
+	if !*sansDetection {
+		exclus := map[string]bool{}
+		for _, cx := range r.Connexions {
+			if !estReseau(cx.Source) {
+				exclus[strings.ToUpper(strings.TrimSpace(cx.Source))] = true
+			}
+		}
+		role := r.Role
+		if *enEcoute {
+			role = "ecoute"
+		}
+		if role != "ecoute" {
+			role = "principal"
+		}
+		g.Add(1)
+		go func() { defer g.Done(); detection(r, role, exclus, *tousPorts) }()
+	}
 	// Relais du réseau local : la carte peut joindre n'importe quel module Wi-Fi (Meshtastic ou MeshCore)
 	// du réseau de ce PC à partir de sa seule adresse IP, sans rien configurer ici
 	g.Add(1)

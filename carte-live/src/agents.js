@@ -16,7 +16,7 @@ const nouveauCode = () => [...crypto.randomBytes(12)].map((b) => ALPHABET[b % AL
 const slug = (nom) => 'agent-' + (String(nom || 'module').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'module');
 
 const echecsAgents = new Map(); // adresse -> heures des codes faux (15 dernières minutes)
-function creerAgents(config, { surArrivee } = {}) {
+function creerAgents(config, { surArrivee, surDirect } = {}) {
   const port = Number(process.env.AGENTS_PORT || 4404);
   const fCode = path.join(path.dirname(config.fichierBase), 'code-agents.txt');
   let code;
@@ -63,6 +63,20 @@ function creerAgents(config, { surArrivee } = {}) {
         return;
       }
       const nom = String(b.nom || 'Module').slice(0, 40);
+      // Agent 1.7 « direct » : il a déjà reconnu le module branché (Meshtastic ou MeshCore) et ouvre son port tout de
+      // suite ; le flux est branché comme un module relié par la page (principal ou en écoute), sans attendre « OUVRIR »
+      if (b.direct && surDirect && (b.protocole === 'meshtastic' || b.protocole === 'meshcore')) {
+        s.setTimeout(0);
+        s.setKeepAlive(true, 30000);
+        s.setNoDelay(true);
+        s.write('OK direct\n');
+        const source = String(b.source || 'USB').slice(0, 60);
+        journal(`agent « ${nom} » relié depuis ${ip} : ${b.protocole === 'meshcore' ? 'companion MeshCore' : 'module Meshtastic'} ${source}, branché tout de suite`);
+        try { surDirect({ flux: s, nom, source, ip, protocole: b.protocole, role: b.role === 'ecoute' ? 'ecoute' : 'principal', version: String(b.version || '') }); }
+        catch (e) { journal(`agent « ${nom} » : ${e.message}`); s.destroy(); return; }
+        s.resume();
+        return;
+      }
       const hote = slug(nom);
       const ancien = agents.get(hote);
       if (ancien && ancien.socket !== s) {
@@ -135,14 +149,15 @@ function creerAgents(config, { surArrivee } = {}) {
       return a.socket;
     },
     // Module relié par la page web elle-même (USB ou Bluetooth du navigateur) : flux déjà ouvert
-    ajouterVirtuel(nom, source, flux, ip) {
+    ajouterVirtuel(nom, source, flux, ip, version = 'navigateur') {
       const hote = slug(nom);
       const ancien = agents.get(hote);
       if (ancien && ancien.socket !== flux) ancien.socket.destroy();
-      const a = { hote, nom, source, version: 'navigateur', ip, depuis: Date.now(), socket: flux, occupe: false, virtuel: true };
+      const a = { hote, nom, source, version, ip, depuis: Date.now(), socket: flux, occupe: false, virtuel: true };
       agents.set(hote, a);
-      flux.on('close', () => { if (agents.get(hote) === a) agents.delete(hote); journal(`module « ${nom} » (navigateur) déconnecté`); });
-      journal(`module « ${nom} » relié par le navigateur depuis ${ip} (${source})`);
+      const par = version === 'navigateur' ? 'le navigateur' : `l’agent ${version}`;
+      flux.on('close', () => { if (agents.get(hote) === a) agents.delete(hote); journal(`module « ${nom} » (${par}) déconnecté`); });
+      journal(`module « ${nom} » relié par ${par} depuis ${ip} (${source})`);
       return hote;
     },
     // Agents et modules joints par IP (en ligne si leur relais est là) ; les relais eux-mêmes n'y figurent pas
