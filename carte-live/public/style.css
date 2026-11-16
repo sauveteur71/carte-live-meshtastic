@@ -626,6 +626,9 @@ body.fond-sombre .noms-ign { filter: invert(1) hue-rotate(180deg) brightness(1.1
 /* Module branché sur ce PC */
 .bloc-usb { border: 1px solid var(--bord); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; background: rgba(62,230,196,.04); }
 .bloc-usb.relie { border-color: rgba(62,230,196,.5); }
+.bloc-usb .usb-auto { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; font-size: 13px; }
+.bloc-usb .usb-auto select { font-size: 12px; padding: 2px 4px; }
+.bloc-usb .usb-auto + .note { display: block; margin-top: 4px; }
 .titre-usb { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .titre-usb small { color: var(--doux); width: 100%; padding-left: 18px; }
 .principal-usb { border-color: var(--accent) !important; color: var(--accent) !important; font-weight: 600; }
