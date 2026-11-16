@@ -2977,12 +2977,41 @@ function traiterEnveloppeMt(topic, message) {
     if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
+    try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
     if (sortie) { compteur.decodes++; diffuser(sortie); }
   } catch (e) {
     compteur.erreurs++;
     journal('Erreur de traitement :', e.message, topic);
   }
 }
+
+// ---- Nœuds d'un autre preset que le réseau : repérés pour être invités ----------------------------------------------
+const { creerAutresPresets } = require('./autres-presets');
+const autresPresets = creerAutresPresets(stockage.db, (...a) => journal('[Presets]', ...a));
+function presetDuReseau() {
+  return presetReseau() || config.reseauPreset || 'LONG_FAST';
+}
+app.get('/api/autres-presets', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const reseauP = presetDuReseau();
+  const sentinelles = ecoutes.liste().meshtastic.filter((m) => m.connecte && m.preset && m.preset !== reseauP).map(({ hote, port, nom, preset, noeud }) => ({ hote, port, nom, preset, noeud }));
+  res.set('Cache-Control', 'no-store').json({ preset: reseauP, noeuds: autresPresets.liste(reseauP, { jours: Math.min(365, Math.max(1, Number(req.query.jours) || 30)) }), sentinelles });
+});
+// Invitation : message direct envoyé par un module en écoute réglé sur le preset du nœud (« sentinelle »)
+app.post('/api/autres-presets/inviter', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const b = req.body || {};
+  try {
+    const num = Number(b.num) >>> 0;
+    const n = stockage.db.prepare('SELECT num, preset, nom_long FROM noeuds WHERE num = ?').get(num);
+    if (!n) throw new Error('Nœud inconnu');
+    const s = ecoutes.liste().meshtastic.find((m) => m.hote === String(b.hote || '') && Number(m.port) === Number(b.port));
+    if (!s || !s.connecte) throw new Error('Module sentinelle introuvable ou non connecté');
+    if (n.preset && s.preset && n.preset !== s.preset) throw new Error(`Le module « ${s.nom} » est en ${s.preset}, le nœud en ${n.preset} : il ne l’entendrait pas`);
+    const r = ecoutes.radio(s.hote, s.port).envoyerInvitation(num, b.texte);
+    res.json({ ok: true, id: r.id });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 
 // ---- Modules Meshtastic du réseau local, écoutés par UDP multicast (UDP_MESHTASTIC=oui) ---------------------------
 // Le module qui diffuse est repéré par ses propres paquets (sans mesure radio) : il devient la « passerelle » des paquets
@@ -3215,6 +3244,7 @@ const sourceRadio = creerSourceRadio(stockage, config, canaux, {
     if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
+    try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
     if (sortie) { compteur.decodes++; diffuser({ ...sortie, viaRadio: true }); }
   },
   apresSynchro: () => { rafraichirEtat(); diffuser({ genre: 'statut' }); },
@@ -3234,6 +3264,7 @@ const ecoutes = creerEcoutes({
     if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
+    try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
       if (sortie) { compteur.decodes++; diffuser({ ...sortie, viaRadio: true }); }
     },
     apresSynchro: () => { if (!minuterieStatutEcoute) minuterieStatutEcoute = setTimeout(() => { minuterieStatutEcoute = null; rafraichirEtat(); diffuser({ genre: 'statut' }); }, 3000); },

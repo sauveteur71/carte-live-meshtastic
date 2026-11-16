@@ -521,6 +521,19 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
       if (!etat.connecte || etat.noeudLocal == null || enConfiguration) throw new Error('Module radio non connecté');
       envoyer({ packet: paquet });
     },
+    // Message direct d'invitation, aussi depuis un module en écoute : un module « sentinelle » réglé sur un autre preset
+    // est le seul moyen de joindre par radio les nœuds de ce preset. Seul envoi permis à un module en écoute, à la
+    // demande d'un administrateur (voir autres-presets.js).
+    envoyerInvitation: (vers, texte) => {
+      if (!etat.connecte || etat.noeudLocal == null || enConfiguration) throw new Error('Module radio non connecté');
+      const octets = Buffer.from(String(texte || '').trim(), 'utf8');
+      if (!octets.length) throw new Error('Message vide');
+      if (octets.length > 200) throw new Error(`Message trop long (${octets.length} octets, 200 au maximum)`);
+      const id = crypto.randomBytes(4).readUInt32LE(0) >>> 0 || 1;
+      envoyer({ packet: { to: vers >>> 0, id, channel: 0, wantAck: true, hopLimit: hopLimitLora, decoded: { portnum: 1, payload: octets } } });
+      journal(`invitation envoyée en message direct à ${idNoeud(vers)}`);
+      return { id, preset };
+    },
     ecouter: (f) => { ecouteurs.add(f); return () => ecouteurs.delete(f); },
     infos: () => ({ connecte: etat.connecte && !enConfiguration, noeudLocal: etat.noeudLocal, hopLimit: hopLimitLora, clePublique: clePubliqueLocale, clesPubliques, utilisateurLocal,
       canaux: [...canauxModule.entries()].filter(([, c]) => c.role !== 'DISABLED').map(([index]) => ({ index, nom: nomCanal(index) })).sort((a, b) => a.index - b.index) }),

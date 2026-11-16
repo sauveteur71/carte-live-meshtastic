@@ -220,6 +220,28 @@ test('Meshtastic : paquet d’un module du réseau local reçu par UDP multicast
   assert.equal(evt.texte, 'Bonjour par UDP');
 });
 
+test('Nœuds d’un autre preset : preset déduit du canal MQTT par défaut, listés hors du preset du réseau', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'presets-'));
+  const { creerStockage } = require('../src/base');
+  const { creerAutresPresets } = require('../src/autres-presets');
+  const st = creerStockage(path.join(dossier, 'x.db'));
+  const maintenant = Date.now();
+  const ins = st.db.prepare('INSERT INTO noeuds (num, id, nom_long, preset, dernier_vu, premier_vu) VALUES (?, ?, ?, ?, ?, ?)');
+  ins.run(1, '!00000001', 'Voisin LongFast', null, maintenant, maintenant);
+  ins.run(2, '!00000002', 'Relais du réseau', 'LONG_MODERATE', maintenant, maintenant);
+  ins.run(3, '!00000003', 'Canal privé', null, maintenant, maintenant);
+  const ap = creerAutresPresets(st.db, () => {});
+  ap.noterPaquet({ genre: 'paquet', de: 1, canalTopic: 'LongFast' });
+  ap.noterPaquet({ genre: 'paquet', de: 3, canalTopic: 'Fr_Balise' }); // canal nommé : preset inconnu
+  ap.noterPaquet({ genre: 'paquet', de: 2, canalTopic: 'LongFast', viaMqtt: true }); // redescendu par MQTT : ignoré
+  const l = ap.liste('LONG_MODERATE');
+  assert.deepEqual(l.map((n) => n.num), [1]);
+  assert.equal(l[0].preset, 'LONG_FAST');
+  assert.ok(l[0].presetDeduit);
+  assert.equal(st.db.prepare('SELECT preset FROM noeuds WHERE num = 2').get().preset, 'LONG_MODERATE');
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
 test('Passerelle : positions et signalements relayés une fois, sans écho', async () => {
   const { creerPasserelle } = require('../src/passerelle');
   const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'passerelle-'));
