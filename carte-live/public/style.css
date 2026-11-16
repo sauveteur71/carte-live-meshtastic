@@ -1544,3 +1544,10 @@ body.panneau-seul .fiche { position: fixed !important; inset: 0 0 0 auto !import
 .champ-rj > span { font-weight: 600; }
 .champ-rj input, .champ-rj textarea { width: 100%; box-sizing: border-box; font: inherit; }
 .ligne-case { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-weight: 600; }
+
+/* Avertissement : autorisations avant d'installer un relais sur un site proposé */
+.avertissement-sites { margin: 10px 0; border: 1px solid var(--attention, #ffb547); border-left-width: 4px; border-radius: 8px; background: rgba(255, 181, 71, 0.08); padding: 8px 12px; }
+.avertissement-sites summary { cursor: pointer; font-weight: 650; color: var(--attention, #ffb547); }
+.avertissement-sites ul { margin: 6px 0 6px 18px; padding: 0; }
+.avertissement-sites li { margin: 3px 0; }
+.avertissement-sites p { margin: 6px 0; }

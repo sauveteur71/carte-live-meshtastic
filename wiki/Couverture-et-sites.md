@@ -18,6 +18,18 @@ Onglet **Couverture** et menu **Couverture radio**. Les calculs utilisent le mod
 
 En vue MeshCore, les calculs utilisent le réglage radio français MeshCore (869,618 MHz, BW 62,5 kHz, SF8, CR8).
 
+## Avant d'installer un relais : autorisations
+
+La carte choisit les emplacements d'après le **relief** : elle ne sait pas si l'on a le droit d'y poser quoi que ce soit. Un avertissement le rappelle dans chaque outil qui propose des sites.
+
+- **Terrain privé** (champ, bois, toit, pylône) : accord écrit du propriétaire, et de l'exploitant s'il y en a un.
+- **Terrain public** (mairie, château d'eau, bâtiment communal) : autorisation de la commune ou du gestionnaire.
+- **Lieux à respecter** : cimetières, lieux de culte, monuments aux morts, jamais sans accord explicite. Un relais a déjà été retrouvé dans un cimetière.
+- **Sites classés ou inscrits, abords des monuments historiques** (500 m) : avis de l'Architecte des Bâtiments de France.
+- **Littoral** (loi Littoral) et **espaces naturels protégés** (Natura 2000, parcs, réserves) : règles strictes ; se renseigner en mairie ou auprès de la DDT(M).
+
+Un relais posé sans autorisation peut être retiré, et c'est l'image de tout le réseau qui en pâtit.
+
 ## Zone dessinée à la main
 Dans *Couverture › Plan*, **🖊 Dessiner une zone** sert à étudier un secteur plutôt que tout le département : secteur d'intervention, vallée, massif, itinéraire de course…
 1. Cliquez sur la carte pour poser les coins de la zone (3 au moins). « ↶ Point » retire le dernier. Un point qui ferait croiser le contour est refusé.

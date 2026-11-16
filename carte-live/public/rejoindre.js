@@ -69,6 +69,7 @@
   if (d.relais && d.relais.length) {
     blocs.push(`<section>${etape('Les relais du réseau')}
       <p>${d.relais.length} relais entendus ces 7 derniers jours. Ils sont installés et entretenus par des bénévoles.</p>
+      <p class="note">Vous voulez installer un relais ? Demandez d’abord l’accord du propriétaire du terrain ou de la commune. Pas de relais dans un cimetière, un lieu de culte ou un site protégé (monument historique, site classé, littoral, espace naturel) sans les autorisations nécessaires.</p>
       <ul class="relais">${d.relais.map((r) => `<li><span translate="no">${esc(r.nom)}</span> <small>${esc(r.reseau)} · ${esc(r.role)}</small></li>`).join('')}</ul>
       <div class="boutons"><a class="bouton" href="/publique">🗺️ Voir la carte du réseau</a></div></section>`);
   } else {

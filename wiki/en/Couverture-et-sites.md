@@ -18,6 +18,18 @@
 
 In the MeshCore view, computations use the French MeshCore radio setting (869.618 MHz, BW 62.5 kHz, SF8, CR8).
 
+## Before installing a relay: permissions
+
+The map picks sites from the **terrain**: it does not know whether you are allowed to put anything there. A warning recalls this in every tool that suggests sites.
+
+- **Private land** (field, wood, roof, mast): written consent from the owner, and from the tenant or operator if there is one.
+- **Public land** (town hall, water tower, council building): permission from the municipality or the manager.
+- **Places to respect**: cemeteries, places of worship, war memorials, never without explicit consent. A relay has already been found in a cemetery.
+- **Listed or protected sites, surroundings of historic monuments**: approval from the heritage authority (in France, the Architecte des Bâtiments de France, within 500 m).
+- **Coastline** (in France, the loi Littoral) and **protected natural areas** (Natura 2000, parks, reserves): strict rules; ask the municipality or the relevant authority.
+
+A relay installed without permission can be removed, and it damages the image of the whole network.
+
 ## Hand-drawn area
 In *Coverage › Plan*, **🖊 Draw an area** studies a sector rather than the whole department: intervention area, valley, massif, race route…
 1. Click on the map to place the area's corners (3 at least). “↶ Point” removes the last one. A point that would make the outline cross itself is refused.

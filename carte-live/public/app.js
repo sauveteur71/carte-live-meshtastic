@@ -3116,6 +3116,25 @@ function fermerRejeu() {
 }
 
 // ---- Relief : points hauts, meilleurs sites, couverture d'un point -------------------------------
+// Avertissement affiché partout où la carte propose des emplacements de relais : le relief ne dit rien du droit
+// d'y installer un relais (propriétaires, cimetières, monuments historiques, littoral, espaces protégés…)
+function avertissementSites(ouvert = false) {
+  return `<details class="avertissement-sites"${ouvert ? ' open' : ''}><summary>⚠ Un point haut n’est pas un site autorisé : avant d’installer un relais</summary>
+    <p>La carte choisit les emplacements d’après le relief : elle ne sait pas si l’on a le droit d’y poser quoi que ce soit.</p>
+    <ul>
+      <li><b>Terrain privé</b> (champ, bois, toit, pylône) : accord écrit du propriétaire, et de l’exploitant s’il y en a un.</li>
+      <li><b>Terrain public</b> (mairie, château d’eau, bâtiment communal) : autorisation de la commune ou du gestionnaire.</li>
+      <li><b>Lieux à respecter</b> : cimetières, lieux de culte, monuments aux morts, jamais sans accord explicite. Un relais a déjà été retrouvé dans un cimetière.</li>
+      <li><b>Sites classés ou inscrits, abords des monuments historiques</b> (500 m) : avis de l’Architecte des Bâtiments de France.</li>
+      <li><b>Littoral</b> (loi Littoral) et <b>espaces naturels protégés</b> (Natura 2000, parcs, réserves) : règles strictes, se renseigner en mairie ou auprès de la DDT(M).</li>
+    </ul>
+    <p>Un relais posé sans autorisation peut être retiré, et c’est l’image de tout le réseau qui en pâtit.</p>
+  </details>`;
+}
+// Ouvert d'office dans le panneau du relief tant que l'utilisateur ne l'a pas refermé une fois
+document.addEventListener('toggle', (e) => {
+  if (e.target.classList && e.target.classList.contains('avertissement-sites') && !e.target.open) ecrireLs('relief_avertissement_vu', true);
+}, true);
 const nomSommet = (s) => s.nom || (s.commune ? `Point haut · ${s.commune}` : `Point haut ${s.alt} m`);
 const couleurMarge = (m) => (m >= 10 ? 'var(--ok)' : m >= 0 ? 'var(--attention)' : 'var(--critique)');
 const hexMarge = (m) => (m >= 10 ? '#3ee6c4' : m >= 0 ? '#f4d35e' : '#ff5c6c');
@@ -3249,6 +3268,7 @@ async function ficheSommet(s) {
       <div class="mesure"><span>Part du département</span><b>${r ? fmt(r.pctZone, 1, ' %') : '–'}</b></div>
       ${s.rang ? `<div class="mesure"><span>Classement individuel</span><b>${s.rang}ᵉ</b></div>` : ''}
     </div>
+    ${avertissementSites()}
     <div class="actions-prop"><button id="sommet-couvrir">Couvrir ce point (4 points hauts)</button><button id="sommet-ajout-couv" class="principal">${etat.sitesCouv && etat.sitesCouv.length ? `＋ Ajouter à la couverture totale (${etat.sitesCouv.length + 1} sites)` : '＋ Ajouter un site (couverture totale)'}</button></div>
     <p class="note">Couverture calculée avec une antenne à ${$('#relief-hs') ? $('#relief-hs').value : 6} m (réglable dans l'onglet Couverture).</p>`;
   $('#sommet-couvrir').onclick = () => couvrirPoint(L.latLng(s.lat, s.lon));
@@ -3886,6 +3906,7 @@ async function planZoneDessinee(polys, nom, opts = {}) {
     ${r.filtreAcces !== 'tous' && r.accesEtat && r.accesEtat.faits < r.accesEtat.total ? `<div class="alerte attention">Accès aux sites en cours d’évaluation (OpenStreetMap) : ${r.accesEtat.faits}/${r.accesEtat.total} points. Seuls les sites déjà évalués sont proposés.</div>` : ''}
     ${r.horsReliefKm2 > 2 ? `<div class="alerte attention">${r.horsReliefKm2} km² de la zone sortent du relief chargé (département et ses abords) : ils ne sont pas étudiés.</div>` : ''}
     <div class="barre-couv"><i style="width:${r.departPct}%" class="actuel"></i><i style="width:${Math.max(0, r.finalPct - r.departPct)}%" class="ajout"></i></div>
+    ${avertissementSites()}
     <div class="alerte ${r.atteint ? 'info-lecture' : 'attention'}">Réseau actuel : <b>${fmt(r.departPct, 1, ' %')}</b> de la zone. ${r.sites.length ? `Avec ${r.sites.length} site${r.sites.length > 1 ? 's' : ''} : <b>${fmt(r.finalPct, 1, ' %')}</b>${r.atteint ? ' ✔' : ' (objectif non atteint avec ces critères)'}.` : r.atteint ? 'Objectif déjà atteint.' : 'Aucun point haut candidat n’améliore la couverture avec ces critères.'}</div>
     ${r.sites.map((x) => `<div class="proposition etape-relier nouveau">
       <div class="entete-prop"><span class="lettre">${x.rang}</span><b>${esc(nomSommet(x))}</b><span class="marge">+${x.gainKm2} km² · ${fmt(x.totalPct, 1, ' %')}</span></div>
@@ -3925,6 +3946,7 @@ async function planDepartement() {
   $('#fiche-contenu').innerHTML = `<h2>Plan pour couvrir le département</h2>
     <div class="ident">Objectif ${r.objectifPct} % · au plus ${r.max} sites · ${esc(nomAcces)} · ${r.avecReseau ? `en complément du réseau actuel (${r.reseau.length} relais)` : 'sans tenir compte du réseau actuel'}${r.parametres && r.parametres.hs != null ? ` · antenne des sites ${fmt(r.parametres.hs, 1, ' m')} au-dessus du sol (fixée par le classement des points hauts ; réglable pour une zone dessinée)` : ''}</div>
     <div class="barre-couv"><i style="width:${r.departPct}%" class="actuel"></i><i style="width:${Math.max(0, r.finalPct - r.departPct)}%" class="ajout"></i></div>
+    ${avertissementSites()}
     <div class="alerte ${r.atteint ? 'info-lecture' : 'attention'}">${r.atteint ? `✔ Objectif atteint avec <b>${r.sites.length} site${r.sites.length > 1 ? 's' : ''}</b> : ${fmt(r.departPct, 1, ' %')} → <b>${fmt(r.finalPct, 1, ' %')}</b> du département.` : `Objectif non atteint : ${fmt(r.departPct, 1, ' %')} → <b>${fmt(r.finalPct, 1, ' %')}</b> avec ${r.sites.length} site${r.sites.length > 1 ? 's' : ''}. ${r.sites.length >= r.max ? 'Augmentez le nombre de sites' : 'Les sites restants n’apportent presque rien'}${r.filtreAcces !== 'tous' ? ' ou élargissez l’accès' : ''}.`}</div>
     ${r.filtreAcces !== 'tous' && r.accesEtat && r.accesEtat.faits < r.accesEtat.total ? `<div class="alerte attention">Accès aux sites en cours d’évaluation (OpenStreetMap) : ${r.accesEtat.faits}/${r.accesEtat.total} points. ${r.candidats ? 'Le plan ne porte que sur les sites déjà évalués.' : 'Aucun site évalué pour l’instant : choisissez « Tous les points hauts » ou réessayez dans quelques minutes.'}</div>` : ''}
     ${r.sites.map((x) => `<div class="proposition etape-relier nouveau">
@@ -4019,6 +4041,7 @@ async function optimiserRelais(rayon, acces, recalculer) {
   const nomAcces = { tous: 'tous les points hauts', voiture: 'accessibles en voiture', '4x4': 'accessibles en 4×4 ou en voiture', pied: 'accessibles à pied ou mieux' }[r.filtreAcces];
   z.innerHTML = `<h2>🔀 Déplacer des relais</h2>
     <div class="ident">Couverture actuelle ${fmt(r.actuelPct, 1, ' %')} · ${r.relaisEtudies} relais étudiés · points hauts à moins de ${r.rayonKm} km, ${esc(nomAcces)}</div>
+    ${avertissementSites()}
     ${r.propositions.length ? r.propositions.map((p, k) => `<div class="proposition etape-relier nouveau">
       <div class="entete-prop"><span class="lettre">${k + 1}</span><b>${esc(p.nom)}</b><span class="marge">+${p.gainNetKm2} km² nets</span></div>
       <div class="meta-longue">Vers <b>${esc(nomSommet(p.vers))}</b>${p.vers.commune ? ' · ' + esc(p.vers.commune) : ''} · ${p.vers.alt} m (aujourd’hui ${p.de.alt} m) · à ${p.distanceKm} km</div>
@@ -4125,7 +4148,7 @@ async function rendreSites() {
   const avecCoords = (s, sous) => `${sous || ''} · <span class="mono">${s.lat.toFixed(5)}, ${s.lon.toFixed(5)}</span>`;
   const ligneSite = (s, droite, sous, badge, or) => `<div class="ligne site" data-site="${s.id}"><span class="rang-site${or ? ' or' : ''}">${badge ?? ''}</span><span class="titre">${esc(nomSommet(s))} ${badgeAcces(s)}<small>${s.alt} m${s.commune && s.nom ? ' · ' + esc(s.commune) : ''}</small></span><span class="meta">${droite}</span><span class="sous-ligne meta-longue">${avecCoords(s, sous)}</span></div>`;
   const parId = new Map(etat.sommets.map((s) => [s.id, s]));
-  let h = choix + `<div class="bloc-plan bloc-actuel">
+  let h = choix + avertissementSites(!lireLs('relief_avertissement_vu', false)) + `<div class="bloc-plan bloc-actuel">
       <h3>📡 Couverture actuelle du réseau</h3>
       <p class="note">Zone desservie aujourd’hui par les relais et passerelles détectés${c && c.reseauActuel ? ` : <b>${fmt(c.reseauActuel.pct, 1, ' %')}</b> du département avec ${c.reseauActuel.relais.length} relais` : ''}.</p>
       <div class="actions-prop"><button id="sites-couv-reseau" class="principal">Couverture calculée</button><button id="sites-couv-mesuree">📶 Couverture mesurée</button></div>
@@ -4410,6 +4433,7 @@ async function couvrirPoint(latlng) {
     <h2>Couvrir ce point</h2>
     ${blocCoords(c.lat, c.lon, { alt: c.alt })}
     <div class="meta-longue">antenne à ${r.parametres.ht} m · sites à ${r.parametres.hs} m · ${esc(r.parametres.preset)}</div>
+    ${avertissementSites()}
     <div class="actions-prop"><button id="ajout-cible" class="principal">＋ Ajouter un autre point à couvrir</button></div>
     <p class="note">Ajoutez 1 à 4 autres points : la carte cherche alors <b>un seul site relais</b> qui les couvre tous.</p>
     ${r.propositions.length ? r.propositions.map(carteProp).join('') + '<div class="actions-prop"><button id="gpx-couvrir">Télécharger les 5 points (GPX)</button></div>' : '<div class="vide">Aucun point haut à portée.</div>'}
