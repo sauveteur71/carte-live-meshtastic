@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo/carte-live-logo-anime.svg" alt="Carte live — réseau maillé LoRa en direct" width="640"></p>
+
 # Carte live Meshtastic
 
 [![Dernière version](https://img.shields.io/github/v/release/sauveteur71/carte-live-meshtastic?label=derni%C3%A8re%20version)](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest)

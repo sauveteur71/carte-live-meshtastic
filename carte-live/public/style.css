@@ -44,7 +44,7 @@ button, input, select { font: inherit; color: inherit; }
 .barre > * { pointer-events: auto; }
 .marque, .kpis { background: var(--surface); border: 1px solid var(--bord); border-radius: var(--rayon); backdrop-filter: blur(8px); }
 .marque { display: flex; align-items: center; gap: 10px; padding: 8px 14px; }
-.logo { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(62,230,196,.18), 0 0 18px var(--accent); }
+.logo { width: 26px; height: 29px; flex: none; background: url(/symbole.svg) center / contain no-repeat; }
 .nom { font-weight: 700; letter-spacing: .02em; }
 .sous { color: var(--doux); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
 .direct { display: flex; align-items: center; gap: 6px; margin-left: 6px; padding: 3px 8px; border-radius: 99px; background: rgba(255,255,255,.04); font-size: 12px; color: var(--doux); }
