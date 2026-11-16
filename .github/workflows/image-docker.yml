@@ -148,7 +148,13 @@ jobs:
           {
             echo "## Nouveautés${prec:+ depuis $prec}"
             echo
-            git log ${prec:+$prec..}HEAD --no-merges --format='%s' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+ ?:' | sed -E 's/^([0-9.]+) ?: ?/- **\1** : /'
+            # Texte rédigé dans carte-live/NOUVEAUTES.md (section « ## <version> ») ; sinon, la liste des commits
+            sect=$(awk -v v="## $v" '$0==v{f=1;next} f&&/^## /{exit} f' carte-live/NOUVEAUTES.md 2>/dev/null)
+            if [ -n "$(echo "$sect" | tr -d '[:space:]')" ]; then
+              echo "$sect"
+            else
+              git log ${prec:+$prec..}HEAD --no-merges --format='%s' | grep -vE '^(Version |Merge )' | sed -E 's/^/- /'
+            fi
             echo
             echo "## Mise à jour"
             echo
