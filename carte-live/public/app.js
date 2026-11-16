@@ -6603,6 +6603,7 @@ function brancherInterface() {
   { const bs = $('#outil-signalements'); if (bs) bs.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; if (masquee('signalements')) ficheAlertesOff(); else ficheSignalements(); }; }
   { const bt = $('#outil-trafic'); if (bt) bt.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTrafic(); }; }
   { const bc = $('#outil-connecter'); if (bc) bc.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ouvrirConnexion(); }; }
+  { const bj = $('#outil-rejoindre'); if (bj) { bj.hidden = !etat.admin || !!etat.consultation; bj.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheRejoindre(); }; } }
   { const bi = $('#outil-inviter'); if (bi) { bi.hidden = !etat.admin || !!etat.consultation; bi.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheAutresPresets(); }; } }
   $('#outil-portee').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; testPortee(null); };
   $('#outil-terrain').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTerrain(); };
@@ -8560,6 +8561,51 @@ async function chargerAutresPresets() {
 }
 setTimeout(() => { chargerAutresPresets(); setInterval(chargerAutresPresets, 5 * 60000); }, 8000);
 
+// ---- Page publique « Rejoindre le réseau » (réglages, administrateur) ----------------------------------------
+async function ficheRejoindre() {
+  $('#fiche').hidden = false;
+  etat.selection = null;
+  const z = $('#fiche-contenu');
+  z.innerHTML = '<h2>🤝 Rejoindre le réseau</h2><p class="note">Chargement…</p>';
+  let r;
+  try { r = await api('/api/rejoindre/reglages'); } catch { z.innerHTML = '<h2>🤝 Rejoindre le réseau</h2><p class="note">Réservé aux administrateurs.</p>'; return; }
+  const adresse = `${location.origin}/rejoindre`;
+  const champ = (id, libelle, valeur, lignes = 0, aide = '') => `<label class="champ-rj"><span>${libelle}</span>${lignes
+    ? `<textarea id="rj-${id}" rows="${lignes}">${esc(valeur || '')}</textarea>` : `<input id="rj-${id}" value="${esc(valeur ?? '')}">`}${aide ? `<small class="note">${aide}</small>` : ''}</label>`;
+  z.innerHTML = `<h2>🤝 Rejoindre le réseau</h2>
+    <p class="note">Une page publique, à donner aux nouveaux venus et à imprimer : QR du canal, preset conseillé, rôles, règles, antennes, relais et dons.<br>Elle s’ouvre à l’adresse <a href="/rejoindre" target="_blank" rel="noopener">${esc(adresse)}</a>.</p>
+    <label class="ligne-case"><input type="checkbox" id="rj-actif" ${r.actif ? 'checked' : ''}> Page publiée</label>
+    ${champ('presentation', 'Présentation', r.presentation, 3, 'Quelques lignes : qui vous êtes, ce que permet le réseau.')}
+    ${champ('lienCanal', 'Lien du canal Meshtastic', r.lienCanal, 0, 'Lien https://meshtastic.org/e/#… : il contient la clé du canal, qui sera publique sur cette page.')}
+    <div class="actions-prop"><button class="mini" id="rj-module">📡 Prendre le canal principal du module de la carte</button></div>
+    <p class="note">Preset du réseau : <b>${esc(nomPreset(r.preset))}</b> (affiché tout seul).</p>
+    ${champ('limiteSauts', 'Limite de sauts conseillée', r.limiteSauts)}
+    ${champ('roles', 'Rôles recommandés (une ligne par rôle)', r.roles, 4)}
+    ${champ('regles', 'Règles du réseau (une par ligne)', r.regles, 5)}
+    ${champ('antennes', 'Antennes testées (une par ligne)', r.antennes, 4)}
+    <h4>MeshCore (laisser vide si absent)</h4>
+    ${champ('mcFrequence', 'Fréquence', r.mcFrequence, 0, 'Exemple : 869,618 MHz')}
+    ${champ('mcBande', 'Bande passante', r.mcBande, 0, 'Exemple : 62,5 kHz')}
+    ${champ('mcSf', 'Facteur d’étalement (SF)', r.mcSf)}
+    ${champ('mcCr', 'Taux de codage (CR)', r.mcCr)}
+    <label class="ligne-case"><input type="checkbox" id="rj-montrerRelais" ${r.montrerRelais ? 'checked' : ''}> Lister les relais du secteur (vus ces 7 derniers jours)</label>
+    ${champ('contact', 'Contact', r.contact, 2)}
+    ${champ('donsTexte', 'Texte pour les dons', r.donsTexte, 2)}
+    ${champ('donsLien', 'Lien des dons', r.donsLien, 0, 'Exemple : page HelloAsso de l’association.')}
+    <div class="actions-prop"><a class="mini" href="/rejoindre" target="_blank" rel="noopener">Voir la page</a><button class="principal" id="rj-enregistrer">Enregistrer</button></div>
+    <div id="rj-retour" class="note" role="status"></div>`;
+  $('#rj-module').onclick = async () => {
+    try { $('#rj-lienCanal').value = (await api('/api/rejoindre/lien-module')).lien; $('#rj-retour').textContent = '✓ Canal principal du module repris (avec ses réglages LoRa). Pensez à enregistrer.'; }
+    catch (e) { $('#rj-retour').textContent = '✗ ' + e.message; }
+  };
+  $('#rj-enregistrer').onclick = async () => {
+    const b = { actif: $('#rj-actif').checked, montrerRelais: $('#rj-montrerRelais').checked };
+    for (const k of ['presentation', 'lienCanal', 'limiteSauts', 'roles', 'regles', 'antennes', 'mcFrequence', 'mcBande', 'mcSf', 'mcCr', 'contact', 'donsTexte', 'donsLien']) b[k] = $('#rj-' + k).value;
+    try { await postJson('/api/rejoindre/reglages', b); etat.config.rejoindre = b.actif; $('#rj-retour').textContent = b.actif ? '✓ Enregistré : la page est publiée.' : '✓ Enregistré (page masquée).'; }
+    catch (e) { $('#rj-retour').textContent = '✗ ' + e.message; }
+  };
+}
+
 async function ficheAutresPresets() {
   $('#fiche').hidden = false;
   etat.selection = null;
@@ -8590,7 +8636,9 @@ async function ficheAutresPresets() {
     const n = l.find((x) => x.num === Number(b.dataset.apInviter));
     const s = sentinelle(n.preset);
     const zone = $('#ap-invitation');
-    const defaut = tr(`Bonjour ! Le réseau Meshtastic du secteur est en ${nomPreset(r.preset)}. Passez votre nœud dans ce preset pour nous rejoindre. Carte : ${location.host}`);
+    const defaut = etat.config.rejoindre
+      ? tr(`Bonjour ! Le réseau Meshtastic du secteur est en ${nomPreset(r.preset)}. Pour nous rejoindre : ${location.host}/rejoindre`)
+      : tr(`Bonjour ! Le réseau Meshtastic du secteur est en ${nomPreset(r.preset)}. Passez votre nœud dans ce preset pour nous rejoindre. Carte : ${location.host}`);
     zone.innerHTML = `<h4>Invitation à ${esc(n.nom_long || n.id)}</h4>
       <p class="note">Message direct envoyé par la sentinelle « ${esc(s.nom)} » (${esc(nomPreset(s.preset))}). Relisez-le : 200 octets au plus.</p>
       <textarea id="ap-texte" rows="4" maxlength="200">${esc(defaut)}</textarea>

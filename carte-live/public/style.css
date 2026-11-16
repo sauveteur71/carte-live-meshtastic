@@ -1539,3 +1539,8 @@ body.panneau-seul .fiche { position: fixed !important; inset: 0 0 0 auto !import
   .fiche { top: max(64px, calc(var(--bas-outils, 0px) + 6px)); }
   .legende { max-height: calc(100vh - var(--bas-outils, 60px) - 40px); overflow-y: auto; }
 }
+/* Réglages de la page « Rejoindre le réseau » */
+.champ-rj { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.champ-rj > span { font-weight: 600; }
+.champ-rj input, .champ-rj textarea { width: 100%; box-sizing: border-box; font: inherit; }
+.ligne-case { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-weight: 600; }

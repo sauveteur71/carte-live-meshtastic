@@ -322,6 +322,34 @@ function simulerUsb() {
 // Agent 1.7 « direct » simulé : il annonce un module déjà reconnu, la carte le relie tout de suite ; débranché, il disparaît.
 // Puis l'agent prêt à l'emploi : le programme téléchargé porte l'adresse de la carte et le code à la fin.
 // Nœuds d'un autre preset et écoute UDP : les panneaux s'ouvrent et s'affichent sans erreur
+async function essaiRejoindre(navig, cookie) {
+  console.log('Page « Rejoindre le réseau »');
+  const entetes = { Cookie: `${cookie.name}=${cookie.value}`, 'Content-Type': 'application/json' };
+  const avant = await fetch(BASE + '/api/rejoindre');
+  if (avant.status === 404) ok('page Rejoindre : non publiée par défaut'); else ko('page Rejoindre publiée sans action de l’administrateur');
+  const refus = await fetch(BASE + '/api/rejoindre/reglages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  if (refus.status === 401 || refus.status === 403) ok('page Rejoindre : réglages refusés sans compte'); else ko('page Rejoindre : réglages acceptés sans compte (' + refus.status + ')');
+  const mauvais = await fetch(BASE + '/api/rejoindre/reglages', { method: 'POST', headers: entetes, body: JSON.stringify({ lienCanal: 'https://exemple.fr/x' }) });
+  if (mauvais.status === 400) ok('page Rejoindre : lien de canal invalide refusé'); else ko('page Rejoindre : lien invalide accepté');
+  const lien = 'https://meshtastic.org/e/#CgMSAQESBggBQANIAQ';
+  const e = await fetch(BASE + '/api/rejoindre/reglages', { method: 'POST', headers: entetes, body: JSON.stringify({ actif: true, presentation: 'Bienvenue sur le réseau d’essai', lienCanal: lien, limiteSauts: 4, antennes: 'Antenne A\nAntenne B', donsLien: 'https://exemple.org/dons', mcFrequence: '869,618 MHz' }) });
+  if (e.ok) ok('page Rejoindre : réglages enregistrés'); else ko('page Rejoindre : enregistrement refusé ' + e.status);
+  const contexte = await navig.newContext({ viewport: { width: 390, height: 844 }, locale: 'fr-FR' });
+  await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(contexte, '/rejoindre');
+  await page.waitForSelector('.canal .qr svg', { timeout: 10000 }).catch(() => {});
+  const r = await page.evaluate(() => ({ texte: document.querySelector('main').textContent, qr: document.querySelectorAll('.qr svg').length, lien: (document.querySelector('a.bouton.principal') || {}).href, large: document.documentElement.scrollWidth > innerWidth + 1 }));
+  if (r.qr === 2 && r.lien === lien) ok('page Rejoindre : QR du canal, lien vers l’appli, QR de la page'); else ko('page Rejoindre : QR ou lien manquant ' + JSON.stringify({ qr: r.qr, lien: r.lien }));
+  if (/Limite de sauts/.test(r.texte) && /4/.test(r.texte) && /Antenne B/.test(r.texte) && /869,618 MHz/.test(r.texte) && /Soutenir le réseau/.test(r.texte) && /Les règles du réseau/.test(r.texte)) ok('page Rejoindre : sauts, rôles, règles, antennes, MeshCore, dons'); else ko('page Rejoindre : contenu incomplet');
+  if (!r.large) ok('page Rejoindre : pas de défilement horizontal sur téléphone'); else ko('page Rejoindre : déborde en largeur sur téléphone');
+  if (process.env.CAPTURE_REJOINDRE) await page.screenshot({ path: process.env.CAPTURE_REJOINDRE, fullPage: true });
+  bilanErreurs(erreurs, 'page Rejoindre');
+  const pub = await ouvrir(contexte, '/publique');
+  await pub.page.waitForTimeout(1500);
+  if (await pub.page.evaluate(() => !document.getElementById('lien-rejoindre').hidden)) ok('carte publique : bouton « Rejoindre le réseau »'); else ko('carte publique : bouton Rejoindre absent');
+  await contexte.close();
+}
+
 async function essaiAutresPresets(navig, cookie) {
   console.log('Nœuds à inviter et écoute UDP');
   const contexte = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
@@ -472,6 +500,7 @@ async function essaiPagesPubliques(navig) {
     await contexte.close();
     await essaiDemoVisiteur(navigateur);
     await essaiAutresPresets(navigateur, cookie);
+    await essaiRejoindre(navigateur, cookie);
     await essaiAgentDirect(cookie);
     await essaiUsbAuto(navigateur, cookie);
     await essaiEcran150(navigateur);

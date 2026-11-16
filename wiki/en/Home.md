@@ -20,6 +20,7 @@ Real-time map, monitoring and **remote administration** of a [Meshtastic](https:
 ## Administration
 - [[Remote programming|Programmation à distance]]: Meshtastic settings over LoRa, targeted read, templates, favorites, firmware 2.8.
 - [[Reports|Signalements]]: flooded road, fallen tree… placed on the map and sent over LoRa (Meshtastic waypoint compatible with Bipper / GerMaCrise, MeshCore message).
+- [[Growing the network|Faire-grandir-le-réseau]]: spot nodes set to another preset and invite them, public “Join the network” page with channel QR, rules and relays.
 - [[Teams|Équipes]]: encrypted channel per team, added or removed remotely on responders' nodes, new key, command-line equivalent.
 - [[MeshCore]]: companion, repeaters, traces, regions, MQTT republishing.
 - [[Accounts and security|Comptes et sécurité]]: roles, area managers, two-factor authentication, log.

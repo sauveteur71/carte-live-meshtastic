@@ -20,6 +20,7 @@ Carte en temps réel, supervision et **administration à distance** d'un réseau
 ## Administrer
 - [[Programmation à distance]] : réglages Meshtastic par LoRa, lecture ciblée, modèles, favoris, firmware 2.8.
 - [[Signalements]] : route inondée, arbre tombé… posé sur la carte et envoyé en LoRa (point de passage Meshtastic compatible Bipper / GerMaCrise, message MeshCore).
+- [[Faire grandir le réseau]] : repérer les nœuds réglés sur un autre preset et les inviter, page publique « Rejoindre le réseau » avec QR du canal, règles et relais.
 - [[Équipes]] : canal chiffré par équipe, posé ou retiré à distance sur les nœuds des intervenants, nouvelle clé, équivalent en ligne de commande.
 - [[MeshCore]] : companion, répéteurs, traces, régions, republication MQTT.
 - [[Comptes et sécurité]] : rôles, gestionnaires de secteur, double authentification, journal.

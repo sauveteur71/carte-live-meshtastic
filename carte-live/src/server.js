@@ -275,6 +275,7 @@ app.get('/api/config', (req, res) => {
     regions: calculerRegions().map(({ code, nom, bbox }) => ({ code, nom, bbox })),
     zoneNom: config.zoneNom,
     radio: true,
+    rejoindre: adhesion.actif(),
     meshcore: config.meshcore.actif && config.carte.reseaux !== 'meshtastic',
     reseaux: config.meshcore.actif ? config.carte.reseaux : 'meshtastic',
     mcRadioAttendue: config.meshcore.radioAttendue,
@@ -3011,6 +3012,32 @@ app.post('/api/autres-presets/inviter', (req, res) => {
     const r = ecoutes.radio(s.hote, s.port).envoyerInvitation(num, b.texte);
     res.json({ ok: true, id: r.id });
   } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+
+// ---- Page publique « Rejoindre le réseau » (/rejoindre) ----------------------------------------------------------
+const adhesion = require('./adhesion').creerAdhesion({ config, db: stockage.db, reseauMc: typeof reseauMc !== 'undefined' ? reseauMc : null, presetDuReseau, journal: (...a) => journal('[Rejoindre]', ...a) });
+app.get('/rejoindre', envoyerPage('rejoindre.html'));
+app.get('/api/rejoindre', async (req, res) => {
+  const adresse = `${req.protocol}://${req.get('host')}/rejoindre`;
+  const p = await adhesion.publique(adresse);
+  if (!p) return res.status(404).json({ erreur: 'Page non publiée par l’administrateur' });
+  res.set('Cache-Control', 'max-age=60').json(p);
+});
+app.get('/api/rejoindre/reglages', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  res.set('Cache-Control', 'no-store').json({ ...adhesion.lire(), preset: presetDuReseau() });
+});
+app.post('/api/rejoindre/reglages', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  try { res.json(adhesion.enregistrer(req.body || {})); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+// Lien du canal principal (avec les réglages LoRa) du module relié à la carte, pour remplir la page en un clic
+app.get('/api/rejoindre/lien-module', async (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  const m = adhesion.moduleCarte();
+  const q = m && m.noeud ? await require('./reglages-noeuds').qr(m.noeud, { indices: [0], avecLora: true }).catch(() => null) : null;
+  if (!q) return res.status(404).json({ erreur: 'Canaux du module pas encore connus : reliez un module Meshtastic à la carte' });
+  res.set('Cache-Control', 'no-store').json({ lien: q.url });
 });
 
 // ---- Modules Meshtastic du réseau local, écoutés par UDP multicast (UDP_MESHTASTIC=oui) ---------------------------
