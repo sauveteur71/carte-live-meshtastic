@@ -2,7 +2,14 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
-## 2.27.1
+## 2.28.0
+
+### 🌊 Rivières
+- **Nouvelle couche « Rivières »** (en option) : hauteur d'eau, débit et tendance des stations hydrométriques publiques du secteur (Hub'Eau, les mêmes mesures que Vigicrues), avec la courbe sur 24 h. Gratuit, sans compte ni matériel.
+- **Alertes de crue** dans la carte : montée rapide (20 cm/h par défaut, réglable) et seuils de hauteur choisis station par station.
+
+### 🧰 Supervision
+- **Échecs des tâches de fond visibles dans les alertes** : relevé des rivières impossible, APRS-IS injoignable.
 
 ### ✉️ Messages
 - **Historique d'un canal toujours visible** : en choisissant un canal (ou les messages directs), la carte charge son propre historique. Un canal calme, comme celui d'une association, n'est plus caché par les centaines de messages des canaux bavards.

@@ -3136,6 +3136,9 @@ function alertesServices() {
     const m = sourceMM.etat();
     suivre('meshmonitor', !!(m && m.erreur), 30, `Source MeshMonitor injoignable : ${m && m.erreur}`);
   }
+  // Tâches de fond des couches en option : un échec durable remonte dans les alertes de la carte
+  if (typeof rivieres !== 'undefined') { const r = rivieres.etat(); suivre('rivieres', r.actif && !!r.erreur, 60, `Rivières : relevé Hub’Eau impossible (${r.erreur})`); }
+  if (typeof aprs !== 'undefined') { const a = aprs.etat(); suivre('aprs', a.actif && a.indicatif && !a.connecte, 30, `APRS-IS injoignable${a.erreur ? ' : ' + a.erreur : ''} (couche APRS figée)`); }
   // MQTT : déjà signalé par la pastille « En direct » du bandeau (et absent volontairement sur les cartes reliées à un module seul)
   return l;
 }
@@ -3144,6 +3147,7 @@ function rafraichirEtat() {
   try { if (typeof equipes !== 'undefined') dernieresAlertes = [...dernieresAlertes, ...equipes.alertes((n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); })]; } catch { /* équipes pas encore prêtes */ }
   if (passerelle) { try { dernieresAlertes = [...dernieresAlertes, ...passerelle.alertes()]; } catch (e) { journal('[Passerelle]', e.message); } }
   try { dernieresAlertes = [...dernieresAlertes, ...alertesServices()]; } catch (e) { journal('alertes des services :', e.message); }
+  try { dernieresAlertes = [...dernieresAlertes, ...rivieres.alertes()]; } catch (e) { if (!(e instanceof ReferenceError)) journal('[Rivières]', e.message); } // pas encore créé au démarrage
   try { if (!fonctionMasquee('feux')) dernieresAlertes = [...dernieresAlertes, ...feux.alertes()]; } catch (e) { if (!(e instanceof ReferenceError)) journal('[Feux]', e.message); } // pas encore créé au démarrage
   diffuser({ genre: 'etat', stats: reseau.statistiques(), alertes: dernieresAlertes, meshmonitor: typeof sourceMM !== 'undefined' && sourceMM ? sourceMM.etat() : null, radio: typeof sourceRadio !== 'undefined' && sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
 }
@@ -3664,6 +3668,14 @@ app.get('/api/alertes-officielles', (req, res) => res.set('Cache-Control', 'no-s
 const feux = require('./feux').creerFeux({ config, journal, diffuser });
 // Couche APRS (dont LoRa APRS 433,775 MHz) : lecture seule sur APRS-IS, zone département + voisins (APRS_IS=oui)
 const aprs = require('./aprs').creerAprs({ zone: () => (zoneVoisins() || {}).bbox || config.zone, journal, version: VERSION });
+// Rivières : hauteurs d'eau des stations publiques Hub'Eau de la zone de la carte (ouvert à tous : données publiques)
+const rivieres = require('./rivieres').creerRivieres({ zone: () => (zoneVoisins() || {}).bbox || config.zone, journal });
+app.get('/api/rivieres', (req, res) => res.json({ etat: rivieres.etat(), stations: rivieres.etat().actif ? rivieres.liste() : [] }));
+app.get('/api/rivieres/:code', (req, res) => {
+  const s = /^[A-Z0-9]{10}$/i.test(req.params.code) ? rivieres.serie(req.params.code.toUpperCase()) : null;
+  if (!s) return res.status(404).json({ erreur: 'Station inconnue' });
+  res.json(s);
+});
 app.get('/api/aprs', (req, res) => {
   const heures = Math.min(Math.max(Number(req.query.heures) || 6, 1), 24);
   res.json({ etat: aprs.etat(), stations: aprs.etat().actif ? aprs.liste(heures) : [] });

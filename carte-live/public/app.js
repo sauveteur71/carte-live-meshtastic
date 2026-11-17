@@ -5927,7 +5927,7 @@ function brancherInterface() {
     etat.couches[c] = !etat.couches[c];
     b.classList.toggle('actif', etat.couches[c]);
     if (c) ecrireLs('gaulix_couches', etat.couches); // choix gardé pour la prochaine visite
-    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'dfci') dessinerDfci(); else if (c === 'radar') dessinerRadar(); else if (c === 'feux') dessinerFeux(); else if (c === 'aprs') dessinerAprs(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
+    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'dfci') dessinerDfci(); else if (c === 'radar') dessinerRadar(); else if (c === 'feux') dessinerFeux(); else if (c === 'aprs') dessinerAprs(); else if (c === 'rivieres') dessinerRivieres(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
   }));
   $('#filtres').onclick = (e) => {
     const b = e.target.closest('button[data-port]');
@@ -6432,6 +6432,7 @@ async function demarrer() {
   if (etat.couches.radar) dessinerRadar();
   if (etat.couches.feux) dessinerFeux();
   if (etat.couches.aprs) dessinerAprs();
+  if (etat.couches.rivieres) dessinerRivieres();
   // Liens vers le client et le flasheur officiels (Web Serial / Web Bluetooth : HTTPS et Chrome ou Edge obligatoires)
   {
     const o = etat.config.outils || {}, https = location.protocol === 'https:';
@@ -7474,6 +7475,57 @@ async function dessinerAprs() {
     annonce(`📻 ${(r.stations || []).length} station(s) APRS ces 6 dernières heures, dont ${nLora} LoRa${r.etat.connecte ? '' : ' · ⚠ APRS-IS non connecté'}`);
   } catch (e) { annonce('⚠ Stations APRS indisponibles : ' + e.message, 'erreur'); }
   minuteurAprs = setTimeout(dessinerAprs, 2 * 60000);
+}
+// ---- Rivières : hauteurs d'eau des stations publiques (Hub'Eau, lu par le serveur toutes les 10 min) ----
+let coucheRivieres = null, minuteurRivieres = null;
+const mFr = (x, d = 2) => (x == null ? '–' : Number(x).toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }));
+function courbeRiviere(mesures, seuil) {
+  if (!mesures || mesures.length < 2) return '';
+  const W = 260, H = 70, t0 = mesures[0][0], t1 = mesures[mesures.length - 1][0];
+  const hs = mesures.map((m) => m[1]).concat(seuil != null ? [seuil] : []);
+  const min = Math.min(...hs), max = Math.max(...hs), ec = max - min || 0.1;
+  const x = (t) => ((t - t0) / (t1 - t0 || 1)) * (W - 4) + 2, y = (h) => H - 4 - ((h - min) / ec) * (H - 8);
+  const pts = mesures.map((m) => `${x(m[0]).toFixed(1)},${y(m[1]).toFixed(1)}`).join(' ');
+  const ligneSeuil = seuil != null ? `<line x1="0" x2="${W}" y1="${y(seuil)}" y2="${y(seuil)}" stroke="#ff6b6b" stroke-dasharray="4 3"/>` : '';
+  return `<svg class="courbe-riviere" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Hauteur sur 24 h">${ligneSeuil}<polyline points="${pts}" fill="none" stroke="#5fb4ff" stroke-width="2"/></svg>`;
+}
+async function dessinerRivieres() {
+  clearTimeout(minuteurRivieres);
+  if (!etat.couches.rivieres) { if (coucheRivieres) { coucheRivieres.remove(); coucheRivieres = null; } return; }
+  try {
+    const r = await api('/api/rivieres');
+    if (!etat.couches.rivieres) return;
+    if (!r.etat.actif) { annonce('🌊 Couche Rivières désactivée : Réglages avancés › « Rivières (Hub’Eau) »'); return; }
+    const g = L.layerGroup();
+    const alerteDe = new Map((etat.alertes || []).filter((a) => a.type === 'riviere').map((a) => [a.cle.slice(8), a.niveau]));
+    for (const s of r.stations || []) {
+      const niv = alerteDe.get(s.code) || 'ok';
+      const fleche = s.tendance == null ? '' : s.tendance >= 5 ? ' ↗' : s.tendance <= -5 ? ' ↘' : ' →';
+      const m = L.marker([s.lat, s.lon], { pane: 'traces', icon: L.divIcon({ className: 'riviere-pt ' + niv, html: `<span>🌊</span>`, iconSize: [18, 18], iconAnchor: [9, 9] }) });
+      m.bindTooltip(`<span translate="no">${mFr(s.h)} m${fleche}</span>`, { direction: 'right', offset: [8, 0], className: 'riviere-etiquette ' + niv, permanent: carte.getZoom() >= 10 });
+      m.bindPopup(() => {
+        const div = document.createElement('div');
+        div.className = 'popup-riviere';
+        div.innerHTML = `<b translate="no">${esc(s.nom)}</b>${s.cours ? `<br><small translate="no">${esc(s.cours)}</small>` : ''}
+          <div class="riviere-valeurs"><span><b translate="no">${mFr(s.h)} m</b><small>Hauteur</small></span>
+          <span><b translate="no">${s.tendance == null ? '–' : (s.tendance > 0 ? '+' : '') + s.tendance + ' cm/h'}</b><small>Tendance</small></span>
+          <span><b translate="no">${s.q == null ? '–' : mFr(s.q, s.q < 10 ? 2 : 1) + ' m³/s'}</b><small>Débit</small></span></div>
+          <div class="riviere-courbe">…</div>
+          <small>Maximum sur 24 h : <span translate="no">${mFr(s.max24)} m</span>${s.seuil != null ? ` · seuil : <span translate="no">${mFr(s.seuil)} m</span>` : ''}</small><br>
+          <small>Mesure ${ilYa(s.heure)} · <span translate="no">${esc(s.code)}</span></small><br>
+          <a href="https://www.vigicrues.gouv.fr/" target="_blank" rel="noopener">Vigicrues</a> · <a href="https://www.hydro.eaufrance.fr/stationhydro/${encodeURIComponent(s.code)}/fiche" target="_blank" rel="noopener">Fiche de la station</a>`;
+        api('/api/rivieres/' + encodeURIComponent(s.code)).then((d) => { const z = div.querySelector('.riviere-courbe'); if (z) z.innerHTML = courbeRiviere(d.mesures, s.seuil) || ''; }).catch(() => {});
+        return div;
+      });
+      m.addTo(g);
+    }
+    g.addTo(carte);
+    if (coucheRivieres) coucheRivieres.remove();
+    coucheRivieres = g;
+    const n = (r.stations || []).length, nm = (r.stations || []).filter((s) => s.tendance != null && s.tendance >= r.etat.monteeCmH).length;
+    annonce(`🌊 ${n} station(s) de mesure des rivières${nm ? ` · ${nm} en montée rapide` : ''}${r.etat.erreur ? ' · ⚠ relevé en échec' : ''}`);
+  } catch (e) { annonce('⚠ Rivières indisponibles : ' + e.message, 'erreur'); }
+  minuteurRivieres = setTimeout(dessinerRivieres, 5 * 60000);
 }
 // ---- Feux actifs vus par satellite (NASA FIRMS, lu par le serveur toutes les 30 min) ----
 let coucheFeux = null, minuteurFeux = null;

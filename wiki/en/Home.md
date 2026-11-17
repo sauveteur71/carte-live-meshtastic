@@ -29,6 +29,7 @@ Real-time map, monitoring and **remote administration** of a [Meshtastic](https:
 - [[PostgreSQL archive|Archive PostgreSQL]]: full history, retention, maximum size.
 - [[Home automation and monitoring|Domotique-et-supervision]]: Home Assistant, Node-RED (including sending a LoRa message), Prometheus / Grafana to watch the relays, Wi-Fi nodes found by mDNS.
 - [[Amateur radio, APRS, ATAK|Radioamateurs-APRS-ATAK]]: LoRa APRS stations, licensed-mode nodes, KML export for ATAK, cable loss calculator, relay register.
+- [[Rivers and flood alerts|Rivières-et-alerte-crue]]: water levels from public gauging stations (Hub'Eau, like Vigicrues), fast-rise and threshold alerts.
 - [[Versions and compatibility|Versions et compatibilité]]: supported firmware, Meshtastic 2.8.
 
 ## Help

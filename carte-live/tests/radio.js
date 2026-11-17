@@ -467,3 +467,36 @@ test('Messages : conservés plus longtemps que le trafic, historique d’un seul
   st.db.close();
   fs.rmSync(dossier, { recursive: true, force: true });
 });
+
+test('Rivières (Hub’Eau) : stations, hauteur, tendance, seuil et alertes', async () => {
+  const { creerRivieres, lireReglages, lireSeuils } = require('../src/rivieres');
+  assert.deepEqual([...lireSeuils('K0010020=2,5 ; K011402001: 3').entries()], [['K0010020', 2.5], ['K011402001', 3]]);
+  const t = Date.now(), iso = (ms) => new Date(t - ms).toISOString();
+  const urls = [];
+  const recuperer = async (u) => {
+    urls.push(u);
+    const corps = u.includes('/referentiel/stations')
+      ? { data: [{ code_station: 'K001002010', code_site: 'K0010020', libelle_station: 'La Loire à Bas', libelle_cours_eau: 'La Loire', longitude_station: 4.1, latitude_station: 45.2 },
+        { code_station: 'K002002010', code_site: 'K0020020', libelle_station: 'La Borne au Puy', libelle_cours_eau: 'La Borne', longitude_station: 3.88, latitude_station: 45.04 }] }
+      : { data: [
+        { code_station: 'K001002010', grandeur_hydro: 'H', date_obs: iso(65 * 60000), resultat_obs: 1500 },
+        { code_station: 'K001002010', grandeur_hydro: 'H', date_obs: iso(5 * 60000), resultat_obs: 1900 },
+        { code_station: 'K001002010', grandeur_hydro: 'Q', date_obs: iso(5 * 60000), resultat_obs: 123400 },
+        { code_station: 'K002002010', grandeur_hydro: 'H', date_obs: iso(65 * 60000), resultat_obs: 800 },
+        { code_station: 'K002002010', grandeur_hydro: 'H', date_obs: iso(5 * 60000), resultat_obs: 810 },
+      ] };
+    return { ok: true, status: 200, json: async () => corps };
+  };
+  const r = creerRivieres({ zone: () => [44.7, 3.0, 45.5, 4.5], reglages: lireReglages({ RIVIERES: 'oui', RIVIERES_SEUILS: 'K0020020=0,5' }), recuperer });
+  await r.releve();
+  r.arreter();
+  assert.match(urls[0], /bbox=3\.000,44\.700,4\.500,45\.500/);
+  const l = r.liste();
+  const loire = l.find((s) => s.code === 'K001002010'), borne = l.find((s) => s.code === 'K002002010');
+  assert.equal(loire.h, 1.9); assert.equal(loire.q, 123.4); assert.equal(loire.tendance, 40);
+  assert.equal(borne.seuil, 0.5); assert.equal(borne.tendance, 1);
+  const a = r.alertes();
+  assert.equal(a.find((x) => x.cle === 'riviere:K001002010').niveau, 'critique'); // 40 cm/h = 2 × 20
+  assert.match(a.find((x) => x.cle === 'riviere:K002002010').message, /seuil de 0,5 m dépassé/);
+  assert.equal(r.serie('K001002010').mesures.length, 2);
+});
