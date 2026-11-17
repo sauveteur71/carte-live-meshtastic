@@ -397,7 +397,8 @@ async function mcRendreMessages() {
   const avantLecture = !document.hidden && typeof nonLus !== 'undefined' ? { ...nonLus } : {};
   mcMarquerLus();
   const cleMc = (m) => (m.genre === 'direct' ? 'mcdirect' : 'mc:' + String(m.canal || '?').toLowerCase());
-  if (typeof marquerNouveaux === 'function') marquerNouveaux(l.filter((m) => mcListeMontre(cleMc(m))), cleMc, (m) => 'mc' + (m.id != null ? m.id : m.heure + (m.nomDe || '')), (m) => m.sens === 'recu', avantLecture);
+  for (const m of l) if (m.sens === 'envoye' && m.nomDe) mcNomsMoi.add(m.nomDe);
+  if (typeof marquerNouveaux === 'function') marquerNouveaux(l.filter((m) => mcListeMontre(cleMc(m))), cleMc, (m) => 'mc' + (m.id != null ? m.id : m.heure + (m.nomDe || '')), (m) => m.sens === 'recu' && !mcEstDeMoi(m), avantLecture);
   const c = (mc.etat && mc.etat.companion) || {};
   const canaux = c.canaux || [];
   const peutEnvoyer = etat.admin && c.connecte;
@@ -509,6 +510,13 @@ document.addEventListener('click', (e) => {
   ouvrirMenu(b, `${esc(mcNom(cle))} <small>${esc(cle.slice(0, 8))}</small>`, items);
 });
 
+// Message de la carte elle-même : envoyé par son companion, ou entendu en retour (répété par un relais, vu par un
+// observateur MQTT) sous le nom du companion. Il n'est ni « nouveau » ni compté comme non lu.
+const mcNomsMoi = new Set();
+function mcEstDeMoi(m) {
+  const c = (mc.etat && mc.etat.companion) || {};
+  return m.sens === 'envoye' || (!!m.nomDe && (m.nomDe === c.nom || mcNomsMoi.has(m.nomDe)));
+}
 function mcLigneMessage(m) {
   const qui = m.sens === 'envoye' ? `<b>${esc(m.nomDe || 'moi')}</b>${m.genre === 'direct' ? ` → ${mcBoutonAuteur(m.nomVers || mcNom(m.vers), m.vers)}` : ''}` : `${mcBoutonAuteur(m.nomDe || '?', m.genre === 'direct' ? m.de : null)}${m.genre === 'direct' ? ' → moi' : ''}`;
   const lieu = m.genre === 'direct' ? 'Direct' : m.canal || '';
@@ -1807,7 +1815,7 @@ function mcRecevoir(m) {
     mcMajAlertes();
     if (etat.admin && mc.vue === 'companion') mcChargerEtat();
   } else if (m.genre === 'mc-noeuds') mcPlanifier();
-  else if (m.genre === 'mc-message' && etat.membre) { if (m.sens === 'recu') mcNoterMessageRecu(m); mcMessagesARafraichir(); }
+  else if (m.genre === 'mc-message' && etat.membre) { if (m.sens === 'recu' && !mcEstDeMoi(m)) mcNoterMessageRecu(m); mcMessagesARafraichir(); }
 }
 // Messages MeshCore non lus (même réglage de sons que Meshtastic : bip par nom de canal, alerte des messages directs)
 function mcNoterMessageRecu(m) {
