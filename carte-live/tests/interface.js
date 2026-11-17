@@ -369,6 +369,33 @@ async function essaiAutresPresets(navig, cookie) {
   await contexte.close();
 }
 
+async function essaiRegistreEtExports(navig, cookie) {
+  console.log('Registre des relais, calculette des pertes, export KML');
+  const contexte = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
+  await contexte.addCookies([cookie]);
+  await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(contexte, '/');
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  const t = await page.evaluate(async () => { await ficheRegistreRelais(); return document.querySelector('#fiche-contenu').textContent; });
+  if (/Registre des relais/.test(t) && /Autorisation/.test(t) && /Exporter le registre/.test(t)) ok('registre des relais : tableau, autorisations, export CSV'); else ko('registre des relais : ' + t.slice(0, 120));
+  const calc = await page.evaluate(() => {
+    const champ = document.querySelector('#form-profil input[name="pertes"]');
+    const b = champ && champ.parentElement.querySelector('.calculette-btn');
+    if (!b) return null;
+    b.click();
+    const p = champ.parentElement.querySelector('.calculette-pertes');
+    p.querySelector('[data-c="long"]').value = '10'; p.querySelector('[data-c="conn"]').value = '2';
+    p.querySelector('[data-c="long"]').dispatchEvent(new Event('input'));
+    p.querySelector('[data-c="ok"]').click();
+    return Number(champ.value);
+  });
+  if (calc > 2 && calc < 4) ok(`calculette des pertes : 10 m de RG213 + 2 connecteurs = ${calc} dB`); else ko('calculette des pertes : ' + calc);
+  const kml = await (await fetch(BASE + '/api/export/reseau.kml')).text();
+  const direct = await fetch(BASE + '/api/export/reseau-direct.kml');
+  if (/^<\?xml/.test(kml) && /<kml /.test(kml) && /Relais et passerelles/.test(kml) && /reseau\.kml/.test(await direct.text()) && /reseau-direct\.kml/.test(direct.headers.get('content-disposition') || '')) ok('export KML pour ATAK (réseau et lien en direct)'); else ko('export KML');
+  bilanErreurs(erreurs, 'registre et exports');
+  await contexte.close();
+}
 async function essaiAgentDirect(cookie) {
   console.log('Agent zéro question (simulé)');
   const net = require('net');
@@ -501,6 +528,7 @@ async function essaiPagesPubliques(navig) {
     await essaiDemoVisiteur(navigateur);
     await essaiAutresPresets(navigateur, cookie);
     await essaiRejoindre(navigateur, cookie);
+    await essaiRegistreEtExports(navigateur, cookie);
     await essaiAgentDirect(cookie);
     await essaiUsbAuto(navigateur, cookie);
     await essaiEcran150(navigateur);

@@ -1560,3 +1560,25 @@ body.panneau-seul .fiche { position: fixed !important; inset: 0 0 0 auto !import
 .vig-ligne.deja-envoye .ao-env-btn { background: transparent; border-color: rgba(62, 230, 138, 0.5); }
 body.theme-clair .vig-ligne .envoye-radio { color: #0a7a45; }
 body.theme-clair .vig-ligne.deja-envoye { border-left-color: #0a7a45 !important; background: rgba(10, 122, 69, 0.08) !important; }
+
+/* Nœud en mode licencié (radioamateur) */
+.badge.licencie { background: rgba(180, 140, 255, 0.18); border-color: #b48cff; color: #e6dcff; }
+body.theme-clair .badge.licencie { color: #4b2a9a; background: rgba(120, 80, 220, 0.12); }
+
+/* Calculette des pertes de câble */
+.calculette-btn { margin-top: 4px; }
+.calculette-pertes { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: flex-end; margin: 6px 0; padding: 8px 10px; border: 1px solid var(--bord, rgba(120,160,190,.3)); border-radius: 8px; background: rgba(62, 230, 196, 0.06); grid-column: 1 / -1; }
+.calculette-pertes label { display: flex; flex-direction: column; gap: 2px; font-size: 0.92em; }
+.calculette-pertes input[type=number] { width: 6em; }
+.calculette-resultat { display: flex; gap: 10px; align-items: center; }
+.calculette-pertes .note { flex-basis: 100%; }
+
+/* Registre des relais */
+.registre-relais .table-defile { overflow-x: auto; }
+.registre-relais table { width: 100%; border-collapse: collapse; font-size: 0.92em; }
+.registre-relais th, .registre-relais td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--bord, rgba(120,160,190,.25)); vertical-align: top; }
+.registre-relais tr.cliquable { cursor: pointer; }
+.registre-relais tr.cliquable:hover { background: rgba(62, 230, 196, 0.06); }
+.registre-relais .etat-ok { color: #3ee68a; } .registre-relais .etat-attention, .registre-relais .attention { color: #ffb547; }
+.registre-relais .etat-ko, .registre-relais .ko { color: #ff6b6b; } .registre-relais .etat-inconnu { color: var(--doux, #c3d0dc); }
+body.theme-clair .registre-relais .etat-ok { color: #0a7a45; } body.theme-clair .registre-relais .etat-attention, body.theme-clair .registre-relais .attention { color: #a35a00; } body.theme-clair .registre-relais .etat-ko, body.theme-clair .registre-relais .ko { color: #b42318; }

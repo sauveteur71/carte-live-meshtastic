@@ -13,7 +13,11 @@ const CHAMPS_TECHNIQUES = {
   batterieAh: { min: 0, max: 1000 },
   panneauW: { min: 0, max: 2000 },
 };
-const CHAMPS_TEXTE = { antenne: 80, alimentation: 20, site: 120, proprietaire: 120, contact: 160, miseEnService: 10, notes: 1000, aFaire: 500 };
+const CHAMPS_TEXTE = { antenne: 80, alimentation: 20, site: 120, proprietaire: 120, contact: 160, miseEnService: 10, notes: 1000, aFaire: 500,
+  autorisation: 20, dateAutorisation: 10, zoneProtegee: 30, derniereVisite: 10 };
+// Autorisation d'occuper le site (propriétaire, commune, gestionnaire) et contraintes du lieu
+const AUTORISATIONS = ['ecrite', 'convention', 'orale', 'en-cours', 'aucune', 'non-necessaire'];
+const ZONES_PROTEGEES = ['aucune', 'monument-historique', 'site-classe', 'littoral', 'natura-2000', 'parc-reserve', 'autre'];
 const ALIMENTATIONS = ['secteur', 'solaire', 'batterie', 'secteur+batterie', 'solaire+batterie', 'autre'];
 const PRIVES = ['proprietaire', 'contact'];
 
@@ -38,12 +42,14 @@ function creerInstallations(dossier) {
       r[k] = String(v).trim().slice(0, lg);
     }
     if (r.alimentation && !ALIMENTATIONS.includes(r.alimentation)) throw new Error('Alimentation inconnue');
-    if (r.miseEnService && !/^\d{4}-\d{2}-\d{2}$/.test(r.miseEnService)) throw new Error('Date de mise en service invalide (AAAA-MM-JJ)');
+    for (const k of ['miseEnService', 'dateAutorisation', 'derniereVisite']) if (r[k] && !/^\d{4}-\d{2}-\d{2}$/.test(r[k])) throw new Error(`Date invalide pour ${k} (AAAA-MM-JJ)`);
+    if (r.autorisation && !AUTORISATIONS.includes(r.autorisation)) throw new Error('Autorisation inconnue');
+    if (r.zoneProtegee && !ZONES_PROTEGEES.includes(r.zoneProtegee)) throw new Error('Zone protégée inconnue');
     return r;
   }
 
   return {
-    ALIMENTATIONS,
+    ALIMENTATIONS, AUTORISATIONS, ZONES_PROTEGEES,
     lire(num, admin) {
       const f = donnees[String(num)];
       if (!f) return null;

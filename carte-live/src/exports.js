@@ -113,7 +113,35 @@ function creerExports({ config, stockage, reseau, reseauMc, maintenance, santeCa
       + '\n</gpx>\n';
   }
 
-  return { jetonOk, noeudsGeoJSON, liensGeoJSON, resume, metriques, relaisGpx };
+  // KML pour ATAK, Google Earth, QGIS : relais et passerelles, autres nœuds, liaisons radio des dernières 24 h.
+  // Couleurs KML en aabbggrr. Mêmes règles de confidentialité que la carte publique.
+  function reseauKml({ heures = 24, titre = 'Carte live' } = {}) {
+    const x = (t) => String(t ?? '').replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
+    const tous = noeudsVisibles();
+    const pos = new Map(tous.map((n) => [n.num, n]));
+    const pt = (n, style) => `<Placemark><name>${x(n.nomCourt || n.nomLong || n.id)}</name><styleUrl>#${style}</styleUrl>`
+      + `<description>${x([n.nomLong, n.roleFr || n.role, n.passerelle ? 'passerelle MQTT' : '', n.statut, n.dernierVu ? 'vu ' + new Date(n.dernierVu).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : ''].filter(Boolean).join(' · '))}</description>`
+      + `<Point><coordinates>${n.lon},${n.lat}${n.alt != null ? ',' + n.alt : ''}</coordinates></Point></Placemark>`;
+    const style = (id, couleur, echelle) => `<Style id="${id}"><IconStyle><color>${couleur}</color><scale>${echelle}</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon></IconStyle><LabelStyle><scale>0.8</scale></LabelStyle></Style>`;
+    const coulLien = (snr) => (snr == null ? 'ffc8d0dc' : snr >= 5 ? 'ff8ae63e' : snr >= 0 ? 'ff6bf5e9' : snr >= -7 ? 'ff47b5ff' : 'ff6c5cff');
+    const relais = tous.filter((n) => n.infrastructure || n.passerelle);
+    const autres = tous.filter((n) => !n.infrastructure && !n.passerelle && n.statut !== 'inactif');
+    const liens = reseau.liens(heures * 3600000).filter((l) => pos.has(l.a) && pos.has(l.b));
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${x(titre)}</name>`
+      + style('relais', 'ffff8cb4', 1.2) + style('passerelle', 'fff0c94c', 1.1) + style('noeud', 'ff99ed80', 0.8) + style('eteint', 'ff968a7d', 0.8)
+      + `<Folder><name>Relais et passerelles</name>${relais.map((n) => pt(n, n.statut === 'inactif' ? 'eteint' : n.passerelle && !n.infrastructure ? 'passerelle' : 'relais')).join('')}</Folder>`
+      + `<Folder><name>Autres nœuds</name>${autres.map((n) => pt(n, 'noeud')).join('')}</Folder>`
+      + `<Folder><name>Liaisons radio (${heures} h)</name>${liens.map((l) => `<Placemark><name>${x((pos.get(l.a).nomCourt || '') + ' ↔ ' + (pos.get(l.b).nomCourt || ''))}</name><description>SNR ${l.snr ?? '?'} dB · ${l.nb || 0} observations</description><Style><LineStyle><color>${coulLien(l.snr)}</color><width>3</width></LineStyle></Style><LineString><tessellate>1</tessellate><coordinates>${pos.get(l.a).lon},${pos.get(l.a).lat} ${pos.get(l.b).lon},${pos.get(l.b).lat}</coordinates></LineString></Placemark>`).join('')}</Folder>`
+      + '</Document></kml>\n';
+  }
+  // Lien réseau KML : ATAK ou Google Earth recharge le KML du réseau toutes les minutes
+  function reseauKmlLive(url) {
+    const x = (t) => String(t ?? '').replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><NetworkLink><name>Carte live (en direct)</name><refreshVisibility>0</refreshVisibility>`
+      + `<Link><href>${x(url)}</href><refreshMode>onInterval</refreshMode><refreshInterval>60</refreshInterval></Link></NetworkLink></kml>\n`;
+  }
+
+  return { jetonOk, noeudsGeoJSON, liensGeoJSON, resume, metriques, relaisGpx, reseauKml, reseauKmlLive };
 }
 
 module.exports = { creerExports };

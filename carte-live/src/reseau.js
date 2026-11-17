@@ -144,6 +144,7 @@ function creerReseau(stockage, config) {
       if (premiereReception) {
         if (evt.utilisateur) {
           q.infos.run({ num: evt.de, ...evt.utilisateur, firmware: null, preset: null });
+          q.licencie.run(evt.utilisateur.licencie ? 1 : 0, evt.de);
           if (evt.utilisateur.cle) q.clePublique.run(evt.utilisateur.cle, evt.de, evt.utilisateur.cle);
         }
         if (evt.rapportCarte) {
@@ -254,6 +255,7 @@ function creerReseau(stockage, config) {
       roleFr: ROLES_FR[n.role] || n.role || 'Inconnu',
       firmware: n.firmware,
       preset: n.preset,
+      licencie: !!n.licencie,
       lat: arrondir(n.lat, dec),
       lon: arrondir(n.lon, dec),
       alt: n.alt,

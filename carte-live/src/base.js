@@ -70,6 +70,7 @@ function ouvrirBase(fichier) {
   ajouter('paquets', 'pki', 'INTEGER');
   ajouter('receptions', 'sujet', 'TEXT');
   ajouter('noeuds', 'cle_publique', 'TEXT');
+  ajouter('noeuds', 'licencie', 'INTEGER'); // mode licencié (radioamateur) : pas de chiffrement, indicatif comme nom
   db.exec('CREATE INDEX IF NOT EXISTS idx_noeuds_cle ON noeuds(cle_publique)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_paquets_vers ON paquets(vers, heure)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_receptions_gw ON receptions(passerelle, heure)');
@@ -115,6 +116,7 @@ function creerStockage(fichier) {
           rssi = CASE WHEN excluded.rssi IS NULL THEN liens.rssi WHEN liens.rssi IS NULL THEN excluded.rssi ELSE ROUND(liens.rssi * 0.7 + excluded.rssi * 0.3, 1) END,
           nb = liens.nb + 1, dernier_vu = MAX(liens.dernier_vu, excluded.dernier_vu)`),
     noeuds: db.prepare('SELECT * FROM noeuds ORDER BY dernier_vu DESC'),
+    licencie: db.prepare('UPDATE noeuds SET licencie = ? WHERE num = ?'),
     clePublique: db.prepare('UPDATE noeuds SET cle_publique = ? WHERE num = ? AND cle_publique IS NOT ?'),
     liens: db.prepare('SELECT * FROM liens WHERE dernier_vu >= ?'),
     paquetsRecents: db.prepare(`SELECT p.*, (SELECT json_group_array(json_object('passerelle', r.passerelle, 'snr', r.snr, 'rssi', r.rssi, 'sauts', r.sauts))

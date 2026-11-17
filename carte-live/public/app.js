@@ -1779,6 +1779,7 @@ const CATALOGUE_REGLAGES = [
   ['Département de la carte', 'Compte › Réglages', 'zone contour centrage relief', 'admin', () => ouvrirDlg('reglages', '[name=departement]')],
   ['Serveur MQTT (broker)', 'Compte › Réglages', 'mqtt url broker adresse serveur connexion', 'admin', () => ouvrirDlg('reglages', '[name=mqttUrl]')],
   ['Réglages avancés', 'Réglages', 'env fichier seuils alerte tension batterie canal fond tuiles meshmonitor export jeton postgres lsa saf meteosat passerelle variables', 'admin', () => ficheReglagesAvances()],
+  ['Registre des relais', 'Outils', 'registre relais site autorisation propriétaire visite inventaire export csv', 'membre', () => ficheRegistreRelais()],
   ['Nœuds à inviter (autre preset)', 'Outils', 'longfast preset autre inviter recruter sentinelle longmoderate', 'admin', () => ficheAutresPresets()],
   ['Brokers MQTT supplémentaires', 'Réseau › Broker MQTT', 'mqtt broker plusieurs autre bulle voisine supplementaire', 'admin', () => ouvrirBroker()],
   ['Sujet racine MQTT', 'Compte › Réglages', 'mqtt topic racine msh', 'admin', () => ouvrirDlg('reglages', '[name=mqttRacine]')],
@@ -2456,13 +2457,15 @@ function courbe(points, cle, lib, unite, dec, seuil) {
 }
 
 // ---- Fiche d'installation d'un relais (antenne, hauteur, alimentation, site) -----------------------
+const LIB_AUTORISATION = { ecrite: 'Accord écrit', convention: 'Convention signée', orale: 'Accord oral seulement', 'en-cours': 'Demande en cours', aucune: 'Aucune autorisation', 'non-necessaire': 'Pas nécessaire (terrain à soi)' };
+const LIB_ZONE_PROTEGEE = { aucune: 'Aucune', 'monument-historique': 'Abords d’un monument historique', 'site-classe': 'Site classé ou inscrit', littoral: 'Littoral', 'natura-2000': 'Natura 2000', 'parc-reserve': 'Parc ou réserve naturelle', autre: 'Autre protection' };
 const LIB_ALIM = { secteur: 'Secteur', solaire: 'Solaire', batterie: 'Batterie seule', 'secteur+batterie': 'Secteur + batterie', 'solaire+batterie': 'Solaire + batterie', autre: 'Autre' };
 function htmlInstallation(n, f) {
   f = f || {};
   const v = (k) => (f[k] != null ? esc(String(f[k])) : '');
   if (!gerable(n.num)) {
     if (!Object.keys(f).length) return '<div class="vide">Aucune fiche d’installation pour ce nœud.</div>';
-    const l = [['Hauteur d’antenne', f.hauteur != null ? f.hauteur + ' m' : null], ['Antenne', f.antenne], ['Gain', f.gain != null ? f.gain + ' dBi' : null], ['Pertes câble', f.pertesCable != null ? f.pertesCable + ' dB' : null], ['Puissance', f.puissance != null ? f.puissance + ' dBm' : null], ['Alimentation', LIB_ALIM[f.alimentation]], ['Batterie', f.batterieAh != null ? f.batterieAh + ' Ah' : null], ['Panneau', f.panneauW != null ? f.panneauW + ' W' : null], ['Site', f.site], ['Mise en service', f.miseEnService]];
+    const l = [['Hauteur d’antenne', f.hauteur != null ? f.hauteur + ' m' : null], ['Antenne', f.antenne], ['Gain', f.gain != null ? f.gain + ' dBi' : null], ['Pertes câble', f.pertesCable != null ? f.pertesCable + ' dB' : null], ['Puissance', f.puissance != null ? f.puissance + ' dBm' : null], ['Alimentation', LIB_ALIM[f.alimentation]], ['Batterie', f.batterieAh != null ? f.batterieAh + ' Ah' : null], ['Panneau', f.panneauW != null ? f.panneauW + ' W' : null], ['Site', f.site], ['Mise en service', f.miseEnService], ['Autorisation du site', LIB_AUTORISATION[f.autorisation]], ['Zone protégée', LIB_ZONE_PROTEGEE[f.zoneProtegee]], ['Dernière visite', f.derniereVisite]];
     return `<div class="grille">${l.filter((x) => x[1] != null && x[1] !== '').map(([a, b]) => `<div class="mesure"><span>${a}</span><b>${esc(String(b))}</b></div>`).join('')}</div>${f.notes ? `<p class="note">${esc(f.notes)}</p>` : ''}`;
   }
   return `<form id="f-install" class="form-edit">
@@ -2480,16 +2483,62 @@ function htmlInstallation(n, f) {
       <label>Site (lieu, support) <input name="site" maxlength="120" value="${v('site')}" placeholder="ex. château d’eau, mât 6 m"></label>
       <label>Mise en service <input name="miseEnService" type="date" value="${v('miseEnService')}"></label>
       <label>Propriétaire du site <input name="proprietaire" maxlength="120" value="${v('proprietaire')}"></label>
-      <label>Contact <input name="contact" maxlength="160" value="${v('contact')}"></label></div>
+      <label>Contact <input name="contact" maxlength="160" value="${v('contact')}"></label>
+      <label>Autorisation du site <select name="autorisation"><option value="">–</option>${Object.entries(LIB_AUTORISATION).map(([k, t]) => `<option value="${k}" ${f.autorisation === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label>Date de l’autorisation <input name="dateAutorisation" type="date" value="${v('dateAutorisation')}"></label>
+      <label>Zone protégée <select name="zoneProtegee"><option value="">–</option>${Object.entries(LIB_ZONE_PROTEGEE).map(([k, t]) => `<option value="${k}" ${f.zoneProtegee === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label>Dernière visite sur place <input name="derniereVisite" type="date" value="${v('derniereVisite')}"></label></div>
     <label>Notes <textarea name="notes" rows="3" maxlength="1000">${v('notes')}</textarea></label>
     <div class="actions-prop"><button type="submit" class="principal">Enregistrer la fiche</button></div>
     <p class="note">La hauteur, le gain, les pertes et la puissance remplacent les valeurs supposées (6 m, 2,15 dBi, 27 dBm) dans la couverture du réseau, le plan et Relier. Propriétaire et contact ne sont visibles que des administrateurs.${f.maj ? ` Dernière mise à jour ${ilYa(f.maj)}${f.par ? ' par ' + esc(f.par) : ''}.` : ''}</p>
     <p class="erreur" id="install-retour"></p>
   </form>`;
 }
+// ---- Calculette des pertes de câble et connecteurs ------------------------------------------------
+// Valeurs typiques à ~870 MHz (dB pour 100 m) ; la perte d'un coaxial croît à peu près comme la racine de la fréquence.
+const CABLES = [
+  ['RG174 (très fin)', 85], ['RG316', 75], ['RG58', 50], ['RG8X / Mini-8', 33], ['LMR-195', 36], ['LMR-240', 25],
+  ['RG213 / RG8', 26], ['Aircell 7', 14], ['Hyperflex 10', 14], ['LMR-400', 13], ['Ecoflex 10', 9.3], ['Ecoflex 15', 6.6], ['LMR-600', 8.2],
+];
+function ajouterCalculettePertes(racine) {
+  (racine || document).querySelectorAll('input[name="pertesCable"], #form-profil input[name="pertes"]').forEach((champ) => {
+    if (champ.dataset.calculette) return;
+    champ.dataset.calculette = '1';
+    const bouton = document.createElement('button');
+    bouton.type = 'button'; bouton.className = 'mini calculette-btn'; bouton.textContent = '🧮 Calculer';
+    bouton.title = 'Calculer les pertes à partir du câble, de sa longueur et des connecteurs';
+    champ.insertAdjacentElement('afterend', bouton);
+    bouton.onclick = () => {
+      let p = bouton.nextElementSibling;
+      if (p && p.classList.contains('calculette-pertes')) { p.remove(); return; }
+      const f = (etat.config && etat.config.freqMHz) || 869.525;
+      p = document.createElement('div');
+      p.className = 'calculette-pertes';
+      p.innerHTML = `<label>Câble <select data-c="cable">${CABLES.map(([n, d], k) => `<option value="${k}" ${n === 'RG213 / RG8' ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+        <label>Longueur (m) <input data-c="long" type="number" min="0" max="200" step="0.5" value="5"></label>
+        <label>Connecteurs <input data-c="conn" type="number" min="0" max="10" step="1" value="2"></label>
+        <label class="case"><input data-c="foudre" type="checkbox"> Parafoudre</label>
+        <div class="calculette-resultat"><b data-c="res"></b> <button type="button" class="mini principal" data-c="ok">Utiliser</button></div>
+        <small class="note">Valeurs typiques à ${f.toFixed(0)} MHz (0,2 dB par connecteur, 0,3 dB le parafoudre) : vérifiez la fiche du câble. Un câble court et épais vaut mieux qu’une antenne à plus fort gain.</small>`;
+      bouton.insertAdjacentElement('afterend', p);
+      const calc = () => {
+        const [, d100] = CABLES[Number(p.querySelector('[data-c="cable"]').value)];
+        const l = Math.max(0, Number(String(p.querySelector('[data-c="long"]').value).replace(',', '.')) || 0);
+        const c = Math.max(0, Number(p.querySelector('[data-c="conn"]').value) || 0);
+        const db = d100 * Math.sqrt(f / 870) * l / 100 + 0.2 * c + (p.querySelector('[data-c="foudre"]').checked ? 0.3 : 0);
+        p.querySelector('[data-c="res"]').textContent = `= ${db.toFixed(1).replace('.', ',')} dB`;
+        return Math.round(db * 10) / 10;
+      };
+      p.querySelectorAll('select, input').forEach((x) => (x.oninput = calc));
+      calc();
+      p.querySelector('[data-c="ok"]').onclick = () => { champ.value = calc(); champ.dispatchEvent(new Event('input', { bubbles: true })); p.remove(); };
+    };
+  });
+}
 function brancherInstallation(n) {
   const fo = $('#f-install');
   if (!fo) return;
+  ajouterCalculettePertes(fo);
   fo.onsubmit = async (e) => {
     e.preventDefault();
     const nums = ['hauteur', 'gain', 'pertesCable', 'puissance', 'batterieAh', 'panneauW'];
@@ -2592,6 +2641,7 @@ async function ouvrirFiche(num) {
       ${n.preset ? `<span class="badge ${etat.autresPresets && etat.autresPresets.nums.has(n.num) ? 'autre-preset' : ''}" ${etat.autresPresets && etat.autresPresets.nums.has(n.num) ? `title="Autre preset que le réseau (${esc(nomPreset(etat.autresPresets.preset))}) : voir Outils › Nœuds à inviter"` : ''}>${esc(n.preset)}</span>` : ''}
       ${[...new Set(d.paquets.map((p) => p.canal).filter(Boolean))].slice(0, 4).map((c) => `<span class="badge canal">${esc(c)}</span>`).join('')}
       ${n.materiel ? `<span class="badge">${esc(n.materiel)}</span>` : ''}
+      ${n.licencie ? `<span class="badge licencie" title="Mode licencié (radioamateur) : messages non chiffrés, identifié par son indicatif. Ce nœud ne lit pas les canaux chiffrés du réseau.">📻 Radioamateur${n.nomLong ? ' · <span translate="no">' + esc(n.nomLong) + '</span>' : ''}</span>` : ''}
     </div>
     <nav class="onglets-fiche">
       <button data-of="infos" class="actif">Informations</button><button data-of="telem">Télémétries</button><button data-of="voisins">Voisins</button><button data-of="config">Configuration</button>${etat.membre ? `<button data-of="install">Installation${d.installation ? ' ✓' : ''}</button>` : ''}<button data-of="stats">Statistiques</button><button data-of="trames">Trames</button>
@@ -3749,6 +3799,8 @@ function fichePartager() {
     <p class="note">La page doit être joignable depuis internet (par exemple via Tailscale Funnel ou un reverse proxy) pour être vue par les visiteurs d’un site.</p>
     <h3>Exports</h3>
     ${lien(base + '/api/export/relais.gpx', 'Relais et passerelles (GPX)', 'pour OsmAnd, un GPS de randonnée ou une tournée de maintenance')}
+    ${lien(base + '/api/export/reseau.kml', 'Réseau pour ATAK et Google Earth (KML)', 'relais, nœuds et liaisons 24 h ; dans ATAK : Import Manager › fichier local')}
+    ${lien(base + '/api/export/reseau-direct.kml', 'Réseau en direct (lien KML)', 'ATAK ou Google Earth recharge le réseau chaque minute : la carte doit être joignable depuis l’appareil (réseau local, Tailscale)')}
     ${lien(base + '/api/export/noeuds.geojson', 'Nœuds (GeoJSON)', 'QGIS, uMap, sites web')}
     ${lien(base + '/api/export/liens.geojson', 'Liaisons radio 24 h (GeoJSON)', 'QGIS, uMap ; ?heures=168 pour 7 jours')}
     ${lien(base + '/api/export/resume.json', 'Résumé (JSON)', 'Home Assistant, scripts, tableaux de bord')}
@@ -6632,6 +6684,7 @@ function brancherInterface() {
   { const bt = $('#outil-trafic'); if (bt) bt.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTrafic(); }; }
   { const bc = $('#outil-connecter'); if (bc) bc.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ouvrirConnexion(); }; }
   { const bj = $('#outil-rejoindre'); if (bj) { bj.hidden = !etat.admin || !!etat.consultation; bj.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheRejoindre(); }; } }
+  { const br = $('#outil-registre'); if (br) { br.hidden = !etat.membre; br.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheRegistreRelais(); }; } }
   { const bi = $('#outil-inviter'); if (bi) { bi.hidden = !etat.admin || !!etat.consultation; bi.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheAutresPresets(); }; } }
   $('#outil-portee').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; testPortee(null); };
   $('#outil-terrain').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTerrain(); };
@@ -7428,6 +7481,7 @@ async function installation() {
 
 async function demarrer() {
   etat.config = await api('/api/config');
+  try { ajouterCalculettePertes(); } catch { /* formulaire du profil absent */ }
   // Mode consultation (?consultation, lien « Explorer en détail » de la carte publique) : tout en lecture, aucune
   // action d'écriture ni d'émission radio, même pour un compte connecté. Le serveur refuse de toute façon ces
   // actions à un visiteur ; ici on retire aussi les boutons.
@@ -8640,6 +8694,45 @@ async function ficheRejoindre() {
   };
 }
 
+// ---- Registre des relais : sites, autorisations, visites, matériel, firmware --------------------------
+async function ficheRegistreRelais() {
+  $('#fiche').hidden = false; etat.selection = null;
+  $('#fiche-contenu').innerHTML = '<div class="liste-signalements"><h3>🗂️ Registre des relais</h3><p class="note">Chargement…</p></div>';
+  let inst = {};
+  try { inst = await api('/api/installations'); } catch (e) { $('#fiche-contenu').innerHTML = `<div class="liste-signalements"><h3>🗂️ Registre des relais</h3><p class="erreur">${esc(e.message)}</p></div>`; return; }
+  const relais = [...etat.noeuds.values()].filter((n) => n.infrastructure || n.passerelle || inst[n.num]).sort((a, b) => (a.nomLong || a.nomCourt || '').localeCompare(b.nomLong || b.nomCourt || ''));
+  const jours = (d) => (d ? Math.floor((Date.now() - Date.parse(d)) / 86400000) : null);
+  const ligne = (n) => {
+    const f = inst[n.num] || {};
+    const aut = f.autorisation;
+    const autCls = !aut ? 'inconnu' : ['ecrite', 'convention', 'non-necessaire'].includes(aut) ? 'ok' : aut === 'aucune' ? 'ko' : 'attention';
+    const jv = jours(f.derniereVisite);
+    const visCls = jv == null ? 'inconnu' : jv > 365 ? 'ko' : jv > 180 ? 'attention' : 'ok';
+    return `<tr data-num="${n.num}" class="cliquable">
+      <td><b>${esc(n.nomLong || n.nomCourt || n.id)}</b><br><small>${esc(n.roleFr || '')}${n.materiel ? ' · ' + esc(n.materiel) : ''}</small></td>
+      <td>${esc(f.site || '—')}${f.zoneProtegee && f.zoneProtegee !== 'aucune' ? `<br><small class="ko">⚠ ${esc(LIB_ZONE_PROTEGEE[f.zoneProtegee])}</small>` : ''}</td>
+      <td class="etat-${autCls}">${esc(LIB_AUTORISATION[aut] || 'Non renseignée')}${f.dateAutorisation ? `<br><small>${esc(f.dateAutorisation)}</small>` : ''}</td>
+      <td class="etat-${visCls}">${f.derniereVisite ? esc(f.derniereVisite) : 'Jamais notée'}${jv != null ? `<br><small>il y a ${jv} j</small>` : ''}</td>
+      <td>${esc(LIB_ALIM[f.alimentation] || '—')}${f.batterieAh ? `<br><small>${f.batterieAh} Ah${f.panneauW ? ' · ' + f.panneauW + ' W' : ''}</small>` : ''}</td>
+      <td>${esc(n.firmware || '—')}<br><small>${n.dernierVu ? ilYa(n.dernierVu) : ''}</small></td></tr>`;
+  };
+  const sansAut = relais.filter((n) => !inst[n.num] || !['ecrite', 'convention', 'non-necessaire'].includes(inst[n.num].autorisation)).length;
+  const aVisiter = relais.filter((n) => { const j = jours((inst[n.num] || {}).derniereVisite); return j == null || j > 365; }).length;
+  $('#fiche-contenu').innerHTML = `<div class="liste-signalements registre-relais"><h3>🗂️ Registre des relais</h3>
+    <p>${relais.length} relais et passerelles. ${sansAut ? `<b class="ko">${sansAut} sans autorisation écrite enregistrée</b> · ` : ''}${aVisiter ? `<b class="attention">${aVisiter} sans visite depuis plus d’un an</b>` : ''}</p>
+    ${avertissementSites()}
+    <div class="table-defile"><table class="tableau"><thead><tr><th>Relais</th><th>Site</th><th>Autorisation</th><th>Dernière visite</th><th>Énergie</th><th>Firmware · vu</th></tr></thead>
+    <tbody>${relais.map(ligne).join('') || '<tr><td colspan="6">Aucun relais connu.</td></tr>'}</tbody></table></div>
+    <div class="actions-prop"><button type="button" class="mini" id="registre-csv">⬇ Exporter le registre (CSV)</button></div>
+    <p class="note">Cliquez sur un relais pour ouvrir sa fiche et compléter la rubrique « Installation » (site, autorisation, zone protégée, dernière visite). ${etat.admin ? 'Le propriétaire du site et le contact figurent dans l’export.' : 'Le propriétaire du site et le contact ne sont visibles que des administrateurs.'}</p></div>`;
+  document.querySelectorAll('.registre-relais tr[data-num]').forEach((tr) => (tr.onclick = () => ouvrirFiche(Number(tr.dataset.num))));
+  $('#registre-csv').onclick = () => {
+    const c = (x) => `"${String(x ?? '').replace(/"/g, '""')}"`;
+    const entete = ['Nom', 'Identifiant', 'Rôle', 'Matériel', 'Firmware', 'Latitude', 'Longitude', 'Dernier paquet', 'Site', 'Propriétaire du site', 'Contact', 'Autorisation', 'Date autorisation', 'Zone protégée', 'Mise en service', 'Dernière visite', 'Alimentation', 'Batterie (Ah)', 'Panneau (W)', 'Antenne', 'Hauteur (m)', 'Gain (dBi)', 'Pertes câble (dB)', 'Notes'];
+    const lignes = relais.map((n) => { const f = inst[n.num] || {}; return [n.nomLong || n.nomCourt, n.id, n.roleFr, n.materiel, n.firmware, n.lat, n.lon, n.dernierVu ? new Date(n.dernierVu).toISOString() : '', f.site, f.proprietaire, f.contact, LIB_AUTORISATION[f.autorisation] || '', f.dateAutorisation, LIB_ZONE_PROTEGEE[f.zoneProtegee] || '', f.miseEnService, f.derniereVisite, LIB_ALIM[f.alimentation] || '', f.batterieAh, f.panneauW, f.antenne, f.hauteur, f.gain, f.pertesCable, f.notes].map(c).join(';'); });
+    telechargerTexte(`registre-relais-${new Date().toISOString().slice(0, 10)}.csv`, '\ufeff' + [entete.map(c).join(';'), ...lignes].join('\r\n'));
+  };
+}
 async function ficheAutresPresets() {
   $('#fiche').hidden = false;
   etat.selection = null;
