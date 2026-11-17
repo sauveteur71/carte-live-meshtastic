@@ -1,5 +1,6 @@
 **Démarrer**
 - [[Accueil|Home]]
+- [[Aperçu en images|Aperçu-en-images]]
 - [[Installation]]
 - [[Brancher le réseau]]
 - [[Connecter un module]]

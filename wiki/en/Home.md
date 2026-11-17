@@ -10,6 +10,8 @@ Real-time map, monitoring and **remote administration** of a [Meshtastic](https:
 3. [[Connect a node|Connecter un module]]: Bluetooth, USB or IP address, and the [[agent|Agent Gaulix]].
 4. Discover [[the map|La carte]].
 
+📸 **[[Screenshots|Aperçu-en-images]]**: the main screens in 17 pictures.
+
 ## Using the map
 - [[The map|La carte]]: nodes, links, layers, message route, replay.
 - [[Messages]]: sending, acks, unread, sounds, alerts.
