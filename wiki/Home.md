@@ -10,7 +10,7 @@ Carte en temps réel, supervision et **administration à distance** d'un réseau
 3. [[Connecter un module]] : Bluetooth, USB ou adresse IP, et l'[[Agent Gaulix]].
 4. Découvrir [[La carte]].
 
-📸 **[[Aperçu en images|Aperçu-en-images]]** : les principaux écrans en 17 captures.
+📸 **[[Aperçu en images|Aperçu-en-images]]** : les principaux écrans en 18 captures.
 
 ## Utiliser la carte
 - [[La carte]] : nœuds, liaisons, couches, parcours d'un message, rejeu.

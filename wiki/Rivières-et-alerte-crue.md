@@ -2,6 +2,8 @@
 
 La couche **Rivières** (menu Couches) affiche les stations hydrométriques publiques du secteur : hauteur d'eau, débit et tendance, mis à jour toutes les 10 minutes. Les mesures viennent de l'API publique **Hub'Eau** (eaufrance), les mêmes que celles de Vigicrues. C'est gratuit, sans compte et sans matériel.
 
+![Couche Rivières](images/apercu/fr/18-rivieres.jpg)
+
 ## Activer
 *Réglages avancés › Rivières (Hub'Eau)* :
 - **Afficher les hauteurs d'eau des rivières du secteur** : oui.

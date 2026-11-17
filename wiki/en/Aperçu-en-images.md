@@ -86,3 +86,8 @@ Link graph, distance to gateways, breaking points and critical links.
 Site, permission, last visit, power and firmware of every relay, exportable as CSV.
 
 ![Relay register](images/apercu/en/17-registre.jpg)
+
+## Rivers and flood alerts
+Water levels from the public gauging stations in the area (like Vigicrues), trend, flow and 24 h curve.
+
+![Rivers and flood alerts](images/apercu/en/18-rivieres.jpg)

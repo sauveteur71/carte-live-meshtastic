@@ -86,3 +86,8 @@ Graphe des liaisons, distance aux passerelles, points de rupture et liaisons cri
 Site, autorisation, dernière visite, énergie et firmware de chaque relais, exportable en CSV.
 
 ![Registre des relais](images/apercu/fr/17-registre.jpg)
+
+## Rivières et alerte crue
+Hauteurs d’eau des stations publiques du secteur (comme Vigicrues), tendance, débit et courbe sur 24 h.
+
+![Rivières et alerte crue](images/apercu/fr/18-rivieres.jpg)

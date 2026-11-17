@@ -2,6 +2,8 @@
 
 The **Rivers** layer (Layers menu) shows the public gauging stations in the area: water height, flow and trend, updated every 10 minutes. The data comes from the public **Hub'Eau** API (eaufrance), the same measurements as Vigicrues (France). Free, no account and no hardware.
 
+![Rivers layer](images/apercu/en/18-rivieres.jpg)
+
 ## Enable
 *Advanced settings › Rivers (Hub'Eau)*:
 - **Show river levels in the area**: yes.
