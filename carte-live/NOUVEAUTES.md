@@ -8,6 +8,7 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 - **Appli Android** : la carte ne passe plus sous la barre d'état (heure, icônes) ni sous la barre de navigation sur Android 15, et le clavier ne recouvre plus la saisie.
 - **Menu Couches en trois colonnes** sur ordinateur (fond de carte et repères · réseau · autour du réseau) : il tient en hauteur au lieu de déborder de l'écran.
 - **Couche désactivée** (Rivières, Capteurs LoRaWAN, Stations APRS) : l'annonce reste affichée plus longtemps et, pour un administrateur, un clic ouvre les Réglages avancés sur le bon groupe.
+- **Stations APRS bien distinctes des nœuds** : carré blanc marqué « A » (bord violet pour LoRa APRS, bleu pour les autres) et étiquette « APRS » devant l'indicatif.
 - **Aide sous chaque réglage avancé** : les 36 réglages qui n'en avaient pas expliquent à quoi ils servent et leur valeur par défaut.
 - **Courbes des rivières et des capteurs** lisibles : valeurs mini et maxi dans une marge, début et fin de la courbe en clair (« il y a 8 h » … « il y a 3 h ») ; plus aucun texte sur le tracé.
 

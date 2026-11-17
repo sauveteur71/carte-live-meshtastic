@@ -7490,9 +7490,9 @@ async function dessinerAprs() {
     if (!r.etat.indicatif) { annonceReglage('📻 Couche APRS : indiquez votre indicatif radioamateur dans Réglages avancés › « APRS (radioamateurs) »', 'APRS (radioamateurs)', 'erreur'); return; }
     const g = L.layerGroup();
     for (const s of r.stations || []) {
-      const couleur = s.lora ? '#b48cff' : '#7fb3ff';
-      const m = L.marker([s.lat, s.lon], { pane: 'traces', icon: L.divIcon({ className: 'aprs-pt' + (s.lora ? ' lora' : ''), html: `<span style="background:${couleur}"></span>`, iconSize: [12, 12], iconAnchor: [6, 6] }) });
-      m.bindTooltip(esc(s.indicatif), { direction: 'right', offset: [6, 0], className: 'aprs-etiquette', permanent: carte.getZoom() >= 11 });
+      // Pastille carrée blanche marquée « A » : se distingue des nœuds Meshtastic (ronds, losanges) et MeshCore (losanges)
+      const m = L.marker([s.lat, s.lon], { pane: 'traces', icon: L.divIcon({ className: 'aprs-pt' + (s.lora ? ' lora' : ''), html: '<span>A</span>', iconSize: [16, 16], iconAnchor: [8, 8] }) });
+      m.bindTooltip(`<span class="aprs-tag">APRS</span> ${esc(s.indicatif)}`, { direction: 'right', offset: [8, 0], className: 'aprs-etiquette' + (s.lora ? ' lora' : ''), permanent: carte.getZoom() >= 11 });
       m.bindPopup(`<b translate="no">${esc(s.indicatif)}</b> ${s.lora ? '<span class="badge licencie">LoRa APRS</span>' : '<span class="badge">APRS</span>'}${s.objet ? ' <small>(objet)</small>' : ''}<br>`
         + `${s.commentaire ? `<span translate="no">${esc(s.commentaire)}</span><br>` : ''}${s.altitude != null ? `Altitude : ${s.altitude} m<br>` : ''}`
         + `Entendu ${ilYa(s.heure)}${s.igate ? ` · <span translate="no">via ${esc(s.igate)}</span>` : ''}<br>`

@@ -1592,9 +1592,13 @@ body.theme-clair .badge.licencie { color: #4b2a9a; background: rgba(120, 80, 220
 body.theme-clair .registre-relais .etat-ok { color: #0a7a45; } body.theme-clair .registre-relais .etat-attention, body.theme-clair .registre-relais .attention { color: #a35a00; } body.theme-clair .registre-relais .etat-ko, body.theme-clair .registre-relais .ko { color: #b42318; }
 
 /* Stations APRS */
-.aprs-pt span { display: block; width: 10px; height: 10px; transform: rotate(45deg); border: 1.5px solid #0b1117; box-shadow: 0 0 0 1px rgba(255,255,255,.4); }
-.aprs-pt.lora span { width: 12px; height: 12px; }
-.aprs-etiquette { background: rgba(11, 17, 23, .85); color: #e6dcff; border: 1px solid #b48cff; font-size: 11px; padding: 0 4px; }
+/* Stations APRS : carré blanc à coins arrondis marqué « A » (bleu : APRS VHF/Internet, violet épais : LoRa APRS) */
+.aprs-pt span { display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 3px; background: #fff; color: #0b3d91; font: 800 10px/1 system-ui, sans-serif; border: 2px solid #2f6fd6; box-shadow: 0 0 0 1px #0b1117; }
+.aprs-pt.lora span { color: #5b21b6; border-color: #a855f7; border-width: 2.5px; }
+.aprs-etiquette { background: #0b1117; color: #fff; border: 1px solid #2f6fd6; font-size: 11px; padding: 0 4px; }
+.aprs-etiquette.lora { border-color: #a855f7; }
+.aprs-etiquette .aprs-tag { display: inline-block; padding: 0 3px; border-radius: 3px; background: #fff; color: #0b3d91; font-size: 9px; font-weight: 800; }
+.aprs-etiquette.lora .aprs-tag { color: #5b21b6; }
 
 /* Rivières (Hub'Eau) */
 .riviere-pt span { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; background: #12324a; border: 2px solid #5fb4ff; box-shadow: 0 0 0 1px #0008; }
