@@ -97,8 +97,10 @@ function creerRivieres({ zone, journal = () => {}, reglages = lireReglages(), re
       if (avant && d.t - avant.t <= 3 * 3600000) tendance = Math.round(((d.h - avant.h) * 100) / ((d.t - avant.t) / 3600000));
     }
     const seuil = r.seuils.get(s.code) ?? r.seuils.get(s.site) ?? null;
+    // Barrage ou retenue : niveau du plan d'eau (souvent en altitude, ou manœuvres de vannes), pas une crue
+    const retenue = /barrage|retenue|\blac\b/i.test(s.nom) || (d && (d.h < -5 || d.h > 60));
     return {
-      ...s, h: d ? +d.h.toFixed(3) : null, heure: d ? d.t : null, tendance, seuil,
+      ...s, h: d ? +d.h.toFixed(3) : null, heure: d ? d.t : null, tendance, seuil, retenue: !!retenue,
       max24: l.length ? +Math.max(...l.map((x) => x.h)).toFixed(3) : null, q: q ? +q.q.toFixed(3) : null,
     };
   }
@@ -111,9 +113,9 @@ function creerRivieres({ zone, journal = () => {}, reglages = lireReglages(), re
     for (const s of liste()) {
       if (Date.now() - s.heure > 3 * 3600000) continue; // mesure trop ancienne : pas d'alerte sur une station muette
       const depasse = s.seuil != null && s.h >= s.seuil;
-      const montee = s.tendance != null && s.tendance >= r.monteeCmH;
+      const montee = !s.retenue && s.tendance != null && s.tendance >= r.monteeCmH; // un barrage : seulement sur seuil choisi
       if (!depasse && !montee) continue;
-      const nom = s.nom + (s.cours && !s.nom.includes(s.cours) ? ` (${s.cours})` : '');
+      const nom = s.nom + (s.cours && !s.nom.toLowerCase().includes(s.cours.toLowerCase()) ? ` (${s.cours})` : '');
       const parties = [];
       if (depasse) parties.push(`${s.h.toFixed(2).replace('.', ',')} m, seuil de ${String(s.seuil).replace('.', ',')} m dépassé`);
       if (montee) parties.push(`monte de ${s.tendance} cm/h`);

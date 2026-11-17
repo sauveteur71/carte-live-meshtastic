@@ -7501,7 +7501,7 @@ async function dessinerRivieres() {
     for (const s of r.stations || []) {
       const niv = alerteDe.get(s.code) || 'ok';
       const fleche = s.tendance == null ? '' : s.tendance >= 5 ? ' ↗' : s.tendance <= -5 ? ' ↘' : ' →';
-      const m = L.marker([s.lat, s.lon], { pane: 'traces', icon: L.divIcon({ className: 'riviere-pt ' + niv, html: `<span>🌊</span>`, iconSize: [18, 18], iconAnchor: [9, 9] }) });
+      const m = L.marker([s.lat, s.lon], { pane: 'traces', icon: L.divIcon({ className: 'riviere-pt ' + niv + (s.retenue ? ' retenue' : ''), html: `<span>${s.retenue ? '🏞️' : '🌊'}</span>`, iconSize: [18, 18], iconAnchor: [9, 9] }) });
       m.bindTooltip(`<span translate="no">${mFr(s.h)} m${fleche}</span>`, { direction: 'right', offset: [8, 0], className: 'riviere-etiquette ' + niv, permanent: carte.getZoom() >= 10 });
       m.bindPopup(() => {
         const div = document.createElement('div');
@@ -7510,6 +7510,7 @@ async function dessinerRivieres() {
           <div class="riviere-valeurs"><span><b translate="no">${mFr(s.h)} m</b><small>Hauteur</small></span>
           <span><b translate="no">${s.tendance == null ? '–' : (s.tendance > 0 ? '+' : '') + s.tendance + ' cm/h'}</b><small>Tendance</small></span>
           <span><b translate="no">${s.q == null ? '–' : mFr(s.q, s.q < 10 ? 2 : 1) + ' m³/s'}</b><small>Débit</small></span></div>
+          ${s.retenue ? '<small>Barrage ou retenue : niveau du plan d’eau, pas d’alerte de montée (seulement sur seuil choisi).</small>' : ''}
           <div class="riviere-courbe">…</div>
           <small>Maximum sur 24 h : <span translate="no">${mFr(s.max24)} m</span>${s.seuil != null ? ` · seuil : <span translate="no">${mFr(s.seuil)} m</span>` : ''}</small><br>
           <small>Mesure ${ilYa(s.heure)} · <span translate="no">${esc(s.code)}</span></small><br>

@@ -499,4 +499,9 @@ test('Rivières (Hub’Eau) : stations, hauteur, tendance, seuil et alertes', as
   assert.equal(a.find((x) => x.cle === 'riviere:K001002010').niveau, 'critique'); // 40 cm/h = 2 × 20
   assert.match(a.find((x) => x.cle === 'riviere:K002002010').message, /seuil de 0,5 m dépassé/);
   assert.equal(r.serie('K001002010').mesures.length, 2);
+  // Un barrage qui « monte » (manœuvre de vannes) ne déclenche pas d'alerte de crue
+  const r2 = creerRivieres({ zone: () => [44.7, 3.0, 45.5, 4.5], reglages: lireReglages({ RIVIERES: 'oui' }), recuperer: async (u) => ({ ok: true, json: async () => (u.includes('/referentiel/') ? { data: [{ code_station: 'K043303001', code_site: 'K0433030', libelle_station: 'Le Lignon à Grazac - Barrage de la Chapelette', longitude_station: 4.18, latitude_station: 45.17 }] } : { data: [{ code_station: 'K043303001', grandeur_hydro: 'H', date_obs: iso(65 * 60000), resultat_obs: -2500 }, { code_station: 'K043303001', grandeur_hydro: 'H', date_obs: iso(5 * 60000), resultat_obs: -1900 }] }) }) });
+  await r2.releve(); r2.arreter();
+  assert.equal(r2.liste()[0].retenue, true);
+  assert.equal(r2.alertes().length, 0);
 });
