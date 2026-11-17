@@ -4254,6 +4254,7 @@ async function rendreSites() {
       <button data-outil="btn-couvrir">🎯 Couvrir un ou plusieurs points<small>les points hauts capables de desservir le ou les lieux cliqués</small></button>
       <button data-outil="btn-relier">🔗 Relier deux lieux<small>faut-il des relais entre A et B, et où ?</small></button>
       <button data-outil="btn-profil">⛰️ Profil entre deux points<small>relief et dégagement de la liaison</small></button>
+      <button data-outil="btn-vue3d">🏔️ Vue 3D du réseau<small>relais et liaisons sur le relief, à faire tourner (nouvel onglet)</small></button>
       <button data-outil="btn-simulation">🧪 Simulation « et si… »<small>retirer ou ajouter des relais : couverture et liaisons entre les villes</small></button>
     </div>
     <h3>Réglages des calculs</h3>
@@ -6692,6 +6693,7 @@ function brancherInterface() {
   $('#btn-simulation').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; simulation(); };
   $('#btn-plan-menu').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; allerPlan(); };
   $('#consigne-annuler').onclick = () => { if (etat.modeCarte) basculerMode(null); if (etat.modeProfil) $('#btn-profil').click(); };
+  $('#btn-vue3d').onclick = () => window.open('relief3d.html', '_blank', 'noopener');
   $('#btn-profil').onclick = () => {
     const actif = !etat.modeProfil;
     if (actif && etat.modeCarte) basculerMode(null);

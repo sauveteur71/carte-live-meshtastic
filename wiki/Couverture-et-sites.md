@@ -30,6 +30,17 @@ La carte choisit les emplacements d'après le **relief** : elle ne sait pas si l
 
 Un relais posé sans autorisation peut être retiré, et c'est l'image de tout le réseau qui en pâtit.
 
+## Vue 3D du réseau
+*Couverture radio › 🏔️ Vue 3D du réseau* (ou rubrique Couverture › Outils sur la carte) ouvre dans un nouvel onglet les relais Meshtastic, les passerelles MQTT et les répéteurs MeshCore posés sur le relief, avec les liaisons des dernières 24 h colorées selon le SNR (pointillés pour MeshCore).
+
+- **Fond** : sombre, photos aériennes IGN ou topographique.
+- **Relief ×** : exagère le relief (×1 à ×4) pour mieux voir vallées et crêtes.
+- **Nœuds mobiles** : affiche aussi les nœuds qui ne sont ni relais ni passerelles.
+- **↻ Tourner** : rotation lente autour du centre (un clic sur la carte l'arrête) ; **Vue de dessus** : retour à plat.
+- Clic sur un point : altitude et dernier paquet entendu.
+
+Le relief vient des données déjà préparées par la carte (aucun service extérieur). Tant qu'il n'est pas prêt, la vue s'affiche à plat avec un avis.
+
 ## Zone dessinée à la main
 Dans *Couverture › Plan*, **🖊 Dessiner une zone** sert à étudier un secteur plutôt que tout le département : secteur d'intervention, vallée, massif, itinéraire de course…
 1. Cliquez sur la carte pour poser les coins de la zone (3 au moins). « ↶ Point » retire le dernier. Un point qui ferait croiser le contour est refusé.

@@ -27,7 +27,7 @@
   $('#fond').value = fondChoisi;
   const exaInit = Number(memo('exa')) || 1.5;
   $('#exa').value = exaInit;
-  $('#val-exa').textContent = String(exaInit).replace('.', ',');
+  $('#val-exa').textContent = Number(exaInit).toLocaleString('fr-FR');
 
   const sources = { fond: { type: 'raster', tileSize: 256, ...FONDS[fondChoisi] } };
   const couches = [{ id: 'fond', type: 'raster', source: 'fond' }];
@@ -60,7 +60,7 @@
   };
   $('#exa').oninput = () => {
     const v = Number($('#exa').value);
-    $('#val-exa').textContent = String(v).replace('.', ',');
+    $('#val-exa').textContent = v.toLocaleString('fr-FR');
     memo('exa', v);
     if (pret && carte.getTerrain()) carte.setTerrain({ source: 'dem', exaggeration: v });
   };
@@ -83,9 +83,9 @@
   function popup(n) {
     const h = pret ? carte.queryTerrainElevation([n.lon, n.lat], { exaggerated: false }) : null;
     const alt = n.alt != null ? n.alt : h;
-    return `<b>${esc(n.nom)}</b><br>${esc(tr(n.roleFr || n.role || ''))}${n.passerelle ? ' · ' + esc(tr('passerelle MQTT')) : ''}<br>`
-      + `${alt != null && Number.isFinite(alt) ? `${tr('Altitude')} : ${Math.round(alt)} m<br>` : ''}`
-      + `${tr('Dernier paquet')} : ${esc(ilYa(n.dernierVu))}${n.reseau === 'mc' ? '<br>MeshCore' : ''}`;
+    return `<b translate="no">${esc(n.nom)}</b><br>${esc(tr(n.roleFr || n.role || ''))}${n.passerelle ? ' · ' + esc(tr('passerelle MQTT')) : ''}<br>`
+      + `${alt != null && Number.isFinite(alt) ? `<span>${tr('Altitude :')}</span> <span translate="no">${Math.round(alt)} m</span><br>` : ''}`
+      + `<span>${tr('Dernier paquet :')}</span> <span translate="no">${esc(ilYa(n.dernierVu))}</span>${n.reseau === 'mc' ? '<br>MeshCore' : ''}`;
   }
   function dessinerNoeuds() {
     for (const m of marqueurs) m.remove();
@@ -95,7 +95,7 @@
       if (!n.infrastructure && !n.passerelle && !clients) continue;
       const el = document.createElement('div');
       el.className = `pt3d${n.infrastructure || n.passerelle ? ' infra' : ''}${n.reseau === 'mc' ? ' mc' : ''}`;
-      el.innerHTML = `<span class="rond" style="background:${couleur(n)}"></span><span class="nom">${esc(n.nomCourt || n.nom)}</span>`;
+      el.innerHTML = `<span class="rond" style="background:${couleur(n)}"></span><span class="nom" translate="no">${esc(n.nomCourt || n.nom)}</span>`;
       el.title = n.nom;
       const m = new maplibregl.Marker({ element: el, anchor: 'top', offset: [0, -9] })
         .setLngLat([n.lon, n.lat])

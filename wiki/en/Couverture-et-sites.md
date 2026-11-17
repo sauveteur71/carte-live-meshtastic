@@ -30,6 +30,17 @@ The map picks sites from the **terrain**: it does not know whether you are allow
 
 A relay installed without permission can be removed, and it damages the image of the whole network.
 
+## 3D network view
+*Radio coverage › 🏔️ 3D network view* (or Coverage › Tools on the map) opens, in a new tab, the Meshtastic relays, MQTT gateways and MeshCore repeaters placed on the terrain, with the links of the last 24 h coloured by SNR (dashed for MeshCore).
+
+- **Base map**: dark, IGN aerial photos or topographic.
+- **Terrain ×**: exaggerates the terrain (×1 to ×4) to show valleys and ridges better.
+- **Mobile nodes**: also shows nodes that are neither relays nor gateways.
+- **↻ Rotate**: slow rotation around the centre (a click on the map stops it); **Top view**: back to flat.
+- Click a point: altitude and last packet heard.
+
+The terrain comes from data already prepared by the map (no outside service). Until it is ready, the view is shown flat with a notice.
+
 ## Hand-drawn area
 In *Coverage › Plan*, **🖊 Draw an area** studies a sector rather than the whole department: intervention area, valley, massif, race route…
 1. Click on the map to place the area's corners (3 at least). “↶ Point” removes the last one. A point that would make the outline cross itself is refused.

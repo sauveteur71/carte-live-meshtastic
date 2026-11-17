@@ -396,6 +396,19 @@ async function essaiRegistreEtExports(navig, cookie) {
   bilanErreurs(erreurs, 'registre et exports');
   await contexte.close();
 }
+async function essaiVue3D(navig) {
+  console.log('Vue 3D du réseau');
+  const contexte = await navig.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-GB' });
+  await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_langue', 'en'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(contexte, '/relief3d.html');
+  await page.waitForTimeout(2000);
+  const v = await page.evaluate(() => ({ h1: document.querySelector('h1').textContent, carte: !!window.carte3d && !!document.querySelector('#carte3d canvas'), legende: document.querySelector('#legende').textContent }));
+  if (v.carte) ok('vue 3D : carte MapLibre affichée'); else ko('vue 3D : carte absente');
+  if (v.h1 === '3D network view' && /Good link/.test(v.legende) && !/Relais|Nœud/.test(v.legende)) ok('vue 3D : traduite en anglais'); else ko('vue 3D en anglais : ' + v.h1 + ' / ' + v.legende.slice(0, 80));
+  await capture(page, 'vue-3d');
+  bilanErreurs(erreurs, 'vue 3D');
+  await contexte.close();
+}
 async function essaiAgentDirect(cookie) {
   console.log('Agent zéro question (simulé)');
   const net = require('net');
@@ -529,6 +542,7 @@ async function essaiPagesPubliques(navig) {
     await essaiAutresPresets(navigateur, cookie);
     await essaiRejoindre(navigateur, cookie);
     await essaiRegistreEtExports(navigateur, cookie);
+    await essaiVue3D(navigateur);
     await essaiAgentDirect(cookie);
     await essaiUsbAuto(navigateur, cookie);
     await essaiEcran150(navigateur);
