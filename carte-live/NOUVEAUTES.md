@@ -13,6 +13,7 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ### 🏔️ Vue 3D du réseau
 - **Nouvelle vue 3D** (Couverture radio) : relais, passerelles et répéteurs MeshCore posés sur le relief, liaisons des dernières 24 h colorées selon le SNR, relief exagérable, fond sombre, photos aériennes ou topographique, rotation lente.
+- Elle suit le **département étudié** sur la carte.
 
 ### 📡 Radio et matériel
 - **Calculette des pertes de câble** : type de câble (RG58, RG213, LMR-400, Ecoflex…), longueur, connecteurs et parafoudre ; le résultat va directement dans la fiche d'installation ou dans « Profil et bilan de liaison ».
@@ -20,14 +21,20 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ### 📻 Stations APRS
 - **Nouvelle couche « Stations APRS »** : traqueurs, iGates et digipeaters **LoRa APRS** (433,775 MHz) du secteur en évidence, et autres stations APRS, lus sur APRS-IS en lecture seule (à activer dans Réglages avancés › APRS).
+- **Positions Mic-E lues** (portatifs et mobiles Kenwood, Yaesu…), **indicatif radioamateur obligatoire** pour activer la couche, zone suivie quand le département de la carte change.
 
 ### 🛰️ Export pour ATAK
 - **Export KML du réseau** (relais, nœuds, liaisons colorées selon le SNR) pour ATAK, Google Earth et QGIS, et **lien KML en direct** rechargé chaque minute.
+- **Lien KML en direct fiable derrière un reverse proxy https** : il reprend l'adresse vue par le navigateur.
 
 ### ⚠ Installer un relais dans les règles
 - **Avertissement sur les sites proposés** : un point haut n'est pas un site autorisé. Accord du propriétaire ou de la commune, pas de relais dans un cimetière ou un lieu de culte, avis de l'Architecte des Bâtiments de France près des monuments historiques, loi Littoral et espaces naturels protégés.
 
+### ⚡ Page plus légère
+- **Écrans d'administration chargés à la demande** : un visiteur télécharge 17 % de moins à l'ouverture de la carte ; pour un membre, ils sont préchargés en arrière-plan.
+
 ### 🔒 Sécurité
+- **Failles connues des dépendances contrôlées à chaque envoi**, en plus du contrôle hebdomadaire.
 - **Bibliothèque de la vue 3D mise à jour** (MapLibre 6) : corrige une faille connue de l'ancienne version.
 - **Export CSV du registre** : un nom de nœud commençant comme une formule (= + - @) n'est plus exécuté par le tableur.
 

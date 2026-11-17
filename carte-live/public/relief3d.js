@@ -9,12 +9,17 @@
   const avis = (html) => { const a = $('#avis'); a.innerHTML = html; a.hidden = !html; };
   const memo = (k, v) => { try { if (v === undefined) return localStorage.getItem('relief3d-' + k); localStorage.setItem('relief3d-' + k, v); } catch { return null; } return null; };
 
-  const [cfg, rel] = await Promise.all([lire('/api/config'), lire('/api/relief/etat')]);
-  if (!cfg) { avis('Carte injoignable.'); return; }
+  // Département étudié sur la carte (?dep=), sinon celui de la carte
+  const dep = (new URLSearchParams(location.search).get('dep') || '').toUpperCase().replace(/[^0-9AB]/g, '').slice(0, 3);
+  const q = dep ? `?dep=${dep}` : '';
+  const [cfg, rel] = await Promise.all([lire('/api/config'), lire('/api/relief/etat' + q)]);
+  if (!cfg) { avis(tr('Carte injoignable.')); return; }
   if (cfg.titre) document.title = `${tr('Vue 3D du réseau')} · ${cfg.titre}`;
   const e = rel && rel.emprise;
   const pret = rel && rel.mnt === 'pret' && e;
-  if (!pret) avis(tr('Le relief n’est pas encore prêt sur ce serveur : il se prépare tout seul après l’installation (quelques minutes). La carte s’affiche à plat en attendant.'));
+  if (!pret) avis(dep ? tr('Le relief de ce département se prépare (quelques minutes la première fois) : rechargez la page ensuite. La carte s’affiche à plat en attendant.')
+    : tr('Le relief n’est pas encore prêt sur ce serveur : il se prépare tout seul après l’installation (quelques minutes). La carte s’affiche à plat en attendant.'));
+  if (dep && rel && rel.departement && rel.departement.nom) $('h1').innerHTML = `${esc(tr('Vue 3D du réseau'))} · <span translate="no">${esc(dep)} ${esc(rel.departement.nom)}</span>`;
 
   const ign = 'Fond &copy; <a href="https://www.ign.fr" target="_blank" rel="noopener">IGN</a>';
   const wmts = (couche, format) => `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${couche}&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=${format}`;
@@ -32,11 +37,11 @@
   const sources = { fond: { type: 'raster', tileSize: 256, ...FONDS[fondChoisi] } };
   const couches = [{ id: 'fond', type: 'raster', source: 'fond' }];
   if (pret) {
-    sources.dem = { type: 'raster-dem', tiles: [location.origin + '/api/relief/terrain/{z}/{x}/{y}.png'], tileSize: 256, encoding: 'terrarium', minzoom: 5, maxzoom: 12, bounds: [e.ouest, e.sud, e.est, e.nord], attribution: 'Relief : IGN RGE ALTI / Copernicus' };
+    sources.dem = { type: 'raster-dem', tiles: [location.origin + '/api/relief/terrain/{z}/{x}/{y}.png' + q], tileSize: 256, encoding: 'terrarium', minzoom: 5, maxzoom: 12, bounds: [e.ouest, e.sud, e.est, e.nord], attribution: 'Relief : IGN RGE ALTI / Copernicus' };
     sources.demOmbre = { ...sources.dem };
     couches.push({ id: 'ombrage', type: 'hillshade', source: 'demOmbre', paint: { 'hillshade-exaggeration': 0.35, 'hillshade-shadow-color': '#000000', 'hillshade-highlight-color': '#ffffff' } });
   }
-  const centre = cfg.centre || [45, 4];
+  const centre = dep && pret ? [(e.sud + e.nord) / 2, (e.ouest + e.est) / 2] : cfg.centre || [45, 4];
   const carte = new maplibregl.Map({
     container: 'carte3d',
     style: { version: 8, sources, layers: couches },

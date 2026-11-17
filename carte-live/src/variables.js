@@ -39,7 +39,7 @@ const CATALOGUE = [
   { nom: 'MQTT_TLS_NON_VERIFIE', groupe: 'Messages et MQTT', libelle: 'Accepter un certificat auto-signé (mqtts, wss)', type: 'choix', choix: OUI_NON, aide: 'Déconseillé : la connexion n’est plus authentifiée.' },
   // APRS (radioamateurs)
   { nom: 'APRS_IS', groupe: 'APRS (radioamateurs)', libelle: 'Afficher les stations APRS du secteur', type: 'choix', choix: OUI_NON, aide: 'Par défaut non. La carte lit le réseau APRS-IS en lecture seule (sans émettre) pour la zone de la carte : stations LoRa APRS (433,775 MHz), iGates, digipeaters, traqueurs. Couche « Stations APRS ».' },
-  { nom: 'APRS_INDICATIF', groupe: 'APRS (radioamateurs)', libelle: 'Indicatif utilisé pour la connexion APRS-IS', type: 'texte', aide: 'Votre indicatif (ex. F4XXX) ; N0CALL par défaut. Connexion en lecture seule, sans mot de passe.' },
+  { nom: 'APRS_INDICATIF', groupe: 'APRS (radioamateurs)', libelle: 'Indicatif utilisé pour la connexion APRS-IS', type: 'texte', aide: 'Obligatoire pour activer la couche : votre indicatif radioamateur (ex. F4XXX). Connexion en lecture seule, sans mot de passe.' },
   { nom: 'APRS_SERVEUR', groupe: 'APRS (radioamateurs)', libelle: 'Serveur APRS-IS', type: 'texte', aide: 'rotate.aprs2.net:14580 par défaut (ou euro.aprs2.net:14580).' },
   { nom: 'APRS_LORA_SEULEMENT', groupe: 'APRS (radioamateurs)', libelle: 'Garder seulement les stations LoRa APRS', type: 'choix', choix: OUI_NON, aide: 'Par défaut non : toutes les stations APRS de la zone (VHF 144,800 MHz comprise), les stations LoRa étant mises en évidence.' },
   // Domotique (Home Assistant, Node-RED)

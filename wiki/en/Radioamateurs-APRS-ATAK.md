@@ -5,11 +5,11 @@ The **APRS stations** layer (Layers menu) shows the APRS stations in the area: *
 
 To enable in *Advanced settings › APRS (amateur radio)*:
 - **Show APRS stations in the area**: yes.
-- **Callsign**: yours (N0CALL by default).
+- **Callsign**: yours, **required** (the layer does not start without it).
 - **Server**: `rotate.aprs2.net:14580` by default.
 - **Keep only LoRa APRS stations**: your choice.
 
-The map connects to the worldwide **APRS-IS network read-only** (`pass -1`): it transmits nothing and needs no passcode. It only asks for the map area. Positions in messages, telemetry and the Mic-E format are not read yet.
+The map connects to the worldwide **APRS-IS network read-only** (`pass -1`): it transmits nothing and needs no passcode. It only asks for the map area. Mic-E positions (Kenwood, Yaesu… handhelds and mobiles) are read; positions in messages and telemetry are not. If you change department, the area followed is updated within 10 minutes.
 
 ## Nodes in licensed mode
 A Meshtastic node set to **licensed mode** (amateur radio) shows the **📻 Amateur radio** badge on its sheet. In licensed mode, messages are **not encrypted** (encryption is forbidden on amateur bands) and the node identifies with its callsign: it cannot read the network's encrypted channels.

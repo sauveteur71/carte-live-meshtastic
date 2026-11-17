@@ -392,8 +392,52 @@ async function essaiRegistreEtExports(navig, cookie) {
   if (calc > 2 && calc < 4) ok(`calculette des pertes : 10 m de RG213 + 2 connecteurs = ${calc} dB`); else ko('calculette des pertes : ' + calc);
   const kml = await (await fetch(BASE + '/api/export/reseau.kml')).text();
   const direct = await fetch(BASE + '/api/export/reseau-direct.kml');
+  const derriereProxy = await (await fetch(BASE + '/api/export/reseau-direct.kml?origine=' + encodeURIComponent('https://127.0.0.1:' + PORT), { headers: { 'X-Forwarded-Host': '127.0.0.1:' + PORT } })).text();
+  const autreHote = await (await fetch(BASE + '/api/export/reseau-direct.kml?origine=' + encodeURIComponent('https://exemple.org'))).text();
+  if (/<href>https:\/\/127\.0\.0\.1:\d+\/api\/export\/reseau\.kml<\/href>/.test(derriereProxy) && !/exemple\.org/.test(autreHote)) ok('lien KML en direct : adresse https vue par le navigateur, autre hôte refusé'); else ko('lien KML en direct : ' + derriereProxy.slice(0, 200));
   if (/^<\?xml/.test(kml) && /<kml /.test(kml) && /Relais et passerelles/.test(kml) && /reseau\.kml/.test(await direct.text()) && /reseau-direct\.kml/.test(direct.headers.get('content-disposition') || '')) ok('export KML pour ATAK (réseau et lien en direct)'); else ko('export KML');
   bilanErreurs(erreurs, 'registre et exports');
+  await contexte.close();
+}
+async function essaiAdministrationALaDemande(navig, cookie) {
+  console.log('Écrans d’administration chargés à la demande');
+  // Visiteur : le fichier d'administration n'est pas téléchargé
+  const ctxV = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
+  await ctxV.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const pv = await ctxV.newPage();
+  let charge = false;
+  pv.on('request', (r) => { if (/\/administration\.js/.test(r.url())) charge = true; });
+  await pv.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
+  await pv.waitForTimeout(4500);
+  if (!charge) ok('visiteur : écrans d’administration non téléchargés'); else ko('visiteur : administration.js téléchargé');
+  await ctxV.close();
+  // Administrateur : chaque écran s'ouvre par son relais, sans erreur
+  const contexte = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
+  await contexte.addCookies([cookie]);
+  await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(contexte, '/');
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  const essais = [
+    ['ficheMaj', 'Mise à jour'], ['ouvrirBroker', 'MQTT'], ['ficheFrance', 'France'], ['ficheModeles', 'odèle'], ['ficheV28', '2.8'],
+    ['ficheRegistreRelais', 'Registre des relais'], ['ficheAutresPresets', 'preset'],
+  ];
+  for (const [f, attendu] of essais) {
+    const t = await page.evaluate(async (nom) => {
+      try { await window[nom](); await new Promise((r) => setTimeout(r, 400)); } catch (e) { return 'ERREUR ' + e.message; }
+      const d = document.querySelector('dialog[open]');
+      const txt = (d ? d.textContent : '') + ' ' + document.querySelector('#fiche-contenu').textContent;
+      document.querySelectorAll('dialog[open]').forEach((x) => x.close());
+      return txt;
+    }, f);
+    if (!/^ERREUR/.test(t) && t.includes(attendu)) ok(`${f} : écran ouvert`); else ko(`${f} : ${t.slice(0, 140)}`);
+  }
+  for (const pan of ['comptes', 'journal', 'sauvegardes', 'reglages']) {
+    const t = await page.evaluate(async (p) => { await ouvrirDlg(p); await new Promise((r) => setTimeout(r, 700)); const x = document.querySelector(`#pan-${p}`); const v = x ? x.textContent.trim().length : 0; document.querySelectorAll('dialog[open]').forEach((d) => d.close()); return v; }, pan);
+    if (t > 20) ok(`gestion › ${pan} : rempli`); else ko(`gestion › ${pan} vide`);
+  }
+  const relais = await page.evaluate(() => ['ficheMaj', 'ouvrirBroker', 'editeurReglages', 'rendreComptes'].filter((n) => window[n].relais).length);
+  if (relais === 0) ok('relais remplacés par les vraies fonctions'); else ko(`${relais} relais non remplacé(s)`);
+  bilanErreurs(erreurs, 'administration à la demande');
   await contexte.close();
 }
 async function essaiVue3D(navig) {
@@ -543,6 +587,7 @@ async function essaiPagesPubliques(navig) {
     await essaiRejoindre(navigateur, cookie);
     await essaiRegistreEtExports(navigateur, cookie);
     await essaiVue3D(navigateur);
+    await essaiAdministrationALaDemande(navigateur, cookie);
     await essaiAgentDirect(cookie);
     await essaiUsbAuto(navigateur, cookie);
     await essaiEcran150(navigateur);

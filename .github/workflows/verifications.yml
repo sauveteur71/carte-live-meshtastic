@@ -16,6 +16,9 @@ jobs:
           node-version: '22'
       - name: Syntaxe JavaScript
         run: for f in carte-live/src/*.js carte-live/src/meshcore/*.js carte-live/public/*.js carte-live/outils/*.js; do node --check "$f"; done
+      - name: Failles connues dans les dépendances (gravité haute ou critique)
+        working-directory: carte-live
+        run: npm audit --omit=dev --audit-level=high
       - name: Version du README à jour
         run: |
           v=$(node -p "require('./carte-live/package.json').version")

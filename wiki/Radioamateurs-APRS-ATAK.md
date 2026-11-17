@@ -5,11 +5,11 @@ La couche **Stations APRS** (menu Couches) affiche les stations APRS du secteur 
 
 À activer dans *Réglages avancés › APRS (radioamateurs)* :
 - **Afficher les stations APRS du secteur** : oui.
-- **Indicatif** : le vôtre (N0CALL par défaut).
+- **Indicatif** : le vôtre, **obligatoire** (la couche ne démarre pas sans lui).
 - **Serveur** : `rotate.aprs2.net:14580` par défaut.
 - **Garder seulement les stations LoRa APRS** : au choix.
 
-La carte se connecte au réseau mondial **APRS-IS en lecture seule** (`pass -1`) : elle n'émet rien et n'a besoin d'aucun mot de passe. Elle ne demande que la zone de la carte (département et voisins). Les positions des messages, de la télémétrie et du format Mic-E ne sont pas encore lues.
+La carte se connecte au réseau mondial **APRS-IS en lecture seule** (`pass -1`) : elle n'émet rien et n'a besoin d'aucun mot de passe. Elle ne demande que la zone de la carte (département et voisins). Les positions au format Mic-E (portatifs et mobiles Kenwood, Yaesu…) sont lues ; celles des messages et de la télémétrie ne le sont pas. Si vous changez de département, la zone suivie est mise à jour dans les 10 minutes.
 
 ## Nœuds en mode licencié
 Un nœud Meshtastic réglé en **mode licencié** (radioamateur) porte le badge **📻 Radioamateur** dans sa fiche. En mode licencié, les messages ne sont **pas chiffrés** (le chiffrement est interdit en radioamateur) et le nœud s'identifie par son indicatif : il ne peut donc pas lire les canaux chiffrés du réseau.

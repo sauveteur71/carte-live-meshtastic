@@ -2051,11 +2051,12 @@ const cacheTerrain = new Map();
 app.get('/api/relief/terrain/:z/:x/:y.png', (req, res) => {
   const [z, x, y] = ['z', 'x', 'y'].map((k) => Number(req.params[k]));
   if (![z, x, y].every(Number.isInteger) || z < 5 || z > 12) return res.status(404).end();
-  if (!relief.pret()) return res.status(404).end();
-  const cle = `${z}/${x}/${y}`;
+  const r = Rdep(req); // département étudié (?dep=) ou celui de la carte
+  if (!r.pret()) return res.status(404).end();
+  const cle = `${r === relief ? '' : String(req.query.dep).toUpperCase()}/${z}/${x}/${y}`;
   let t = cacheTerrain.get(cle);
   if (t === undefined) {
-    try { t = relief.terrainTuile(z, x, y); } catch { t = null; }
+    try { t = r.terrainTuile(z, x, y); } catch { t = null; }
     cacheTerrain.set(cle, t);
     if (cacheTerrain.size > 600) cacheTerrain.delete(cacheTerrain.keys().next().value);
   }
@@ -3937,7 +3938,13 @@ app.get('/metrics', exporter(() => exportsCarte.metriques(), 'text'));
 app.get('/api/export/relais.gpx', exporter(() => exportsCarte.relaisGpx(), 'application/gpx+xml'));
 app.get('/api/export/reseau.kml', exporter((req) => exportsCarte.reseauKml({ heures: Math.min(Math.max(Number(req.query.heures) || 24, 1), 168), titre: String(config.carte.titre || 'Carte live') }), 'application/vnd.google-earth.kml+xml'));
 app.get('/api/export/reseau-direct.kml', exporter((req) => {
-  const base = `${req.protocol}://${req.get('host')}`;
+  // Adresse vue par le navigateur (?origine=, même hôte seulement) : fiable derrière un reverse proxy https mal réglé
+  let base = `${req.protocol}://${req.get('host')}`;
+  try {
+    const o = new URL(String(req.query.origine || ''));
+    const hotes = [req.get('host'), req.get('x-forwarded-host')].filter(Boolean).map((h) => String(h).split(',')[0].trim().toLowerCase());
+    if (/^https?:$/.test(o.protocol) && hotes.includes(o.host.toLowerCase())) base = o.origin;
+  } catch { /* pas d'origine : adresse de la requête */ }
   return exportsCarte.reseauKmlLive(`${base}/api/export/reseau.kml${req.query.jeton ? '?jeton=' + encodeURIComponent(String(req.query.jeton)) : ''}`);
 }, 'application/vnd.google-earth.kml+xml'));
 

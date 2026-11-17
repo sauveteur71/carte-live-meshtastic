@@ -259,8 +259,32 @@ test('APRS : trames LoRa APRS décodées (non compressée, compressée, objet) e
   const t3 = lireTrame('F4ABC>APRS:;RELAIS-1 *111111z4500.00N/00400.00Er433.775MHz');
   assert.equal(t3.indicatif, 'RELAIS-1');
   assert.equal(t3.objet, true);
+  // Mic-E (portatif ou mobile) : 45°02,50' N, 3°53,10' E dans la destination « 450RU0 », altitude 800 m en base 91
+  const b91 = (n) => [Math.floor(n / 8281), Math.floor(n / 91) % 91, n % 91].map((x) => String.fromCharCode(x + 33)).join('');
+  const t4 = lireTrame(`F4DEF-9>450RU0,WIDE1-1,qAR,F4XYZ-10:\`yQ&(((>/${b91(10800)}}Mobile LoRa=`);
+  assert.equal(t4.indicatif, 'F4DEF-9');
+  assert.ok(Math.abs(t4.lat - 45.04167) < 1e-4 && Math.abs(t4.lon - 3.885) < 1e-4, `${t4.lat} ${t4.lon}`);
+  assert.equal(t4.altitude, 800);
+  assert.equal(t4.micE, true);
+  assert.equal(t4.lora, true);
+  assert.equal(t4.commentaire, 'Mobile LoRa');
+  // Mic-E à l'ouest (destination « S32U6T » : 33°25,64' N ; données « (_f » : 12°07,74' W, minutes au-delà de 60 ramenées)
+  const t5 = lireTrame("N0ABC>S32U6T:`(_fn\"Oj/");
+  assert.ok(Math.abs(t5.lat - 33.42733) < 1e-3 && Math.abs(t5.lon + 12.129) < 1e-3, `${t5.lat} ${t5.lon}`);
+  // Mic-E au sud et à l'est au-delà de 100° (destination « 3T20P0 » : 34°20,00' S et décalage de 100° ; données « O4# » : 151°24,07' E)
+  const t6 = lireTrame("VK2ABC>3T20P0:`O4#l\"Ok/");
+  assert.ok(Math.abs(t6.lat + 34.33333) < 1e-4 && Math.abs(t6.lon - 151.40117) < 1e-4, `${t6.lat} ${t6.lon}`);
   // Messages et télémétrie ignorés
   assert.equal(lireTrame('F4ABC>APRS::F4XYZ    :bonjour{1'), null);
+  // Indicatif obligatoire : sans lui (ou avec N0CALL), aucune connexion
+  const { indicatifValide } = require('../src/aprs');
+  assert.ok(indicatifValide('F4GLD') && indicatifValide('F4GLD-7') && indicatifValide('ON4XYZ-10'));
+  assert.ok(!indicatifValide('N0CALL') && !indicatifValide('NOCALL') && !indicatifValide('') && !indicatifValide('ABCDEF'));
+  let tentatives = 0;
+  const sans = creerAprs({ zone: () => [44.7, 3.0, 45.5, 4.5], reglages: lireReglages({ APRS_IS: 'oui' }), connecter: () => { tentatives++; return null; } });
+  assert.equal(tentatives, 0);
+  assert.match(sans.etat().erreur, /indicatif/);
+  sans.arreter();
   // Faux serveur APRS-IS : vérifie la connexion en lecture seule et le filtre de zone
   const { EventEmitter } = require('events');
   const ecrit = [];
