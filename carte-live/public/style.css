@@ -1332,13 +1332,13 @@ code.coupe { word-break: break-all; }
 
 /* ===== Ergonomie 2.15 : rubriques, accueil, niveaux, réglages, aide, accessibilité ===== */
 body[data-niveau="simple"] .niv-op, body[data-niveau="simple"] .niv-exp, body[data-niveau="operateur"] .niv-exp, .titre-vide { display: none !important; }
-.groupes { display: flex; gap: 0; padding: 6px 24px 0 2px; position: relative; flex: none; border-bottom: 1px solid var(--bord); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.groupes { display: flex; gap: 0; padding: 6px 0 0 2px; position: relative; flex: none; border-bottom: 1px solid var(--bord); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .groupes::-webkit-scrollbar { display: none; }
-.groupes button[data-groupe] { flex: 1 0 auto; min-width: max-content; background: none; border: 0; border-bottom: 3px solid transparent; padding: 9px 2px 8px; letter-spacing: -0.01em; cursor: pointer; color: var(--texte); font-size: 12.5px; font-weight: 600; white-space: nowrap; position: relative; }
+.groupes button[data-groupe] { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; background: none; border: 0; border-bottom: 3px solid transparent; padding: 9px 2px 8px; letter-spacing: -0.01em; cursor: pointer; color: var(--texte); font-size: 12.5px; font-weight: 600; white-space: nowrap; position: relative; }
 .groupes button[data-groupe].actif { color: var(--accent); border-bottom-color: var(--accent); }
 .groupes button[data-groupe]:hover { background: rgba(255,255,255,.05); }
 .groupes .aide-onglet { flex: none; width: 24px; height: 24px; padding: 0; margin: 0 2px 0 4px; align-self: center; border-radius: 50%; border: 1.5px solid var(--doux); background: none; color: var(--texte); font-weight: 700; cursor: pointer; }
-.groupes .replier { position: absolute; right: 2px; top: 8px; font-size: 16px; background: none; border: 0; color: var(--doux); cursor: pointer; }
+.groupes .replier { position: static; flex: none; align-self: center; margin-left: 2px; padding: 0 4px; font-size: 16px; background: var(--surface); border: 0; color: var(--doux); cursor: pointer; }
 .pastille-groupe { display: inline-block; margin-left: 5px; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: #062019; font-size: 11px; font-weight: 700; line-height: 18px; }
 .onglets button.hors-groupe, .onglets.seul { display: none !important; }
 .onglets { padding-right: 6px !important; background: rgba(0,0,0,.18); }
