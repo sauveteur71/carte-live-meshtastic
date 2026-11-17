@@ -7487,7 +7487,9 @@ function courbeRiviere(mesures, seuil) {
   const x = (t) => ((t - t0) / (t1 - t0 || 1)) * (W - 4) + 2, y = (h) => H - 4 - ((h - min) / ec) * (H - 8);
   const pts = mesures.map((m) => `${x(m[0]).toFixed(1)},${y(m[1]).toFixed(1)}`).join(' ');
   const ligneSeuil = seuil != null ? `<line x1="0" x2="${W}" y1="${y(seuil)}" y2="${y(seuil)}" stroke="#ff6b6b" stroke-dasharray="4 3"/>` : '';
-  return `<svg class="courbe-riviere" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Hauteur sur 24 h">${ligneSeuil}<polyline points="${pts}" fill="none" stroke="#5fb4ff" stroke-width="2"/></svg>`;
+  const lib = (v, yy) => `<text x="${W - 3}" y="${yy}" text-anchor="end" class="txt-courbe">${mFr(v)} m</text>`;
+  const duree = Math.round((t1 - t0) / 3600000);
+  return `<svg class="courbe-riviere" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Hauteur sur 24 h">${ligneSeuil}<polyline points="${pts}" fill="none" stroke="#5fb4ff" stroke-width="2"/>${lib(max, 11)}${lib(min, H - 3)}<text x="3" y="${H - 3}" class="txt-courbe">−${duree} h</text></svg>`;
 }
 async function dessinerRivieres() {
   clearTimeout(minuteurRivieres);
@@ -7502,7 +7504,7 @@ async function dessinerRivieres() {
       const niv = alerteDe.get(s.code) || 'ok';
       const fleche = s.tendance == null ? '' : s.tendance >= 5 ? ' ↗' : s.tendance <= -5 ? ' ↘' : ' →';
       const m = L.marker([s.lat, s.lon], { pane: 'traces', icon: L.divIcon({ className: 'riviere-pt ' + niv + (s.retenue ? ' retenue' : ''), html: `<span>${s.retenue ? '🏞️' : '🌊'}</span>`, iconSize: [18, 18], iconAnchor: [9, 9] }) });
-      m.bindTooltip(`<span translate="no">${mFr(s.h)} m${fleche}</span>`, { direction: 'right', offset: [8, 0], className: 'riviere-etiquette ' + niv, permanent: carte.getZoom() >= 10 });
+      if (!s.retenue) m.bindTooltip(`<span translate="no">${mFr(s.h)} m${fleche}</span>`, { direction: 'right', offset: [8, 0], className: 'riviere-etiquette ' + niv, permanent: carte.getZoom() >= 11 || niv !== 'ok' });
       m.bindPopup(() => {
         const div = document.createElement('div');
         div.className = 'popup-riviere';
@@ -7523,7 +7525,7 @@ async function dessinerRivieres() {
     g.addTo(carte);
     if (coucheRivieres) coucheRivieres.remove();
     coucheRivieres = g;
-    const n = (r.stations || []).length, nm = (r.stations || []).filter((s) => s.tendance != null && s.tendance >= r.etat.monteeCmH).length;
+    const n = (r.stations || []).length, nm = (r.stations || []).filter((s) => !s.retenue && Date.now() - s.heure < 3 * 3600000 && s.tendance != null && s.tendance >= r.etat.monteeCmH).length;
     annonce(`🌊 ${n} station(s) de mesure des rivières${nm ? ` · ${nm} en montée rapide` : ''}${r.etat.erreur ? ' · ⚠ relevé en échec' : ''}`);
   } catch (e) { annonce('⚠ Rivières indisponibles : ' + e.message, 'erreur'); }
   minuteurRivieres = setTimeout(dessinerRivieres, 5 * 60000);
