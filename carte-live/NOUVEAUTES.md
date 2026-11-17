@@ -2,6 +2,12 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.28.3
+
+### 📱 Téléphone
+- **En-tête qui tient sur un téléphone** : l'état du direct devient une pastille de couleur, les alertes officielles se résument à leurs pictogrammes et à leur nombre (le détail reste au clic).
+- **Barre du bas plus compacte** : sélecteur du secteur et durée des liens réduits, texte de recherche raccourci, pour moins de boutons coupés.
+
 ## 2.28.2
 
 ### 🗺️ Légende

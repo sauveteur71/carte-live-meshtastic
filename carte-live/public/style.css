@@ -1634,3 +1634,14 @@ body.theme-clair .lorawan-etiquette { background: #ffffffee; color: #5a2ea6; }
 /* Légende : symboles des couches APRS, LoRaWAN et rivières (mêmes pastilles que sur la carte) */
 .legende .leg-ic { display: inline-flex; vertical-align: middle; margin: 0 2px 0 6px; } .legende .leg-ic:first-child { margin-left: 0; }
 .legende .leg-ic.riviere-pt span, .legende .leg-ic.lorawan-pt span { width: 16px; height: 16px; font-size: 10px; animation: none; }
+/* Téléphone étroit : en-tête et barre du bas sans débordement (état du direct en pastille, alertes en pictogrammes,
+   secteur et « Liens » compacts) */
+@media (max-width: 480px) {
+  .barre .direct { padding: 6px; margin-left: 4px; }
+  .barre .direct b { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .chip-alertes { margin-left: 4px; padding: 3px 7px; }
+  .chip-alertes .chip-txt { display: none; }
+  .outils #sel-zone { max-width: 118px; text-overflow: ellipsis; padding-left: 8px; }
+  .outils label.choix { font-size: 0; gap: 0; }
+  .outils label.choix select { font-size: 14px; }
+}

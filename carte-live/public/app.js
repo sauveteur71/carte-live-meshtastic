@@ -7334,6 +7334,8 @@ function appliquerFonctionsMasquees() {
   majChipAlertes();
   if (typeof rendreAccueil === 'function') { try { rendreAccueil(); } catch { /* panneau absent */ } }
 }
+// Téléphone : texte de recherche plus court, pour qu'il ne soit pas coupé
+{ const rl = document.getElementById('recherche-lieu'); if (rl && matchMedia('(max-width: 480px)').matches) rl.placeholder = 'Lieu, nœud, sommet, coordonnées…'; }
 function majChipAlertes() {
   const c = $('#chip-alertes');
   if (!c || !ao.info) return;
@@ -7342,13 +7344,14 @@ function majChipAlertes() {
   const local = (r.meteo || []).filter((a) => a.dep === dep);
   const bouts = [];
   const pire = local.sort((a, b) => ({ jaune: 1, orange: 2, rouge: 3 }[b.couleur] - { jaune: 1, orange: 2, rouge: 3 }[a.couleur]))[0];
-  if (pire) bouts.push(`${ICONES_VIG[pire.couleur]} ${esc(pire.phenomene)}${local.length > 1 ? ` +${local.length - 1}` : ''}`);
+  // Texte dans .chip-txt : masqué sur téléphone, où seuls les pictogrammes et le nombre restent (en-tête trop étroit)
+  if (pire) bouts.push(`${ICONES_VIG[pire.couleur]}<span class="chip-txt"> ${esc(pire.phenomene)}</span>${local.length > 1 ? ` +${local.length - 1}` : ''}`);
   const vigi = !masquee('vigipirate') && r.vigipirate, fr = !masquee('fr-alert') && (r.frAlert || []).length;
-  if (vigi) bouts.push(`${r.vigipirate.icone} ${r.vigipirate.niveau === 'urgence' ? 'Urgence attentat' : 'Vigipirate'}`);
-  if (fr) bouts.push('📢 FR-Alert');
+  if (vigi) bouts.push(`${r.vigipirate.icone}<span class="chip-txt"> ${r.vigipirate.niveau === 'urgence' ? 'Urgence attentat' : 'Vigipirate'}</span>`);
+  if (fr) bouts.push('📢<span class="chip-txt"> FR-Alert</span>');
   c.hidden = !bouts.length;
   c.className = 'chip-alertes ' + (pire ? 'vig-' + pire.couleur : '') + (vigi && r.vigipirate.niveau === 'urgence' || fr ? ' vig-rouge' : '');
-  c.innerHTML = bouts.join(' · ');
+  c.innerHTML = bouts.join('<span class="chip-txt"> ·</span> ');
   c.title = 'Alertes officielles : vigilance Météo-France, Vigipirate, FR-Alert (cliquer pour le détail)';
   c.onclick = () => (etat.membre && !masquee('signalements') ? ficheSignalements() : ficheAlertesOff());
 }
