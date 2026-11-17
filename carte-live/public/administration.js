@@ -1199,7 +1199,7 @@ async function ficheRegistreRelais() {
   $('#fiche-contenu').innerHTML = `<div class="liste-signalements registre-relais"><h3>🗂️ Registre des relais</h3>
     <p>${relais.length} relais et passerelles. ${sansAut ? `<b class="ko">${sansAut} sans autorisation écrite enregistrée</b> · ` : ''}${aVisiter ? `<b class="attention">${aVisiter} sans visite depuis plus d’un an</b>` : ''}</p>
     ${avertissementSites()}
-    <div class="table-defile"><table class="tableau"><thead><tr><th>Relais</th><th>Site</th><th>Autorisation</th><th>Dernière visite</th><th>Énergie</th><th>Firmware · vu</th></tr></thead>
+    <div class="table-defile"><table><thead><tr><th>Relais</th><th>Site</th><th>Autorisation</th><th>Dernière visite</th><th>Énergie</th><th>Firmware · vu</th></tr></thead>
     <tbody>${relais.map(ligne).join('') || '<tr><td colspan="6">Aucun relais connu.</td></tr>'}</tbody></table></div>
     <div class="actions-prop"><button type="button" class="mini" id="registre-csv">⬇ Exporter le registre (CSV)</button></div>
     <p class="note">Cliquez sur un relais pour ouvrir sa fiche et compléter la rubrique « Installation » (site, autorisation, zone protégée, dernière visite). ${etat.admin ? 'Le propriétaire du site et le contact figurent dans l’export.' : 'Le propriétaire du site et le contact ne sont visibles que des administrateurs.'}</p></div>`;
