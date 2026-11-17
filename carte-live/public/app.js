@@ -7509,14 +7509,25 @@ async function dessinerAprs() {
 }
 // ---- Capteurs LoRaWAN (TTN / ChirpStack, lus par le serveur en MQTT) ----
 let coucheLorawan = null, minuteurLorawan = null;
-function courbeMesure(points) {
+// Courbe d'une mesure dans le temps : valeurs mini et maxi dans une marge à droite, début et fin sous la courbe
+// (« il y a 8 h » … « il y a 3 h ») pour qu'aucun texte ne recouvre le tracé
+function courbeSvg(points, { couleur = '#b48cff', format = (v) => Number(v).toLocaleString(window.LOCALE || 'fr-FR', { maximumFractionDigits: 2 }), seuil = null, titre = '' } = {}) {
   if (!points || points.length < 2) return '';
-  const W = 260, H = 60, t0 = points[0][0], t1 = points[points.length - 1][0];
-  const vs = points.map((p) => p[1]), min = Math.min(...vs), max = Math.max(...vs), ec = max - min || 1;
-  const x = (t) => ((t - t0) / (t1 - t0 || 1)) * (W - 4) + 2, y = (v) => H - 4 - ((v - min) / ec) * (H - 8);
-  const lib = (v, yy) => `<text x="${W - 3}" y="${yy}" text-anchor="end" class="txt-courbe">${Number(v).toLocaleString('fr-FR', { maximumFractionDigits: 2 })}</text>`;
-  return `<svg class="courbe-riviere" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img"><polyline points="${points.map((p) => `${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ')}" fill="none" stroke="#b48cff" stroke-width="2"/>${lib(max, 11)}${lib(min, H - 3)}</svg>`;
+  const W = 260, HC = 58, H = HC + 14, MD = 50, t0 = points[0][0], t1 = points[points.length - 1][0];
+  const vs = points.map((p) => p[1]).concat(seuil != null ? [seuil] : []);
+  const min = Math.min(...vs), max = Math.max(...vs), ec = max - min || 1;
+  const x = (t) => ((t - t0) / (t1 - t0 || 1)) * (W - MD - 6) + 3, y = (v) => HC - 5 - ((v - min) / ec) * (HC - 10);
+  const pts = points.map((p) => `${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');
+  const ligneSeuil = seuil != null ? `<line x1="0" x2="${W - MD}" y1="${y(seuil)}" y2="${y(seuil)}" stroke="#ff6b6b" stroke-dasharray="4 3"/>` : '';
+  const val = (v, yy) => `<text x="${W - 4}" y="${yy}" text-anchor="end" class="txt-courbe" translate="no">${esc(format(v))}</text>`;
+  const fin = Date.now() - t1 < 15 * 60000 ? tr('maintenant') : ilYa(t1);
+  return `<svg class="courbe-riviere" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(titre)}">
+    <line x1="${W - MD + 2}" x2="${W - MD + 2}" y1="2" y2="${HC - 2}" stroke="#ffffff22"/><line x1="0" x2="${W - MD + 2}" y1="${HC}" y2="${HC}" stroke="#ffffff22"/>
+    ${ligneSeuil}<polyline points="${pts}" fill="none" stroke="${couleur}" stroke-width="2"/>
+    ${val(max, 12)}${val(min, HC - 3)}
+    <text x="3" y="${H - 3}" class="txt-courbe">${esc(ilYa(t0))}</text><text x="${W - MD - 3}" y="${H - 3}" text-anchor="end" class="txt-courbe">${esc(fin)}</text></svg>`;
 }
+const courbeMesure = (points) => courbeSvg(points);
 async function dessinerLorawan() {
   clearTimeout(minuteurLorawan);
   if (!etat.couches.lorawan) { if (coucheLorawan) { coucheLorawan.remove(); coucheLorawan = null; } return; }
@@ -7564,18 +7575,7 @@ async function dessinerLorawan() {
 // ---- Rivières : hauteurs d'eau des stations publiques (Hub'Eau, lu par le serveur toutes les 10 min) ----
 let coucheRivieres = null, minuteurRivieres = null;
 const mFr = (x, d = 2) => (x == null ? '–' : Number(x).toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }));
-function courbeRiviere(mesures, seuil) {
-  if (!mesures || mesures.length < 2) return '';
-  const W = 260, H = 70, t0 = mesures[0][0], t1 = mesures[mesures.length - 1][0];
-  const hs = mesures.map((m) => m[1]).concat(seuil != null ? [seuil] : []);
-  const min = Math.min(...hs), max = Math.max(...hs), ec = max - min || 0.1;
-  const x = (t) => ((t - t0) / (t1 - t0 || 1)) * (W - 4) + 2, y = (h) => H - 4 - ((h - min) / ec) * (H - 8);
-  const pts = mesures.map((m) => `${x(m[0]).toFixed(1)},${y(m[1]).toFixed(1)}`).join(' ');
-  const ligneSeuil = seuil != null ? `<line x1="0" x2="${W}" y1="${y(seuil)}" y2="${y(seuil)}" stroke="#ff6b6b" stroke-dasharray="4 3"/>` : '';
-  const lib = (v, yy) => `<text x="${W - 3}" y="${yy}" text-anchor="end" class="txt-courbe">${mFr(v)} m</text>`;
-  const duree = Math.round((t1 - t0) / 3600000);
-  return `<svg class="courbe-riviere" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Hauteur sur 24 h">${ligneSeuil}<polyline points="${pts}" fill="none" stroke="#5fb4ff" stroke-width="2"/>${lib(max, 11)}${lib(min, H - 3)}<text x="3" y="${H - 3}" class="txt-courbe">−${duree} h</text></svg>`;
-}
+const courbeRiviere = (mesures, seuil) => courbeSvg(mesures, { couleur: '#5fb4ff', seuil, format: (v) => mFr(v) + ' m', titre: 'Hauteur sur 24 h' });
 async function dessinerRivieres() {
   clearTimeout(minuteurRivieres);
   if (!etat.couches.rivieres) { if (coucheRivieres) { coucheRivieres.remove(); coucheRivieres = null; } return; }
