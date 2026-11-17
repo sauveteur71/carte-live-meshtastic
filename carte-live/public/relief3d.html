@@ -75,7 +75,10 @@
     </div>
   </div>
   <script src="/langue.js"></script>
-  <script src="/vendor/maplibre/maplibre-gl.js"></script>
-  <script src="relief3d.js"></script>
+  <script type="module">
+    import * as ml from '/vendor/maplibre/maplibre-gl.mjs';
+    window.maplibregl = ml.default || ml;
+    await import('./relief3d.js');
+  </script>
 </body>
 </html>

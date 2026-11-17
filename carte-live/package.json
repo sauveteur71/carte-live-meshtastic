@@ -15,7 +15,7 @@
     "h5wasm": "^0.10.3",
     "js-yaml": "^5.5.0",
     "leaflet": "1.9.4",
-    "maplibre-gl": "4.7.1",
+    "maplibre-gl": "6.18.0",
     "mqtt": "^5.10.4",
     "pg": "^8.23.1",
     "protobufjs": "^8.8.1",

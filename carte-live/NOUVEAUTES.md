@@ -27,6 +27,10 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 ### ⚠ Installer un relais dans les règles
 - **Avertissement sur les sites proposés** : un point haut n'est pas un site autorisé. Accord du propriétaire ou de la commune, pas de relais dans un cimetière ou un lieu de culte, avis de l'Architecte des Bâtiments de France près des monuments historiques, loi Littoral et espaces naturels protégés.
 
+### 🔒 Sécurité
+- **Bibliothèque de la vue 3D mise à jour** (MapLibre 6) : corrige une faille connue de l'ancienne version.
+- **Export CSV du registre** : un nom de nœud commençant comme une formule (= + - @) n'est plus exécuté par le tableur.
+
 ## 2.26.0
 
 ### 🔌 Brancher un module, sans réglage

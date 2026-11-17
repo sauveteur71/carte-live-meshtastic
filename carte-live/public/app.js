@@ -8758,7 +8758,8 @@ async function ficheRegistreRelais() {
     <p class="note">Cliquez sur un relais pour ouvrir sa fiche et compléter la rubrique « Installation » (site, autorisation, zone protégée, dernière visite). ${etat.admin ? 'Le propriétaire du site et le contact figurent dans l’export.' : 'Le propriétaire du site et le contact ne sont visibles que des administrateurs.'}</p></div>`;
   document.querySelectorAll('.registre-relais tr[data-num]').forEach((tr) => (tr.onclick = () => ouvrirFiche(Number(tr.dataset.num))));
   $('#registre-csv').onclick = () => {
-    const c = (x) => `"${String(x ?? '').replace(/"/g, '""')}"`;
+    // Un nom de nœud vient de la radio : s'il commence comme une formule (= + - @), le tableur ne doit pas l'exécuter
+    const c = (x) => { const t = String(x ?? ''); return `"${(typeof x !== 'number' && /^[=+\-@\t\r]/.test(t) ? "'" + t : t).replace(/"/g, '""')}"`; };
     const entete = ['Nom', 'Identifiant', 'Rôle', 'Matériel', 'Firmware', 'Latitude', 'Longitude', 'Dernier paquet', 'Site', 'Propriétaire du site', 'Contact', 'Autorisation', 'Date autorisation', 'Zone protégée', 'Mise en service', 'Dernière visite', 'Alimentation', 'Batterie (Ah)', 'Panneau (W)', 'Antenne', 'Hauteur (m)', 'Gain (dBi)', 'Pertes câble (dB)', 'Notes'];
     const lignes = relais.map((n) => { const f = inst[n.num] || {}; return [n.nomLong || n.nomCourt, n.id, n.roleFr, n.materiel, n.firmware, n.lat, n.lon, n.dernierVu ? new Date(n.dernierVu).toISOString() : '', f.site, f.proprietaire, f.contact, LIB_AUTORISATION[f.autorisation] || '', f.dateAutorisation, LIB_ZONE_PROTEGEE[f.zoneProtegee] || '', f.miseEnService, f.derniereVisite, LIB_ALIM[f.alimentation] || '', f.batterieAh, f.panneauW, f.antenne, f.hauteur, f.gain, f.pertesCable, f.notes].map(c).join(';'); });
     telechargerTexte(`registre-relais-${new Date().toISOString().slice(0, 10)}.csv`, '\ufeff' + [entete.map(c).join(';'), ...lignes].join('\r\n'));
