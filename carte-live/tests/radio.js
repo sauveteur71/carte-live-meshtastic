@@ -242,6 +242,40 @@ test('Nœuds d’un autre preset : preset déduit du canal MQTT par défaut, lis
   fs.rmSync(dossier, { recursive: true, force: true });
 });
 
+test('APRS : trames LoRa APRS décodées (non compressée, compressée, objet) et lecture d’APRS-IS en lecture seule', async () => {
+  const { lireTrame, creerAprs, lireReglages } = require('../src/aprs');
+  // Position non compressée d'un traqueur LoRa (tocall APLRT1), via un iGate
+  const t1 = lireTrame('F4ABC-7>APLRT1,WIDE1-1,qAO,F4XYZ-10:!4502.50N/00353.10E>LoRa tracker /A=002625');
+  assert.equal(t1.indicatif, 'F4ABC-7');
+  assert.ok(Math.abs(t1.lat - 45.04167) < 1e-4 && Math.abs(t1.lon - 3.885) < 1e-4);
+  assert.equal(t1.lora, true);
+  assert.equal(t1.altitude, 800);
+  assert.equal(t1.igate, 'F4XYZ-10');
+  // Position compressée (exemple de la spécification APRS 1.01 : 49°30' N, 72°45' W)
+  const t2 = lireTrame("F1AAA>APRS,TCPIP*:=/5L!!<*e7>7P[");
+  assert.ok(Math.abs(t2.lat - 49.5) < 1e-3 && Math.abs(t2.lon + 72.75) < 1e-3);
+  assert.equal(t2.lora, false);
+  // Objet
+  const t3 = lireTrame('F4ABC>APRS:;RELAIS-1 *111111z4500.00N/00400.00Er433.775MHz');
+  assert.equal(t3.indicatif, 'RELAIS-1');
+  assert.equal(t3.objet, true);
+  // Messages et télémétrie ignorés
+  assert.equal(lireTrame('F4ABC>APRS::F4XYZ    :bonjour{1'), null);
+  // Faux serveur APRS-IS : vérifie la connexion en lecture seule et le filtre de zone
+  const { EventEmitter } = require('events');
+  const ecrit = [];
+  const sock = Object.assign(new EventEmitter(), { setEncoding() {}, setTimeout() {}, write: (x) => ecrit.push(x), destroy() {} });
+  const a = creerAprs({ zone: () => [44.7, 3.0, 45.5, 4.5], reglages: lireReglages({ APRS_IS: 'oui', APRS_INDICATIF: 'f4gld' }), connecter: () => sock, version: '2.27.0' });
+  sock.emit('connect');
+  assert.match(ecrit[0], /^user F4GLD pass -1 vers carte-live 2\.27\.0 filter a\/45\.80\/2\.70\/44\.40\/4\.80\r\n$/);
+  sock.emit('data', '# aprsc 2.1\r\nF4ABC-7>APLRT1,WIDE1-1,qAO,F4XYZ-10:!4502.50N/00353.10E>LoRa\r\nF1AAA>APRS,TCP');
+  sock.emit('data', 'IP*:=/5L!!<*e7>7P[\r\n');
+  const l = a.liste();
+  assert.deepEqual(l.map((s) => s.indicatif).sort(), ['F1AAA', 'F4ABC-7']);
+  assert.equal(a.etat().connecte, true);
+  a.arreter();
+});
+
 test('Alertes officielles : vigilance et foyer déjà envoyés par radio, mémorisés et rechargés', async () => {
   const fs = require('fs'), os = require('os'), path = require('path');
   const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-'));

@@ -37,6 +37,11 @@ const CATALOGUE = [
   { nom: 'CANAUX_TEXTE', groupe: 'Messages et MQTT', libelle: 'Canaux dont les messages sont conservés', type: 'texte', aide: 'Séparés par des virgules. Vide = tous les canaux déchiffrés.' },
   { nom: 'UDP_MESHTASTIC', groupe: 'Messages et MQTT', libelle: 'Écouter les modules Meshtastic du réseau local (UDP multicast)', type: 'choix', choix: OUI_NON, aide: 'Les modules en Wi-Fi réglés sur « UDP » (Réseau › Protocoles, firmware 2.6+) diffusent ce qu’ils entendent : la carte écoute sans occuper le module. Docker : réseau « host » nécessaire.' },
   { nom: 'MQTT_TLS_NON_VERIFIE', groupe: 'Messages et MQTT', libelle: 'Accepter un certificat auto-signé (mqtts, wss)', type: 'choix', choix: OUI_NON, aide: 'Déconseillé : la connexion n’est plus authentifiée.' },
+  // APRS (radioamateurs)
+  { nom: 'APRS_IS', groupe: 'APRS (radioamateurs)', libelle: 'Afficher les stations APRS du secteur', type: 'choix', choix: OUI_NON, aide: 'Par défaut non. La carte lit le réseau APRS-IS en lecture seule (sans émettre) pour la zone de la carte : stations LoRa APRS (433,775 MHz), iGates, digipeaters, traqueurs. Couche « Stations APRS ».' },
+  { nom: 'APRS_INDICATIF', groupe: 'APRS (radioamateurs)', libelle: 'Indicatif utilisé pour la connexion APRS-IS', type: 'texte', aide: 'Votre indicatif (ex. F4XXX) ; N0CALL par défaut. Connexion en lecture seule, sans mot de passe.' },
+  { nom: 'APRS_SERVEUR', groupe: 'APRS (radioamateurs)', libelle: 'Serveur APRS-IS', type: 'texte', aide: 'rotate.aprs2.net:14580 par défaut (ou euro.aprs2.net:14580).' },
+  { nom: 'APRS_LORA_SEULEMENT', groupe: 'APRS (radioamateurs)', libelle: 'Garder seulement les stations LoRa APRS', type: 'choix', choix: OUI_NON, aide: 'Par défaut non : toutes les stations APRS de la zone (VHF 144,800 MHz comprise), les stations LoRa étant mises en évidence.' },
   // Domotique (Home Assistant, Node-RED)
   { nom: 'DOMOTIQUE_MQTT_URL', groupe: 'Domotique (Home Assistant, Node-RED)', libelle: 'Broker MQTT de la domotique', type: 'texte', aide: 'Par exemple mqtt://homeassistant.local:1883 (le broker « Mosquitto » de Home Assistant). Vide = pas de publication vers la domotique.' },
   { nom: 'DOMOTIQUE_MQTT_UTILISATEUR', groupe: 'Domotique (Home Assistant, Node-RED)', libelle: 'Utilisateur du broker de la domotique', type: 'texte' },

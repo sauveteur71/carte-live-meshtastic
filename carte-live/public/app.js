@@ -6613,7 +6613,7 @@ function brancherInterface() {
     etat.couches[c] = !etat.couches[c];
     b.classList.toggle('actif', etat.couches[c]);
     if (c) ecrireLs('gaulix_couches', etat.couches); // choix gardé pour la prochaine visite
-    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'dfci') dessinerDfci(); else if (c === 'radar') dessinerRadar(); else if (c === 'feux') dessinerFeux(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
+    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'dfci') dessinerDfci(); else if (c === 'radar') dessinerRadar(); else if (c === 'feux') dessinerFeux(); else if (c === 'aprs') dessinerAprs(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
   }));
   $('#filtres').onclick = (e) => {
     const b = e.target.closest('button[data-port]');
@@ -7509,6 +7509,7 @@ async function demarrer() {
   document.querySelectorAll('.bascule[data-couche]').forEach((b) => b.classList.toggle('actif', !!etat.couches[b.dataset.couche]));
   if (etat.couches.radar) dessinerRadar();
   if (etat.couches.feux) dessinerFeux();
+  if (etat.couches.aprs) dessinerAprs();
   // Liens vers le client et le flasheur officiels (Web Serial / Web Bluetooth : HTTPS et Chrome ou Edge obligatoires)
   {
     const o = etat.config.outils || {}, https = location.protocol === 'https:';
@@ -8524,6 +8525,34 @@ function montrerZoneEquipe(z, nom, cadrer) {
   if (cadrer) carte.fitBounds(coucheZoneEquipe.getBounds(), { padding: [30, 30] });
 }
 
+// ---- Stations APRS (dont LoRa APRS 433,775 MHz), lues par le serveur sur APRS-IS ---------------------
+let coucheAprs = null, minuteurAprs = null;
+async function dessinerAprs() {
+  clearTimeout(minuteurAprs);
+  if (!etat.couches.aprs) { if (coucheAprs) { coucheAprs.remove(); coucheAprs = null; } return; }
+  try {
+    const r = await api('/api/aprs?heures=6');
+    if (!etat.couches.aprs) return;
+    if (!r.etat.actif) { annonce('📻 Couche APRS désactivée : Réglages avancés › « APRS (radioamateurs) »'); return; }
+    const g = L.layerGroup();
+    for (const s of r.stations || []) {
+      const couleur = s.lora ? '#b48cff' : '#7fb3ff';
+      const m = L.marker([s.lat, s.lon], { pane: 'traces', icon: L.divIcon({ className: 'aprs-pt' + (s.lora ? ' lora' : ''), html: `<span style="background:${couleur}"></span>`, iconSize: [12, 12], iconAnchor: [6, 6] }) });
+      m.bindTooltip(esc(s.indicatif), { direction: 'right', offset: [6, 0], className: 'aprs-etiquette', permanent: carte.getZoom() >= 11 });
+      m.bindPopup(`<b translate="no">${esc(s.indicatif)}</b> ${s.lora ? '<span class="badge licencie">LoRa APRS</span>' : '<span class="badge">APRS</span>'}${s.objet ? ' <small>(objet)</small>' : ''}<br>`
+        + `${s.commentaire ? `<span translate="no">${esc(s.commentaire)}</span><br>` : ''}${s.altitude != null ? `Altitude : ${s.altitude} m<br>` : ''}`
+        + `Entendu ${ilYa(s.heure)}${s.igate ? ` · <span translate="no">via ${esc(s.igate)}</span>` : ''}<br>`
+        + `<a href="https://aprs.fi/#!call=${encodeURIComponent(s.indicatif)}" target="_blank" rel="noopener">Voir sur aprs.fi</a>`);
+      m.addTo(g);
+    }
+    g.addTo(carte);
+    if (coucheAprs) coucheAprs.remove();
+    coucheAprs = g;
+    const nLora = (r.stations || []).filter((s) => s.lora).length;
+    annonce(`📻 ${(r.stations || []).length} station(s) APRS ces 6 dernières heures, dont ${nLora} LoRa${r.etat.connecte ? '' : ' · ⚠ APRS-IS non connecté'}`);
+  } catch (e) { annonce('⚠ Stations APRS indisponibles : ' + e.message, 'erreur'); }
+  minuteurAprs = setTimeout(dessinerAprs, 2 * 60000);
+}
 // ---- Feux actifs vus par satellite (NASA FIRMS, lu par le serveur toutes les 30 min) ----
 let coucheFeux = null, minuteurFeux = null;
 async function dessinerFeux() {

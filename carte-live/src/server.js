@@ -3655,6 +3655,12 @@ app.get('/api/alertes-officielles', (req, res) => res.set('Cache-Control', 'no-s
   fonctionsMasquees: [...fonctionsMasquees] }));
 // ---- Feux actifs vus par satellite (NASA FIRMS) : couche de la carte, alertes sur la zone, envoi radio à la demande ----
 const feux = require('./feux').creerFeux({ config, journal, diffuser });
+// Couche APRS (dont LoRa APRS 433,775 MHz) : lecture seule sur APRS-IS, zone département + voisins (APRS_IS=oui)
+const aprs = require('./aprs').creerAprs({ zone: () => (zoneVoisins() || {}).bbox || config.zone, journal, version: VERSION });
+app.get('/api/aprs', (req, res) => {
+  const heures = Math.min(Math.max(Number(req.query.heures) || 6, 1), 24);
+  res.json({ etat: aprs.etat(), stations: aprs.etat().actif ? aprs.liste(heures) : [] });
+});
 app.get('/api/feux', (req, res) => {
   if (fonctionMasquee('feux')) return res.status(404).json({ erreur: 'Fonction masquée par l’administrateur' });
   res.set('Cache-Control', 'no-store').json(feux.etat(Number(req.query.heures) || 24));

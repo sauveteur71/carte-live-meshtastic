@@ -26,6 +26,7 @@ Carte en temps réel, supervision et **administration à distance** d'un réseau
 - [[Comptes et sécurité]] : rôles, gestionnaires de secteur, double authentification, journal.
 - [[Archive PostgreSQL]] : historique complet, conservation, taille maximale.
 - [[Domotique et supervision]] : Home Assistant, Node-RED (y compris envoyer un message LoRa), Prometheus / Grafana pour surveiller les relais, modules Wi-Fi retrouvés par mDNS.
+- [[Radioamateurs, APRS, ATAK|Radioamateurs-APRS-ATAK]] : stations LoRa APRS, nœuds en mode licencié, export KML pour ATAK, calculette des pertes de câble, registre des relais.
 
 ## Aide
 

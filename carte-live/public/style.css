@@ -1582,3 +1582,8 @@ body.theme-clair .badge.licencie { color: #4b2a9a; background: rgba(120, 80, 220
 .registre-relais .etat-ok { color: #3ee68a; } .registre-relais .etat-attention, .registre-relais .attention { color: #ffb547; }
 .registre-relais .etat-ko, .registre-relais .ko { color: #ff6b6b; } .registre-relais .etat-inconnu { color: var(--doux, #c3d0dc); }
 body.theme-clair .registre-relais .etat-ok { color: #0a7a45; } body.theme-clair .registre-relais .etat-attention, body.theme-clair .registre-relais .attention { color: #a35a00; } body.theme-clair .registre-relais .etat-ko, body.theme-clair .registre-relais .ko { color: #b42318; }
+
+/* Stations APRS */
+.aprs-pt span { display: block; width: 10px; height: 10px; transform: rotate(45deg); border: 1.5px solid #0b1117; box-shadow: 0 0 0 1px rgba(255,255,255,.4); }
+.aprs-pt.lora span { width: 12px; height: 12px; }
+.aprs-etiquette { background: rgba(11, 17, 23, .85); color: #e6dcff; border: 1px solid #b48cff; font-size: 11px; padding: 0 4px; }
