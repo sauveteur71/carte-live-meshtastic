@@ -1681,3 +1681,4 @@ body.theme-clair .lorawan-etiquette { background: #ffffffee; color: #5a2ea6; }
 .invite-nom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; } .invite-nom b { overflow-wrap: anywhere; }
 .invite-info { color: var(--doux); font-size: 12px; margin-top: 2px; }
 .invite-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
+label.bouton-fichier { cursor: pointer; display: inline-flex; align-items: center; }

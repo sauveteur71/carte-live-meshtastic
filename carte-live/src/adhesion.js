@@ -23,13 +23,13 @@ const REGLES_DEFAUT = [
 
 const CHAMPS = {
   actif: 'bool', presentation: 2000, lienCanal: 3000, limiteSauts: 'int', roles: 3000, regles: 4000, antennes: 3000,
-  mcFrequence: 40, mcBande: 40, mcSf: 10, mcCr: 10, contact: 1000, donsLien: 500, donsTexte: 1000, montrerRelais: 'bool',
+  mcFrequence: 40, mcBande: 40, mcSf: 10, mcCr: 10, mcRegions: 300, contact: 1000, donsLien: 500, donsTexte: 1000, montrerRelais: 'bool',
 };
 
 function creerAdhesion({ config, db, reseauMc, presetDuReseau, journal = () => {} }) {
   const dossier = path.dirname(config.fichierBase);
   const fichier = path.join(dossier, 'adhesion.json');
-  const defaut = () => ({ actif: false, presentation: '', lienCanal: '', limiteSauts: 3, roles: ROLES_DEFAUT, regles: REGLES_DEFAUT, antennes: '', mcFrequence: '', mcBande: '', mcSf: '', mcCr: '', contact: '', donsLien: '', donsTexte: '', montrerRelais: true });
+  const defaut = () => ({ actif: false, presentation: '', lienCanal: '', limiteSauts: 3, roles: ROLES_DEFAUT, regles: REGLES_DEFAUT, antennes: '', mcFrequence: '', mcBande: '', mcSf: '', mcCr: '', mcRegions: '', contact: '', donsLien: '', donsTexte: '', montrerRelais: true });
   let r = defaut();
   try { r = { ...r, ...lireJson(fichier) }; } catch { /* premier lancement */ }
 
@@ -84,12 +84,12 @@ function creerAdhesion({ config, db, reseauMc, presetDuReseau, journal = () => {
     const m = moduleCarte();
     const region = m && m.lora && m.lora.region ? String(m.lora.region) : REGION_DEFAUT;
     return {
-      titre: config.carte.titre,
+      titre: config.carte.titre, departement: (config.departement || {}).code || null,
       presentation: r.presentation, lienCanal: r.lienCanal, qrCanal: r.lienCanal ? await qr(r.lienCanal) : null,
       preset: presetDuReseau(), region, limiteSauts: r.limiteSauts,
       meshtastic: !!(r.lienCanal || r.limiteSauts),
       roles: r.roles, regles: r.regles, antennes: r.antennes,
-      meshcore: (r.mcFrequence || r.mcBande || r.mcSf || r.mcCr) ? { frequence: r.mcFrequence, bande: r.mcBande, sf: r.mcSf, cr: r.mcCr } : null,
+      meshcore: (r.mcFrequence || r.mcBande || r.mcSf || r.mcCr) ? { frequence: r.mcFrequence, bande: r.mcBande, sf: r.mcSf, cr: r.mcCr, regions: r.mcRegions || '' } : null,
       relais: relais(), contact: r.contact, donsLien: r.donsLien, donsTexte: r.donsTexte,
       adressePage, qrPage: adressePage ? await qr(adressePage) : null,
     };

@@ -542,3 +542,28 @@ test('LoRaWAN : remontées TTN v3 et ChirpStack v4, positions, seuils, abonnemen
   const sans = creerLorawan({ reglages: lireReglages({ LORAWAN: 'oui' }), connecter: () => { tente = true; return faux; } });
   assert.equal(tente, false); assert.match(sans.etat().erreur, /identifiant/);
 });
+
+test('MeshCore : sauvegarde du configurateur importée sans secrets, comparée au preset français', () => {
+  const fs = require('fs'), os = require('os'), path = require('path');
+  const { creerMaintenanceMc } = require('../src/meshcore/maintenance');
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-cfg-'));
+  const noeuds = [{ cle: 'A'.repeat(64), nom: 'Relais Mezenc', role: 'repeteur', lat: 44.9, lon: 4.19, dernier_vu: Date.now() }];
+  const m = creerMaintenanceMc({
+    config: { fichierBase: path.join(dossier, 'base.db'), zone: [44, 3, 46, 5] }, journal: () => {},
+    reseauMc: { q: { noeuds: { all: () => noeuds } }, annoncesDe: () => ({ annonces: 3, inondations: 9, tailles: [1] }) },
+    adminMc: { memorises: () => [], lecture: () => null, ELEMENTS: [], ELEMENTS_DEFAUT: [] }, companion: {},
+  });
+  assert.throws(() => m.importerConfiguration({ format: 'autre' }), /configurateur/);
+  const f = m.importerConfiguration({ format: 'meshcore-config', version: 1, date: '2026-11-17T18:00:00Z', carte: 'Heltec V3', nom: 'Relais Mezenc', firmware: 'v1.16',
+    commandes: ['set radio 869.525,250,11,5', 'set name Relais Mezenc', 'set lat 44.9', 'set lon 4.19', 'password secret123', 'set prv.key ABCDEF', 'region put fr', 'region put fr-43'],
+    identite: { cle_publique: 'a'.repeat(64) } }, 'admin');
+  assert.equal(f.cle, 'A'.repeat(64)); assert.deepEqual(f.regions, ['fr', 'fr-43']); assert.equal(f.radio, '869.525,250,11,5');
+  assert.ok(!f.commandes.some((c) => /password|prv\.key/.test(c)), 'aucun secret gardé');
+  assert.ok(!fs.readFileSync(path.join(dossier, 'meshcore-configurations.json'), 'utf8').includes('secret123'));
+  const n = m.etat().noeuds[0];
+  assert.equal(n.configuration.carte, 'Heltec V3');
+  assert.ok(n.aFaire.some((t) => /preset français/.test(t)));
+  assert.ok(n.aFaire.some((t) => /nom sans numéro de département/.test(t)));
+  assert.ok(n.aFaire.some((t) => /path\.hash\.mode 1/.test(t)));
+  assert.ok(n.aFaire.some((t) => /9 annonces en inondation/.test(t)));
+});

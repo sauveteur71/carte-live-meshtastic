@@ -584,10 +584,14 @@ async function mcFicheMaintenance() {
   const badge = (n) => n.etatFw === 'a-jour' ? '<span class="badge actif">à jour</span>' : n.etatFw === 'retard' ? `<span class="badge attente">${esc(n.derniereVersion)} disponible</span>` : '';
   const memo = r.noeuds.filter((n) => n.motDePasse);
   z.innerHTML = `<h2>🛠️ Maintenance MeshCore</h2>
+    <p class="note">Nouveau répéteur ? Le <a href="https://www.meshcore.fr/installer/configurateur/" target="_blank" rel="noopener">configurateur MeshCore France</a> le flashe et le règle depuis le navigateur. Les points « France : » ci-dessous suivent les <a href="https://serveurperso.in/archives/1318" target="_blank" rel="noopener">réglages conseillés en France</a>, vérifiés d’après ce que la carte entend.</p>
     <p class="note">Dernières versions : répéteur <b>${esc(v.repeater ? v.repeater.version : '?')}</b> · room server <b>${esc(v['room-server'] ? v['room-server'].version : '?')}</b> · companion <b>${esc(v.companion ? v.companion.version : '?')}</b>. La version d’un nœud est connue après une lecture de sa configuration (mot de passe admin nécessaire). Mise à jour : en USB avec le flasheur MeshCore, ou sur place (« start ota » puis le Wi-Fi du nœud).</p>
     ${r.noeuds.map((n) => `<div class="carte-cle"><div class="ligne-cle"><b>${esc(n.nom)}</b> <small>${n.role === 'salon' ? 'room server' : 'répéteur'} · vu ${ilYa(n.dernierVu)}</small></div>
       <div class="puces-cle">${n.motDePasse ? '<span class="badge actif">🔑 mot de passe mémorisé</span>' : '<span class="badge refus">pas de mot de passe</span>'} ${n.firmware ? `<span class="badge">${esc(n.firmware)}</span> ${badge(n)}` : '<span class="badge attente">version inconnue</span>'}${n.materiel ? ` <span class="badge">${esc(n.materiel)}</span>` : ''}${n.lu ? ` <small>lu ${ilYa(n.lu)}</small>` : ''}</div>
+      ${n.configuration ? `<p class="note">⚙️ Configuré${n.configuration.date ? ' le ' + new Date(n.configuration.date).toLocaleDateString('fr-FR') : ''} avec le configurateur${n.configuration.carte ? ' · ' + esc(n.configuration.carte) : ''}${n.configuration.firmware ? ' · ' + esc(n.configuration.firmware) : ''}${n.configuration.radio ? ` · radio <span translate="no">${esc(n.configuration.radio)}</span>` : ''}${n.configuration.regions.length ? ` · régions <span translate="no">${esc(n.configuration.regions.join(', '))}</span>` : ''}</p>` : ''}
       ${n.aFaire.length ? `<ul class="a-faire">${n.aFaire.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}</div>`).join('') || '<div class="vide">Aucun répéteur MeshCore dans la zone.</div>'}
+    ${etat.admin ? `<div class="actions-prop"><label class="mini bouton-fichier">📥 Importer une sauvegarde du configurateur (.json)<input type="file" id="mc-import-cfg" accept=".json,application/json" hidden></label></div>
+      <p class="note">Le fichier « meshcore-config-….json » enregistré par le configurateur : la carte en garde le matériel, le firmware, la date et les réglages (jamais les mots de passe ni la clé privée), et les compare aux recommandations françaises.</p><p class="erreur" id="mc-import-retour"></p>` : ''}
     <h3>🌙 Conformité automatique chaque nuit</h3>
     ${etat.admin ? `<form id="f-mc-conf" class="form-gestion">
       <label>Référence <select name="reference"><option value="">—</option>${memo.map((n) => `<option value="${n.cle}" ${n.cle === c.reference ? 'selected' : ''}>${esc(n.nom)}</option>`).join('')}</select></label>
@@ -596,6 +600,19 @@ async function mcFicheMaintenance() {
       <div class="actions-prop"><button type="submit" class="principal">Enregistrer</button><button type="button" id="mc-conf-maintenant">Vérifier maintenant</button></div>
       <p class="erreur" id="mc-conf-retour"></p></form>` : ''}
     ${d ? `<p>Dernière vérification le ${new Date(d.date).toLocaleString('fr-FR')} : <b>${d.conformes.length} conforme(s)</b>, ${d.ecarts.length} avec écarts, ${d.nonLus.length} non lu(s).</p>${d.ecarts.map((e) => `<div class="alerte attention">${esc(e.nom)} : ${esc(e.ecarts.map((x) => `${x.element} = ${x.valeur} au lieu de ${x.reference}`).join(' ; '))}</div>`).join('')}${d.nonLus.length ? `<p class="note">Non lus : ${esc(d.nonLus.map((x) => x.nom).join(', '))}</p>` : ''}` : '<p class="note">Pas encore de vérification automatique.</p>'}`;
+  const imp = $('#mc-import-cfg');
+  if (imp) imp.onchange = async () => {
+    const fichier = imp.files[0];
+    if (!fichier) return;
+    try {
+      const doc = JSON.parse(await fichier.text());
+      // La clé privée (même chiffrée) et les mots de passe ne quittent pas le navigateur
+      const { format, version, date, carte, nom, firmware, commandes } = doc;
+      const r2 = await postJson('/api/mc/maintenance/configuration', { format, version, date, carte, nom, firmware, commandes: (commandes || []).filter((c) => !/^(password\b|set\s+(prv\.key|guest\.password|password)\b)/i.test(String(c).trim())), identite: doc.identite && doc.identite.cle_publique ? { cle_publique: doc.identite.cle_publique } : null });
+      $('#mc-import-retour').textContent = `✔ Sauvegarde de ${r2.nom || 'ce répéteur'} importée`;
+      setTimeout(mcFicheMaintenance, 1200);
+    } catch (x) { $('#mc-import-retour').textContent = x instanceof SyntaxError ? 'Fichier illisible : sauvegarde .json du configurateur attendue' : x.message; }
+  };
   const f = $('#f-mc-conf');
   if (!f) return;
   const valeurs = () => ({ reference: f.reference.value || null, actif: f.actif.checked, elements: [...f.querySelectorAll('input[name="el"]:checked')].map((x) => x.value) });

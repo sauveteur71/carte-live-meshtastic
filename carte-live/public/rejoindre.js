@@ -51,13 +51,32 @@
   // 3. MeshCore
   if (d.meshcore) {
     const m = d.meshcore;
+    const nb = (x) => String(x || '').replace(',', '.').replace(/[^\d.]/g, '');
+    const regions = String(m.regions || '').split(/[\s,;]+/).filter(Boolean);
+    const radio = nb(m.frequence) && nb(m.bande) && nb(m.sf) && nb(m.cr) ? `${nb(m.frequence)},${nb(m.bande)},${nb(m.sf)},${nb(m.cr)}` : '';
+    const dep = String(d.departement || 'XX');
+    const home = regions.includes('fr') ? 'fr' : regions[regions.length - 1];
+    const commandes = [
+      `set radio ${radio}`, 'set advert.interval 240', 'set flood.advert.interval 24', 'set agc.reset.interval 4', 'set multi.acks 1', 'set dutycycle 10',
+      'set path.hash.mode 1', 'set loop.detect minimal', `set name ${dep}XXXX_Rep`, 'set lat 45.0000', 'set lon 3.0000', 'password VotreMotDePasse',
+      'set flood.max.unscoped 5', 'set flood.max.advert 6',
+      ...regions.flatMap((x) => [`region put ${x}`, `region allowf ${x}`]), ...(home ? [`region default ${home}`, `region home ${home}`, 'region save'] : []),
+      'set owner.info E-mail|Indicatif', 'reboot', 'clock sync',
+    ].join('\n');
     blocs.push(`<section>${etape('Régler votre nœud MeshCore')}
       <dl class="reglages">
         ${m.frequence ? `<dt>Fréquence</dt><dd translate="no">${esc(m.frequence)}</dd>` : ''}
         ${m.bande ? `<dt>Bande passante</dt><dd translate="no">${esc(m.bande)}</dd>` : ''}
         ${m.sf ? `<dt>Facteur d’étalement (SF)</dt><dd translate="no">${esc(m.sf)}</dd>` : ''}
         ${m.cr ? `<dt>Taux de codage (CR)</dt><dd translate="no">${esc(m.cr)}</dd>` : ''}
-      </dl></section>`);
+        ${regions.length ? `<dt>Régions</dt><dd translate="no">${esc(regions.join(', '))}</dd>` : ''}
+      </dl>
+      ${radio ? `<details class="commandes"><summary>Vous installez un répéteur : commandes minimales</summary>
+        <p class="note">À taper dans la console du répéteur (USB, ou administration à distance depuis un companion). D’après les recommandations françaises MeshCore ; remplacez nom, position, mot de passe et contact.</p>
+        <pre translate="no">${esc(commandes)}</pre></details>` : ''}
+      <div class="boutons"><a class="bouton" href="https://www.meshcore.fr/installer/configurateur/" target="_blank" rel="noopener">⚙️ Configurateur de répéteur MeshCore France</a>
+      <a class="bouton" href="https://serveurperso.in/archives/1318" target="_blank" rel="noopener">📖 Réglages conseillés en France</a></div>
+      <p class="note">Le configurateur flashe et règle un répéteur depuis le navigateur (Chrome ou Edge, en USB) : preset français, nom, position et régions.</p></section>`);
   }
 
   // 4. Règles

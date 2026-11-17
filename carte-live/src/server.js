@@ -3320,6 +3320,11 @@ app.get('/api/mc/maintenance', (req, res) => {
   if (!estAdmin(req)) r.noeuds = r.noeuds.filter((n) => peutGerer(req, n.cle));
   res.set('Cache-Control', 'no-store').json(r);
 });
+app.post('/api/mc/maintenance/configuration', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { res.json(maintenanceMc.importerConfiguration(req.body || {}, u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 app.post('/api/mc/maintenance/conformite', (req, res) => {
   const u = utilisateur(req);
   if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });

@@ -535,8 +535,21 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     return n > 0;
   }
 
+  // Bonnes pratiques vues de l'extérieur : taille des hachages de chemin et annonces en inondation d'un nœud
+  const qAnnoncesDe = db.prepare("SELECT route, chemin, heure FROM mc_paquets WHERE type = 'ADVERT' AND de = ? AND heure >= ?");
+  function annoncesDe(cle, depuis) {
+    const l = qAnnoncesDe.all(cle, depuis);
+    const tailles = new Set();
+    let inondations = 0;
+    for (const p of l) {
+      if (p.route === 'FLOOD' || p.route === 'TRANSPORT_FLOOD') inondations++;
+      try { const c = JSON.parse(p.chemin || '[]'); if (c.length) tailles.add(String(c[0]).length / 2); } catch { /* chemin illisible */ }
+    }
+    return { annonces: l.length, inondations, tailles: [...tailles] };
+  }
+
   return {
-    supprimerNoeud,
+    supprimerNoeud, annoncesDe,
     positionDe, noterEtat, telemetrie, calculerAlertes, analyse, surveilles, integrer, importerContact, noterObservateur, vueNoeud, liens, statistiques, detailNoeud, paquets, detailPaquet, messages, noterMessage, confirmerAck, statutMessage, lierVoisins, lierMesure, definirCanaux, definirMoi, canaux: () => canaux, purger, q, resoudreChemin };
 }
 

@@ -24,6 +24,35 @@ function creerMaintenanceMc({ config, reseauMc, adminMc, companion, journal, aud
   try { conf = { ...conf, ...lireJson(fConf) }; } catch { /* aucune */ }
   const sauver = () => { try { ecrireSur(fConf, JSON.stringify(conf)); } catch { /* lecture seule */ } };
 
+  // Sauvegardes du configurateur MeshCore France (fichier .json « meshcore-config ») : matériel, firmware, date, réglages.
+  // Les secrets (mots de passe, clé privée) ne sont jamais gardés.
+  const fCfg = path.join(path.dirname(config.fichierBase), 'meshcore-configurations.json');
+  let cfgs = {};
+  try { cfgs = lireJson(fCfg) || {}; } catch { /* aucune */ }
+  const PRESET_FR = '869.618,62.5,8,8';
+  const SECRET = /^(password\b|set\s+(prv\.key|guest\.password|password)\b)/i;
+  function importerConfiguration(doc, auteur) {
+    if (!doc || doc.format !== 'meshcore-config' || !Array.isArray(doc.commandes)) throw new Error('Fichier attendu : sauvegarde .json du configurateur MeshCore France');
+    const cmds = doc.commandes.map((c) => String(c).trim()).filter((c) => c && !SECRET.test(c)).slice(0, 300).map((c) => c.slice(0, 200));
+    const val = (re) => { const c = cmds.find((x) => re.test(x)); return c ? c.replace(re, '').trim() : null; };
+    const cle = /^[0-9A-F]{64}$/i.test((doc.identite || {}).cle_publique || '') ? doc.identite.cle_publique.toUpperCase() : null;
+    const nom = String(val(/^set\s+name\s+/i) || doc.nom || '').slice(0, 40);
+    if (!cle && !nom) throw new Error('Sauvegarde sans nom ni clé publique : impossible de la rattacher à un répéteur');
+    const radio = (val(/^set\s+radio\s+/i) || '').replace(/\s+/g, '') || null;
+    const lat = Number(val(/^set\s+lat\s+/i)), lon = Number(val(/^set\s+lon\s+/i));
+    const fiche = {
+      cle, nom, carte: String(doc.carte || '').slice(0, 80) || null, firmware: doc.firmware ? String(doc.firmware).slice(0, 80) : null,
+      date: Date.parse(doc.date) || null, radio, lat: Number.isFinite(lat) ? lat : null, lon: Number.isFinite(lon) ? lon : null,
+      regions: cmds.filter((c) => /^region\s+put\s+/i.test(c)).map((c) => c.replace(/^region\s+put\s+/i, '').trim()).slice(0, 20),
+      commandes: cmds, importe: Date.now(), auteur: auteur || null,
+    };
+    cfgs[cle || 'nom:' + nom.toLowerCase()] = fiche;
+    try { ecrireSur(fCfg, JSON.stringify(cfgs)); } catch { /* lecture seule */ }
+    journal('[MeshCore] sauvegarde du configurateur importée :', nom || cle.slice(0, 8));
+    return fiche;
+  }
+  const configurationDe = (n) => cfgs[n.cle] || cfgs['nom:' + String(n.nom || '').toLowerCase()] || null;
+
   // Dernières versions publiées (une par type de firmware : repeater, room-server, companion)
   let versions = null;
   async function verifierVersions() {
@@ -62,10 +91,20 @@ function creerMaintenanceMc({ config, reseauMc, adminMc, companion, journal, aud
       if (!memo.has(n.cle)) aFaire.push('mot de passe admin non mémorisé : impossible de le gérer à distance');
       else if (!lu.heure) aFaire.push('jamais lu : lancez « Lire la configuration »');
       if (etatFw === 'retard') aFaire.push(`firmware ${infos.version} → ${ref.version} disponible (mise à jour en USB, ou « start ota » sur place)`);
+      // Recommandations françaises (MeshCore France), vérifiées sans mot de passe d'après ce que la carte entend
+      if (!/^\d{2,3}/.test(n.nom || '')) aFaire.push('France : nom sans numéro de département au début (ex. « 43PUYE_Rep »)');
+      if (n.lat == null) aFaire.push('France : position non annoncée (set lat / set lon)');
+      const cfg = configurationDe(n);
+      if (cfg && cfg.radio && cfg.radio !== PRESET_FR) aFaire.push(`France : configurée en ${cfg.radio} (fréquence, bande, SF, CR) au lieu du preset français ${PRESET_FR}`);
+      if (reseauMc.annoncesDe) {
+        const a = reseauMc.annoncesDe(n.cle, Date.now() - 2 * 86400000);
+        if (a.tailles.length && Math.max(...a.tailles) === 1) aFaire.push('France : chemins sur 1 octet ; recommandé : set path.hash.mode 1 (2 octets)');
+        if (a.inondations > 6) aFaire.push(`France : ${a.inondations} annonces en inondation en 2 jours ; recommandé : set flood.advert.interval 24 (une par jour)`);
+      }
       return {
         cle: n.cle, nom: n.nom || n.cle.slice(0, 8), role: n.role, dernierVu: n.dernier_vu, lat: n.lat, lon: n.lon,
         firmware: infos.version || null, materiel: infos.carte || null, etatFw, derniereVersion: ref ? ref.version : null,
-        motDePasse: memo.has(n.cle), lu: lu.heure || null, aFaire,
+        motDePasse: memo.has(n.cle), lu: lu.heure || null, aFaire, configuration: (() => { const c = configurationDe(n); return c ? { ...c, commandes: undefined, nbCommandes: c.commandes.length } : null; })(),
       };
     }).sort((a, b) => b.aFaire.length - a.aFaire.length || a.nom.localeCompare(b.nom));
     return { versions, noeuds, conformite: { ...conf, elementsPossibles: adminMc.ELEMENTS, elementsDefaut: adminMc.ELEMENTS_DEFAUT } };
@@ -145,6 +184,7 @@ function creerMaintenanceMc({ config, reseauMc, adminMc, companion, journal, aud
   return {
     etat,
     alertes,
+    importerConfiguration,
     regler(b) {
       if (b.reference !== undefined) conf.reference = b.reference ? String(b.reference).toUpperCase() : null;
       if (b.actif != null) conf.actif = !!b.actif;

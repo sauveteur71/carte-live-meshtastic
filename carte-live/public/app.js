@@ -3233,6 +3233,7 @@ function avertissementSites(ouvert = false) {
       <li><b>Littoral</b> (loi Littoral) et <b>espaces naturels protégés</b> (Natura 2000, parcs, réserves) : règles strictes, se renseigner en mairie ou auprès de la DDT(M).</li>
     </ul>
     <p>Un relais posé sans autorisation peut être retiré, et c’est l’image de tout le réseau qui en pâtit.</p>
+    <p>Répéteur MeshCore : le <a href="https://www.meshcore.fr/installer/configurateur/" target="_blank" rel="noopener">configurateur MeshCore France</a> le flashe et le règle depuis le navigateur (preset français, nom, position, régions).</p>
   </details>`;
 }
 // Ouvert d'office dans le panneau du relief tant que l'utilisateur ne l'a pas refermé une fois
@@ -7782,19 +7783,27 @@ async function ficheRejoindre() {
     ${champ('mcBande', 'Bande passante', r.mcBande, 0, 'Exemple : 62,5 kHz')}
     ${champ('mcSf', 'Facteur d’étalement (SF)', r.mcSf)}
     ${champ('mcCr', 'Taux de codage (CR)', r.mcCr)}
+    ${champ('mcRegions', 'Régions des répéteurs', r.mcRegions, 0, 'Du plus large au plus local, séparées par des virgules. Exemple : europe, fr, fr-ara, fr-43. La page en tire les commandes minimales d’un répéteur.')}
+    <div class="actions-prop"><button class="mini" id="rj-mc-france">🇫🇷 Remplir avec le preset français (869,618 MHz · 62,5 kHz · SF8 · CR8)</button></div>
     <label class="ligne-case"><input type="checkbox" id="rj-montrerRelais" ${r.montrerRelais ? 'checked' : ''}> Lister les relais du secteur (vus ces 7 derniers jours)</label>
     ${champ('contact', 'Contact', r.contact, 2)}
     ${champ('donsTexte', 'Texte pour les dons', r.donsTexte, 2)}
     ${champ('donsLien', 'Lien des dons', r.donsLien, 0, 'Exemple : page HelloAsso de l’association.')}
     <div class="actions-prop"><a class="mini" href="/rejoindre" target="_blank" rel="noopener">Voir la page</a><button class="principal" id="rj-enregistrer">Enregistrer</button></div>
     <div id="rj-retour" class="note" role="status"></div>`;
+  $('#rj-mc-france').onclick = () => {
+    $('#rj-mcFrequence').value = '869,618 MHz'; $('#rj-mcBande').value = '62,5 kHz'; $('#rj-mcSf').value = '8'; $('#rj-mcCr').value = '8';
+    const dep = String((etat.config.departement || {}).code || '');
+    if (!$('#rj-mcRegions').value.trim()) $('#rj-mcRegions').value = ['europe', 'fr', dep ? 'fr-' + dep.toLowerCase() : ''].filter(Boolean).join(', ');
+    $('#rj-retour').textContent = 'Preset français rempli. Ajoutez la région de votre région administrative (ex. fr-ara) si besoin, puis enregistrez.';
+  };
   $('#rj-module').onclick = async () => {
     try { $('#rj-lienCanal').value = (await api('/api/rejoindre/lien-module')).lien; $('#rj-retour').textContent = '✓ Canal principal du module repris (avec ses réglages LoRa). Pensez à enregistrer.'; }
     catch (e) { $('#rj-retour').textContent = '✗ ' + e.message; }
   };
   $('#rj-enregistrer').onclick = async () => {
     const b = { actif: $('#rj-actif').checked, montrerRelais: $('#rj-montrerRelais').checked };
-    for (const k of ['presentation', 'lienCanal', 'limiteSauts', 'roles', 'regles', 'antennes', 'mcFrequence', 'mcBande', 'mcSf', 'mcCr', 'contact', 'donsTexte', 'donsLien']) b[k] = $('#rj-' + k).value;
+    for (const k of ['presentation', 'lienCanal', 'limiteSauts', 'roles', 'regles', 'antennes', 'mcFrequence', 'mcBande', 'mcSf', 'mcCr', 'mcRegions', 'contact', 'donsTexte', 'donsLien']) b[k] = $('#rj-' + k).value;
     try { await postJson('/api/rejoindre/reglages', b); etat.config.rejoindre = b.actif; $('#rj-retour').textContent = b.actif ? '✓ Enregistré : la page est publiée.' : '✓ Enregistré (page masquée).'; }
     catch (e) { $('#rj-retour').textContent = '✗ ' + e.message; }
   };

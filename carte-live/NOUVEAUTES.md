@@ -7,8 +7,14 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 ### 📣 Nœuds à inviter
 - **Écran refait** : une fiche par nœud avec son nom en entier (il était coupé à une lettre), son preset, sa distance et quand il a été vu ; filtre « dans le secteur de la carte », 25, 50 ou 100 km ; étapes claires (① module sentinelle pour écrire, ② choisir les nœuds) ; bouton « Inviter » expliqué tant qu'aucune sentinelle n'est reliée.
 
+### 🇫🇷 MeshCore : réglages conseillés en France
+- **Configurateur MeshCore France** proposé là où on installe un répéteur : page « Rejoindre », maintenance MeshCore, sites proposés pour un relais.
+- **Sauvegarde du configurateur importée** dans la maintenance MeshCore (fichier .json) : matériel, firmware, date et réglages gardés pour chaque répéteur (jamais les mots de passe ni la clé privée, qui ne quittent pas le navigateur).
+- **Recommandations françaises vérifiées** pour chaque répéteur, d'après ce que la carte entend : numéro de département au début du nom, position annoncée, chemins sur 2 octets (path.hash.mode 1), une annonce en inondation par jour, preset français 869,618 MHz · 62,5 kHz · SF8 · CR8.
+
 ### 🤝 Page « Rejoindre le réseau »
 - **Réseau MeshCore seul** : lien du canal et limite de sauts laissés vides, la page n'affiche plus la partie Meshtastic (comme la partie MeshCore quand elle est vide).
+- **Partie MeshCore complétée** : régions des répéteurs, bouton « preset français » qui remplit tout, commandes minimales d'un répéteur générées pour la page, liens vers le configurateur et les réglages conseillés.
 
 ## 2.28.3
 
