@@ -8,6 +8,10 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 - **Nouvelle couche « Rivières »** (en option) : hauteur d'eau, débit et tendance des stations hydrométriques publiques du secteur (Hub'Eau, les mêmes mesures que Vigicrues), avec la courbe sur 24 h. Gratuit, sans compte ni matériel.
 - **Alertes de crue** dans la carte : montée rapide (20 cm/h par défaut, réglable) et seuils de hauteur choisis station par station.
 
+### 📟 Capteurs LoRaWAN
+- **Nouvelle couche « Capteurs LoRaWAN »** (en option) : les capteurs d'une application The Things Network (v3) ou ChirpStack (v4) sur la carte (niveau d'eau, météo, pluie…), avec leurs dernières mesures, la courbe sur 24 h, les passerelles qui les ont reçus et le signal (RSSI, SNR). Lecture seule par le MQTT de l'application ; réservée aux membres par défaut.
+- **Alertes sur seuil** choisies capteur par capteur (« niveau-borne.hauteur > 150 », « batterie < 3,3 »), et alerte si le serveur MQTT reste injoignable.
+
 ### 🧰 Supervision
 - **Échecs des tâches de fond visibles dans les alertes** : relevé des rivières impossible, APRS-IS injoignable.
 
@@ -15,6 +19,7 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 - **Historique d'un canal toujours visible** : en choisissant un canal (ou les messages directs), la carte charge son propre historique. Un canal calme, comme celui d'une association, n'est plus caché par les centaines de messages des canaux bavards.
 - **Messages conservés 90 jours** (réglable : *Réglages avancés › Messages et MQTT*), au lieu de la durée de conservation du trafic (7 jours par défaut).
 - **Message direct impossible signalé avant l'envoi** : si le module ne connaît pas encore la clé publique du destinataire (il refuserait le message), la carte le dit, explique pourquoi (fiche NodeInfo pas encore reçue, firmware antérieur à 2.5) et propose d'écrire sur un canal à la place.
+- **Bouton « Échanger les fiches avec ce nœud »** dans cet avertissement : la carte envoie la fiche de son module (avec sa clé publique) au nœud, qui répond avec la sienne ; le message direct passe ensuite.
 
 ### 🛠️ Corrections
 - **Onglets du panneau** (Réseau, Messages, Couverture, Gérer, Réglages) : ils ne se chevauchent plus sur un écran d'ordinateur.

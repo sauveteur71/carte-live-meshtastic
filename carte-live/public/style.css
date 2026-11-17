@@ -1609,3 +1609,11 @@ body.theme-clair .registre-relais .etat-ok { color: #0a7a45; } body.theme-clair 
 .courbe-riviere .txt-courbe { font-size: 10px; fill: #cfe8ff; }
 .courbe-riviere { display: block; margin: 4px 0; background: #0b1620; border-radius: 6px; }
 body.theme-clair .riviere-etiquette { background: #ffffffee; color: #0b4f86; } body.theme-clair .courbe-riviere { background: #eef4f8; }
+
+/* Capteurs LoRaWAN */
+.lorawan-pt span { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 4px; font-size: 11px; background: #2a1a46; border: 2px solid #b48cff; box-shadow: 0 0 0 1px #0008; }
+.lorawan-pt.vieux span { opacity: .55; } .lorawan-pt.alerte span { border-color: #ffb547; background: #4a3612; }
+.lorawan-gw span { display: grid; place-items: center; width: 16px; height: 16px; font-size: 11px; border-radius: 50%; background: #1d2a36; border: 1px solid #8aa0b3; }
+.lorawan-etiquette { background: #160d26e6; color: #e2d4ff; border: 1px solid #b48cff; font-weight: 700; padding: 1px 5px; }
+.lorawan-mesures { border-collapse: collapse; margin: 6px 0; } .lorawan-mesures td { padding: 1px 8px 1px 0; } .lorawan-mesures td:first-child { color: #4a5a68; }
+body.theme-clair .lorawan-etiquette { background: #ffffffee; color: #5a2ea6; }

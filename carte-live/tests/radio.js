@@ -505,3 +505,40 @@ test('Rivières (Hub’Eau) : stations, hauteur, tendance, seuil et alertes', as
   assert.equal(r2.liste()[0].retenue, true);
   assert.equal(r2.alertes().length, 0);
 });
+
+test('LoRaWAN : remontées TTN v3 et ChirpStack v4, positions, seuils, abonnement MQTT', () => {
+  const { creerLorawan, lireReglages, lireRemontee, lirePositions, lireSeuils } = require('../src/lorawan');
+  assert.deepEqual(lirePositions('niveau-borne=45,04;3,88 | meteo=44.92,4.19').get('niveau-borne'), { lat: 45.04, lon: 3.88 });
+  assert.deepEqual(lireSeuils('niveau-borne.hauteur > 1,5 ; batterie < 3,3'), [{ capteur: 'niveau-borne', champ: 'hauteur', sens: '>', valeur: 1.5 }, { capteur: null, champ: 'batterie', sens: '<', valeur: 3.3 }]);
+  const ttn = JSON.stringify({
+    end_device_ids: { device_id: 'niveau-borne', dev_eui: '70B3D57ED0000001', application_ids: { application_id: 'crues-43' } }, received_at: new Date().toISOString(),
+    uplink_message: { f_port: 2, decoded_payload: { hauteur: 1.82, batterie: 3.6, meteo: { temperature: 7.5 }, latitude: 45.04, longitude: 3.88 },
+      rx_metadata: [{ gateway_ids: { gateway_id: 'gw-puy' }, rssi: -97, snr: 6.5, location: { latitude: 45.05, longitude: 3.9 } }] },
+  });
+  const t = lireRemontee('v3/crues-43@ttn/devices/niveau-borne/up', ttn);
+  assert.equal(t.source, 'ttn'); assert.deepEqual(t.mesures, { hauteur: 1.82, batterie: 3.6, 'meteo.temperature': 7.5 });
+  assert.deepEqual(t.position, { lat: 45.04, lon: 3.88 }); assert.equal(t.passerelles[0].snr, 6.5);
+  const cs = JSON.stringify({ deviceInfo: { deviceName: 'pluvio-1', devEui: '0011223344556677', applicationName: 'meteo' }, time: new Date().toISOString(), fPort: 1, object: { pluie: 2.4 }, rxInfo: [{ gatewayId: 'aa55', rssi: -110, snr: -3 }] });
+  const c = lireRemontee('application/x/device/0011223344556677/event/up', cs);
+  assert.equal(c.source, 'chirpstack'); assert.equal(c.id, 'pluvio-1'); assert.equal(c.mesures.pluie, 2.4); assert.equal(c.position, null);
+  // Faux client MQTT : abonnement aux sujets, remontées intégrées, seuils
+  const evts = {}; let abonne = null, opts = null;
+  const faux = { on: (e, f) => { evts[e] = f; }, subscribe: (s) => { abonne = s; }, end() {} };
+  const l = creerLorawan({ reglages: lireReglages({ LORAWAN: 'oui', LORAWAN_UTILISATEUR: 'crues-43@ttn', LORAWAN_MOT_DE_PASSE: 'NNSXS.x', LORAWAN_POSITIONS: 'pluvio-1=45,1;3,95', LORAWAN_SEUILS: 'niveau-borne.hauteur > 1,5 ; pluie > 5' }), connecter: (u, o) => { opts = { u, ...o }; return faux; } });
+  evts.connect();
+  assert.equal(opts.u, 'mqtts://eu1.cloud.thethings.network:8883'); assert.equal(opts.username, 'crues-43@ttn');
+  assert.deepEqual(abonne, ['v3/+/devices/+/up', 'application/+/device/+/event/up']);
+  evts.message('v3/crues-43@ttn/devices/niveau-borne/up', Buffer.from(ttn));
+  evts.message('application/x/device/0011223344556677/event/up', Buffer.from(cs));
+  const liste = l.liste();
+  assert.equal(liste.length, 2);
+  assert.equal(liste.find((x) => x.id === 'pluvio-1').lat, 45.1);
+  assert.equal(l.passerelles().length, 1);
+  const a = l.alertes();
+  assert.equal(a.length, 1); assert.match(a[0].message, /hauteur = 1,82 \(seuil > 1,5\)/);
+  assert.equal(l.serie('niveau-borne').series.hauteur.length, 1);
+  // Sans identifiant : pas de connexion, erreur explicite
+  let tente = false;
+  const sans = creerLorawan({ reglages: lireReglages({ LORAWAN: 'oui' }), connecter: () => { tente = true; return faux; } });
+  assert.equal(tente, false); assert.match(sans.etat().erreur, /identifiant/);
+});

@@ -1615,7 +1615,15 @@ function avertirCleDirect() {
   z.innerHTML = `<b>⚠ Message direct impossible pour l’instant</b> · <b translate="no">${esc(nom)}</b><br>
     <span>Votre module ne connaît pas encore la clé publique de ce nœud : il refusera ce message.</span>
     <span>${ancien ? 'Ce nœud n’annonce aucune clé : son firmware est sans doute antérieur à 2.5 (à mettre à jour).' : 'Il l’apprendra en recevant sa fiche (NodeInfo), envoyée toutes les 3 h environ, si un chemin radio ou MQTT les relie.'}</span>
-    <div class="actions-prop"><button type="button" class="mini" id="avert-cle-canal">📢 Écrire sur un canal à la place</button></div>`;
+    <div class="actions-prop">${ancien ? '' : '<button type="button" class="mini" id="avert-cle-echange">📇 Échanger les fiches avec ce nœud</button>'}<button type="button" class="mini" id="avert-cle-canal">📢 Écrire sur un canal à la place</button></div>
+    <small id="avert-cle-retour"></small>`;
+  const ech = $('#avert-cle-echange');
+  if (ech) ech.onclick = async () => {
+    ech.disabled = true;
+    const r = await api('/api/echanger-infos/' + num, { method: 'POST' }).catch((e) => ({ erreur: e.message }));
+    $('#avert-cle-retour').textContent = r.erreur ? '⚠ ' + tr(r.erreur) : tr('Fiche du module envoyée. Si le nœud la reçoit, il répond avec la sienne : réessayez le message dans une à deux minutes.');
+    if (!r.erreur) setTimeout(async () => { try { const i = await api('/api/envoi'); envoi.clesConnues = Array.isArray(i.clesConnues) ? new Set(i.clesConnues) : null; } catch { /* */ } avertirCleDirect(); }, 90000);
+  };
   $('#avert-cle-canal').onclick = () => {
     const o = [...f.vers.options].find((x) => x.value.startsWith('c'));
     if (o) choisirFiltreMessages('c:' + o.dataset.nom);
@@ -5927,7 +5935,7 @@ function brancherInterface() {
     etat.couches[c] = !etat.couches[c];
     b.classList.toggle('actif', etat.couches[c]);
     if (c) ecrireLs('gaulix_couches', etat.couches); // choix gardé pour la prochaine visite
-    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'dfci') dessinerDfci(); else if (c === 'radar') dessinerRadar(); else if (c === 'feux') dessinerFeux(); else if (c === 'aprs') dessinerAprs(); else if (c === 'rivieres') dessinerRivieres(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
+    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'dfci') dessinerDfci(); else if (c === 'radar') dessinerRadar(); else if (c === 'feux') dessinerFeux(); else if (c === 'aprs') dessinerAprs(); else if (c === 'rivieres') dessinerRivieres(); else if (c === 'lorawan') dessinerLorawan(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
   }));
   $('#filtres').onclick = (e) => {
     const b = e.target.closest('button[data-port]');
@@ -6433,6 +6441,7 @@ async function demarrer() {
   if (etat.couches.feux) dessinerFeux();
   if (etat.couches.aprs) dessinerAprs();
   if (etat.couches.rivieres) dessinerRivieres();
+  if (etat.couches.lorawan) dessinerLorawan();
   // Liens vers le client et le flasheur officiels (Web Serial / Web Bluetooth : HTTPS et Chrome ou Edge obligatoires)
   {
     const o = etat.config.outils || {}, https = location.protocol === 'https:';
@@ -7475,6 +7484,60 @@ async function dessinerAprs() {
     annonce(`📻 ${(r.stations || []).length} station(s) APRS ces 6 dernières heures, dont ${nLora} LoRa${r.etat.connecte ? '' : ' · ⚠ APRS-IS non connecté'}`);
   } catch (e) { annonce('⚠ Stations APRS indisponibles : ' + e.message, 'erreur'); }
   minuteurAprs = setTimeout(dessinerAprs, 2 * 60000);
+}
+// ---- Capteurs LoRaWAN (TTN / ChirpStack, lus par le serveur en MQTT) ----
+let coucheLorawan = null, minuteurLorawan = null;
+function courbeMesure(points) {
+  if (!points || points.length < 2) return '';
+  const W = 260, H = 60, t0 = points[0][0], t1 = points[points.length - 1][0];
+  const vs = points.map((p) => p[1]), min = Math.min(...vs), max = Math.max(...vs), ec = max - min || 1;
+  const x = (t) => ((t - t0) / (t1 - t0 || 1)) * (W - 4) + 2, y = (v) => H - 4 - ((v - min) / ec) * (H - 8);
+  const lib = (v, yy) => `<text x="${W - 3}" y="${yy}" text-anchor="end" class="txt-courbe">${Number(v).toLocaleString('fr-FR', { maximumFractionDigits: 2 })}</text>`;
+  return `<svg class="courbe-riviere" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img"><polyline points="${points.map((p) => `${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ')}" fill="none" stroke="#b48cff" stroke-width="2"/>${lib(max, 11)}${lib(min, H - 3)}</svg>`;
+}
+async function dessinerLorawan() {
+  clearTimeout(minuteurLorawan);
+  if (!etat.couches.lorawan) { if (coucheLorawan) { coucheLorawan.remove(); coucheLorawan = null; } return; }
+  try {
+    let r;
+    try { r = await api('/api/lorawan'); } catch (e) { if (/401|Connexion/.test(e.message)) { annonce('📟 Capteurs LoRaWAN : réservés aux membres connectés'); return; } throw e; }
+    if (!etat.couches.lorawan) return;
+    if (!r.etat.actif) { annonce('📟 Couche LoRaWAN désactivée : Réglages avancés › « LoRaWAN (capteurs) »'); return; }
+    const g = L.layerGroup();
+    const gw = new Map((r.passerelles || []).map((p) => [p.id, p]));
+    for (const p of r.passerelles || []) {
+      L.marker([p.lat, p.lon], { pane: 'traces', icon: L.divIcon({ className: 'lorawan-gw', html: '<span>📡</span>', iconSize: [16, 16], iconAnchor: [8, 8] }) })
+        .bindTooltip(`<span translate="no">${esc(p.id)}</span>`, { direction: 'top' }).bindPopup(`<b translate="no">${esc(p.id)}</b><br><small>Passerelle LoRaWAN · ${p.nb} remontée(s) · ${ilYa(p.heure)}</small>`).addTo(g);
+    }
+    let sansPos = 0;
+    for (const c of r.capteurs || []) {
+      if (c.lat == null) { sansPos++; continue; }
+      for (const p of c.passerelles || []) { const q = gw.get(p.id); if (q) L.polyline([[c.lat, c.lon], [q.lat, q.lon]], { pane: 'traces', color: couleurSnr(p.snr), weight: 2, opacity: 0.7, dashArray: '4 5' }).addTo(g); }
+      const champs = Object.entries(c.mesures || {});
+      const premier = champs[0];
+      const vieux = Date.now() - c.heure > 6 * 3600000;
+      const alerte = (etat.alertes || []).some((a) => a.type === 'lorawan' && a.cle.startsWith(`lorawan:${c.id}:`));
+      const m = L.marker([c.lat, c.lon], { pane: 'traces', icon: L.divIcon({ className: 'lorawan-pt' + (alerte ? ' alerte' : vieux ? ' vieux' : ''), html: '<span>📟</span>', iconSize: [18, 18], iconAnchor: [9, 9] }) });
+      if (premier) m.bindTooltip(`<span translate="no">${esc(premier[0])} ${Number(premier[1]).toLocaleString('fr-FR', { maximumFractionDigits: 2 })}</span>`, { direction: 'right', offset: [8, 0], className: 'lorawan-etiquette', permanent: carte.getZoom() >= 11 || alerte });
+      m.bindPopup(() => {
+        const div = document.createElement('div');
+        div.className = 'popup-riviere';
+        const meilleur = (c.passerelles || []).slice().sort((a, b) => (b.snr ?? -99) - (a.snr ?? -99))[0];
+        div.innerHTML = `<b translate="no">📟 ${esc(c.id)}</b>${c.application ? ` <small translate="no">${esc(c.application)}</small>` : ''}
+          <table class="lorawan-mesures">${champs.map(([k, v]) => `<tr><td translate="no">${esc(k)}</td><td translate="no"><b>${Number(v).toLocaleString('fr-FR', { maximumFractionDigits: 3 })}</b></td></tr>`).join('') || '<tr><td>Aucune mesure décodée (formateur de charge utile à régler dans l’application)</td></tr>'}</table>
+          <div class="riviere-courbe"></div>
+          <small>Reçu ${ilYa(c.heure)} · ${c.nb} remontée(s)${meilleur ? ` · <span translate="no">${esc(meilleur.id)} : ${meilleur.rssi ?? '?'} dBm, SNR ${meilleur.snr ?? '?'} dB</span>` : ''}</small>`;
+        if (premier) api('/api/lorawan/' + encodeURIComponent(c.id)).then((d) => { const z = div.querySelector('.riviere-courbe'); if (z) z.innerHTML = courbeMesure(d.series[premier[0]]) ? `<small translate="no">${esc(premier[0])}, 24 h</small>` + courbeMesure(d.series[premier[0]]) : ''; }).catch(() => {});
+        return div;
+      });
+      m.addTo(g);
+    }
+    g.addTo(carte);
+    if (coucheLorawan) coucheLorawan.remove();
+    coucheLorawan = g;
+    annonce(`📟 ${(r.capteurs || []).length} capteur(s) LoRaWAN, ${(r.passerelles || []).length} passerelle(s) positionnée(s)${sansPos ? ` · ${sansPos} sans position` : ''}${r.etat.connecte ? '' : ' · ⚠ serveur MQTT non connecté'}`);
+  } catch (e) { annonce('⚠ Capteurs LoRaWAN indisponibles : ' + e.message, 'erreur'); }
+  minuteurLorawan = setTimeout(dessinerLorawan, 2 * 60000);
 }
 // ---- Rivières : hauteurs d'eau des stations publiques (Hub'Eau, lu par le serveur toutes les 10 min) ----
 let coucheRivieres = null, minuteurRivieres = null;

@@ -1287,6 +1287,7 @@ function creerAdministration(radio, stockage) {
     lancerConformite,
     brancherEquipes: (e) => { equipes = e; },
     demanderPosition, reponsePosition,
+    echangerInfos: (dest) => { if (!radio.infos().connecte) throw new Error('Module radio non connecté'); echangerInfos(dest); return { envoye: Date.now() }; },
     infos: () => {
       const i = radio.infos();
       return { connecte: i.connecte, noeudLocal: i.noeudLocal, clePublique: i.clePublique, clesConnues: [...i.clesPubliques.keys()] };

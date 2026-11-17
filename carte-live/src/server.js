@@ -164,7 +164,7 @@ app.use((req, res, next) => {
 const DEMO_LECTURE = [
   /^\/api\/messages(\/\d+\/parcours)?$/, /^\/api\/mc\/messages$/, /^\/api\/trames\/\d+$/, /^\/api\/paquets$/,
   /^\/api\/admin-noeuds(\/(modeles|favoris|firmware|conformite-auto|v28|taches\/[\w-]+|lecture\/\d+(\/detail)?))?$/,
-  /^\/api\/trafic\/controle$/, /^\/api\/noeuds-nouveaux$/, /^\/api\/installations$/, /^\/api\/responsables$/,
+  /^\/api\/lorawan(\/[\w:.-]+)?$/, /^\/api\/trafic\/controle$/, /^\/api\/noeuds-nouveaux$/, /^\/api\/installations$/, /^\/api\/responsables$/,
   /^\/api\/mc\/(admin(\/modeles|\/taches\/[\w-]+)?|maintenance|audit\/(regions|collisions)|noeuds\/[0-9A-Fa-f]{64}\/chemin|capteurs\/[0-9A-Fa-f]{64}|companion\/(stats|telemetrie|decouverte))$/,
   /^\/api\/(sante-carte|reglages|diagnostic|alertes-officielles|passerelle|signalements|releves|ecoutes|fond-hors-ligne)$/,
   /^\/api\/maintenance\/[\w-]+$/, /^\/api\/envoi$/, /^\/api\/equipes$/, /^\/api\/firmware\/(info|modules)$/, /^\/api\/radio\/modules$/, /^\/rapport$/,
@@ -1492,6 +1492,11 @@ app.post('/api/envoi', (req, res) => {
     setTimeout(() => diffuser({ genre: 'statut' }), 500);
     res.json(r);
   } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+// Avant un message direct : envoie la fiche du module (clé publique) au nœud, qui répond avec la sienne
+app.post('/api/echanger-infos/:num', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { res.json(administration.echangerInfos(Number(req.params.num))); } catch (e) { res.status(409).json({ erreur: e.message }); }
 });
 app.get('/api/envoi/:id', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
@@ -3114,7 +3119,10 @@ if (String(process.env.UDP_MESHTASTIC || 'non').toLowerCase() === 'oui') udpMt.d
 // ---- Tâches périodiques ---------------------------------------------------
 let dernieresAlertes = [];
 // Alertes des services internes (adresses, messages d'erreur) réservées aux administrateurs
-function alertesPubliques(l) { return l.filter((a) => a.type !== 'service'); }
+function alertesPubliques(l) {
+  const lorawanPublic = (() => { try { return lorawan.etat().public; } catch { return false; } })();
+  return l.filter((a) => a.type !== 'service' && (a.type !== 'lorawan' || lorawanPublic));
+}
 // Services de fond en échec prolongé : visibles dans les alertes de la carte, pas seulement dans le journal du serveur
 const enEchecDepuis = {};
 function alertesServices() {
@@ -3138,6 +3146,7 @@ function alertesServices() {
   }
   // Tâches de fond des couches en option : un échec durable remonte dans les alertes de la carte
   if (typeof rivieres !== 'undefined') { const r = rivieres.etat(); suivre('rivieres', r.actif && !!r.erreur, 60, `Rivières : relevé Hub’Eau impossible (${r.erreur})`); }
+  if (typeof lorawan !== 'undefined') { const l = lorawan.etat(); suivre('lorawan', l.actif && !l.connecte, 30, `LoRaWAN : serveur MQTT injoignable${l.erreur ? ' (' + l.erreur + ')' : ''}`); }
   if (typeof aprs !== 'undefined') { const a = aprs.etat(); suivre('aprs', a.actif && a.indicatif && !a.connecte, 30, `APRS-IS injoignable${a.erreur ? ' : ' + a.erreur : ''} (couche APRS figée)`); }
   // MQTT : déjà signalé par la pastille « En direct » du bandeau (et absent volontairement sur les cartes reliées à un module seul)
   return l;
@@ -3147,6 +3156,7 @@ function rafraichirEtat() {
   try { if (typeof equipes !== 'undefined') dernieresAlertes = [...dernieresAlertes, ...equipes.alertes((n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); })]; } catch { /* équipes pas encore prêtes */ }
   if (passerelle) { try { dernieresAlertes = [...dernieresAlertes, ...passerelle.alertes()]; } catch (e) { journal('[Passerelle]', e.message); } }
   try { dernieresAlertes = [...dernieresAlertes, ...alertesServices()]; } catch (e) { journal('alertes des services :', e.message); }
+  try { dernieresAlertes = [...dernieresAlertes, ...lorawan.alertes()]; } catch (e) { if (!(e instanceof ReferenceError)) journal('[LoRaWAN]', e.message); }
   try { dernieresAlertes = [...dernieresAlertes, ...rivieres.alertes()]; } catch (e) { if (!(e instanceof ReferenceError)) journal('[Rivières]', e.message); } // pas encore créé au démarrage
   try { if (!fonctionMasquee('feux')) dernieresAlertes = [...dernieresAlertes, ...feux.alertes()]; } catch (e) { if (!(e instanceof ReferenceError)) journal('[Feux]', e.message); } // pas encore créé au démarrage
   diffuser({ genre: 'etat', stats: reseau.statistiques(), alertes: dernieresAlertes, meshmonitor: typeof sourceMM !== 'undefined' && sourceMM ? sourceMM.etat() : null, radio: typeof sourceRadio !== 'undefined' && sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
@@ -3671,6 +3681,20 @@ const aprs = require('./aprs').creerAprs({ zone: () => (zoneVoisins() || {}).bbo
 // Rivières : hauteurs d'eau des stations publiques Hub'Eau de la zone de la carte (ouvert à tous : données publiques)
 const rivieres = require('./rivieres').creerRivieres({ zone: () => (zoneVoisins() || {}).bbox || config.zone, journal });
 app.get('/api/rivieres', (req, res) => res.json({ etat: rivieres.etat(), stations: rivieres.etat().actif ? rivieres.liste() : [] }));
+// Capteurs LoRaWAN (TTN v3 / ChirpStack v4, en lecture seule) : réservés aux membres sauf LORAWAN_PUBLIC=oui
+const lorawan = require('./lorawan').creerLorawan({ journal });
+const voirLorawan = (req) => lorawan.etat().public || estMembre(req);
+app.get('/api/lorawan', (req, res) => {
+  if (!voirLorawan(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  const e = lorawan.etat();
+  res.json({ etat: e, capteurs: e.actif ? lorawan.liste() : [], passerelles: e.actif ? lorawan.passerelles() : [] });
+});
+app.get('/api/lorawan/:id', (req, res) => {
+  if (!voirLorawan(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  const s = lorawan.serie(String(req.params.id).slice(0, 64));
+  if (!s) return res.status(404).json({ erreur: 'Capteur inconnu' });
+  res.json(s);
+});
 app.get('/api/rivieres/:code', (req, res) => {
   const s = /^[A-Z0-9]{10}$/i.test(req.params.code) ? rivieres.serie(req.params.code.toUpperCase()) : null;
   if (!s) return res.status(404).json({ erreur: 'Station inconnue' });
