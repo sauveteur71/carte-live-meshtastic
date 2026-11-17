@@ -1642,6 +1642,35 @@ body.theme-clair .lorawan-etiquette { background: #ffffffee; color: #5a2ea6; }
   .chip-alertes { margin-left: 4px; padding: 3px 7px; }
   .chip-alertes .chip-txt { display: none; }
   .outils #sel-zone { max-width: 118px; text-overflow: ellipsis; padding-left: 8px; }
-  .outils label.choix { font-size: 0; gap: 0; }
-  .outils label.choix select { font-size: 14px; }
+}
+/* Téléphone : icônes avec un mot dessous (comme sur tablette), pour les rubriques du panneau, le choix du réseau
+   et la barre du bas. L'ordinateur garde l'affichage complet. */
+@media (max-width: 700px) {
+  .groupes button[data-groupe] { display: flex; flex-direction: column; align-items: center; gap: 1px; font-size: 10.5px; padding: 6px 2px 5px; }
+  .groupes button[data-groupe]::before { font-size: 18px; line-height: 1.1; }
+  .groupes button[data-groupe="reseau"]::before { content: '🗺️'; }
+  .groupes button[data-groupe="messages"]::before { content: '💬'; }
+  .groupes button[data-groupe="couverture"]::before { content: '📶'; }
+  .groupes button[data-groupe="gerer"]::before { content: '🛠️'; }
+  .groupes button[data-groupe="reglages"]::before { content: '⚙️'; }
+  .groupes button[data-groupe] .pastille-groupe { position: absolute; top: 2px; right: 50%; margin: 0 -22px 0 0; }
+  .choix-reseau { padding: 6px 8px 5px; }
+  .choix-reseau > span { display: none; }
+  .choix-reseau button { padding: 5px 4px; font-size: 12px; }
+  .outils { gap: 2px; align-items: stretch; }
+  .outils > details > summary, .outils > button, .outils > .choix { display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10.5px; line-height: 1.15; min-width: 58px; padding: 4px 5px; gap: 2px; }
+  .outils > details > summary::before, .outils > button::before { font-size: 20px; line-height: 1; }
+  .outils > details.menu-couches:not(.menu-radio):not(.menu-outils) > summary::before { content: '🗂️'; }
+  .outils > details.menu-radio > summary::before { content: '📡'; }
+  .outils > details.menu-outils > summary::before { content: '🧰'; }
+  .outils > #btn-rejeu::before { content: '⏯️'; }
+  .outils > #btn-admin::before { content: '👤'; }
+  .outils > #btn-effacer::before { content: '🧽'; }
+  .outils > #btn-chercher-reglage { font-size: 18px; }
+  .outils > .choix select { font-size: 13px; padding: 2px 4px; }
+  .outils #sel-zone { align-self: center; }
+}
+@media (min-width: 701px) and (max-width: 1100px), (pointer: coarse) and (min-width: 701px) and (max-width: 1366px) {
+  .outils > #btn-admin::before { content: '👤'; }
+  .outils > #btn-effacer::before { content: '🧽'; }
 }

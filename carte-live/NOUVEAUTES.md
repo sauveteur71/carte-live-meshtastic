@@ -5,6 +5,7 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 ## 2.28.3
 
 ### 📱 Téléphone
+- **Icônes sur téléphone**, comme sur tablette : rubriques du panneau (🗺️ Réseau, 💬 Messages, 📶 Couverture, 🛠️ Gérer, ⚙️ Réglages) et barre du bas (🗂️ Couches, 📡 Couverture radio, 🧰 Outils, 👤 Connexion) avec un mot dessous. L'ordinateur garde l'affichage complet.
 - **En-tête qui tient sur un téléphone** : l'état du direct devient une pastille de couleur, les alertes officielles se résument à leurs pictogrammes et à leur nombre (le détail reste au clic).
 - **Barre du bas plus compacte** : sélecteur du secteur et durée des liens réduits, texte de recherche raccourci, pour moins de boutons coupés.
 
