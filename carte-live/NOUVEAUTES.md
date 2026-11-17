@@ -2,6 +2,11 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.28.2
+
+### 🗺️ Légende
+- **Symboles des couches dans la légende** : stations APRS (LoRa APRS et autres), capteurs et passerelles LoRaWAN, stations de rivière (normale, en crue, barrage), affichés dès que la couche est activée.
+
 ## 2.28.1
 
 ### 🛠️ Corrections et confort

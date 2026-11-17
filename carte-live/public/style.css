@@ -1631,3 +1631,6 @@ body.theme-clair .lorawan-etiquette { background: #ffffffee; color: #5a2ea6; }
 }
 .annonce.cliquable::after { content: ' ›'; }
 .annonce.cliquable:hover { text-decoration: underline; }
+/* Légende : symboles des couches APRS, LoRaWAN et rivières (mêmes pastilles que sur la carte) */
+.legende .leg-ic { display: inline-flex; vertical-align: middle; margin: 0 2px 0 6px; } .legende .leg-ic:first-child { margin-left: 0; }
+.legende .leg-ic.riviere-pt span, .legende .leg-ic.lorawan-pt span { width: 16px; height: 16px; font-size: 10px; animation: none; }

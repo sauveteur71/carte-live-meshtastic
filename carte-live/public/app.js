@@ -5668,6 +5668,15 @@ function basculerTousLiens() {
   dessinerLiens();
   rendreLegende();
 }
+// Symboles des couches « autour du réseau » affichées (APRS, LoRaWAN, rivières) : seulement celles qui sont activées
+function legendeCouches() {
+  const l = [];
+  const ic = (cls, html) => `<span class="leg-ic ${cls}">${html}</span>`;
+  if (etat.couches.aprs) l.push(`<div class="rang">${ic('aprs-pt lora', '<span>A</span>')} <span>LoRa APRS</span> ${ic('aprs-pt', '<span>A</span>')} <span>APRS (VHF, Internet)</span></div>`);
+  if (etat.couches.lorawan) l.push(`<div class="rang">${ic('lorawan-pt', '<span>📟</span>')} <span>Capteur LoRaWAN</span> ${ic('lorawan-gw', '<span>📡</span>')} <span>Passerelle LoRaWAN</span></div>`);
+  if (etat.couches.rivieres) l.push(`<div class="rang">${ic('riviere-pt', '<span>🌊</span>')} <span>Station de rivière</span> ${ic('riviere-pt critique', '<span>🌊</span>')} <span>En crue</span> ${ic('riviere-pt retenue', '<span>🏞️</span>')} <span>Barrage, retenue</span></div>`);
+  return l.length ? '<div class="leg-sep"></div>' + l.join('') : '';
+}
 function rendreLegende() {
   const lg = etat.legende;
   const tous = CATEGORIES.every((c) => lg.cat[c.cle]);
@@ -5694,6 +5703,7 @@ function rendreLegende() {
       <div class="rang">◆ relais · ● nœud · halo = actif, pâle = inactif</div>
       <div class="rang">Liens (SNR) : ${SNR.map((x) => `<span><i class="trait" style="background:${x.hex}"></i>${x.nom}</span>`).join('')}</div>
       <div class="rang">— radio · - - voisinage · ··· traceroute</div>${htmlMc}`}
+      ${legendeCouches()}
     </details>`;
   const appliquer = () => { memoLegende(); dessinerNoeuds(); dessinerLiens(); dessinerChaleur(); if (typeof mcRedessiner === 'function') { mcRedessiner(); mcDessinerChaleur(); } rendreLegende(); };
   const z = $('#legende');
@@ -5957,7 +5967,7 @@ function brancherInterface() {
     etat.couches[c] = !etat.couches[c];
     b.classList.toggle('actif', etat.couches[c]);
     if (c) ecrireLs('gaulix_couches', etat.couches); // choix gardé pour la prochaine visite
-    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'dfci') dessinerDfci(); else if (c === 'radar') dessinerRadar(); else if (c === 'feux') dessinerFeux(); else if (c === 'aprs') dessinerAprs(); else if (c === 'rivieres') dessinerRivieres(); else if (c === 'lorawan') dessinerLorawan(); else if (c === 'releves') dessinerReleves(); else dessinerLiens();
+    if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'dfci') dessinerDfci(); else if (c === 'radar') dessinerRadar(); else if (c === 'feux') dessinerFeux(); else if (c === 'aprs') { dessinerAprs(); rendreLegende(); } else if (c === 'rivieres') { dessinerRivieres(); rendreLegende(); } else if (c === 'lorawan') { dessinerLorawan(); rendreLegende(); } else if (c === 'releves') dessinerReleves(); else dessinerLiens();
   }));
   $('#filtres').onclick = (e) => {
     const b = e.target.closest('button[data-port]');
