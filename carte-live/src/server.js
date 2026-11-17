@@ -1480,7 +1480,9 @@ app.get('/api/noeuds/:num/qr', async (req, res) => {
 app.get('/api/envoi', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const i = sourceRadio.infos();
-  res.json({ connecte: i.connecte, noeudLocal: i.noeudLocal, canaux: i.canaux || [] });
+  // Nœuds dont le module de la carte connaît la clé publique : sans elle, un message direct est refusé par le module
+  const cles = i.clesPubliques instanceof Map ? [...i.clesPubliques.keys()].map((n) => n >>> 0) : null;
+  res.json({ connecte: i.connecte, noeudLocal: i.noeudLocal, canaux: i.canaux || [], clesConnues: cles });
 });
 app.post('/api/envoi', (req, res) => {
   const u = utilisateur(req);
@@ -1847,7 +1849,11 @@ app.get('/api/messages', (req, res) => {
   // Démonstration : canaux publics (clé par défaut) seulement, jamais les messages directs
   const publics = new Set(config.canaux.filter((c) => !c.cle || c.cle === 'AQ==' || c.cle === '1PG7OiApB1nwvP+rz05pAQ==').map((c) => c.nom));
   const garder = (m) => !req.demoLecture || (m.vers === 0xffffffff && publics.has(m.canal));
-  res.json(stockage.q.messages.all(Math.min(Number(req.query.limite) || 300, 2000)).filter(garder).map((m) => {
+  const limite = Math.min(Number(req.query.limite) || 300, 2000);
+  // ?canal=nom : un seul canal ; ?direct=1 : messages directs seulement ; sinon les derniers, tous canaux confondus
+  const liste = req.query.canal ? stockage.q.messagesCanal.all(String(req.query.canal).slice(0, 40), limite)
+    : req.query.direct ? stockage.q.messagesDirects.all(limite) : stockage.q.messages.all(limite);
+  res.json(liste.filter(garder).map((m) => {
     const a = administration.accuseMessage(m.idPaquet, m.de);
     let entendus = [];
     try { entendus = JSON.parse(m.entendus || '[]'); } catch { /* vide */ }
@@ -4013,13 +4019,13 @@ app.post('/api/historique/compacter', (req, res) => {
 setTimeout(rafraichirEtat, 2000);
 
 setInterval(() => {
-  const n = stockage.purger(config.retentionJours) + reseauMc.purger(config.retentionJours, config.meshcore.retentionPaquetsJours);
+  const n = stockage.purger(config.retentionJours, config.messagesRetentionJours) + reseauMc.purger(config.retentionJours, config.meshcore.retentionPaquetsJours);
   reseau.nettoyer();
   // Compteurs séparés : un broker peut ne porter que du MeshCore (Meshtastic « 0 traité » est alors normal)
   const mcR = compteurMc.recusMqtt || 0;
   journal(`Purge : ${n} lignes de plus de ${config.retentionJours} jours supprimées · MQTT Meshtastic : ${compteur.recus - mcR} reçus, ${compteur.decodes} traités, ${compteur.erreurs} erreurs${config.meshcore.actif ? ` · MeshCore : ${mcR} reçus, ${compteurMc.observations} observations gardées, ${compteurMc.horsPerimetre || 0} hors périmètre` : ''} (depuis le démarrage)`);
 }, 3600000);
-stockage.purger(config.retentionJours);
+stockage.purger(config.retentionJours, config.messagesRetentionJours);
 setTimeout(() => reseauMc.purger(config.retentionJours, config.meshcore.retentionPaquetsJours), 60000);
 {
   const n = reseau.nettoyer();

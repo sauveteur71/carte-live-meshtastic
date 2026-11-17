@@ -1235,6 +1235,7 @@ async function preparerEnvoi(dest) {
   if (dest !== undefined) envoi.dest = dest;
   const n = envoi.dest != null ? etat.noeuds.get(envoi.dest) : null;
   envoi.canaux = i.canaux;
+  envoi.clesConnues = Array.isArray(i.clesConnues) ? new Set(i.clesConnues) : null;
   // Correspondants récents (messages directs) proposés directement dans la liste
   const local = etat.radio ? etat.radio.noeudLocal : null;
   const recents = [];
@@ -1252,7 +1253,7 @@ async function preparerEnvoi(dest) {
   // Un message direct demandé : on passe en vue « Mes messages directs »
   if (n && filtreMessages !== 'direct') { filtreMessages = 'direct'; try { localStorage.setItem('filtreMessages', 'direct'); } catch { /* navigation privée */ } rendreMessages(); }
   f.vers.onchange = () => {
-    if (f.vers.value !== 'choisir') return;
+    if (f.vers.value !== 'choisir') { avertirCleDirect(); return; }
     const premier = [...f.vers.options].find((o) => o.value.startsWith('d'));
     if (premier) f.vers.value = premier.value;
     choisirDestinataire((num) => preparerEnvoi(num));
@@ -1569,6 +1570,7 @@ function choisirFiltreMessages(v) {
   try { localStorage.setItem('filtreMessages', filtreMessages); } catch { /* navigation privée */ }
   rendreMessages();
   synchroEnvoi();
+  if (filtreMessages.startsWith('c:') || filtreMessages === 'direct') chargerMessages().catch(() => {});
 }
 // Un seul choix pour lire et écrire : le canal affiché est celui où l'on écrit ; « Mes messages directs » propose
 // le destinataire ; « Tous les canaux » et « Relayés » sont en lecture seule.
@@ -1593,6 +1595,31 @@ function synchroEnvoi() {
   bouton.disabled = !ok; f.texte.disabled = !ok && !!envoi.connecte && !direct;
   f.texte.placeholder = ok ? (direct ? 'Votre message direct…' : `Message sur ${filtreMessages.slice(2)}…`) : 'Choisissez un canal pour écrire';
   if (r$ && !/^Envoyé/.test(r$.textContent)) r$.textContent = note;
+  avertirCleDirect();
+}
+// Message direct vers un nœud dont le module ne connaît pas la clé publique : le module le refuserait
+// (« clé publique du nœud inconnue du module »). On prévient avant l'envoi et on propose d'écrire sur un canal.
+function avertirCleDirect() {
+  const f = $('#form-envoi');
+  let z = $('#avert-cle');
+  if (!f || f.hidden || !f.vers) return;
+  const v = f.vers.value || '';
+  const num = v.startsWith('d') ? Number(v.slice(1)) >>> 0 : null;
+  const n = num != null ? etat.noeuds.get(num) : null;
+  const sansCle = num != null && envoi.clesConnues && !envoi.clesConnues.has(num);
+  if (!sansCle) { if (z) z.remove(); return; }
+  if (!z) { z = document.createElement('div'); z.id = 'avert-cle'; z.className = 'alerte attention avert-cle'; $('#retour-envoi').before(z); }
+  const nom = n ? n.nomLong || n.nomCourt || n.id : '!' + num.toString(16);
+  // Pas de clé annoncée et firmware connu antérieur à 2.5 : le nœud ne sait pas chiffrer les messages directs
+  const ancien = n && n.aCle === false && /^(1\.|2\.[0-4]\.)/.test(n.firmware || '');
+  z.innerHTML = `<b>⚠ Message direct impossible pour l’instant</b> · <b translate="no">${esc(nom)}</b><br>
+    <span>Votre module ne connaît pas encore la clé publique de ce nœud : il refusera ce message.</span>
+    <span>${ancien ? 'Ce nœud n’annonce aucune clé : son firmware est sans doute antérieur à 2.5 (à mettre à jour).' : 'Il l’apprendra en recevant sa fiche (NodeInfo), envoyée toutes les 3 h environ, si un chemin radio ou MQTT les relie.'}</span>
+    <div class="actions-prop"><button type="button" class="mini" id="avert-cle-canal">📢 Écrire sur un canal à la place</button></div>`;
+  $('#avert-cle-canal').onclick = () => {
+    const o = [...f.vers.options].find((x) => x.value.startsWith('c'));
+    if (o) choisirFiltreMessages('c:' + o.dataset.nom);
+  };
 }
 const memeCanal = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
 // ---- Barre des canaux : chaque canal (Meshtastic et MeshCore) en pastille, ceux qui ont du nouveau en tête et en couleur ----
@@ -2295,7 +2322,17 @@ async function chargerMessages() {
   // Démonstration : pas de messages en direct par le WebSocket (réservés aux membres) : relecture régulière
   if (etat.demo && !chargerMessages.minuteur) chargerMessages.minuteur = setInterval(() => chargerMessages().catch(() => {}), 60000);
   if (etat.admin && ($('#form-envoi').hidden || !$('#form-envoi').vers.querySelector('option[data-nom]'))) await preparerEnvoi();
-  derniersMessages = await api('/api/messages?limite=300');
+  // Les 300 derniers tous canaux confondus, complétés par l'historique du canal affiché (ou des messages directs) :
+  // un canal calme comme celui d'une association garde ses échanges même quand les canaux bavards débordent
+  const f = filtreMessages;
+  const [base, plus] = await Promise.all([
+    api('/api/messages?limite=300'),
+    f.startsWith('c:') ? api('/api/messages?limite=500&canal=' + encodeURIComponent(f.slice(2))).catch(() => [])
+      : f === 'direct' ? api('/api/messages?limite=500&direct=1').catch(() => []) : Promise.resolve([]),
+  ]);
+  const vus = new Map(base.map((m) => [m.rowid, m]));
+  for (const m of plus) if (!vus.has(m.rowid)) vus.set(m.rowid, m);
+  derniersMessages = [...vus.values()].sort((a, b) => b.heure - a.heure);
   rendreMessages();
 }
 function rendreMessages() {

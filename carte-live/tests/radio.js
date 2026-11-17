@@ -444,3 +444,26 @@ test('Passerelle : positions et signalements relayés une fois, sans écho', asy
   fs.rmSync(dossier, { recursive: true, force: true });
   setImmediate(() => process.exit(0)); // la passerelle garde des minuteries actives
 });
+
+// Non-régression (17/11) : l'historique d'un canal calme ne doit ni disparaître après 7 jours (purge générale),
+// ni être caché par les 300 derniers messages des canaux bavards
+test('Messages : conservés plus longtemps que le trafic, historique d’un seul canal', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'msg-'));
+  const { creerStockage } = require('../src/base');
+  const st = creerStockage(path.join(dossier, 'x.db'));
+  const j = 86400000, t = Date.now();
+  const ins = (canal, port, age, texte, vers = 4294967295) => st.db.prepare('INSERT INTO paquets (de, vers, canal, port, heure, texte) VALUES (?, ?, ?, ?, ?, ?)').run(1, vers, canal, port, t - age, texte);
+  ins('ADRASEC43', 'texte', 20 * j, 'vieux message du canal calme');
+  ins('ADRASEC43', 'position', 20 * j, null);
+  ins('ADRASEC43', 'texte', 120 * j, 'trop vieux');
+  for (let i = 0; i < 400; i++) ins('Fr_BlaBla', 'texte', i * 60000, 'bavard ' + i);
+  ins('Fr_BlaBla', 'texte', 60000, 'direct', 1234);
+  st.purger(7, 90);
+  const restant = st.db.prepare("SELECT port, texte FROM paquets WHERE canal = 'ADRASEC43'").all();
+  assert.deepEqual(restant.map((x) => x.texte), ['vieux message du canal calme']);
+  assert.ok(!st.q.messages.all(300).some((m) => m.canal === 'ADRASEC43'), 'noyé dans les 300 derniers');
+  assert.equal(st.q.messagesCanal.all('ADRASEC43', 500).length, 1);
+  assert.deepEqual(st.q.messagesDirects.all(500).map((m) => m.vers), [1234]);
+  st.db.close();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});

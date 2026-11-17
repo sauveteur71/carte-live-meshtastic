@@ -256,6 +256,7 @@ function creerReseau(stockage, config) {
       firmware: n.firmware,
       preset: n.preset,
       licencie: !!n.licencie,
+      aCle: !!n.cle_publique, // clé publique annoncée (firmware 2.5 et plus) : messages directs chiffrés possibles
       lat: arrondir(n.lat, dec),
       lon: arrondir(n.lon, dec),
       alt: n.alt,

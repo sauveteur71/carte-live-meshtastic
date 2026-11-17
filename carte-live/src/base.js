@@ -153,10 +153,30 @@ function creerStockage(fichier) {
         (SELECT json_group_array(json_object('g', r.passerelle, 's', r.sauts, 'snr', r.snr, 'rel', r.relais_num, 'h', r.heure))
           FROM receptions r WHERE r.paquet = p.rowid AND r.passerelle <> p.de) AS entendus
       FROM paquets p WHERE p.port = 'texte' ORDER BY p.heure DESC LIMIT ?`),
+    // Historique d'un seul canal (diffusion) ou des seuls messages directs : un canal calme n'est pas noyé par les bavards
+    messagesCanal: db.prepare(`SELECT p.rowid, p.de, p.vers, p.canal, p.heure, p.texte, p.sauts, p.via_mqtt AS viaMqtt,
+        (SELECT COUNT(*) FROM receptions r WHERE r.paquet = p.rowid AND r.sujet LIKE 'radio%') AS radio,
+        (SELECT r.snr FROM receptions r WHERE r.paquet = p.rowid AND r.sujet LIKE 'radio%' LIMIT 1) AS snrRadio,
+        (SELECT r.sauts FROM receptions r WHERE r.paquet = p.rowid AND r.sujet LIKE 'radio%' LIMIT 1) AS sautsRadio,
+        (SELECT COUNT(*) FROM receptions r WHERE r.paquet = p.rowid AND (r.sujet IS NULL OR r.sujet NOT LIKE 'radio%')) AS mqtt,
+        p.id_paquet AS idPaquet,
+        (SELECT json_group_array(json_object('g', r.passerelle, 's', r.sauts, 'snr', r.snr, 'rel', r.relais_num, 'h', r.heure))
+          FROM receptions r WHERE r.paquet = p.rowid AND r.passerelle <> p.de) AS entendus
+      FROM paquets p WHERE p.port = 'texte' AND p.canal = ? AND p.vers = 4294967295 ORDER BY p.heure DESC LIMIT ?`),
+    messagesDirects: db.prepare(`SELECT p.rowid, p.de, p.vers, p.canal, p.heure, p.texte, p.sauts, p.via_mqtt AS viaMqtt,
+        (SELECT COUNT(*) FROM receptions r WHERE r.paquet = p.rowid AND r.sujet LIKE 'radio%') AS radio,
+        (SELECT r.snr FROM receptions r WHERE r.paquet = p.rowid AND r.sujet LIKE 'radio%' LIMIT 1) AS snrRadio,
+        (SELECT r.sauts FROM receptions r WHERE r.paquet = p.rowid AND r.sujet LIKE 'radio%' LIMIT 1) AS sautsRadio,
+        (SELECT COUNT(*) FROM receptions r WHERE r.paquet = p.rowid AND (r.sujet IS NULL OR r.sujet NOT LIKE 'radio%')) AS mqtt,
+        p.id_paquet AS idPaquet,
+        (SELECT json_group_array(json_object('g', r.passerelle, 's', r.sauts, 'snr', r.snr, 'rel', r.relais_num, 'h', r.heure))
+          FROM receptions r WHERE r.paquet = p.rowid AND r.passerelle <> p.de) AS entendus
+      FROM paquets p WHERE p.port = 'texte' AND p.vers <> 4294967295 ORDER BY p.heure DESC LIMIT ?`),
   };
 
   const purges = [
-    db.prepare('DELETE FROM paquets WHERE heure < ?'),
+    // Les messages texte suivent leur propre durée (MESSAGES_RETENTION_JOURS), le reste du trafic RETENTION_JOURS
+    db.prepare("DELETE FROM paquets WHERE heure < ? AND (port IS NOT 'texte' OR heure < ?)"),
     db.prepare('DELETE FROM receptions WHERE heure < ?'),
     db.prepare('DELETE FROM telemetrie WHERE heure < ?'),
     db.prepare('DELETE FROM positions WHERE heure < ?'),
@@ -169,9 +189,10 @@ function creerStockage(fichier) {
     q.creerNoeud.run(num, '!' + (num >>> 0).toString(16).padStart(8, '0'), heure, heure);
   }
 
-  function purger(retentionJours) {
+  function purger(retentionJours, retentionMessagesJours = retentionJours) {
     const limite = Date.now() - retentionJours * 86400000;
-    const tx = db.transaction(() => purges.reduce((t, st) => t + st.run(limite).changes, 0));
+    const limiteMessages = Date.now() - Math.max(retentionMessagesJours, retentionJours) * 86400000;
+    const tx = db.transaction(() => purges.reduce((t, st, i) => t + (i === 0 ? st.run(limite, limiteMessages) : st.run(limite)).changes, 0));
     const n = tx();
     db.pragma('wal_checkpoint(TRUNCATE)');
     return n;

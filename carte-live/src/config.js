@@ -59,6 +59,8 @@ const config = {
   // Canaux dont les messages texte sont conservés (admin uniquement). Vide = tous les canaux déchiffrés.
   canauxTexte: texte('CANAUX_TEXTE').split(/[,;]/).map((s) => s.trim()).filter(Boolean),
   retentionJours: nombre('RETENTION_JOURS', 7),
+  // Messages texte : gardés plus longtemps que le reste du trafic (l'historique d'un canal calme ne disparaît pas)
+  messagesRetentionJours: nombre('MESSAGES_RETENTION_JOURS', 90),
   admin: {
     motDePasse: texte('ADMIN_MOT_DE_PASSE'),
     secret: texte('SECRET_SESSION', ''),

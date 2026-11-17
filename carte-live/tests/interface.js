@@ -435,6 +435,16 @@ async function essaiAdministrationALaDemande(navig, cookie) {
     const t = await page.evaluate(async (p) => { await ouvrirDlg(p); await new Promise((r) => setTimeout(r, 700)); const x = document.querySelector(`#pan-${p}`); const v = x ? x.textContent.trim().length : 0; document.querySelectorAll('dialog[open]').forEach((d) => d.close()); return v; }, pan);
     if (t > 20) ok(`gestion › ${pan} : rempli`); else ko(`gestion › ${pan} vide`);
   }
+  // Message direct vers un nœud dont le module n'a pas la clé : avertissement avant l'envoi, canal proposé
+  const avert = await page.evaluate(async () => {
+    await preparerEnvoi(); const f = $('#form-envoi'); if (!f || f.hidden) return 'formulaire caché';
+    const n = [...etat.noeuds.values()].find((x) => x.num !== (etat.radio && etat.radio.noeudLocal)) || { num: 0x1234567 };
+    f.vers.insertAdjacentHTML('beforeend', `<option value="d${n.num}">test</option>`); f.vers.value = 'd' + n.num;
+    envoi.clesConnues = new Set(); avertirCleDirect(); const a = !!$('#avert-cle') && /clé publique/.test($('#avert-cle').textContent);
+    envoi.clesConnues = new Set([n.num]); avertirCleDirect(); const b = !$('#avert-cle');
+    return a && b ? 'ok' : `a=${a} b=${b}`;
+  });
+  if (avert === 'ok') ok('message direct sans clé publique : averti avant l’envoi'); else ko('avertissement clé publique : ' + avert);
   const relais = await page.evaluate(() => ['ficheMaj', 'ouvrirBroker', 'editeurReglages', 'rendreComptes'].filter((n) => window[n].relais).length);
   if (relais === 0) ok('relais remplacés par les vraies fonctions'); else ko(`${relais} relais non remplacé(s)`);
   bilanErreurs(erreurs, 'administration à la demande');
