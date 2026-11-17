@@ -1177,7 +1177,8 @@ async function ficheRegistreRelais() {
   $('#fiche-contenu').innerHTML = '<div class="liste-signalements"><h3>🗂️ Registre des relais</h3><p class="note">Chargement…</p></div>';
   let inst = {};
   try { inst = await api('/api/installations'); } catch (e) { $('#fiche-contenu').innerHTML = `<div class="liste-signalements"><h3>🗂️ Registre des relais</h3><p class="erreur">${esc(e.message)}</p></div>`; return; }
-  const relais = [...etat.noeuds.values()].filter((n) => n.infrastructure || n.passerelle || inst[n.num]).sort((a, b) => (a.nomLong || a.nomCourt || '').localeCompare(b.nomLong || b.nomCourt || ''));
+  // Relais et passerelles de la zone de la carte (département et voisins), plus tout nœud qui a une fiche d'installation
+  const relais = [...etat.noeuds.values()].filter((n) => ((n.infrastructure || n.passerelle) && dansZone(n)) || inst[n.num]).sort((a, b) => (a.nomLong || a.nomCourt || '').localeCompare(b.nomLong || b.nomCourt || ''));
   const jours = (d) => (d ? Math.floor((Date.now() - Date.parse(d)) / 86400000) : null);
   const ligne = (n) => {
     const f = inst[n.num] || {};
@@ -1189,7 +1190,7 @@ async function ficheRegistreRelais() {
       <td><b>${esc(n.nomLong || n.nomCourt || n.id)}</b><br><small>${esc(n.roleFr || '')}${n.materiel ? ' · ' + esc(n.materiel) : ''}</small></td>
       <td>${esc(f.site || '—')}${f.zoneProtegee && f.zoneProtegee !== 'aucune' ? `<br><small class="ko">⚠ ${esc(LIB_ZONE_PROTEGEE[f.zoneProtegee])}</small>` : ''}</td>
       <td class="etat-${autCls}">${esc(LIB_AUTORISATION[aut] || 'Non renseignée')}${f.dateAutorisation ? `<br><small>${esc(f.dateAutorisation)}</small>` : ''}</td>
-      <td class="etat-${visCls}">${f.derniereVisite ? esc(f.derniereVisite) : 'Jamais notée'}${jv != null ? `<br><small>il y a ${jv} j</small>` : ''}</td>
+      <td class="etat-${visCls}">${f.derniereVisite ? esc(f.derniereVisite) : 'Jamais notée'}${jv != null ? `<br><small>${ilYa(Date.parse(f.derniereVisite))}</small>` : ''}</td>
       <td>${esc(LIB_ALIM[f.alimentation] || '—')}${f.batterieAh ? `<br><small>${f.batterieAh} Ah${f.panneauW ? ' · ' + f.panneauW + ' W' : ''}</small>` : ''}</td>
       <td>${esc(n.firmware || '—')}<br><small>${n.dernierVu ? ilYa(n.dernierVu) : ''}</small></td></tr>`;
   };

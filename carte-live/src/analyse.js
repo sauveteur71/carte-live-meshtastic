@@ -77,7 +77,7 @@ function creerAnalyse(stockage, config, reseau, presetCourant) {
     for (const t of telem) {
       if (!(t.tension > 0)) continue;
       const j = new Date(t.heure).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', weekday: 'short', day: '2-digit', month: '2-digit' });
-      const v = jours.get(j) || { jour: j, min: Infinity, max: -Infinity, nb: 0 };
+      const v = jours.get(j) || { jour: j, t: t.heure, min: Infinity, max: -Infinity, nb: 0 }; // t : pour l'écrire dans la langue de la page
       v.min = Math.min(v.min, t.tension);
       v.max = Math.max(v.max, t.tension);
       v.nb++;

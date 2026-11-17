@@ -1332,8 +1332,9 @@ code.coupe { word-break: break-all; }
 
 /* ===== Ergonomie 2.15 : rubriques, accueil, niveaux, réglages, aide, accessibilité ===== */
 body[data-niveau="simple"] .niv-op, body[data-niveau="simple"] .niv-exp, body[data-niveau="operateur"] .niv-exp, .titre-vide { display: none !important; }
-.groupes { display: flex; gap: 0; padding: 6px 26px 0 4px; position: relative; flex: none; border-bottom: 1px solid var(--bord); }
-.groupes button[data-groupe] { flex: 1 1 auto; min-width: 0; background: none; border: 0; border-bottom: 3px solid transparent; padding: 9px 4px 8px; cursor: pointer; color: var(--texte); font-size: 13px; font-weight: 600; white-space: nowrap; position: relative; }
+.groupes { display: flex; gap: 0; padding: 6px 24px 0 2px; position: relative; flex: none; border-bottom: 1px solid var(--bord); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.groupes::-webkit-scrollbar { display: none; }
+.groupes button[data-groupe] { flex: 1 0 auto; min-width: max-content; background: none; border: 0; border-bottom: 3px solid transparent; padding: 9px 2px 8px; letter-spacing: -0.01em; cursor: pointer; color: var(--texte); font-size: 12.5px; font-weight: 600; white-space: nowrap; position: relative; }
 .groupes button[data-groupe].actif { color: var(--accent); border-bottom-color: var(--accent); }
 .groupes button[data-groupe]:hover { background: rgba(255,255,255,.05); }
 .groupes .aide-onglet { flex: none; width: 24px; height: 24px; padding: 0; margin: 0 2px 0 4px; align-self: center; border-radius: 50%; border: 1.5px solid var(--doux); background: none; color: var(--texte); font-weight: 700; cursor: pointer; }
@@ -1502,6 +1503,9 @@ body.theme-clair .leaflet-control-attribution a[href*="helloasso"] { color: #c01
 .menu-noeud button:hover, .menu-noeud button:focus-visible { background: var(--surface); outline: 2px solid var(--accent); outline-offset: -2px; }
 .bandeau-consultation { position: fixed; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 1200; background: var(--surface-2); color: var(--texte); border: 1px solid var(--accent); border-radius: 99px; padding: 5px 14px; font-size: 13px; max-width: calc(100vw - 32px); text-align: center; box-shadow: 0 4px 14px #0007; }
 .bandeau-consultation a { color: var(--accent); }
+.bandeau-consultation .fermer-bandeau { background: none; border: 0; color: var(--doux); cursor: pointer; font-size: 14px; margin-left: 8px; padding: 0 2px; }
+/* Sur téléphone : bandeau large aux coins arrondis (une pilule sur plusieurs lignes devient un rond illisible) */
+@media (max-width: 700px) { .bandeau-consultation { border-radius: 12px; width: calc(100vw - 24px); max-width: none; font-size: 12px; padding: 6px 10px; } }
 body.consultation #outil-connecter, body.consultation #outil-companion-mc { display: none !important; }
 .lien-github { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; padding: 2px 9px; border-radius: 99px; background: #24292f; color: #fff !important; border: 1px solid #57606a; font-weight: 700; font-size: 11px; text-decoration: none; vertical-align: middle; }
 .lien-github:hover, .lien-github:focus-visible { background: #3d444d; outline: 2px solid #fff; outline-offset: 1px; }
@@ -1575,6 +1579,10 @@ body.theme-clair .badge.licencie { color: #4b2a9a; background: rgba(120, 80, 220
 
 /* Registre des relais */
 .registre-relais .table-defile { overflow-x: auto; }
+/* Le registre est un tableau : la fiche s'élargit le temps de l'afficher (sur grand écran) */
+@media (min-width: 1100px) { .fiche:has(.registre-relais) { width: min(1000px, calc(100vw - 440px)); } }
+.registre-relais table { min-width: 720px; }
+.registre-relais th { white-space: nowrap; }
 .registre-relais table { width: 100%; border-collapse: collapse; font-size: 0.92em; }
 .registre-relais th, .registre-relais td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--bord, rgba(120,160,190,.25)); vertical-align: top; }
 .registre-relais tr.cliquable { cursor: pointer; }

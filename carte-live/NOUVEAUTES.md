@@ -2,6 +2,14 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.27.1
+
+### 🛠️ Corrections
+- **Onglets du panneau** (Réseau, Messages, Couverture, Gérer, Réglages) : ils ne se chevauchent plus sur un écran d'ordinateur.
+- **Interface en anglais** : les durées (« il y a 2 h »), les sauts, la télémétrie (secteur, canal, émission), les résumés du tableau de bord et les jours de la santé sur 7 jours sont traduits.
+- **Registre des relais** : limité aux relais et passerelles de la zone de la carte (et non plus de toute la France), dans un panneau élargi pour que le tableau reste lisible.
+- **Mode démonstration sur téléphone** : le bandeau est lisible (il s'affichait en rond au milieu de l'écran) et peut être fermé.
+
 ## 2.27.0
 
 ### 📡 Alertes envoyées par radio

@@ -85,13 +85,15 @@ const nomCourt = (num) => {
   const n = etat.noeuds.get(num);
   return n ? n.nomCourt || (n.nomLong || n.id).slice(0, 6) : idHex(num).slice(-4);
 };
+// Passe par tr() : le morceau est déjà dans la langue de la page quand il est collé à d'autres (« 2 sauts · il y a 3 h »)
 function ilYa(t) {
-  if (!t) return 'jamais';
+  const T = (x) => (typeof tr === 'function' ? tr(x) : x);
+  if (!t) return T('jamais');
   const s = Math.max(0, (Date.now() - t) / 1000);
-  if (s < 60) return 'à l’instant';
-  if (s < 3600) return `il y a ${Math.round(s / 60)} min`;
-  if (s < 86400) return `il y a ${Math.round(s / 3600)} h`;
-  return `il y a ${Math.round(s / 86400)} j`;
+  if (s < 60) return T('à l’instant');
+  if (s < 3600) return T(`il y a ${Math.round(s / 60)} min`);
+  if (s < 86400) return T(`il y a ${Math.round(s / 3600)} h`);
+  return T(`il y a ${Math.round(s / 86400)} j`);
 }
 const heure = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 function duree(sec) {
@@ -582,7 +584,7 @@ function afficherVersion(v) {
 const deuxReseaux = () => typeof mc !== 'undefined' && mc.actif && mc.noeuds && etat.vueReseau !== 'meshtastic' && etat.vueReseau !== 'meshcore';
 function resumeAlertes(a) {
   const c = a.filter((x) => x.niveau === 'critique').length, w = a.length - c;
-  return a.length ? [c ? `${c} critique${c > 1 ? 's' : ''}` : '', w ? `${w} attention` : ''].filter(Boolean).join(' · ') : 'aucune';
+  return a.length ? [c ? tr(`${c} critique${c > 1 ? 's' : ''}`) : '', w ? tr(`${w} attention`) : ''].filter(Boolean).join(' · ') : tr('aucune');
 }
 // Menus du haut (Couches, Couverture radio, Outils) : un seul ouvert à la fois ; un clic ailleurs (carte, panneau)
 // ou Échap les referme
@@ -632,7 +634,7 @@ document.querySelectorAll('details.pli-alertes').forEach((d) => {
       const ec = mod.querySelectorAll('.ligne.module.ecoute').length;
       const nav = typeof moduleNav !== 'undefined' && moduleNav.etat === 'relie';
       const p = $('#nb-modules'); if (p) { p.textContent = (principal || nav ? 1 : 0) + ec; p.className = 'pastille' + (!principal && !nav ? ' attention' : ''); }
-      const r = $('#resume-modules'); if (r) r.textContent = `${nomP || (nav ? moduleNav.nom : 'aucun principal')}${ec ? ` · ${ec} en écoute` : ''}`;
+      const r = $('#resume-modules'); if (r) r.textContent = `${nomP || (nav ? moduleNav.nom : tr('aucun principal'))}${ec ? ` · ${tr(`${ec} en écoute`)}` : ''}`;
     }
     const rep = $('#repartition');
     if (rep) {
@@ -692,13 +694,13 @@ async function chargerChemins() {
   const resume = (c) => {
     if (!c.mesure) return 'jamais de réponse';
     const relais = c.mesure.aller.slice(1, -1);
-    return relais.length ? `via ${relais.map((x) => esc(x.nom)).join(' → ')} (${relais.length} saut${relais.length > 1 ? 's' : ''})` : 'en direct';
+    return relais.length ? `via <span translate="no">${relais.map((x) => esc(x.nom)).join(' → ')}</span> ${tr(`(${relais.length} saut${relais.length > 1 ? 's' : ''})`)}` : tr('direct');
   };
   z.innerHTML = (etat.admin ? `<div class="reglages-tr">
       <label>Quand <select id="tr-heures"><option value="toujours">à toute heure</option><option value="nuit">la nuit (1 h – 6 h)</option></select></label>
       <label>Tous les <select id="tr-intervalle">${[[60, '1 h'], [180, '3 h'], [360, '6 h'], [720, '12 h'], [1440, '24 h'], [0, 'jamais']].map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></label>
     </div><p class="note">★ = nœud clé : s’il y en a, seuls les nœuds clés sont tracés automatiquement ; sinon, tous les relais entendus par le module.${r.radio ? '' : ' <b>Aucun module radio connecté : pas de traceroute automatique.</b>'}</p>` : '')
-    + (r.cibles.length ? r.cibles.map((c, i) => `<div class="ligne" data-chemin="${i}"><span style="color:${(st[c.dernier.statut] || st.envoye)[1]}">${(st[c.dernier.statut] || st.envoye)[0]}</span><span class="titre">${etat.admin ? `<button class="mini etoile ${c.cle ? 'on' : ''}" data-cle="${c.cible}" title="Nœud clé">${c.cle ? '★' : '☆'}</button> ` : ''}${esc(c.nom)}${c.routeChangee ? ' <span class="pastille attention" title="Le chemin a changé depuis la mesure précédente">route changée</span>' : ''}<small>${resume(c)} · ${c.taux != null ? c.taux + ' % de réponses' : ''} · ${ilYa(c.dernier.heure)}</small></span>${etat.admin && r.radio ? `<button class="mini" data-tracer="${c.cible}" title="Lancer un traceroute maintenant">↻</button>` : ''}</div>`).join('')
+    + (r.cibles.length ? r.cibles.map((c, i) => `<div class="ligne" data-chemin="${i}"><span style="color:${(st[c.dernier.statut] || st.envoye)[1]}">${(st[c.dernier.statut] || st.envoye)[0]}</span><span class="titre">${etat.admin ? `<button class="mini etoile ${c.cle ? 'on' : ''}" data-cle="${c.cible}" title="Nœud clé">${c.cle ? '★' : '☆'}</button> ` : ''}${esc(c.nom)}${c.routeChangee ? ' <span class="pastille attention" title="Le chemin a changé depuis la mesure précédente">route changée</span>' : ''}<small>${resume(c)} · ${c.taux != null ? tr(c.taux + ' % de réponses') : ''} · ${ilYa(c.dernier.heure)}</small></span>${etat.admin && r.radio ? `<button class="mini" data-tracer="${c.cible}" title="Lancer un traceroute maintenant">↻</button>` : ''}</div>`).join('')
       : '<div class="vide">Aucun traceroute depuis 7 jours.</div>');
   if (etat.admin) {
     const h = $('#tr-heures'), iv = $('#tr-intervalle');
@@ -755,7 +757,7 @@ async function chargerBavards() {
   const l = r.bavards.filter((b) => b.radio && b.zone);
   const p = $('#nb-bavards'); p.textContent = l.length; p.className = 'pastille' + (l.length ? ' attention' : '');
   const ri = r.reinjection || {};
-  $('#resume-bavards').textContent = l.length ? `${l.length} nœud${l.length > 1 ? 's' : ''}${ri.total ? ` · ${ri.total} paquets réinjectés de MQTT` : ''}` : 'aucun';
+  $('#resume-bavards').textContent = l.length ? `${tr(`${l.length} nœud${l.length > 1 ? 's' : ''}`)}${ri.total ? ` · ${tr(`${ri.total} paquets réinjectés de MQTT`)}` : ''}` : tr('aucun');
   z.innerHTML = l.map((b) => {
     const pb = b.problemes.filter((x) => x.radio !== false);
     const txt = (pb.length ? pb : b.problemes).map((x) => `${LIB[x.port] || x.port} toutes les ${dur(x.medianS)}`).join(', ');
@@ -774,7 +776,7 @@ async function chargerNouveaux() {
   const l = r.noeuds;
   const avecSouci = l.filter((n) => n.diagnostic.some((d) => d.niveau === 'attention'));
   const p = $('#nb-nouveaux'); p.textContent = l.length; p.className = 'pastille' + (avecSouci.length ? ' attention' : '');
-  $('#resume-nouveaux').textContent = l.length ? `${l.length} en 7 jours${avecSouci.length ? ` · ${avecSouci.length} à vérifier` : ''}` : 'aucun';
+  $('#resume-nouveaux').textContent = l.length ? `${tr(`${l.length} en 7 jours`)}${avecSouci.length ? ` · ${tr(`${avecSouci.length} à vérifier`)}` : ''}` : tr('aucun');
   z.innerHTML = l.map((n) => `<div class="ligne cliquable nouveau-noeud" data-num="${n.num}">
       <span class="point ${n.diagnostic.some((d) => d.niveau === 'attention') ? 'attention' : 'actif'}"></span>
       <span class="titre">${esc(n.nom || n.id)} <small>${esc(n.id)}${n.role ? ' · ' + esc(n.role) : ''}${n.materiel ? ' · ' + esc(n.materiel) : ''} · apparu ${ilYa(n.premierVu)} · ${n.nbPaquets} paquet(s)${n.relaye ? ` · a relayé ${n.relaye}` : ''}${n.passerelles.length ? ' · entendu par ' + esc(n.passerelles.slice(0, 3).map((g) => g.nom + (g.sautsMin === 0 ? ' (direct' + (g.snr != null ? ', ' + fmt(g.snr, 1, ' dB') : '') + ')' : ` (${g.sautsMin} saut${g.sautsMin > 1 ? 's' : ''})`)).join(', ')) : ''}</small>
@@ -867,7 +869,7 @@ async function chargerAsymetrie() {
   const su = r.sensUnique.filter((x) => dz(x.a) || dz(x.b)), de = r.desequilibres.filter((x) => dz(x.posA) || dz(x.posB)), ia = r.inaudibles.filter((x) => dz(x.pos));
   const n = sd.length + su.length + de.length + ia.length;
   const p = $('#nb-asym'); p.textContent = n; p.className = 'pastille' + (sd.length || ia.length || su.length ? ' attention' : '');
-  $('#resume-asym').textContent = n ? [sd.length ? `${sd.length} relais sourd${sd.length > 1 ? 's' : ''}` : '', ia.length ? `${ia.length} non entendu${ia.length > 1 ? 's' : ''}` : '', su.length ? `${su.length} à sens unique` : '', de.length ? `${de.length} déséquilibrée${de.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ') : 'aucune';
+  $('#resume-asym').textContent = n ? [sd.length ? `${sd.length} relais sourd${sd.length > 1 ? 's' : ''}` : '', ia.length ? `${ia.length} non entendu${ia.length > 1 ? 's' : ''}` : '', su.length ? `${su.length} à sens unique` : '', de.length ? `${de.length} déséquilibrée${de.length > 1 ? 's' : ''}` : ''].filter(Boolean).map((x) => tr(x)).join(' · ') : tr('aucune');
   const ligne = (i, titre, sous, meta) => `<div class="ligne" data-asym="${i}"><span class="point alerte"></span><span class="titre">${titre}<small>${sous}</small></span><span class="meta">${meta}</span></div>`;
   const items = [];
   z.innerHTML = (n ? '' : '<div class="vide">Aucune anomalie : les liaisons observées fonctionnent dans les deux sens.</div>')
@@ -953,7 +955,7 @@ function rendreReseau() {
   $('#passerelles').innerHTML = passerelles.length
     ? passerelles.map((n) => {
         const enLigne = gwEnLigne(n);
-        return ligneNoeud(n, enLigne ? 'actif' : 'alerte', `${enLigne ? 'En ligne' : 'Hors ligne'} · ${ilYa(n.dernierVuPasserelle)}`);
+        return ligneNoeud(n, enLigne ? 'actif' : 'alerte', `${tr(enLigne ? 'En ligne' : 'Hors ligne')} · ${ilYa(n.dernierVuPasserelle)}`);
       }).join('')
     : '<div class="vide">Aucune passerelle n’a encore publié sur le broker.</div>';
 
@@ -2763,7 +2765,7 @@ function rendreSante(sa, n) {
   const tendance = pr ? { secteur: 'Secteur', charge: '↗ en charge', 'décharge': '↘ décharge', stable: '→ stable' }[pr.tendance] : '–';
   const jours = sa.jours.length
     ? `<table class="voisins"><thead><tr><th>Jour</th><th class="num">Min</th><th class="num">Max</th><th class="num">Recharge</th></tr></thead><tbody>${sa.jours.map((j) =>
-        `<tr><td>${esc(j.jour)}</td><td class="num" style="color:${j.min < etat.config.seuils.tensionVolts ? 'var(--critique)' : 'inherit'}">${fmt(j.min, 2)}</td><td class="num" style="color:${j.max < etat.config.seuils.chargeSolaireVolts ? 'var(--attention)' : 'inherit'}">${fmt(j.max, 2)}</td><td class="num">${fmt(j.recharge, 2, ' V')}</td></tr>`).join('')}</tbody></table>`
+        `<tr><td>${esc(j.t ? new Date(j.t).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' }) : j.jour)}</td><td class="num" style="color:${j.min < etat.config.seuils.tensionVolts ? 'var(--critique)' : 'inherit'}">${fmt(j.min, 2)}</td><td class="num" style="color:${j.max < etat.config.seuils.chargeSolaireVolts ? 'var(--attention)' : 'inherit'}">${fmt(j.max, 2)}</td><td class="num">${fmt(j.recharge, 2, ' V')}</td></tr>`).join('')}</tbody></table>`
     : '';
   const statuts = { repondu: ['✔', 'var(--ok)', 'répondu'], echec: ['✖', 'var(--critique)', 'échec'], sans_reponse: ['✖', 'var(--critique)', 'sans réponse'], envoye: ['…', 'var(--attention)', 'en attente'] };
   const trs = sa.traceroutes.length
@@ -6376,7 +6378,8 @@ async function demarrer() {
   if (etat.consultation) {
     const b = document.createElement('div');
     b.className = 'bandeau-consultation';
-    b.innerHTML = `👁️ Démonstration : tous les écrans sont ouverts pour découvrir la carte, mais rien ne s’enregistre ni ne s’envoie par radio. <a href="/publique">Carte simple</a>${etat.config.compte ? ' · <a href="/">Mon espace</a>' : ''}`;
+    b.innerHTML = `👁️ Démonstration : tous les écrans sont ouverts pour découvrir la carte, mais rien ne s’enregistre ni ne s’envoie par radio. <a href="/publique">Carte simple</a>${etat.config.compte ? ' · <a href="/">Mon espace</a>' : ''}<button type="button" class="fermer-bandeau" title="Masquer ce bandeau" aria-label="Masquer ce bandeau">✕</button>`;
+    b.querySelector('.fermer-bandeau').onclick = () => b.remove();
     document.body.appendChild(b);
   }
   document.title = etat.config.titre;
