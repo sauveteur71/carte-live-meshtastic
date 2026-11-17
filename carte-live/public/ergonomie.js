@@ -276,7 +276,7 @@ function rendreHubReglages() {
 
 // ---- Diagnostic « Pourquoi ça ne marche pas ? » ----------------------------------------------------------------
 // ---- Réglages avancés : les variables du fichier .env, réglables ici (enregistrées sur le serveur, priment sur le .env) ----
-async function ficheReglagesAvances() {
+async function ficheReglagesAvances(groupeOuvert = null) {
   $('#fiche').hidden = false; etat.selection = null;
   const z = $('#fiche-contenu');
   z.innerHTML = '<div class="vide">Chargement…</div>';
@@ -296,11 +296,12 @@ async function ficheReglagesAvances() {
   z.innerHTML = `<h2>🧩 Réglages avancés</h2>
     <p class="note">Les réglages qu’on ne trouvait jusqu’ici que dans le fichier <span class="mono">.env</span>. Une valeur réglée ici prime sur le fichier ; « ↺ Revenir au .env » l’oublie. Champ vide = valeur par défaut. Enregistrer redémarre le service (quelques secondes). Seuls le port, la base, le code d’installation et le secret de session restent dans le fichier, car une erreur rendrait la carte injoignable.</p>
     <form id="f-avances" class="form-edit">
-      ${groupes.map((g) => `<details class="va-groupe" ${g === groupes[0] ? 'open' : ''}><summary>${esc(g)} <small>(${r.variables.filter((v) => v.groupe === g).length})</small></summary>${r.variables.filter((v) => v.groupe === g).map(champ).join('')}</details>`).join('')}
+      ${groupes.map((g) => `<details class="va-groupe" data-va-groupe="${esc(g)}" ${g === (groupeOuvert || groupes[0]) ? 'open' : ''}><summary>${esc(g)} <small>(${r.variables.filter((v) => v.groupe === g).length})</small></summary>${r.variables.filter((v) => v.groupe === g).map(champ).join('')}</details>`).join('')}
       <div class="actions-prop"><button type="submit" class="principal">Enregistrer et redémarrer</button><span class="note" id="va-nb"></span></div>
       <p class="erreur" id="va-retour"></p>
     </form>`;
   const f = $('#f-avances');
+  if (groupeOuvert) { const g = [...f.querySelectorAll('[data-va-groupe]')].find((x) => x.dataset.vaGroupe === groupeOuvert); if (g) setTimeout(() => g.scrollIntoView({ block: 'start', behavior: 'smooth' }), 50); }
   const initial = Object.fromEntries(r.variables.map((v) => [v.nom, v.type === 'secret' ? '' : String(v.valeur ?? '')]));
   const modifs = {};
   const compter = () => { const n = Object.keys(modifs).length; $('#va-nb').textContent = n ? `${n} réglage(s) modifié(s)` : ''; };

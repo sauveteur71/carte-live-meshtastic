@@ -310,9 +310,17 @@ function initCarte() {
   carte.attributionControl.setPrefix('Carte live par F4GLD · <a href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener" title="Soutenir le projet (don au Radio-club du Velay)">♥ Soutenir le projet</a> · <a href="https://github.com/sauveteur71/carte-live-meshtastic" target="_blank" rel="noopener" title="Code source sur GitHub">Code sur GitHub</a> · <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
   // Choix du fond et des surcouches dans le menu « Couches »
   const menu = document.querySelector('.menu-couches .menu');
-  menu.insertAdjacentHTML('afterbegin', `<div class="titre-menu">Fond de carte</div>${Object.keys(fonds).map((n) => `<button data-fond="${n}" class="${n === choix ? 'actif' : ''}">${n}</button>`).join('')}
-    <div class="titre-menu">Repères</div>${Object.keys(surcouches).map((n) => `<button data-surcouche="${n}" class="${carte.hasLayer(surcouches[n]) ? 'actif' : ''}">${n}</button>`).join('')}
-    <div class="titre-menu">Réseau</div>`);
+  // Trois colonnes (côte à côte sur ordinateur, à la suite sur téléphone) : fond et repères, réseau, informations autour
+  const RESEAU = ['rf', 'voisinage', 'traceroute', 'inactifs', 'animations', 'federation', 'releves'];
+  const boutons = [...menu.querySelectorAll('[data-couche]')];
+  const colonne = (html, liste = []) => { const c = document.createElement('div'); c.className = 'col-menu'; c.innerHTML = html; liste.forEach((x) => c.appendChild(x)); return c; };
+  menu.replaceChildren(
+    colonne(`<div class="titre-menu">Fond de carte</div>${Object.keys(fonds).map((n) => `<button data-fond="${n}" class="${n === choix ? 'actif' : ''}">${n}</button>`).join('')}
+    <div class="titre-menu">Repères</div>${Object.keys(surcouches).map((n) => `<button data-surcouche="${n}" class="${carte.hasLayer(surcouches[n]) ? 'actif' : ''}">${n}</button>`).join('')}`),
+    colonne('<div class="titre-menu">Réseau</div>', boutons.filter((x) => RESEAU.includes(x.dataset.couche))),
+    colonne('<div class="titre-menu">Autour du réseau</div>', boutons.filter((x) => !RESEAU.includes(x.dataset.couche))),
+  );
+  menu.classList.add('menu-colonnes');
   menu.querySelectorAll('[data-fond]').forEach((b) => (b.onclick = () => {
     fonds[choix].remove(); choix = b.dataset.fond; fonds[choix].addTo(carte); majFondSombre();
     try { dessinerLiens(); } catch { /* pas encore prêt */ }
@@ -592,6 +600,16 @@ document.addEventListener('toggle', (e) => {
   const d = e.target;
   if (!d.matches || !d.matches('details.menu-couches') || !d.open) return;
   document.querySelectorAll('details.menu-couches[open]').forEach((x) => { if (x !== d) x.open = false; });
+  // Menu Couches en colonnes : décalé pour rester dans l'écran (bouton à gauche ou à droite selon la mise en page)
+  const m = d.querySelector('.menu-colonnes');
+  if (m) {
+    m.style.left = ''; m.style.right = '';
+    if (innerWidth > 700) {
+      const r = m.getBoundingClientRect();
+      if (r.left < 8) m.style.right = (r.left - 8) + 'px';
+      else if (r.right > innerWidth - 8) m.style.right = (r.right - innerWidth + 8) + 'px';
+    }
+  }
 }, true);
 document.addEventListener('pointerdown', (e) => {
   for (const d of document.querySelectorAll('details.menu-couches[open]')) if (!d.contains(e.target)) d.open = false;
@@ -1906,16 +1924,20 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); ouvrirRechercheReglages(); }
 });
 // Petit message temporaire en bas de l'écran (clic : action facultative)
-function annonce(texte, genre = 'info', action = null) {
+function annonce(texte, genre = 'info', action = null, titre = 'Cliquer pour centrer la carte', duree = null) {
   let z = document.getElementById('annonces');
   if (!z) { z = document.createElement('div'); z.id = 'annonces'; z.setAttribute('aria-live', 'polite'); document.body.appendChild(z); }
   const d = document.createElement('div');
   d.className = 'annonce ' + genre;
   d.textContent = texte;
-  if (action) { d.classList.add('cliquable'); d.title = 'Cliquer pour centrer la carte'; }
+  if (action) { d.classList.add('cliquable'); d.title = titre; }
   d.onclick = () => { if (action) action(); d.remove(); };
   z.appendChild(d);
-  setTimeout(() => d.remove(), action ? 15000 : 7000);
+  setTimeout(() => d.remove(), duree || (action ? 15000 : 7000));
+}
+// Couche désactivée : annonce plus longue ; un clic ouvre les Réglages avancés sur le bon groupe (admin)
+function annonceReglage(texte, groupe, genre = 'info') {
+  annonce(texte, genre, etat.admin ? () => ficheReglagesAvances(groupe) : null, 'Ouvrir ce réglage', 15000);
 }
 // ---- Signalements : un événement posé sur la carte et diffusé en LoRa (membres) ----------------------------
 const sig = { liste: [], couche: null, info: null };
@@ -7464,8 +7486,8 @@ async function dessinerAprs() {
   try {
     const r = await api('/api/aprs?heures=6');
     if (!etat.couches.aprs) return;
-    if (!r.etat.actif) { annonce('📻 Couche APRS désactivée : Réglages avancés › « APRS (radioamateurs) »'); return; }
-    if (!r.etat.indicatif) { annonce('📻 Couche APRS : indiquez votre indicatif radioamateur dans Réglages avancés › « APRS (radioamateurs) »', 'erreur'); return; }
+    if (!r.etat.actif) { annonceReglage('📻 Couche APRS désactivée : Réglages avancés › « APRS (radioamateurs) »', 'APRS (radioamateurs)'); return; }
+    if (!r.etat.indicatif) { annonceReglage('📻 Couche APRS : indiquez votre indicatif radioamateur dans Réglages avancés › « APRS (radioamateurs) »', 'APRS (radioamateurs)', 'erreur'); return; }
     const g = L.layerGroup();
     for (const s of r.stations || []) {
       const couleur = s.lora ? '#b48cff' : '#7fb3ff';
@@ -7502,7 +7524,7 @@ async function dessinerLorawan() {
     let r;
     try { r = await api('/api/lorawan'); } catch (e) { if (/401|Connexion/.test(e.message)) { annonce('📟 Capteurs LoRaWAN : réservés aux membres connectés'); return; } throw e; }
     if (!etat.couches.lorawan) return;
-    if (!r.etat.actif) { annonce('📟 Couche LoRaWAN désactivée : Réglages avancés › « LoRaWAN (capteurs) »'); return; }
+    if (!r.etat.actif) { annonceReglage('📟 Couche LoRaWAN désactivée : Réglages avancés › « LoRaWAN (capteurs) »', 'LoRaWAN (capteurs)'); return; }
     const g = L.layerGroup();
     const gw = new Map((r.passerelles || []).map((p) => [p.id, p]));
     for (const p of r.passerelles || []) {
@@ -7560,7 +7582,7 @@ async function dessinerRivieres() {
   try {
     const r = await api('/api/rivieres');
     if (!etat.couches.rivieres) return;
-    if (!r.etat.actif) { annonce('🌊 Couche Rivières désactivée : Réglages avancés › « Rivières (Hub’Eau) »'); return; }
+    if (!r.etat.actif) { annonceReglage('🌊 Couche Rivières désactivée : Réglages avancés › « Rivières (Hub’Eau) »', 'Rivières (Hub’Eau)'); return; }
     const g = L.layerGroup();
     const alerteDe = new Map((etat.alertes || []).filter((a) => a.type === 'riviere').map((a) => [a.cle.slice(8), a.niveau]));
     for (const s of r.stations || []) {

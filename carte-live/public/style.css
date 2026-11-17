@@ -1617,3 +1617,13 @@ body.theme-clair .riviere-etiquette { background: #ffffffee; color: #0b4f86; } b
 .lorawan-etiquette { background: #160d26e6; color: #e2d4ff; border: 1px solid #b48cff; font-weight: 700; padding: 1px 5px; }
 .lorawan-mesures { border-collapse: collapse; margin: 6px 0; } .lorawan-mesures td { padding: 1px 8px 1px 0; } .lorawan-mesures td:first-child { color: #4a5a68; }
 body.theme-clair .lorawan-etiquette { background: #ffffffee; color: #5a2ea6; }
+/* Menu Couches en trois colonnes (fond et repères · réseau · autour du réseau) : il tient en hauteur sur ordinateur */
+.menu-couches .menu.menu-colonnes { background: var(--fond); }
+.menu-couches .menu.menu-colonnes .col-menu { display: flex; flex-direction: column; gap: 4px; }
+@media (min-width: 701px) {
+  .menu-couches .menu.menu-colonnes { flex-direction: row; align-items: flex-start; gap: 10px; max-width: calc(100vw - 24px); max-height: calc(100vh - 150px); overflow-y: auto; }
+  .menu-couches .menu.menu-colonnes .col-menu { min-width: 150px; }
+  .menu-couches .menu.menu-colonnes .col-menu + .col-menu { border-left: 1px solid var(--bord); padding-left: 10px; }
+}
+.annonce.cliquable::after { content: ' ›'; }
+.annonce.cliquable:hover { text-decoration: underline; }
