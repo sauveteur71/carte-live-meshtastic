@@ -29,6 +29,8 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.view.WindowInsets;
+import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import java.io.File;
@@ -63,7 +65,26 @@ public class MainActivity extends Activity {
         super.onCreate(etatSauve);
         prefs = getSharedPreferences("carte", Context.MODE_PRIVATE);
         vue = new WebView(this);
-        setContentView(vue);
+        // Android 15 affiche l'appli bord à bord : la carte passait sous la barre d'état (heure, icônes) et sous la barre
+        // de navigation. Le cadre laisse la place des barres système, de l'encoche et du clavier.
+        FrameLayout cadre = new FrameLayout(this);
+        cadre.setBackgroundColor(0xff0f172a);
+        cadre.addView(vue, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        cadre.setOnApplyWindowInsetsListener((v, encarts) -> {
+            int g, h, d, b;
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets i = encarts.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                // Clavier : à partir d'Android 15, adjustResize ne réduit plus la fenêtre bord à bord
+                android.graphics.Insets clavier = Build.VERSION.SDK_INT >= 35 ? encarts.getInsets(WindowInsets.Type.ime()) : android.graphics.Insets.NONE;
+                g = i.left; h = i.top; d = i.right; b = Math.max(i.bottom, clavier.bottom);
+            } else {
+                g = encarts.getSystemWindowInsetLeft(); h = encarts.getSystemWindowInsetTop();
+                d = encarts.getSystemWindowInsetRight(); b = encarts.getSystemWindowInsetBottom();
+            }
+            v.setPadding(g, h, d, b);
+            return encarts;
+        });
+        setContentView(cadre);
 
         WebSettings s = vue.getSettings();
         s.setJavaScriptEnabled(true);
