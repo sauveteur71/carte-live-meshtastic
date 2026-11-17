@@ -22,16 +22,17 @@
   const blocs = [];
   blocs.push(`<header class="tete"><img src="/symbole.svg" alt=""><div>
     <h1>Rejoindre le réseau <span translate="no">${esc(d.titre)}</span></h1>
-    <p class="sous">Réseau maillé LoRa · Meshtastic${d.meshcore ? ' et MeshCore' : ''}</p></div></header>`);
+    <p class="sous">Réseau maillé LoRa · ${d.meshtastic !== false && d.meshcore ? 'Meshtastic et MeshCore' : d.meshcore ? 'MeshCore' : 'Meshtastic'}</p></div></header>`);
   if (d.presentation) blocs.push(`<section><p class="presentation" translate="no">${esc(d.presentation)}</p></section>`);
 
   // 1. Le canal et les réglages Meshtastic
   const reglages = `<dl class="reglages">
       ${d.region ? `<dt>Région</dt><dd>${esc(d.region)}</dd>` : ''}
       <dt>Preset LoRa</dt><dd>${esc(PRESETS[d.preset] || d.preset)}</dd>
-      <dt>Limite de sauts</dt><dd>${esc(d.limiteSauts)}</dd>
+      ${d.limiteSauts ? `<dt>Limite de sauts</dt><dd>${esc(d.limiteSauts)}</dd>` : ''}
     </dl>`;
-  blocs.push(`<section>${etape('Régler votre nœud Meshtastic')}
+  // Section absente quand le lien du canal et la limite de sauts sont laissés vides (réseau MeshCore seul)
+  if (d.meshtastic !== false) blocs.push(`<section>${etape('Régler votre nœud Meshtastic')}
     ${d.lienCanal ? `<div class="canal">
       <div class="qr" role="img" aria-label="QR code du canal du réseau">${d.qrCanal}</div>
       <div>
@@ -41,7 +42,7 @@
         <button type="button" class="bouton" id="copier">📋 Copier le lien</button></div>
       </div></div>`
     : `<p>Réglez votre nœud ainsi dans l’appli Meshtastic (Radio › LoRa) :</p>${reglages}`}
-    <p class="note">La limite de sauts se règle dans Radio › LoRa › Hop limit. Plus de sauts n’aide pas : cela encombre le canal pour tout le monde.</p>
+    ${d.limiteSauts ? '<p class="note">La limite de sauts se règle dans Radio › LoRa › Hop limit. Plus de sauts n’aide pas : cela encombre le canal pour tout le monde.</p>' : ''}
   </section>`);
 
   // 2. Rôle

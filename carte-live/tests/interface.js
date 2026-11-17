@@ -344,6 +344,16 @@ async function essaiRejoindre(navig, cookie) {
   if (!r.large) ok('page Rejoindre : pas de défilement horizontal sur téléphone'); else ko('page Rejoindre : déborde en largeur sur téléphone');
   if (process.env.CAPTURE_REJOINDRE) await page.screenshot({ path: process.env.CAPTURE_REJOINDRE, fullPage: true });
   bilanErreurs(erreurs, 'page Rejoindre');
+  // Réseau MeshCore seul : lien du canal et limite de sauts vides → pas de partie Meshtastic
+  await fetch(BASE + '/api/rejoindre/reglages', { method: 'POST', headers: entetes, body: JSON.stringify({ lienCanal: '', limiteSauts: '' }) });
+  const ctx2 = await navig.newContext({ viewport: { width: 390, height: 844 }, locale: 'fr-FR' }); // nouveau contexte : /api/rejoindre est gardé 60 s en cache
+  await ctx2.addInitScript(() => { try { localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const seul = await ouvrir(ctx2, '/rejoindre');
+  await seul.page.waitForSelector('footer', { timeout: 10000 }).catch(() => {});
+  const t2 = await seul.page.evaluate(() => document.querySelector('main').textContent);
+  if (!/Régler votre nœud Meshtastic/.test(t2) && /Régler votre nœud MeshCore/.test(t2) && /LoRa · MeshCore/.test(t2)) ok('page Rejoindre : partie Meshtastic masquée quand elle est laissée vide'); else ko('page Rejoindre : partie Meshtastic affichée alors que vide');
+  await ctx2.close();
+  await fetch(BASE + '/api/rejoindre/reglages', { method: 'POST', headers: entetes, body: JSON.stringify({ lienCanal: lien, limiteSauts: 4 }) });
   const pub = await ouvrir(contexte, '/publique');
   await pub.page.waitForTimeout(1500);
   if (await pub.page.evaluate(() => !document.getElementById('lien-rejoindre').hidden)) ok('carte publique : bouton « Rejoindre le réseau »'); else ko('carte publique : bouton Rejoindre absent');

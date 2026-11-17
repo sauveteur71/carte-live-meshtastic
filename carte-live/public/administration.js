@@ -1221,22 +1221,40 @@ async function ficheAutresPresets() {
   if (!r) { z.innerHTML = '<h2>📣 Nœuds à inviter</h2><p class="note">Réservé aux administrateurs.</p>'; return; }
   const c = carte.getCenter();
   const dist = (n) => (n.lat != null && n.lon != null ? carte.distance(c, [n.lat, n.lon]) / 1000 : null);
-  const l = r.noeuds.map((n) => ({ ...n, km: dist(n) })).sort((a, b) => (a.km ?? 1e9) - (b.km ?? 1e9));
-  const parPreset = {};
-  for (const n of l) parPreset[n.preset] = (parPreset[n.preset] || 0) + 1;
+  const tous = r.noeuds.map((n) => ({ ...n, km: dist(n) })).sort((a, b) => (a.km ?? 1e9) - (b.km ?? 1e9));
   const sentinelle = (p) => r.sentinelles.find((s) => s.preset === p);
+  let filtre = 'secteur';
+  const FILTRES = [['secteur', 'Dans le secteur de la carte'], ['25', 'À moins de 25 km'], ['50', 'À moins de 50 km'], ['100', 'À moins de 100 km'], ['tous', 'Tous, même sans position']];
+  const garder = (n) => (filtre === 'tous' ? true : filtre === 'secteur' ? n.lat != null && dansZone(n) : n.km != null && n.km <= Number(filtre));
+  let l = [];
+  function rendre() {
+    l = tous.filter(garder);
+    const parPreset = {};
+    for (const n of l) parPreset[n.preset] = (parPreset[n.preset] || 0) + 1;
+    $('#ap-liste').innerHTML = `<div class="badges">${Object.entries(parPreset).map(([p, k]) => `<span class="badge autre-preset">${esc(nomPreset(p))} · ${k}</span>`).join('')}</div>
+      ${l.slice(0, 200).map((n) => { const s = sentinelle(n.preset); return `<div class="invite">
+        <div class="invite-nom"><b translate="no">${esc(n.nom_long || n.nom_court || n.id)}</b> <span class="badge autre-preset">${esc(nomPreset(n.preset))}</span></div>
+        <div class="invite-info"><span translate="no">${esc(n.id)}</span> · ${n.km != null ? fmt(n.km, n.km < 10 ? 1 : 0, ' km') : 'position inconnue'} · vu ${ilYa(n.dernier_vu)}${n.presetDeduit ? ` · <span title="Preset déduit du canal où il a été entendu">canal ${esc(n.canalVu)}</span>` : ''}</div>
+        <div class="invite-actions">${n.lat != null ? `<button class="mini" data-ap-voir="${n.num}">📍 Voir</button>` : ''}${s ? `<button class="mini principal" data-ap-inviter="${n.num}">✉️ Inviter</button>` : `<button class="mini" disabled title="Il faut d’abord un module sentinelle réglé en ${esc(nomPreset(n.preset))} (étape 1)">✉️ Inviter</button>`}</div>
+      </div>`; }).join('') || '<div class="vide">Aucun nœud d’un autre preset ici ces 30 derniers jours. Essayez une distance plus grande.</div>'}`;
+    $('#ap-nb').textContent = `${l.length} nœud(s)`;
+    brancher();
+  }
   z.innerHTML = `<h2>📣 Nœuds à inviter</h2>
-    <p class="note">Votre réseau est en <b>${esc(nomPreset(r.preset))}</b>.<br>Ces nœuds utilisent un autre preset : ils n’entendent pas le réseau et le réseau ne les entend pas. La carte les connaît par MQTT (rapport de carte, ou canal au nom par défaut d’un preset) ou par un module « sentinelle ». Triés par distance au centre de la carte.</p>
-    <div class="badges">${Object.entries(parPreset).map(([p, k]) => `<span class="badge autre-preset">${esc(nomPreset(p))} · ${k}</span>`).join('') || '<span class="badge">aucun</span>'}</div>
-    <h4>Modules sentinelles</h4>
+    <div class="invites-intro">
+      <p>Votre réseau est en <b>${esc(nomPreset(r.preset))}</b>. Les nœuds ci-dessous sont réglés sur un <b>autre preset</b> : ils ne voient pas votre réseau, et votre réseau ne les voit pas. Une invitation leur explique comment vous rejoindre.</p>
+      <p class="note">La carte les connaît par MQTT (rapport de carte, ou canal au nom d’un preset) ou par un module sentinelle. Vus ces 30 derniers jours, les plus proches du centre de la carte d’abord.</p>
+    </div>
+    <h4>① Module sentinelle (pour envoyer les invitations)</h4>
     ${r.sentinelles.length ? r.sentinelles.map((s) => `<div class="mesure-ligne"><b class="ok">●</b> ${esc(s.nom)} · ${esc(nomPreset(s.preset))}</div>`).join('')
-      : `<p class="note">Aucun. Pour entendre ces nœuds par radio et leur écrire : un petit module (un Heltec V3 suffit) réglé sur leur preset, relié à la carte <b>en écoute</b> (Outils › Connecter un module › « en écoute, en plus »). Il ne sert qu’à écouter et à envoyer les invitations que vous validez.</p>`}
-    <h4>${l.length} nœud(s) vu(s) ces 30 derniers jours</h4>
-    <div class="liste">${l.slice(0, 200).map((n) => `<div class="ligne">
-      <span class="titre"><b>${esc(n.nom_long || n.nom_court || n.id)}</b><small>${esc(n.id)} · ${esc(nomPreset(n.preset))}${n.presetDeduit ? ' (déduit du canal ' + esc(n.canalVu) + ')' : ''} · ${ilYa(n.dernier_vu)}${n.km != null ? ' · ' + fmt(n.km, n.km < 10 ? 1 : 0, ' km') : ' · position inconnue'}</small></span>
-      <span class="meta">${n.lat != null ? `<button class="mini" data-ap-voir="${n.num}">Voir</button>` : ''}${sentinelle(n.preset) ? `<button class="mini principal" data-ap-inviter="${n.num}">✉️ Inviter</button>` : ''}</span>
-    </div>`).join('') || '<div class="vide">Aucun nœud d’un autre preset ces 30 derniers jours.</div>'}</div>
+      : `<div class="alerte attention">Aucun pour l’instant : vous pouvez voir ces nœuds, mais pas encore leur écrire.<br><small>Il suffit d’un petit module (un Heltec V3 suffit) réglé sur <b>leur</b> preset, relié à la carte <b>en écoute</b> : Outils › Connecter un module › « en écoute, en plus ». Il ne sert qu’à écouter et à envoyer les invitations que vous validez.</small></div>`}
+    <p class="note">Modules sentinelles : ${r.sentinelles.length}</p>
+    <h4>② Choisir les nœuds · <span id="ap-nb"></span></h4>
+    <label class="ap-filtre">Afficher <select id="ap-filtre">${FILTRES.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></label>
+    <div id="ap-liste"></div>
     <div id="ap-invitation"></div>`;
+  $('#ap-filtre').onchange = (e) => { filtre = e.target.value; rendre(); };
+  function brancher() {
   z.querySelectorAll('[data-ap-voir]').forEach((b) => (b.onclick = () => { const n = l.find((x) => x.num === Number(b.dataset.apVoir)); carte.setView([n.lat, n.lon], Math.max(carte.getZoom(), 12)); ouvrirFiche(n.num); }));
   z.querySelectorAll('[data-ap-inviter]').forEach((b) => (b.onclick = () => {
     const n = l.find((x) => x.num === Number(b.dataset.apInviter));
@@ -1259,4 +1277,6 @@ async function ficheAutresPresets() {
       catch (e) { $('#ap-retour').textContent = '✗ ' + e.message; $('#ap-envoyer').disabled = false; }
     };
   }));
+  }
+  rendre();
 }

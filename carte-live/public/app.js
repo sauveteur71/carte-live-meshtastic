@@ -7768,10 +7768,12 @@ async function ficheRejoindre() {
     <p class="note">Une page publique, à donner aux nouveaux venus et à imprimer : QR du canal, preset conseillé, rôles, règles, antennes, relais et dons.<br>Elle s’ouvre à l’adresse <a href="/rejoindre" target="_blank" rel="noopener">${esc(adresse)}</a>.</p>
     <label class="ligne-case"><input type="checkbox" id="rj-actif" ${r.actif ? 'checked' : ''}> Page publiée</label>
     ${champ('presentation', 'Présentation', r.presentation, 3, 'Quelques lignes : qui vous êtes, ce que permet le réseau.')}
+    <h4>Meshtastic (laisser vide si absent)</h4>
     ${champ('lienCanal', 'Lien du canal Meshtastic', r.lienCanal, 0, 'Lien https://meshtastic.org/e/#… : il contient la clé du canal, qui sera publique sur cette page.')}
     <div class="actions-prop"><button class="mini" id="rj-module">📡 Prendre le canal principal du module de la carte</button></div>
     <p class="note">Preset du réseau : <b>${esc(nomPreset(r.preset))}</b> (affiché tout seul).</p>
-    ${champ('limiteSauts', 'Limite de sauts conseillée', r.limiteSauts)}
+    ${champ('limiteSauts', 'Limite de sauts conseillée', r.limiteSauts, 0, 'Lien du canal et limite de sauts vides : la page n’affiche pas la partie Meshtastic. Les rôles par défaut sont ceux de Meshtastic : videz-les aussi pour un réseau MeshCore seul.')}
+    <h4>Pour tous</h4>
     ${champ('roles', 'Rôles recommandés (une ligne par rôle)', r.roles, 4)}
     ${champ('regles', 'Règles du réseau (une par ligne)', r.regles, 5)}
     ${champ('antennes', 'Antennes testées (une par ligne)', r.antennes, 4)}

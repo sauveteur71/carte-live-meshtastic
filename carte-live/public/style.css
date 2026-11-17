@@ -1674,3 +1674,10 @@ body.theme-clair .lorawan-etiquette { background: #ffffffee; color: #5a2ea6; }
   .outils > #btn-admin::before { content: '👤'; }
   .outils > #btn-effacer::before { content: '🧽'; }
 }
+/* Nœuds à inviter : une carte par nœud, nom en entier */
+.invites-intro p { margin: 0 0 6px; }
+.ap-filtre { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; color: var(--doux); }
+.invite { border: 1px solid var(--bord); border-radius: 8px; padding: 8px 10px; margin: 6px 0; background: var(--surface-2); }
+.invite-nom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; } .invite-nom b { overflow-wrap: anywhere; }
+.invite-info { color: var(--doux); font-size: 12px; margin-top: 2px; }
+.invite-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }

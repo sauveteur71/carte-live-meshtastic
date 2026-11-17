@@ -41,7 +41,8 @@ function creerAdhesion({ config, db, reseauMc, presetDuReseau, journal = () => {
     for (const [k, t] of Object.entries(CHAMPS)) {
       if (!(k in b)) continue;
       if (t === 'bool') n[k] = !!b[k];
-      else if (t === 'int') n[k] = Math.min(7, Math.max(1, Math.round(Number(b[k]) || 3)));
+      // Limite de sauts : vide = pas de section Meshtastic (réseau MeshCore seul) si le lien du canal est vide aussi
+      else if (t === 'int') n[k] = String(b[k] ?? '').trim() === '' ? null : Math.min(7, Math.max(1, Math.round(Number(b[k]) || 3)));
       else n[k] = String(b[k] ?? '').slice(0, t).trim();
     }
     n.lienCanal = n.lienCanal.replace(/\s+/g, '');
@@ -86,6 +87,7 @@ function creerAdhesion({ config, db, reseauMc, presetDuReseau, journal = () => {
       titre: config.carte.titre,
       presentation: r.presentation, lienCanal: r.lienCanal, qrCanal: r.lienCanal ? await qr(r.lienCanal) : null,
       preset: presetDuReseau(), region, limiteSauts: r.limiteSauts,
+      meshtastic: !!(r.lienCanal || r.limiteSauts),
       roles: r.roles, regles: r.regles, antennes: r.antennes,
       meshcore: (r.mcFrequence || r.mcBande || r.mcSf || r.mcCr) ? { frequence: r.mcFrequence, bande: r.mcBande, sf: r.mcSf, cr: r.mcCr } : null,
       relais: relais(), contact: r.contact, donsLien: r.donsLien, donsTexte: r.donsTexte,
