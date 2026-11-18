@@ -579,6 +579,11 @@ async function essaiAdrasec(navig, cookie) {
   const w = await page.evaluate(() => document.querySelector('#vue-winlink').textContent);
   if (/F4XYZ/.test(w) && /Point de situation préfecture/.test(w) && /Rédiger/.test(w)) ok('page ADRASEC : onglet Winlink'); else ko('page Winlink : ' + w.slice(0, 200));
   await capture(page, 'adrasec-winlink');
+  await page.click('[data-vue="gestion"]');
+  await page.waitForTimeout(1200);
+  const g = await page.evaluate(() => { const f = document.querySelector('.fiche-membre'); const v = document.querySelector('#vue-gestion'); const n = f && f.querySelector('.ge-noeud'); return { fiche: !!f, deborde: v.scrollWidth > v.clientWidth + 2, aide: n ? (n.closest('label').title || '').length : 0, liste: document.querySelectorAll('#ge-noeuds option').length }; });
+  if (g.fiche && !g.deborde && g.aide > 50) ok('page ADRASEC : fiches membres sans débordement, aide sur le nœud'); else ko('page ADRASEC gestion : ' + JSON.stringify(g));
+  await capture(page, 'adrasec-gestion');
   bilanErreurs(erreurs, 'section ADRASEC');
   await contexte.close();
 }

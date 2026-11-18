@@ -61,14 +61,28 @@
     td, th { padding: 5px 4px; border-bottom: 1px solid var(--bord); text-align: left; vertical-align: middle; }
     td input[type=text] { width: 100%; min-width: 70px; }
     .equipe-pastille { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 4px; vertical-align: middle; border: 1.5px solid #0b1117; }
+    .fiche-membre { border: 1px solid var(--bord); border-radius: 10px; padding: 10px 12px; margin: 10px 0; background: var(--surface-2); }
+    .fiche-membre .tete-membre { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-bottom: 4px; }
+    .fiche-membre input[type=text], .fiche-membre select { width: 100%; }
+    label.case { flex-direction: row; align-items: center; gap: 6px; color: var(--texte); font-size: 13.5px; cursor: pointer; }
+    [title] { cursor: help; }
+    input[title], select[title], button[title], label.case[title] { cursor: pointer; }
     .msg { cursor: pointer; }
     .msg.non-lu .tete b { color: var(--accent); }
     .vide { color: var(--doux); padding: 14px 0; text-align: center; }
     .bandeau { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--attention); background: rgba(255, 181, 71, .08); margin: 8px 0; }
     .leaflet-container { background: #0b1117; font: inherit; }
+    .tuiles-sombres { filter: invert(1) hue-rotate(185deg) brightness(.82) contrast(.9) saturate(.55); }
+    .pointeur { background: rgba(11, 17, 23, .85); color: var(--texte); padding: 2px 8px; border-radius: 6px; font: 12px ui-monospace, Menlo, Consolas, monospace; }
+    .chercheur { width: min(300px, 60vw); }
+    .chercheur input { width: 100%; background: var(--surface); box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+    .chercheur .resultats { background: var(--surface); border: 1px solid var(--bord); border-radius: 8px; margin-top: 4px; max-height: 280px; overflow: auto; }
+    .chercheur .resultats button { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--bord); border-radius: 0; background: none; }
+    .leaflet-control-layers { background: var(--surface); color: var(--texte); border: 1px solid var(--bord) !important; }
+    .leaflet-control-layers-toggle { background-color: #f1f5f9; }
     .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--texte); }
     .etq-equipe { background: rgba(11, 17, 23, .88); border: 1px solid var(--bord); color: var(--texte); border-radius: 6px; padding: 1px 6px; font-weight: 650; white-space: nowrap; }
-    #consigne { position: absolute; z-index: 1000; left: 50%; top: 10px; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--accent); border-radius: 10px; padding: 8px 14px; }
+    #consigne { position: absolute; z-index: 1000; left: 50%; top: 56px; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--accent); border-radius: 10px; padding: 8px 14px; }
     @media (max-width: 760px) {
       main { flex-direction: column; }
       #carte { flex: 0 0 42vh; }

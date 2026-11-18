@@ -26,7 +26,49 @@
   // ---- Carte ------------------------------------------------------------------------------------------------
   const cfg = await api('/api/config').catch(() => ({}));
   const carte = L.map('carte', { zoomControl: true, attributionControl: true }).setView(cfg.centre || [45.05, 3.9], cfg.zoom || 10);
-  if (cfg.tuiles && cfg.tuiles.url) L.tileLayer(cfg.tuiles.url, { maxZoom: 19, maxNativeZoom: cfg.tuiles.zoomMaxNatif || 18, attribution: cfg.tuiles.attribution || '' }).addTo(carte);
+  // Fonds de carte : Plan IGN par défaut (noms des communes et lieux-dits, routes, relief), choix gardé
+  const wmts = (couche, format = 'image/png') => `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${couche}&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=${format}`;
+  const ign = '&copy; <a href="https://www.ign.fr/" target="_blank" rel="noopener">IGN</a> Géoplateforme';
+  const t = cfg.tuiles || {};
+  const fonds = {
+    'Plan IGN': L.tileLayer(wmts('GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2'), { maxZoom: 19, maxNativeZoom: 19, attribution: ign }),
+    'Carte topographique': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 19, maxNativeZoom: 17, subdomains: 'abc', attribution: 'Carte &copy; <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a> (CC-BY-SA), données &copy; contributeurs OpenStreetMap' }),
+    'Photos aériennes IGN': L.layerGroup([L.tileLayer(wmts('ORTHOIMAGERY.ORTHOPHOTOS', 'image/jpeg'), { maxZoom: 19, maxNativeZoom: 19, attribution: ign }), L.tileLayer(wmts('GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2'), { maxZoom: 19, maxNativeZoom: 19, opacity: 0.35 })]),
+    ...(t.url ? { 'Sombre': L.layerGroup([L.tileLayer(t.url, { maxZoom: 19, maxNativeZoom: t.zoomMaxNatif || 18, className: t.sombre ? 'tuiles-sombres' : '', attribution: t.attribution || '' }), ...(t.etiquettes ? [L.tileLayer(t.etiquettes, { maxZoom: 19, maxNativeZoom: t.zoomMaxNatif || 18 })] : [])]) } : {}),
+  };
+  const fondChoisi = fonds[memo('fond')] ? memo('fond') : 'Plan IGN';
+  fonds[fondChoisi].addTo(carte);
+  L.control.layers(fonds, null, { position: 'topright', collapsed: true }).addTo(carte);
+  carte.on('baselayerchange', (e) => memo('fond', e.name));
+  L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(carte);
+  // Position sous le curseur : coordonnées, locator et DFCI, pour se repérer et dicter une position
+  const pointeur = L.control({ position: 'bottomright' });
+  pointeur.onAdd = () => { const d = L.DomUtil.create('div', 'pointeur'); d.innerHTML = '&nbsp;'; return d; };
+  pointeur.addTo(carte);
+  carte.on('mousemove', (e) => { const d = document.querySelector('.pointeur'); if (d) d.textContent = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)} · ${Gonio.versLocator(e.latlng.lat, e.latlng.lng, 8)}${window.DFCI ? ' · DFCI ' + (DFCI.versDfci(e.latlng.lat, e.latlng.lng) || '–') : ''}`; });
+  // Recherche d'un lieu (commune, lieu-dit, sommet, adresse), comme sur la carte principale
+  const chercheur = L.control({ position: 'topleft' });
+  chercheur.onAdd = () => {
+    const d = L.DomUtil.create('div', 'chercheur');
+    d.innerHTML = '<input type="search" placeholder="🔍 Commune, lieu-dit, sommet…" aria-label="Chercher un lieu"><div class="resultats" hidden></div>';
+    L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
+    const champ = d.querySelector('input'), res = d.querySelector('.resultats');
+    let minut = null;
+    champ.oninput = () => {
+      clearTimeout(minut);
+      const q = champ.value.trim();
+      if (q.length < 2) { res.hidden = true; return; }
+      minut = setTimeout(async () => {
+        const c = carte.getCenter();
+        const l = await api(`/api/recherche?q=${encodeURIComponent(q)}&lat=${c.lat}&lon=${c.lng}`).catch(() => []);
+        res.innerHTML = (l || []).slice(0, 8).map((x, i) => `<button data-i="${i}"><b>${esc(x.nom)}</b> <small>${esc(x.type || '')}${x.detail ? ' · ' + esc(x.detail) : ''}</small></button>`).join('') || '<div class="note" style="padding:6px">Aucun résultat</div>';
+        res.hidden = false;
+        for (const b of res.querySelectorAll('button')) b.onclick = () => { const x = l[Number(b.dataset.i)]; carte.setView([x.lat, x.lon], x.zoom || 14); res.hidden = true; champ.value = x.nom; };
+      }, 350);
+    };
+    return d;
+  };
+  chercheur.addTo(carte);
   const couchesGonio = L.layerGroup().addTo(carte), couchesEquipes = L.layerGroup().addTo(carte), couchesRms = L.layerGroup().addTo(carte);
   let modeClic = null; // fonction appelée au prochain clic sur la carte
   carte.on('click', (e) => { if (!modeClic) return; const f = modeClic; modeClic = null; $('#consigne').hidden = true; f(e.latlng); });
@@ -282,24 +324,33 @@
       <div class="ligne-champs"><label>Nom affiché <input id="ge-nom" value="${esc(E.nom)}" placeholder="ADRASEC 43"></label><label>Conservation (jours) <input id="ge-cons" type="number" min="7" max="3650" value="${E.conservationJours}"></label><button id="ge-ok">Enregistrer</button></div>
       <p class="note">Main courante et relevés plus anciens que la durée choisie sont effacés (données personnelles : indicatifs, positions).</p>
       <h2>Membres</h2>
-      <p class="note">Cochez « Membre » pour ouvrir la section à un compte de la carte. « Licencié » : à cocher seulement après avoir vérifié le certificat d’opérateur (ou l’autorisation ANFR) ; c’est lui qui ouvre la rédaction et les sessions Winlink. « Nœud » : numéro du nœud Meshtastic porté (ex. <span class="mono">!a1b2c3d4</span>), pour la position en direct et les relevés par radio.</p>
-      <div style="overflow-x:auto"><table><thead><tr><th>Compte</th><th>Membre</th><th>Licencié</th><th>Indicatif</th><th>Équipe</th><th>Nœud</th><th></th></tr></thead><tbody>
-      ${E.comptes.map((c) => { const m = E.membres.find((x) => x.compte === c.id); return `<tr data-compte="${c.id}"><td>${esc(c.identifiant)}${c.role === 'admin' ? ' <span class="pastille">admin</span>' : ''}</td>
-        <td><input type="checkbox" class="ge-membre" ${m ? 'checked' : ''}></td><td><input type="checkbox" class="ge-lic" ${m && m.licencie ? 'checked' : ''}></td>
-        <td><input type="text" class="ge-ind mono" value="${esc((m && m.indicatif) || c.indicatif || '')}" size="7"></td>
-        <td><select class="ge-eq"><option value="">—</option>${E.equipes.map((e) => `<option value="${e.id}" ${m && m.equipe === e.id ? 'selected' : ''}>${esc(e.nom)}</option>`).join('')}</select></td>
-        <td><input type="text" class="ge-noeud mono" value="${m && m.noeud ? '!' + (m.noeud >>> 0).toString(16).padStart(8, '0') : ''}" size="9"></td>
-        <td><button class="mini ge-sauver">OK</button></td></tr>`; }).join('')}</tbody></table></div><p class="erreur" id="ge-erreur"></p>`;
+      <p class="note">Une fiche par compte de la carte. Cochez <b>Membre</b> pour lui ouvrir la section, puis <b>Enregistrer</b>.</p>
+      <datalist id="ge-noeuds"></datalist>
+      ${E.comptes.map((c) => { const m = E.membres.find((x) => x.compte === c.id); return `<div class="fiche-membre" data-compte="${c.id}">
+        <div class="tete-membre"><b>${esc(c.identifiant)}</b>${c.role === 'admin' ? ' <span class="pastille">admin</span>' : ''}
+          <label class="case" title="Ouvre la section ADRASEC à ce compte"><input type="checkbox" class="ge-membre" ${m ? 'checked' : ''}> Membre</label>
+          <label class="case" title="À cocher seulement après avoir vérifié le certificat d’opérateur radioamateur (ou l’autorisation ANFR). Ouvre la rédaction et les sessions Winlink."><input type="checkbox" class="ge-lic" ${m && m.licencie ? 'checked' : ''}> Licencié</label></div>
+        <div class="ligne-champs">
+          <label title="Indicatif radioamateur, ex. F4ABC. Obligatoire pour un licencié ; il signe la main courante et les messages Winlink.">Indicatif <input type="text" class="ge-ind mono" value="${esc((m && m.indicatif) || c.indicatif || '')}" placeholder="F4ABC"></label>
+          <label title="Équipe d’intervention du membre (créées dans l’onglet Équipes)">Équipe <select class="ge-eq"><option value="">—</option>${E.equipes.map((e) => `<option value="${e.id}" ${m && m.equipe === e.id ? 'selected' : ''}>${esc(e.nom)}</option>`).join('')}</select></label>
+        </div>
+        <label title="Facultatif. Le module Meshtastic que ce membre emporte sur le terrain : sa position s’affiche en direct pour l’équipe, sert de position par défaut pour ses relevés, et ses messages « GONIO 125 » arrivent comme relevés. Commencez à taper son nom pour le choisir dans la liste des nœuds connus.">Nœud porté sur le terrain (facultatif) <input type="text" class="ge-noeud" list="ge-noeuds" value="${m && m.noeud ? '!' + (m.noeud >>> 0).toString(16).padStart(8, '0') + (m.nomNoeud ? ' · ' + esc(m.nomNoeud) : '') : ''}" placeholder="tapez le nom du nœud, ou !a1b2c3d4"></label>
+        <div class="ligne-champs"><button class="ge-sauver principal">Enregistrer</button><span class="ge-retour note"></span></div>
+      </div>`; }).join('')}<p class="erreur" id="ge-erreur"></p>`;
     $('#ge-ok').onclick = async () => { try { await api('/api/adrasec/reglages', { method: 'PUT', body: { actif: $('#ge-actif').checked, nom: $('#ge-nom').value, conservationJours: $('#ge-cons').value } }); location.reload(); } catch (e) { $('#ge-erreur').textContent = e.message; } };
-    for (const tr of v.querySelectorAll('tr[data-compte]')) $('.ge-sauver', tr).onclick = async () => {
+    // Liste des nœuds Meshtastic connus, pour choisir le nœud porté par son nom
+    api('/api/noeuds').then((l) => { const d = $('#ge-noeuds'); if (d) d.innerHTML = (Array.isArray(l) ? l : []).filter((n) => n.num != null).map((n) => `<option value="!${(n.num >>> 0).toString(16).padStart(8, '0')} · ${esc(n.nomLong || n.nomCourt || '')}">`).join(''); }).catch(() => {});
+    for (const tr of v.querySelectorAll('.fiche-membre[data-compte]')) $('.ge-sauver', tr).onclick = async () => {
       $('#ge-erreur').textContent = '';
+      // « !a1b2c3d4 · Nom » (choisi dans la liste), « !a1b2c3d4 » ou numéro décimal
       const n = $('.ge-noeud', tr).value.trim();
-      const noeud = !n ? null : /^!?[0-9a-f]{8}$/i.test(n) ? parseInt(n.replace('!', ''), 16) : /^\d+$/.test(n) ? Number(n) : NaN;
-      if (Number.isNaN(noeud)) { $('#ge-erreur').textContent = 'Nœud : !a1b2c3d4 ou numéro décimal'; return; }
+      const hex = /^!?([0-9a-f]{8})\b/i.exec(n);
+      const noeud = !n ? null : hex ? parseInt(hex[1], 16) : /^\d+$/.test(n) ? Number(n) : NaN;
+      if (Number.isNaN(noeud)) { $('#ge-erreur').textContent = 'Nœud : choisissez-le dans la liste en tapant son nom, ou saisissez son identifiant (!a1b2c3d4)'; return; }
       const membre = $('.ge-membre', tr).checked;
       try {
         await api('/api/adrasec/membres/' + tr.dataset.compte, { method: 'PUT', body: membre ? { membre: true, licencie: $('.ge-lic', tr).checked, indicatif: $('.ge-ind', tr).value, equipe: $('.ge-eq', tr).value || null, noeud } : { membre: false } });
-        $('.ge-sauver', tr).textContent = '✔'; charger();
+        $('.ge-retour', tr).textContent = '✔ Enregistré'; charger();
       } catch (e) { $('#ge-erreur').textContent = e.message; }
     };
   }
