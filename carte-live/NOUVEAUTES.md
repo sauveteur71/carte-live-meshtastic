@@ -13,6 +13,9 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 ### 🏔️ Profil de liaison en 3D
 - **Bouton « Voir ce profil en 3D »** dans le profil de relief : la liaison s'ouvre dans la vue 3D, vue de côté, sur le vrai relief. La ligne de visée est colorée tronçon par tronçon (vert dégagée, orange zone de Fresnel gênée, rouge coupée par le relief), la 1re zone de Fresnel est dessinée en volume clair, les mâts d'antenne à leur hauteur et l'obstacle principal est signalé. Les hauteurs suivent le curseur « Relief × », et la vue se tourne à la souris comme le reste de la vue 3D.
 
+### 🛠️ Corrections
+- **« Module USB de ce PC » qui ne faisait rien** : la cause s'affiche maintenant à l'écran (adresse en HTTP, navigateur sans USB, liste de ports vide : câble ou pilote CP210x / CH340, port déjà ouvert par une autre appli) et la réussite est confirmée.
+
 ## 2.28.5
 
 ### 🛠️ Corrections
