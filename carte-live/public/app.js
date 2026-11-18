@@ -6467,6 +6467,8 @@ async function demarrer() {
     document.body.appendChild(b);
   }
   document.title = etat.config.titre;
+  // Section ADRASEC : lien montré aux seuls membres validés (et aux administrateurs, qui la règlent)
+  if (etat.membre && !etat.consultation) api('/api/adrasec/acces').then((a) => { const l = $('#outil-adrasec'); if (l && a.acces) { l.hidden = false; l.textContent = '🛰️ Section ' + (a.nom || 'ADRASEC'); } }).catch(() => {});
   setTimeout(() => { try { appliquerFonctionsMasquees(); } catch { /* carte pas encore prête */ } }, 0);
   // Couches : masquées par défaut sur cette carte (CARTE_COUCHES_MASQUEES), puis choix du visiteur
   for (const c of etat.config.couchesMasquees || []) if (c in etat.couches) etat.couches[c] = false;

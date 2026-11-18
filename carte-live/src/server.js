@@ -3030,7 +3030,7 @@ function traiterEnveloppeMt(topic, message) {
     if (evt.genre === 'erreur') { compteur.erreurs++; return; }
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
     versPasserelleRadio(evt);
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
@@ -3338,7 +3338,7 @@ const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   integrerEvenement: (evt) => {
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
     versPasserelleRadio(evt);
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
@@ -3358,7 +3358,7 @@ const ecoutes = creerEcoutes({
     integrerEvenement: (evt) => {
       if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
     versPasserelleRadio(evt);
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } }
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
@@ -3397,6 +3397,49 @@ app.get('/api/equipes/:id/export', routeEquipe((req, b, a) => {
   return x;
 }));
 const reqNomSig = stockage.db.prepare('SELECT nom_court, nom_long FROM noeuds WHERE num = ?');
+// ---- Section ADRASEC (radiogoniométrie, main courante) et Winlink par Pat ----
+const adrasec = require('./adrasec').creerAdrasec({ config, journal, diffuser, nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); }, positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
+const winlink = require('./winlink').creerWinlink({ journal });
+// Membre de la section (ou administrateur, qui la règle même désactivée)
+const routeAdrasec = (f, { admin = false, licencie = false } = {}) => async (req, res) => {
+  const u = utilisateur(req);
+  if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
+  if (admin ? u.role !== 'admin' : !(u.role === 'admin' || adrasec.estMembre(u))) return res.status(403).json({ erreur: admin ? 'Réservé aux administrateurs' : `Réservé aux membres de la section ${adrasec.nom()}` });
+  if (licencie && !adrasec.estLicencie(u)) return res.status(403).json({ erreur: 'Réservé aux radioamateurs licenciés (indicatif validé par un administrateur)' });
+  try { res.set('Cache-Control', 'no-store').json(await f(req, req.body || {}, u)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+};
+app.get('/adrasec', envoyerPage('adrasec.html'));
+app.get('/adrasec.html', envoyerPage('adrasec.html'));
+app.get('/api/adrasec/acces', (req, res) => { const u = utilisateur(req); res.set('Cache-Control', 'no-store').json({ nom: adrasec.nom(), actif: adrasec.actif(), acces: !!u && (u.role === 'admin' || adrasec.estMembre(u)) }); });
+app.get('/api/adrasec', routeAdrasec((req, b, u) => ({ ...adrasec.vue(u, comptes.lister(), u.role === 'admin'), winlink: { configure: winlink.actif() } })));
+app.put('/api/adrasec/reglages', routeAdrasec((req, b) => adrasec.reglages(b), { admin: true }));
+app.put('/api/adrasec/membres/:compte', routeAdrasec((req, b, u) => adrasec.majMembre(req.params.compte, b, nomCompte(u)), { admin: true }));
+app.post('/api/adrasec/equipes', routeAdrasec((req, b) => adrasec.majEquipe(null, b), { admin: true }));
+app.patch('/api/adrasec/equipes/:id', routeAdrasec((req, b) => adrasec.majEquipe(req.params.id, b), { admin: true }));
+app.post('/api/adrasec/main-courante', routeAdrasec((req, b, u) => adrasec.ajouterMc(u, b)));
+app.get('/api/adrasec/main-courante.csv', (req, res) => {
+  const u = utilisateur(req);
+  if (!u || !(u.role === 'admin' || adrasec.estMembre(u))) return res.status(403).json({ erreur: 'Réservé à la section' });
+  res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', `attachment; filename="main-courante-${new Date().toISOString().slice(0, 10)}.csv"`).send(adrasec.csvMc());
+});
+app.post('/api/adrasec/recherches', routeAdrasec((req, b, u) => adrasec.majRecherche(null, b, u)));
+app.patch('/api/adrasec/recherches/:id', routeAdrasec((req, b, u) => adrasec.majRecherche(req.params.id, b, u)));
+app.post('/api/adrasec/releves', routeAdrasec((req, b, u) => adrasec.ajouterReleve(u, b)));
+app.delete('/api/adrasec/releves/:id', routeAdrasec((req, b, u) => adrasec.retirerReleve(u, req.params.id)));
+app.get('/api/adrasec/winlink/etat', routeAdrasec(() => winlink.etat()));
+app.get('/api/adrasec/winlink/boite/:nom', routeAdrasec((req) => winlink.boite(req.params.nom)));
+app.get('/api/adrasec/winlink/boite/:nom/:mid', routeAdrasec((req) => winlink.message(req.params.nom, req.params.mid)));
+app.get('/api/adrasec/winlink/passerelles', routeAdrasec((req) => winlink.passerelles({ mode: String(req.query.mode || '').slice(0, 20), bande: String(req.query.bande || '').slice(0, 10) })));
+app.post('/api/adrasec/winlink/envoyer', routeAdrasec(async (req, b, u) => {
+  const r = await winlink.envoyer({ ...b, signature: `${adrasec.signature(u)} · ${adrasec.nom()}` });
+  adrasec.ajouterMc(u, { texte: `Winlink : message « ${String(b.sujet || '').slice(0, 80)} » déposé pour ${String(b.a || '').slice(0, 80)}`, type: 'message-emis' });
+  return r;
+}, { licencie: true }));
+app.post('/api/adrasec/winlink/session', routeAdrasec(async (req, b, u) => {
+  const r = await winlink.session(b.cible, adrasec.signature(u));
+  adrasec.ajouterMc(u, { texte: `Winlink : session ${String(b.cible).split('?')[0]} terminée${r.recus != null ? `, ${r.recus} message(s) reçu(s)` : ''}`, type: 'information' });
+  return r;
+}, { licencie: true }));
 // Demande de position à un ou plusieurs nœuds (gestionnaire) : le nœud répond avec sa position
 app.post('/api/demander-position', async (req, res) => {
   const u = utilisateur(req);

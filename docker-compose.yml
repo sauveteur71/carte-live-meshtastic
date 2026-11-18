@@ -89,6 +89,24 @@ services:
     #   - "127.0.0.1:5432:5432"
     mem_limit: 256m
 
+  # Winlink (facultatif, section ADRASEC) : Pat, client Winlink libre (licence MIT, https://getpat.io).
+  # Lancement : docker compose --profile winlink up -d, et dans .env : PAT_URL=http://pat:8080
+  # Réglage de la station (indicatif, mot de passe Winlink, locator, adresse du PC VARA) : page de réglages de Pat,
+  # ouverte seulement sur cette machine à http://127.0.0.1:8081/ui/config (tunnel SSH depuis un autre poste).
+  # La carte ne lit jamais ce mot de passe. VARA HF/FM (logiciel propriétaire, Windows) reste sur le PC radio :
+  # dans Pat, « varahf » → adresse du PC, port 8300.
+  pat:
+    image: la5nta/pat:1.0.1
+    container_name: carte-live-pat
+    profiles: ["winlink"]
+    restart: unless-stopped
+    volumes:
+      - pat:/app/pat
+    ports:
+      - "127.0.0.1:${PAT_PORT_HOTE:-8081}:8080"
+    mem_limit: 128m
+
 volumes:
   donnees:
   postgres:
+  pat:

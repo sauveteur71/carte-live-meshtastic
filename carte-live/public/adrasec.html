@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Section ADRASEC</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <style>
+    :root {
+      --fond: #0b1117; --surface: #111a23; --surface-2: #151f29; --bord: rgba(120, 160, 190, 0.28);
+      --texte: #f1f5f9; --doux: #c3d0dc; --accent: #3ee6c4; --critique: #ff5c6c; --attention: #ffb547; --ok: #3ee68a;
+      --police: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--fond); color: var(--texte); font: 14px/1.45 var(--police); }
+    body { display: flex; flex-direction: column; overflow: hidden; }
+    header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 14px; background: var(--surface); border-bottom: 1px solid var(--bord); }
+    header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+    header a.retour { color: var(--accent); text-decoration: none; font-weight: 650; }
+    header .moi { margin-left: auto; color: var(--doux); font-size: 13px; }
+    .pastille { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 650; background: var(--surface-2); border: 1px solid var(--bord); }
+    .pastille.ok { color: #062019; background: var(--ok); border-color: var(--ok); }
+    .pastille.att { color: #2a1800; background: var(--attention); border-color: var(--attention); }
+    main { flex: 1; display: flex; min-height: 0; }
+    #carte { flex: 1; min-width: 0; background: #0b1117; }
+    aside { width: 440px; max-width: 50vw; display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--bord); min-height: 0; }
+    nav.onglets { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--bord); }
+    nav.onglets button { flex: 1 1 auto; border: 0; border-radius: 0; background: none; padding: 10px 6px; color: var(--doux); font-weight: 650; min-height: 42px; }
+    nav.onglets button.actif { color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+    .vue { display: none; overflow: auto; padding: 12px 14px 24px; flex: 1; }
+    .vue.actif { display: block; }
+    h2 { font-size: 15px; margin: 16px 0 8px; }
+    h2:first-child { margin-top: 2px; }
+    h3 { font-size: 13px; margin: 14px 0 6px; color: var(--doux); text-transform: uppercase; letter-spacing: .04em; }
+    .note { color: var(--doux); font-size: 12.5px; }
+    .erreur { color: var(--critique); font-weight: 600; }
+    label { display: flex; flex-direction: column; gap: 3px; color: var(--doux); font-size: 12.5px; }
+    .ligne-champs { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin: 6px 0; }
+    .ligne-champs > label { flex: 1 1 120px; }
+    input, select, textarea, button { font: inherit; color: var(--texte); background: var(--surface-2); border: 1px solid var(--bord); border-radius: 8px; padding: 6px 9px; min-height: 36px; }
+    textarea { width: 100%; min-height: 70px; resize: vertical; }
+    input[type=checkbox] { min-height: 0; accent-color: var(--accent); width: 18px; height: 18px; }
+    button { cursor: pointer; }
+    button.principal { background: var(--accent); color: #062019; border-color: var(--accent); font-weight: 700; }
+    button.danger { border-color: var(--critique); color: var(--critique); }
+    button.mini { min-height: 28px; padding: 2px 8px; font-size: 12.5px; }
+    button:disabled { opacity: .5; cursor: default; }
+    .choix-pos { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+    .choix-pos button.actif { border-color: var(--accent); color: var(--accent); font-weight: 650; }
+    .entree { border-bottom: 1px solid var(--bord); padding: 7px 0; }
+    .entree .tete { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 12.5px; color: var(--doux); }
+    .entree .tete b { color: var(--texte); }
+    .entree .corps { white-space: pre-wrap; word-break: break-word; margin-top: 2px; }
+    .entree.retire { opacity: .55; text-decoration: line-through; }
+    .type { font-size: 11.5px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--bord); }
+    .resultat { border: 2px solid var(--accent); border-radius: 10px; padding: 10px 12px; margin: 10px 0; background: var(--surface-2); }
+    .resultat b.grand { font-size: 17px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+    td, th { padding: 5px 4px; border-bottom: 1px solid var(--bord); text-align: left; vertical-align: middle; }
+    td input[type=text] { width: 100%; min-width: 70px; }
+    .equipe-pastille { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 4px; vertical-align: middle; border: 1.5px solid #0b1117; }
+    .msg { cursor: pointer; }
+    .msg.non-lu .tete b { color: var(--accent); }
+    .vide { color: var(--doux); padding: 14px 0; text-align: center; }
+    .bandeau { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--attention); background: rgba(255, 181, 71, .08); margin: 8px 0; }
+    .leaflet-container { background: #0b1117; font: inherit; }
+    .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--texte); }
+    .etq-equipe { background: rgba(11, 17, 23, .88); border: 1px solid var(--bord); color: var(--texte); border-radius: 6px; padding: 1px 6px; font-weight: 650; white-space: nowrap; }
+    #consigne { position: absolute; z-index: 1000; left: 50%; top: 10px; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--accent); border-radius: 10px; padding: 8px 14px; }
+    @media (max-width: 760px) {
+      main { flex-direction: column; }
+      #carte { flex: 0 0 42vh; }
+      aside { width: 100%; max-width: none; border-left: 0; border-top: 1px solid var(--bord); flex: 1; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="retour" href="./">← Carte</a>
+    <h1 id="titre">Section ADRASEC</h1>
+    <span class="moi" id="moi"></span>
+  </header>
+  <main>
+    <div id="carte" style="position: relative"><div id="consigne" hidden></div></div>
+    <aside>
+      <nav class="onglets" id="onglets">
+        <button data-vue="mc" class="actif">🗒️ Main courante</button>
+        <button data-vue="gonio">📡 Radiogoniométrie</button>
+        <button data-vue="equipes">👥 Équipes</button>
+        <button data-vue="winlink">✉️ Winlink</button>
+        <button data-vue="gestion" hidden>⚙️ Gestion</button>
+      </nav>
+      <section class="vue actif" id="vue-mc"></section>
+      <section class="vue" id="vue-gonio"></section>
+      <section class="vue" id="vue-equipes"></section>
+      <section class="vue" id="vue-winlink"></section>
+      <section class="vue" id="vue-gestion"></section>
+    </aside>
+  </main>
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script src="/dfci.js"></script>
+  <script src="/gonio.js"></script>
+  <script src="/adrasec.js"></script>
+</body>
+</html>

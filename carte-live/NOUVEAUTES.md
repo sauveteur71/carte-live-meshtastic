@@ -4,6 +4,12 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## 2.28.6
 
+### 🛰️ Section ADRASEC (édition française)
+- **Espace réservé** aux membres validés par un administrateur (Outils › 🛰️ Section ADRASEC) : équipes, case « radioamateur licencié » avec indicatif, nœud Meshtastic porté par chaque membre (position en direct).
+- **Main courante** horodatée et signée, jamais modifiée, export CSV ; recherches, relevés et messages Winlink s'y inscrivent seuls.
+- **Radiogoniométrie** : recherches de balise (121,5 / 243 / 406 MHz), relevés de gisement depuis le GPS du téléphone, le nœud du membre, un clic ou un locator, ou par radio (« GONIO 125 », « GIS 125/5 ») ; cônes d'incertitude, position la plus probable par moindres carrés avec ellipse à 95 %, relèvements aberrants (réflexions) écartés tout seuls, coordonnées, locator et DFCI.
+- **Winlink** avec Pat (client libre, service « pat » du docker-compose, profil winlink) : boîtes, rédaction signée et sessions par Internet ou par radio (VARA, ARDOP, packet) réservées aux licenciés, passerelles RMS sur la carte. Le mot de passe Winlink reste dans Pat.
+
 ### 🏔️ Profil de liaison en 3D
 - **Bouton « Voir ce profil en 3D »** dans le profil de relief : la liaison s'ouvre dans la vue 3D, vue de côté, sur le vrai relief. La ligne de visée est colorée tronçon par tronçon (vert dégagée, orange zone de Fresnel gênée, rouge coupée par le relief), la 1re zone de Fresnel est dessinée en volume clair, les mâts d'antenne à leur hauteur et l'obstacle principal est signalé. Les hauteurs suivent le curseur « Relief × », et la vue se tourne à la souris comme le reste de la vue 3D.
 

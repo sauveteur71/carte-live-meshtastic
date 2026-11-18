@@ -86,6 +86,8 @@ const CATALOGUE = [
   { nom: 'LSASAF_MOT_DE_PASSE', groupe: 'Services', libelle: 'Mot de passe LSA SAF', type: 'secret', aide: 'Mot de passe de ce compte. Enregistré comme secret.' },
   { nom: 'POSTGRES_URL', groupe: 'Services', libelle: 'Archive PostgreSQL', type: 'secret', aide: 'postgres://utilisateur:motdepasse@serveur:5432/base' },
   { nom: 'METEOALARM_URL', groupe: 'Services', libelle: 'Flux de vigilance MeteoAlarm', type: 'texte', aide: 'Flux des vigilances météo affichées dans les alertes. Vide = flux MeteoAlarm de la France.' },
+  { nom: 'PAT_URL', groupe: 'Services', libelle: 'Winlink : adresse de Pat', type: 'texte', aide: 'Section ADRASEC : http://pat:8080 avec le service « pat » du docker-compose (docker compose --profile winlink up -d). Vide = Winlink désactivé.' },
+  { nom: 'PAT_INDICATIF', groupe: 'Services', libelle: 'Winlink : indicatif de la station', type: 'texte', aide: 'Affiché dans la section ADRASEC. Le mot de passe Winlink reste dans la configuration de Pat, jamais dans la carte.' },
   { nom: 'RELIEF_FRANCE_URL', groupe: 'Services', libelle: 'Adresse du paquet « relief France »', type: 'texte', aide: 'Adresse de téléchargement du relief de toute la France (calcul de couverture hors ligne). Vide = adresse fournie par le projet.' },
   { nom: 'LANGUE', groupe: 'Services', libelle: 'Langue du journal du serveur', type: 'choix', choix: [['', '(par défaut)'], ['fr', 'français'], ['en', 'anglais']], aide: 'Langue des messages du journal du serveur et des alertes envoyées (domotique, radio). L’interface suit la langue de chaque visiteur.' },
 ];

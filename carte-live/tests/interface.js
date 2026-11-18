@@ -30,7 +30,7 @@ fs.writeFileSync(path.join(donnees, 'feux.json'), JSON.stringify({ maj: Date.now
 ] }));
 function demarrerServeur() {
   serveur = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
-    env: { ...process.env, PORT: String(PORT), FICHIER_BASE: path.join(donnees, 'carte-live.db'), MQTT_URL: 'mqtt://127.0.0.1:1', DEPARTEMENT: '43', MESHCORE: 'oui', ADMIN_MOT_DE_PASSE: '', AGENTS_PORT: String(PORT + 5) },
+    env: { ...process.env, PORT: String(PORT), FICHIER_BASE: path.join(donnees, 'carte-live.db'), MQTT_URL: 'mqtt://127.0.0.1:1', DEPARTEMENT: '43', MESHCORE: 'oui', ADMIN_MOT_DE_PASSE: '', AGENTS_PORT: String(PORT + 5), PAT_URL: `http://127.0.0.1:${PORT + 7}`, PAT_INDICATIF: 'F4XYZ' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const log = fs.createWriteStream(path.join(sorties, 'serveur.log'));
@@ -504,6 +504,84 @@ async function essaiProfil3D(navig) {
   bilanErreurs(erreurs, 'profil 3D');
   await contexte.close();
 }
+// Faux Pat (client Winlink) : état, boîtes, dépôt d'un message, session, liste des passerelles RMS
+let fauxPat = null;
+const patDepots = [];
+function demarrerFauxPat() {
+  const http = require('http');
+  fauxPat = http.createServer((req, res) => {
+    const json = (o) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(o)); };
+    let corps = '';
+    req.on('data', (x) => { corps += x; });
+    req.on('end', () => {
+      const u = new URL(req.url, 'http://x');
+      if (u.pathname === '/api/status') return json({ connected: false, dialing: false, active_listeners: [] });
+      if (u.pathname === '/api/mailbox/in') return json([{ MID: 'ABC123', Date: new Date().toISOString(), From: { Addr: 'F1PREF' }, To: [{ Addr: 'F4XYZ' }], Subject: 'Point de situation préfecture', Unread: true, Files: [] }]);
+      if (u.pathname === '/api/mailbox/in/ABC123') return json({ MID: 'ABC123', Date: new Date().toISOString(), From: { Addr: 'F1PREF' }, To: [{ Addr: 'F4XYZ' }], Subject: 'Point de situation préfecture', Body: 'Activation ADRASEC 43 confirmée.', Files: [] });
+      if (/^\/api\/mailbox\/(out|sent|archive)$/.test(u.pathname) && req.method === 'GET') return json([]);
+      if (u.pathname === '/api/mailbox/out' && req.method === 'POST') { patDepots.push(Object.fromEntries(new URLSearchParams(corps))); return json('OK'); }
+      if (u.pathname === '/api/connect') return json({ NumReceived: 2 });
+      if (u.pathname === '/api/rmslist') return json([{ callsign: 'F1ZZZ-10', gridsquare: 'JN15xc', distance: 12, modes: 'VARA HF 2300', freq: { hz: 3590000, khz: 3590, desc: '3.590.00 MHz' }, url: 'varahf:///F1ZZZ-10?freq=3590' }]);
+      res.statusCode = 404; res.end('not found');
+    });
+  }).listen(PORT + 7, '127.0.0.1');
+}
+async function essaiAdrasec(navig, cookie) {
+  console.log('Section ADRASEC (radiogoniométrie, main courante, Winlink)');
+  const H = { 'Content-Type': 'application/json', Cookie: `${cookie.name}=${cookie.value}` };
+  const appel = async (m, url, b) => { const r = await fetch(BASE + url, { method: m, headers: H, body: b ? JSON.stringify(b) : undefined }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(url + ' : ' + (j.erreur || r.status)); return j; };
+  const moi = await (await fetch(BASE + '/api/compte', { headers: H })).json();
+  await appel('PUT', '/api/adrasec/reglages', { actif: true, nom: 'ADRASEC 43' });
+  const eq = await appel('POST', '/api/adrasec/equipes', { nom: 'Gonio 1' });
+  await appel('PUT', '/api/adrasec/membres/' + moi.id, { membre: true, licencie: true, indicatif: 'F4XYZ', equipe: eq.equipes[0].id });
+  let refus = '';
+  try { await appel('PUT', '/api/adrasec/membres/' + moi.id, { membre: true, licencie: true, indicatif: 'PASBON' }); } catch (e) { refus = e.message; }
+  if (/Indicatif invalide/.test(refus)) ok('ADRASEC : indicatif invalide refusé'); else ko('ADRASEC : indicatif invalide accepté ' + refus);
+  const r = await appel('POST', '/api/adrasec/recherches', { nom: 'Balise essai', frequence: '121,5 MHz' });
+  // Trois équipes autour d'un émetteur placé en 45.10, 3.95 (gisements à ±2° près)
+  const G = require('../public/gonio.js');
+  const cible = { lat: 45.10, lon: 3.95 };
+  for (const [lat, lon, err] of [[45.0, 3.85, 1.5], [45.05, 4.10, -2], [45.20, 3.90, 1]]) await appel('POST', '/api/adrasec/releves', { recherche: r.id, lat, lon, gisement: +(G.azimut({ lat, lon }, cible) + err).toFixed(1), incertitude: 5 });
+  await appel('POST', '/api/adrasec/releves', { recherche: r.id, locator: 'JN15WD', gisement: 45, incertitude: 5 });
+  const vue = await appel('GET', '/api/adrasec');
+  const rech = vue.recherches.find((x) => x.id === r.id);
+  const err = rech.calcul.estimation ? G.distance(rech.calcul.estimation, cible) : Infinity;
+  if (rech.releves.length === 4 && err < 1500) ok(`ADRASEC : 4 relevés, émetteur situé à ${Math.round(err)} m près`); else ko('ADRASEC calcul : ' + JSON.stringify(rech.calcul).slice(0, 300));
+  if (vue.mainCourante.filter((x) => /^Relevé/.test(x.texte)).length === 4 && vue.mainCourante.some((x) => /Ouverture de la recherche/.test(x.texte))) ok('ADRASEC : relevés et ouverture inscrits à la main courante'); else ko('ADRASEC main courante : ' + vue.mainCourante.length);
+  const csv = await (await fetch(BASE + '/api/adrasec/main-courante.csv', { headers: H })).text();
+  if (/Date;Heure;Auteur/.test(csv) && /F4XYZ/.test(csv)) ok('ADRASEC : export CSV de la main courante'); else ko('ADRASEC CSV : ' + csv.slice(0, 100));
+  const anonyme = await fetch(BASE + '/api/adrasec');
+  if (anonyme.status === 401) ok('ADRASEC : refusé sans connexion'); else ko('ADRASEC sans connexion : HTTP ' + anonyme.status);
+  // Winlink par le faux Pat
+  const boite = await appel('GET', '/api/adrasec/winlink/boite/in');
+  await appel('POST', '/api/adrasec/winlink/envoyer', { a: 'F1PREF, cod@prefecture.example', sujet: 'Essai', corps: 'Bonjour' });
+  const rms = await appel('GET', '/api/adrasec/winlink/passerelles');
+  const sess = await appel('POST', '/api/adrasec/winlink/session', { cible: 'telnet' });
+  let cibleRefusee = '';
+  try { await appel('POST', '/api/adrasec/winlink/session', { cible: 'telnet; rm -rf /' }); } catch (e) { cibleRefusee = e.message; }
+  if (boite[0] && boite[0].de === 'F1PREF' && patDepots[0] && patDepots[0].to === 'F1PREF,cod@prefecture.example' && /F4XYZ · ADRASEC 43/.test(patDepots[0].body) && rms[0] && Math.abs(rms[0].lat - 45.1) < 0.1 && sess.recus === 2 && /invalide/.test(cibleRefusee)) ok('Winlink : boîte, dépôt signé, passerelles positionnées, session, cible douteuse refusée');
+  else ko('Winlink : ' + JSON.stringify({ boite: boite[0], depot: patDepots[0], rms: rms[0], sess, cibleRefusee }).slice(0, 400));
+  // Non licencié : lecture oui, envoi non
+  await appel('PUT', '/api/adrasec/membres/' + moi.id, { membre: true, licencie: false });
+  const contexteNL = await fetch(BASE + '/api/adrasec/winlink/envoyer', { method: 'POST', headers: H, body: JSON.stringify({ a: 'F1PREF', sujet: 'x', corps: 'y' }) });
+  if (contexteNL.status === 403) ok('Winlink : envoi refusé à un membre non licencié'); else ko('Winlink non licencié : HTTP ' + contexteNL.status);
+  await appel('PUT', '/api/adrasec/membres/' + moi.id, { membre: true, licencie: true, indicatif: 'F4XYZ' });
+  // Page
+  const contexte = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
+  await contexte.addCookies([cookie]);
+  await contexte.addInitScript(() => { try { localStorage.setItem('adrasec-onglet', 'gonio'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(contexte, '/adrasec');
+  const p = await page.evaluate(() => ({ titre: document.querySelector('#titre').textContent, resultat: (document.querySelector('.resultat') || {}).textContent || '', cones: document.querySelectorAll('#carte path.leaflet-interactive, #carte svg path').length, gestion: !document.querySelector('[data-vue="gestion"]').hidden }));
+  if (/ADRASEC 43/.test(p.titre) && /Position la plus probable/.test(p.resultat) && p.cones >= 8 && p.gestion) ok('page ADRASEC : estimation, cônes et onglet Gestion'); else ko('page ADRASEC : ' + JSON.stringify(p));
+  await capture(page, 'adrasec-gonio');
+  await page.click('[data-vue="winlink"]');
+  await page.waitForTimeout(1500);
+  const w = await page.evaluate(() => document.querySelector('#vue-winlink').textContent);
+  if (/F4XYZ/.test(w) && /Point de situation préfecture/.test(w) && /Rédiger/.test(w)) ok('page ADRASEC : onglet Winlink'); else ko('page Winlink : ' + w.slice(0, 200));
+  await capture(page, 'adrasec-winlink');
+  bilanErreurs(erreurs, 'section ADRASEC');
+  await contexte.close();
+}
 async function essaiAgentDirect(cookie) {
   console.log('Agent zéro question (simulé)');
   const net = require('net');
@@ -622,6 +700,7 @@ async function essaiPagesPubliques(navig) {
 (async () => {
   let code = 0;
   try {
+    demarrerFauxPat();
     demarrerServeur();
     await attendreServeur();
     const cookie = await creerAdmin();
@@ -639,6 +718,7 @@ async function essaiPagesPubliques(navig) {
     await essaiRegistreEtExports(navigateur, cookie);
     await essaiVue3D(navigateur);
     await essaiProfil3D(navigateur);
+    await essaiAdrasec(navigateur, cookie);
     await essaiAdministrationALaDemande(navigateur, cookie);
     await essaiAgentDirect(cookie);
     await essaiUsbAuto(navigateur, cookie);
@@ -653,6 +733,7 @@ async function essaiPagesPubliques(navig) {
   } finally {
     if (navigateur) await navigateur.close().catch(() => {});
     if (serveur) serveur.kill();
+    if (fauxPat) fauxPat.close();
     fs.rmSync(donnees, { recursive: true, force: true });
     process.exit(code);
   }
