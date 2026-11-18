@@ -6812,6 +6812,7 @@ async function brancherUsb(portDonne) {
     await new Promise((r) => setTimeout(r, 1500));
     moduleNav.ws = await ouvrirWsModule(nom, 'USB' + (info.usbVendorId ? ' ' + info.usbVendorId.toString(16) + ':' + (info.usbProductId || 0).toString(16) : ''), (octets) => ecrivain.write(octets).catch(() => {}));
     moduleNav.nom = 'Module USB de ce PC';
+    if (!portDonne) annonce('🔌 Module USB relié à la carte : gardez cet onglet ouvert', 'ok');
     moduleNav.hote = 'agent-' + nom.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     majModuleNav('relie');
     // Module → serveur
@@ -6829,7 +6830,10 @@ async function brancherUsb(portDonne) {
     })();
   } catch (e) {
     try { await port.close(); } catch { /* déjà fermé */ }
-    majModuleNav('aucun', e.message.includes('open') || e.name === 'NetworkError' ? 'port déjà utilisé (fermez l’appli Meshtastic ou l’agent)' : e.message);
+    const cause = e.message.includes('open') || e.name === 'NetworkError' ? 'port déjà utilisé (fermez l’appli Meshtastic, le client web Meshtastic, l’agent ou un autre onglet de la carte)' : e.message;
+    majModuleNav('aucun', cause);
+    // Visible aussi quand on vient du menu Outils (le bloc des modules n'est pas affiché)
+    if (!portDonne) annonce('🔌 Module USB : ' + cause, 'erreur');
   }
 }
 async function brancherBle(appareilDonne, reprise = false) {
