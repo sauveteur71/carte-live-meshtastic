@@ -2,6 +2,15 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.28.7
+
+### 🎚️ Fonctions de la carte
+- **Un seul écran à interrupteurs** (Outils › 🎚️ Fonctions de la carte, ou Réglages) : activer la section ADRASEC, activer Winlink en 3 étapes (Pat lancé, station réglée, adresse enregistrée), afficher ou masquer signalements, Vigipirate, FR-Alert, main courante, Bipper et feux.
+
+### 🛰️ Section ADRASEC
+- **Membres** : une fiche par compte, lisible même sur un écran étroit, avec une aide sur chaque champ ; le nœud porté sur le terrain se choisit en tapant son nom.
+- **Carte** : Plan IGN par défaut (communes, lieux-dits, routes), choix du fond (topographique, photos aériennes, sombre), recherche d'un lieu, et coordonnées, locator et DFCI sous le curseur.
+
 ## 2.28.6
 
 ### 🛰️ Section ADRASEC (édition française)
