@@ -14,7 +14,8 @@
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/reseau"
         android:theme="@style/Theme"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="false">
         <activity
             android:name=".MainActivity"
             android:exported="true"

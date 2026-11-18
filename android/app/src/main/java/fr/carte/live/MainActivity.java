@@ -176,7 +176,7 @@ public class MainActivity extends Activity {
 
         Veille.creerCanaux(this);
         lancerVeille();
-        verifierMiseAJour(false);
+        if (!BuildConfig.PLAY) verifierMiseAJour(false);
         if (etatSauve != null) { vue.restoreState(etatSauve); return; }
         String courante = prefs.getString("courante", "");
         vue.loadUrl(courante.isEmpty() ? ACCUEIL : courante);
@@ -222,6 +222,11 @@ public class MainActivity extends Activity {
     // Nouvelle version de l'APK publiée sur GitHub : proposée une fois par jour (ou à la demande), téléchargée puis
     // installée par-dessus (même clé de signature) ; les cartes enregistrées sont gardées
     private void verifierMiseAJour(boolean demande) {
+        if (BuildConfig.PLAY) { // version du Play Store : les mises à jour passent par le Store
+            try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + getPackageName()))); }
+            catch (Exception e) { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + getPackageName()))); }
+            return;
+        }
         long der = prefs.getLong("majVerifiee", 0);
         if (!demande && System.currentTimeMillis() - der < 20 * 3600000L) return;
         new Thread(() -> {
