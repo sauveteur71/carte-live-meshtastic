@@ -6730,7 +6730,7 @@ function arreterReconnexionBle(nav) { clearTimeout(nav.reco); nav.reco = null; n
 const ENTETE_MT = [0x94, 0xc3];
 const BLE_SERVICE = '6ba1b218-15a8-461f-9fa8-5dcae273eafd', BLE_TORADIO = 'f75c76d2-129e-4dad-a1dd-7866124401e7', BLE_FROMRADIO = '2c55e69e-4993-11ed-b878-0242ac120002', BLE_FROMNUM = 'ed9da18c-a800-4f66-a670-aa7547e34453';
 function blocUsbNavigateur() {
-  const https = location.protocol === 'https:';
+  const https = window.isSecureContext; // HTTPS, ou la carte ouverte sur ce PC même (localhost) : USB et Bluetooth permis
   const m = moduleNav;
   const sousTitre = m.etat === 'relie' ? `relié par cette page (${m.type === 'ble' ? 'Bluetooth' : 'USB'})${m.role === 'ecoute' ? ' · 👂 en écoute' : ''} · gardez cet onglet ouvert` : m.etat === 'connexion' ? 'connexion…' : m.erreur ? esc(m.erreur) : 'module branché sur ce PC';
   return `<div class="bloc-usb ${m.etat}">
@@ -7037,7 +7037,7 @@ async function reconnaitreUsb(port, duree = 8000) {
 }
 async function ouvrirConnexion(message) {
   if (!etat.admin) { alert('Connectez-vous en administrateur pour relier un module à la carte.'); return; }
-  const https = location.protocol === 'https:';
+  const https = window.isSecureContext; // HTTPS, ou la carte ouverte sur ce PC même (localhost) : USB et Bluetooth permis
   const nav = !!navigator.bluetooth, ser = 'serial' in navigator;
   $('#fiche').hidden = false;
   etat.selection = null;
