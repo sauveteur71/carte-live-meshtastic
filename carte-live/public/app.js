@@ -6786,9 +6786,19 @@ async function reglerSignauxUsb(port) {
   try { await port.setSignals(pont ? { dataTerminalReady: false, requestToSend: false } : { dataTerminalReady: true, requestToSend: true }); } catch { /* pas géré */ }
 }
 async function brancherUsb(portDonne) {
-  if (!('serial' in navigator)) { alert('Ce navigateur ne gère pas l’USB : utilisez Chrome ou Edge, sur la carte en HTTPS.'); return; }
+  if (!('serial' in navigator)) {
+    // Ne jamais échouer en silence : HTTP (hors de ce PC) ou navigateur sans Web Serial (Firefox, Safari, application mobile)
+    const m = !window.isSecureContext ? 'USB impossible ici : ouvrez la carte en HTTPS (adresse en …ts.net) ou depuis le PC où tourne la carte (localhost).' : 'Ce navigateur ne gère pas l’USB : utilisez Chrome ou Edge sur un ordinateur.';
+    annonce('🔌 ' + m, 'erreur'); alert(m); return;
+  }
   let port = portDonne;
-  if (!port) try { port = await navigator.serial.requestPort({}); } catch { return; } // fenêtre de choix annulée
+  if (!port) {
+    try { port = await navigator.serial.requestPort({}); } catch (e) {
+      // NotFoundError : fenêtre fermée sans choix, ou liste vide
+      annonce(e.name === 'NotFoundError' ? '🔌 Aucun port choisi. Liste vide ? Le PC ne voit pas le module : câble de charge seule, pilote USB (CP210x, CH340) manquant, ou module branché sur le serveur et non sur ce PC (Outils › Connecter un module › USB du serveur).' : '🔌 USB : ' + e.message, 'erreur');
+      return;
+    }
+  }
   moduleNav.type = 'usb'; majModuleNav('connexion');
   try {
     await port.open({ baudRate: 115200 });
@@ -7111,7 +7121,10 @@ async function ouvrirConnexion(message) {
 
   z.querySelector('[data-cx="usb"]').onclick = async () => {
     let port;
-    try { port = await navigator.serial.requestPort({}); } catch { return; }
+    try { port = await navigator.serial.requestPort({}); } catch (e) {
+      retour(e.name === 'NotFoundError' ? '✗ Aucun port choisi. Si la liste était vide, ce PC ne voit pas le module : câble de charge seule, pilote USB (CP210x, CH340) manquant, ou module branché sur le serveur et non sur ce PC (choisissez alors « USB du serveur »).' : '✗ USB : ' + esc(e.message), 'ko');
+      return;
+    }
     retour('Port ouvert, reconnaissance du module (jusqu’à 8 s : il redémarre souvent à l’ouverture du port)…');
     let type = null, texteRecu = '';
     try { ({ type, texte: texteRecu } = await reconnaitreUsb(port)); } catch (e) {
