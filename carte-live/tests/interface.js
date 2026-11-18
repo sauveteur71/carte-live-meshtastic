@@ -573,11 +573,25 @@ async function essaiAdrasec(navig, cookie) {
   const { page, erreurs } = await ouvrir(contexte, '/adrasec');
   const p = await page.evaluate(() => ({ titre: document.querySelector('#titre').textContent, resultat: (document.querySelector('.resultat') || {}).textContent || '', cones: document.querySelectorAll('#carte path.leaflet-interactive, #carte svg path').length, gestion: !document.querySelector('[data-vue="gestion"]').hidden }));
   if (/ADRASEC 43/.test(p.titre) && /Position la plus probable/.test(p.resultat) && p.cones >= 8 && p.gestion) ok('page ADRASEC : estimation, cônes et onglet Gestion'); else ko('page ADRASEC : ' + JSON.stringify(p));
+  // Clic sur la carte : point de l'équipe et aperçu du gisement tapé
+  await page.evaluate(() => { document.querySelector('[data-pos="carte"]').click(); });
+  await page.mouse.click(300, 450);
+  await page.fill('#g-gis', '45');
+  await page.waitForTimeout(400);
+  const ap = await page.evaluate(() => ({ retenue: /Retenue/.test(document.querySelector('#g-pos-detail').textContent), tip: /pas encore envoyé/.test(document.body.innerText) }));
+  if (ap.retenue && ap.tip) ok('page ADRASEC : point de l’équipe et aperçu du gisement après un clic'); else ko('aperçu du relevé : ' + JSON.stringify(ap));
   await capture(page, 'adrasec-gonio');
   await page.click('[data-vue="winlink"]');
   await page.waitForTimeout(1500);
   const w = await page.evaluate(() => document.querySelector('#vue-winlink').textContent);
   if (/F4XYZ/.test(w) && /Point de situation préfecture/.test(w) && /Rédiger/.test(w)) ok('page ADRASEC : onglet Winlink'); else ko('page Winlink : ' + w.slice(0, 200));
+  await page.click('[data-vue="equipes"]');
+  await page.waitForTimeout(500);
+  await page.click('[data-mission]');
+  const opts = await page.evaluate(() => [...document.querySelectorAll('.choix-mission option')].map((o) => o.textContent));
+  if (opts.some((o) => /Recherche « Balise essai »/.test(o)) && opts.some((o) => /Autre mission/.test(o))) ok('page ADRASEC : mission choisie dans la liste (recherche en cours)'); else ko('mission : ' + JSON.stringify(opts));
+  await page.click('[data-vue="winlink"]');
+  await page.waitForTimeout(1500);
   await capture(page, 'adrasec-winlink');
   await page.click('[data-vue="gestion"]');
   await page.waitForTimeout(1200);

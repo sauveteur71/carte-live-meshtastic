@@ -69,7 +69,7 @@
     return d;
   };
   chercheur.addTo(carte);
-  const couchesGonio = L.layerGroup().addTo(carte), couchesEquipes = L.layerGroup().addTo(carte), couchesRms = L.layerGroup().addTo(carte);
+  const couchesApercu = L.layerGroup().addTo(carte), couchesGonio = L.layerGroup().addTo(carte), couchesEquipes = L.layerGroup().addTo(carte), couchesRms = L.layerGroup().addTo(carte);
   let modeClic = null; // fonction appelée au prochain clic sur la carte
   carte.on('click', (e) => { if (!modeClic) return; const f = modeClic; modeClic = null; $('#consigne').hidden = true; f(e.latlng); });
   const consigne = (t) => { const c = $('#consigne'); c.textContent = t; c.hidden = !t; };
@@ -77,7 +77,7 @@
   // ---- État ---------------------------------------------------------------------------------------------------
   let E = null, rechercheChoisie = memo('recherche') || null, ongletActif = memo('onglet') || 'mc';
   const equipe = (id) => (E && E.equipes.find((e) => e.id === id)) || null;
-  const couleurEquipe = (id) => (equipe(id) || {}).couleur || '#c3d0dc';
+  const couleurEquipe = (id) => (equipe(id) || {}).couleur || '#e0115f'; // sans équipe : rouge vif, visible sur tous les fonds
   const nomEquipe = (id) => (equipe(id) || {}).nom || '';
 
   for (const b of document.querySelectorAll('#onglets button')) b.onclick = () => montrer(b.dataset.vue);
@@ -119,6 +119,25 @@
 
   // ---- Radiogoniométrie ---------------------------------------------------------------------------------------
   let posReleve = null; // { lat, lon, source, locator? }
+  // Aperçu du relevé en cours de saisie : point de l'équipe (dès qu'il est choisi) et trait du gisement tapé
+  function majApercu() {
+    couchesApercu.clearLayers();
+    let p = posReleve && posReleve.lat ? posReleve : null;
+    const zl = $('#g-loc-zone');
+    if (zl && !zl.hidden && $('#g-loc').value.trim()) { const q = Gonio.depuisLocator($('#g-loc').value.trim()); p = q ? { ...q, source: 'locator' } : null; }
+    if (!p) return;
+    const gis = $('#g-gis') ? Number(String($('#g-gis').value).replace(',', '.')) : NaN;
+    if ($('#g-gis') && $('#g-gis').value !== '' && gis >= 0 && gis <= 360) {
+      const inc = Number(String(($('#g-inc') || {}).value || '5').replace(',', '.')) || 5;
+      const r = { lat: p.lat, lon: p.lon, gisement: gis, incertitude: inc };
+      L.polygon(Gonio.cone(r, 30000), { color: '#3ee6c4', weight: 1.5, dashArray: '6 6', fillColor: '#3ee6c4', fillOpacity: 0.12, interactive: false }).addTo(couchesApercu);
+      const bout = Gonio.destination(p.lat, p.lon, gis, 30000);
+      L.polyline([[p.lat, p.lon], [bout.lat, bout.lon]], { color: '#0b1117', weight: 8, opacity: 0.5, interactive: false }).addTo(couchesApercu);
+      L.polyline([[p.lat, p.lon], [bout.lat, bout.lon]], { color: '#3ee6c4', weight: 4, dashArray: '12 8', interactive: false }).addTo(couchesApercu);
+    }
+    L.circleMarker([p.lat, p.lon], { radius: 10, color: '#ffffff', weight: 3, fillColor: '#3ee6c4', fillOpacity: 1, interactive: false })
+      .bindTooltip('Position de l’équipe (relevé pas encore envoyé)', { permanent: true, direction: 'top', offset: [0, -10], className: 'etq-equipe' }).addTo(couchesApercu);
+  }
   function rendreGonio() {
     const v = $('#vue-gonio');
     if (!E.actif) { v.innerHTML = '<div class="bandeau">Section désactivée.</div>'; couchesGonio.clearLayers(); return; }
@@ -175,11 +194,14 @@
       try { await api('/api/adrasec/releves', { method: 'POST', body: corps }); $('#g-gis').value = ''; $('#g-note').value = ''; charger(); } catch (e) { $('#g-erreur').textContent = e.message; }
     };
     dessinerGonio(r);
+    for (const id of ['#g-gis', '#g-inc', '#g-loc']) { const e = $(id); if (e) e.addEventListener('input', majApercu); }
+    majApercu();
   }
   function choisirPosition(mode) {
+    modeClic = null; consigne(''); // un autre choix annule l'attente d'un clic sur la carte
     for (const b of document.querySelectorAll('[data-pos]')) b.classList.toggle('actif', b.dataset.pos === mode);
     $('#g-loc-zone').hidden = mode !== 'locator';
-    const maj = (p) => { posReleve = p; const d = $('#g-pos-detail'); if (d) d.innerHTML = `Retenue : <b class="mono">${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}</b> (${esc(p.source)}${p.precision ? ', ±' + Math.round(p.precision) + ' m' : ''})`; };
+    const maj = (p) => { posReleve = p; const d = $('#g-pos-detail'); if (d) d.innerHTML = `Retenue : <b class="mono">${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}</b> (${esc(p.source)}${p.precision ? ', ±' + Math.round(p.precision) + ' m' : ''}) — point vert sur la carte`; majApercu(); if (!carte.getBounds().contains([p.lat, p.lon])) carte.panTo([p.lat, p.lon]); };
     if (mode === 'gps') {
       if (!navigator.geolocation) { $('#g-pos-detail').textContent = 'GPS indisponible sur cet appareil.'; return; }
       $('#g-pos-detail').textContent = '📡 Recherche de la position GPS…';
@@ -190,7 +212,7 @@
     } else if (mode === 'carte') {
       consigne('Cliquez sur la carte à l’endroit où se trouve l’équipe');
       modeClic = (ll) => maj({ lat: ll.lat, lon: ll.lng, source: 'carte' });
-    } else { posReleve = null; $('#g-pos-detail').textContent = 'Saisissez le locator ci-dessous.'; $('#g-loc').focus(); }
+    } else { posReleve = null; majApercu(); $('#g-pos-detail').textContent = 'Saisissez le locator ci-dessous.'; $('#g-loc').focus(); }
   }
   function dessinerGonio(r) {
     couchesGonio.clearLayers();
@@ -200,10 +222,16 @@
       if (x.retire) continue;
       const coul = couleurEquipe(x.equipe), ecarte = c && c.ecartes.includes(x.id);
       const longueur = Math.max(15000, est ? Gonio.distance(x, est) * 1.6 : 30000);
-      L.polygon(Gonio.cone(x, longueur), { color: coul, weight: 1, opacity: 0.6, fillOpacity: ecarte ? 0.04 : 0.13, dashArray: ecarte ? '4 4' : null, interactive: false }).addTo(couchesGonio);
+      L.polygon(Gonio.cone(x, longueur), { color: coul, weight: 1.5, opacity: 0.9, fillColor: coul, fillOpacity: ecarte ? 0.05 : 0.2, dashArray: ecarte ? '6 6' : null, interactive: false }).addTo(couchesGonio);
       const bout = Gonio.destination(x.lat, x.lon, x.gisement, longueur);
-      L.polyline([[x.lat, x.lon], [bout.lat, bout.lon]], { color: coul, weight: 2.5, opacity: ecarte ? 0.4 : 0.95 }).addTo(couchesGonio);
-      L.circleMarker([x.lat, x.lon], { radius: 6, color: '#0b1117', weight: 2, fillColor: coul, fillOpacity: 1 }).bindPopup(`<b>${esc(x.auteur)}</b>${x.equipe ? ' · ' + esc(nomEquipe(x.equipe)) : ''}<br>${fmt(x.gisement, 1)}° ±${fmt(x.incertitude, 1)}° · ${heure(x.heure)}<br>${esc(x.source)}${x.force ? '<br>' + esc(x.force) : ''}`).addTo(couchesGonio);
+      // Trait du relèvement : liseré sombre puis trait de couleur épais, lisibles sur le plan IGN comme sur les photos
+      L.polyline([[x.lat, x.lon], [bout.lat, bout.lon]], { color: '#0b1117', weight: 8, opacity: ecarte ? 0.25 : 0.55, interactive: false }).addTo(couchesGonio);
+      L.polyline([[x.lat, x.lon], [bout.lat, bout.lon]], { color: coul, weight: 4, opacity: ecarte ? 0.5 : 1, dashArray: ecarte ? '10 8' : null }).addTo(couchesGonio);
+      // Flèche au bout, dans la direction du relèvement, et gisement écrit près de l'équipe
+      L.marker([bout.lat, bout.lon], { interactive: false, icon: L.divIcon({ className: '', iconSize: [26, 26], iconAnchor: [13, 13], html: `<div style="transform:rotate(${x.gisement - 90}deg);color:${coul};font-size:26px;line-height:26px;text-shadow:0 0 3px #0b1117,0 0 3px #0b1117">➤</div>` }) }).addTo(couchesGonio);
+      const etiq = Gonio.destination(x.lat, x.lon, x.gisement, Math.min(longueur * 0.12, 2500));
+      L.marker([etiq.lat, etiq.lon], { interactive: false, icon: L.divIcon({ className: '', iconSize: [64, 20], iconAnchor: [32, 10], html: `<div class="etq-gisement" style="border-color:${coul}">${fmt(x.gisement, 0)}°</div>` }) }).addTo(couchesGonio);
+      L.circleMarker([x.lat, x.lon], { radius: 8, color: '#ffffff', weight: 3, fillColor: coul, fillOpacity: 1 }).bindPopup(`<b>${esc(x.auteur)}</b>${x.equipe ? ' · ' + esc(nomEquipe(x.equipe)) : ''}<br>${fmt(x.gisement, 1)}° ±${fmt(x.incertitude, 1)}° · ${heure(x.heure)}<br>${esc(x.source)}${x.force ? '<br>' + esc(x.force) : ''}`).addTo(couchesGonio);
     }
     if (c) for (const k of c.croisements.filter((k) => !c.ecartes.includes(k.a) && !c.ecartes.includes(k.b))) L.circleMarker([k.lat, k.lon], { radius: 3, color: '#f1f5f9', weight: 1, fillOpacity: 0.7, interactive: false }).addTo(couchesGonio);
     if (est) {
@@ -227,7 +255,7 @@
     const parEq = new Map([[null, []], ...E.equipes.map((e) => [e.id, []])]);
     for (const m of E.membres) (parEq.get(m.equipe) || parEq.get(null)).push(m);
     v.innerHTML = `<h2>Équipes</h2>${E.moi.admin ? '<div class="ligne-champs"><label>Nouvelle équipe <input id="eq-nom" placeholder="ex. Gonio 1"></label><button id="eq-creer">Créer</button></div>' : ''}
-      ${E.equipes.map((e) => `<div class="entree"><div class="tete"><b><i class="equipe-pastille" style="background:${e.couleur}"></i>${esc(e.nom)}</b>${e.mission ? `<span>${esc(e.mission)}</span>` : ''}${E.moi.admin ? ` <button class="mini" data-mission="${e.id}">Mission</button> <button class="mini danger" data-suppr-eq="${e.id}">Supprimer</button>` : ''}</div>
+      ${E.equipes.map((e) => `<div class="entree"><div class="tete"><b><i class="equipe-pastille" style="background:${e.couleur}"></i>${esc(e.nom)}</b>${e.mission ? `<span class="type">🎯 ${esc(e.mission)}</span>` : ''}${E.moi.admin ? ` <button class="mini" data-mission="${e.id}">Mission</button> <button class="mini danger" data-suppr-eq="${e.id}">Supprimer</button>` : ''}</div>
         <div class="corps">${parEq.get(e.id).map((m) => `${esc(m.indicatif || m.nom)}${m.fonction ? ' (' + esc(m.fonction) + ')' : ''}${m.position ? ' 📍' : ''}`).join(', ') || '<span class="note">Aucun membre</span>'}</div></div>`).join('') || '<div class="vide">Aucune équipe : un administrateur les crée ici.</div>'}
       ${parEq.get(null).length ? `<h3>Sans équipe</h3><div class="corps">${parEq.get(null).map((m) => esc(m.indicatif || m.nom)).join(', ')}</div>` : ''}
       <p class="note">📍 : position en direct du nœud Meshtastic associé au membre (Gestion). Elle s'affiche sur la carte et sert de position par défaut pour ses relevés.</p>`;
@@ -240,7 +268,28 @@
     }
     const bc = $('#eq-creer');
     if (bc) bc.onclick = async () => { await api('/api/adrasec/equipes', { method: 'POST', body: { nom: $('#eq-nom').value } }).catch((e) => alert(e.message)); charger(); };
-    for (const b of v.querySelectorAll('[data-mission]')) b.onclick = async () => { const e = equipe(b.dataset.mission); const t = prompt('Mission de l’équipe ' + e.nom + ' :', e.mission || ''); if (t === null) return; await api('/api/adrasec/equipes/' + e.id, { method: 'PATCH', body: { mission: t } }).catch((x) => alert(x.message)); charger(); };
+    // Mission : choisie dans une liste (recherches en cours, missions déjà données aux autres équipes) pour rattacher
+    // plusieurs équipes à la même mission en un clic, ou saisie librement
+    for (const b of v.querySelectorAll('[data-mission]')) b.onclick = () => {
+      const e = equipe(b.dataset.mission);
+      const boite = b.closest('.entree');
+      if (boite.querySelector('.choix-mission')) return;
+      const enCours = E.recherches.filter((r) => r.statut === 'en-cours').map((r) => `Recherche « ${r.nom} » (${r.frequence})`);
+      const autres = [...new Set(E.equipes.filter((x) => x.id !== e.id && x.mission).map((x) => x.mission))];
+      const options = [...new Set([...enCours, ...autres])];
+      const z = document.createElement('div');
+      z.className = 'choix-mission ligne-champs';
+      z.innerHTML = `<label>Mission de ${esc(e.nom)} <select>${options.map((o) => `<option ${o === e.mission ? 'selected' : ''}>${esc(o)}</option>`).join('')}<option value="__autre" ${e.mission && !options.includes(e.mission) ? 'selected' : ''}>✏️ Autre mission…</option><option value="" ${!e.mission ? 'selected' : ''}>— Aucune mission —</option></select></label>
+        <label class="autre-mission" hidden>Nouvelle mission <input maxlength="120" placeholder="ex. Recherche ELT secteur Yssingeaux" value="${esc(e.mission && !options.includes(e.mission) ? e.mission : '')}"></label>
+        <button class="principal mini">OK</button><button class="mini">Annuler</button>`;
+      boite.appendChild(z);
+      const sel = z.querySelector('select'), autre = z.querySelector('.autre-mission'), champ = autre.querySelector('input');
+      const majAutre = () => { autre.hidden = sel.value !== '__autre'; if (!autre.hidden) champ.focus(); };
+      sel.onchange = majAutre; majAutre();
+      const [ok, annuler] = z.querySelectorAll('button');
+      annuler.onclick = () => z.remove();
+      ok.onclick = async () => { const t = sel.value === '__autre' ? champ.value.trim() : sel.value; await api('/api/adrasec/equipes/' + e.id, { method: 'PATCH', body: { mission: t } }).catch((x) => alert(x.message)); charger(); };
+    };
     for (const b of v.querySelectorAll('[data-suppr-eq]')) b.onclick = async () => { if (!confirm('Supprimer cette équipe ? Ses membres restent dans la section, sans équipe.')) return; await api('/api/adrasec/equipes/' + b.dataset.supprEq, { method: 'PATCH', body: { supprimer: true } }).catch((x) => alert(x.message)); charger(); };
   }
 
@@ -359,6 +408,6 @@
   montrer(ongletActif);
   cadrerGonio();
   // Rafraîchissement : toutes les 15 s, sans perdre la saisie en cours
-  setInterval(() => { const a = document.activeElement; if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return; charger(); }, 15000);
+  setInterval(() => { const a = document.activeElement; if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return; if (document.querySelector('.choix-mission, #g-form-nouvelle:not([hidden])')) return; charger(); }, 15000);
   window.adrasecEtat = () => E; // essais
 })();
