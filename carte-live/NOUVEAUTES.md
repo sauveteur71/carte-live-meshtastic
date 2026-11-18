@@ -2,6 +2,12 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.28.8
+
+### 🛠️ Corrections
+- **USB et Bluetooth avec la carte ouverte sur le PC même** (`http://localhost:8095`) : « Connecter un module › USB » n'est plus grisé (il exigeait l'HTTPS, que Chrome ne demande pas en localhost).
+- **Recherche Ctrl+K** : un outil du menu Outils (ex. « Module USB de ce PC ») est lancé directement, au lieu d'être seulement surligné dans le menu.
+
 ## 2.28.7
 
 ### 🎚️ Fonctions de la carte
