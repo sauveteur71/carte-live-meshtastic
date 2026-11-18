@@ -2,6 +2,24 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.28.10
+
+### 🛰️ ADRASEC par département
+- **Plusieurs ADRASEC sur une même carte** (43, 42, 07…) : chacune a ses membres, ses équipes, sa main courante et ses recherches ; un membre ne voit que la sienne. Les données existantes deviennent l'ADRASEC du département de la carte.
+- **Case ADRASEC dans Gérer › Comptes** : un clic intègre le compte, une seconde case le nomme **président**. Le président gère son ADRASEC sans être administrateur de la carte.
+- **Adhésion** : la page `/adrasec` propose de créer son compte puis de demander à rejoindre l'ADRASEC de son département, comme **radioamateur licencié** (indicatif) ou **SWL** (n° d'écouteur). Le président accepte ou refuse dans Gestion.
+- **Fiches des membres** : qualité, indicatif ou n° SWL, équipe, fonction, nœud porté ; recherche ; intégration directe d'un compte existant. Les SWL font des relevés mais n'émettent pas (Winlink réservé aux licenciés).
+
+### 📱 Téléphone et appli Android
+- **Tiroir du bas** : déplié, il s'arrête sous le titre et la recherche de lieu (même avec un texte agrandi) ; bouton **▾** pour le replier, poignée plus grande.
+- **Version de l'appli** affichée à côté de celle de la carte (comparer téléphone et tablette).
+- **Préparation Google Play** : appli en API 36 (Android 16), paquet AAB pour le Play Store, politique de confidentialité dans le wiki.
+
+### 🛠️ Corrections et ajouts
+- **Alertes envoyées par MeshCore** : leur écho relayé par les répéteurs ne compte plus comme un message non lu.
+- **Alertes officielles** : quand le bouton 📡 Envoyer manque, la raison s'affiche (module non relié, aucun canal nommé).
+- **Schéma des rôles Meshtastic** (client muet, client de base, routeur, client, routeur tardif) dans *Statistiques › Rôles des nœuds* et dans le wiki.
+
 ## 2.28.9
 
 ### 🛰️ Section ADRASEC : recherche de balise
