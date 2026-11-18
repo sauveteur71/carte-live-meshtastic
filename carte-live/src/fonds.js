@@ -75,10 +75,21 @@ function creerFonds({ config, departements, journal = () => {} }) {
       await new Promise((ok, ko) => {
         const args = ['extract', BASE_BUILDS + cle, tmp, `--bbox=${bbox[1]},${bbox[0]},${bbox[3]},${bbox[2]}`, `--maxzoom=${z}`];
         proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-        const lire = (b) => { const t = String(b).trim().split('\n').pop(); const m = /(\d+)%/.exec(t); if (m) enCours.etape = `extraction ${m[1]} %`; };
+        let dernieres = [];
+        const lire = (b) => {
+          const lignes = String(b).split(/[\r\n]+/).map((x) => x.trim()).filter(Boolean);
+          const m = /(\d+)%/.exec(lignes[lignes.length - 1] || ''); if (m) enCours.etape = `extraction ${m[1]} %`;
+          dernieres = dernieres.concat(lignes.filter((x) => !/%\s*\|/.test(x))).slice(-3); // messages, sans les barres de progression
+        };
         proc.stdout.on('data', lire); proc.stderr.on('data', lire);
         const minuterie = setTimeout(() => proc && proc.kill(), 60 * 60000);
-        proc.on('close', (code) => { clearTimeout(minuterie); proc = null; code === 0 ? ok() : ko(new Error('extraction interrompue (code ' + code + ')')); });
+        proc.on('close', (code) => {
+          clearTimeout(minuterie); proc = null;
+          if (code === 0) return ok();
+          const detail = dernieres.join(' · ').replace(/^\d{4}\/\d\d\/\d\d \d\d:\d\d:\d\d \S+ /, '').slice(0, 300);
+          const cause = /x509|certificate/i.test(detail) ? ' : certificats racines absents (mettez la carte à jour)' : /no such host|dial tcp|timeout|connection/i.test(detail) ? ' : serveur Protomaps injoignable (accès internet du serveur ?)' : /no space/i.test(detail) ? ' : disque plein' : '';
+          ko(new Error('extraction interrompue (code ' + code + ')' + cause + (detail ? ' — ' + detail : '')));
+        });
         proc.on('error', ko);
       });
       fs.renameSync(tmp, fichier);

@@ -36,6 +36,8 @@ COPY carte-live/outils ./outils
 COPY carte-live/donnees-ref ./donnees-ref
 COPY --from=agents /out/ ./public/agent/
 COPY --from=pmtiles /pmtiles /usr/local/bin/pmtiles
+# Certificats racines pour pmtiles (programme Go) : l'image node « slim » n'en a pas, l'extraction https échouait (code 1)
+COPY --from=pmtiles /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 RUN mkdir -p /data && chown -R node:node /data
 USER node
 EXPOSE 8095 4404

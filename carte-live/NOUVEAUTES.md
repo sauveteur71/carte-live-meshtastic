@@ -2,6 +2,11 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.28.5
+
+### 🛠️ Corrections
+- **Fond de carte hors ligne qui ne se téléchargeait pas** dans l'image Docker (« extraction interrompue (code 1) ») : l'outil d'extraction n'avait pas les certificats racines pour joindre le serveur de cartes en https. Ils sont maintenant inclus, et en cas d'échec le message dit pourquoi (certificats, serveur injoignable, disque plein).
+
 ## 2.28.4
 
 ### 📣 Nœuds à inviter
