@@ -229,9 +229,10 @@
       L.polyline([[x.lat, x.lon], [bout.lat, bout.lon]], { color: coul, weight: 4, opacity: ecarte ? 0.5 : 1, dashArray: ecarte ? '10 8' : null }).addTo(couchesGonio);
       // Flèche au bout, dans la direction du relèvement, et gisement écrit près de l'équipe
       L.marker([bout.lat, bout.lon], { interactive: false, icon: L.divIcon({ className: '', iconSize: [26, 26], iconAnchor: [13, 13], html: `<div style="transform:rotate(${x.gisement - 90}deg);color:${coul};font-size:26px;line-height:26px;text-shadow:0 0 3px #0b1117,0 0 3px #0b1117">➤</div>` }) }).addTo(couchesGonio);
-      const etiq = Gonio.destination(x.lat, x.lon, x.gisement, Math.min(longueur * 0.12, 2500));
-      L.marker([etiq.lat, etiq.lon], { interactive: false, icon: L.divIcon({ className: '', iconSize: [64, 20], iconAnchor: [32, 10], html: `<div class="etq-gisement" style="border-color:${coul}">${fmt(x.gisement, 0)}°</div>` }) }).addTo(couchesGonio);
-      L.circleMarker([x.lat, x.lon], { radius: 8, color: '#ffffff', weight: 3, fillColor: coul, fillOpacity: 1 }).bindPopup(`<b>${esc(x.auteur)}</b>${x.equipe ? ' · ' + esc(nomEquipe(x.equipe)) : ''}<br>${fmt(x.gisement, 1)}° ±${fmt(x.incertitude, 1)}° · ${heure(x.heure)}<br>${esc(x.source)}${x.force ? '<br>' + esc(x.force) : ''}`).addTo(couchesGonio);
+      // Étiquette permanente sur le point : équipe (ou auteur), direction et force du signal
+      const qui = x.equipe ? nomEquipe(x.equipe) : x.auteur;
+      L.circleMarker([x.lat, x.lon], { radius: 8, color: '#ffffff', weight: 3, fillColor: coul, fillOpacity: 1 })
+        .bindTooltip(`<b>${esc(qui)}</b> · ${fmt(x.gisement, 0)}°${x.force ? ' · ' + esc(x.force) : ''}`, { permanent: true, direction: 'left', offset: [-10, 0], className: 'etq-releve' + (ecarte ? ' ecarte' : '') }).bindPopup(`<b>${esc(x.auteur)}</b>${x.equipe ? ' · ' + esc(nomEquipe(x.equipe)) : ''}<br>${fmt(x.gisement, 1)}° ±${fmt(x.incertitude, 1)}° · ${heure(x.heure)}<br>${esc(x.source)}${x.force ? '<br>' + esc(x.force) : ''}`).addTo(couchesGonio);
     }
     if (c) for (const k of c.croisements.filter((k) => !c.ecartes.includes(k.a) && !c.ecartes.includes(k.b))) L.circleMarker([k.lat, k.lon], { radius: 3, color: '#f1f5f9', weight: 1, fillOpacity: 0.7, interactive: false }).addTo(couchesGonio);
     if (est) {

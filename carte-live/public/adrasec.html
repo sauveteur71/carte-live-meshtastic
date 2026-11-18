@@ -82,6 +82,9 @@
     .leaflet-control-layers-toggle { background-color: #f1f5f9; }
     .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--texte); }
     .etq-gisement { display: inline-block; background: rgba(11, 17, 23, .88); color: #fff; border: 2px solid; border-radius: 6px; padding: 0 6px; font: 700 12.5px/16px ui-monospace, Menlo, Consolas, monospace; }
+    .etq-releve { background: rgba(11, 17, 23, .9); color: #fff; border: 1px solid rgba(255,255,255,.35); border-radius: 6px; padding: 2px 7px; font-size: 12.5px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+    .etq-releve.ecarte { opacity: .6; text-decoration: line-through; }
+    .leaflet-tooltip-left.etq-releve::before { border-left-color: rgba(11, 17, 23, .9); }
     .etq-equipe { background: rgba(11, 17, 23, .88); border: 1px solid var(--bord); color: var(--texte); border-radius: 6px; padding: 1px 6px; font-weight: 650; white-space: nowrap; }
     #consigne { position: absolute; z-index: 1000; left: 50%; top: 56px; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--accent); border-radius: 10px; padding: 8px 14px; }
     @media (max-width: 760px) {
