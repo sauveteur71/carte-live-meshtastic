@@ -12,6 +12,7 @@
 - **Budget plan**: “I have N relays to install”, area and inhabitants gained.
 - **“What if…” simulation**: remove or add relays, towns that would no longer be covered.
 - **Profile between two points**: height of each antenna **above ground** (mast drawn on the profile, ground and antenna altitude shown), **road sites** (Department and DIR webcams), **move relays**.
+- **3D profile**: **🏔️ View this profile in 3D** button in the profile: the link seen from the side on the real terrain, line of sight coloured (green clear, orange Fresnel partly blocked, red blocked), 1st Fresnel zone as a volume, masts and main obstacle.
 - **Installation sheet** of each relay (antenna, height, gain, cable, power, power source): used by the computations.
 - **Measured coverage**: where nodes are actually received from, field surveys.
 - **Neighbouring bubbles**: relays from the maps of neighbouring departments (*Tools › Share*).

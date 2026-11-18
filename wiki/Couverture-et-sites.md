@@ -12,6 +12,7 @@ Onglet **Couverture** et menu **Couverture radio**. Les calculs utilisent le mod
 - **Plan à budget** : « j'ai N relais à poser », surface et habitants gagnés.
 - **Simulation « et si… »** : retirer ou ajouter des relais, villes qui ne seraient plus couvertes.
 - **Profil entre deux points** : hauteur de chaque antenne **au-dessus du sol** (mât dessiné sur le profil, altitude du sol et de l'antenne affichées), **sites routiers** (webcams du Département et de la DIR), **déplacer des relais**.
+- **Profil en 3D** : bouton **🏔️ Voir ce profil en 3D** dans le profil : la liaison vue de côté sur le vrai relief, visée colorée (vert dégagée, orange Fresnel gênée, rouge coupée), 1re zone de Fresnel en volume, mâts et obstacle principal.
 - **Fiche d'installation** de chaque relais (antenne, hauteur, gain, câble, puissance, alimentation) : utilisée par les calculs.
 - **Couverture mesurée** : d'où les nœuds sont réellement reçus, relevés de terrain.
 - **Bulles voisines** : les relais des cartes des départements voisins (*Outils › Partager*).
