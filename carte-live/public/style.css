@@ -1119,18 +1119,21 @@ a.bouton-lien { text-decoration: none; display: inline-flex; align-items: center
   .outils::-webkit-scrollbar { display: none; }
   .outils > * { flex: none; }
   .outils #sel-zone { max-width: 150px; }
-  .panneau { left: 0; right: 0; width: auto; top: auto; bottom: var(--h-outils, 50px); height: var(--h-tiroir, 45vh); border-radius: 14px 14px 0 0; border-bottom: 0; transition: height .22s ease; padding-top: 14px; }
+  .panneau { left: 0; right: 0; width: auto; top: auto; bottom: var(--h-outils, 50px); height: min(var(--h-tiroir, 45vh), var(--h-tiroir-plein, 100dvh)); border-radius: 14px 14px 0 0; border-bottom: 0; transition: height .22s ease; padding-top: 14px; }
   body.tiroir-reduit .panneau { --h-tiroir: var(--h-tiroir-reduit, 124px); }
   .panneau > .choix-reseau, .panneau > .onglets { flex: none; }
   .panneau > .choix-reseau { padding-top: 4px; padding-bottom: 4px; }
   .panneau .onglets { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-right: 6px; }
   .panneau .onglets button[data-onglet] { flex: none; }
   body.tiroir-reduit .panneau > .vue { visibility: hidden; }
-  body.tiroir-plein .panneau { --h-tiroir: calc(100dvh - var(--h-outils, 50px) - 104px); }
+  /* Plein : jusque sous le titre et la recherche de lieu (hauteur mesurée), jamais dessous : la poignée reste à portée */
+  body.tiroir-plein .panneau { --h-tiroir: var(--h-tiroir-plein, calc(100dvh - var(--h-outils, 50px) - 104px)); }
+  .reduire-tiroir { display: none; position: absolute; top: 2px; right: 6px; z-index: 7; width: 44px; height: 30px; padding: 0; border-radius: 8px; font-size: 18px; line-height: 1; background: var(--surface-2, #1b2733); border: 1px solid var(--bord); color: var(--texte); }
+  body.tiroir-moitie .reduire-tiroir, body.tiroir-plein .reduire-tiroir { display: block; }
   .panneau .replier, .deplier { display: none !important; }
   .panneau.replie { display: flex; }
-  .poignee-tiroir { position: absolute; top: 0; left: 0; right: 0; height: 18px; display: flex; justify-content: center; align-items: center; cursor: grab; touch-action: none; z-index: 6; }
-  .poignee-tiroir::after { content: ''; width: 44px; height: 5px; border-radius: 3px; background: var(--doux); opacity: .55; }
+  .poignee-tiroir { position: absolute; top: 0; left: 0; right: 56px; height: 26px; display: flex; justify-content: center; align-items: center; cursor: grab; touch-action: none; z-index: 6; }
+  .poignee-tiroir::after { content: ''; width: 56px; height: 6px; border-radius: 3px; background: var(--doux); opacity: .7; margin-left: 56px; }
   .fiche { left: 0; right: 0; width: auto; top: auto; bottom: var(--h-outils, 50px); height: 58dvh; border-radius: 14px 14px 0 0; z-index: 1003; padding-top: 22px; transition: height .22s ease; }
   body.fiche-pleine .fiche { height: calc(100dvh - var(--h-outils, 50px) - 52px); }
   .poignee-fiche-mob { position: absolute; top: 0; left: 0; right: 40px; height: 20px; display: flex; justify-content: center; align-items: center; touch-action: none; cursor: grab; }
@@ -1143,7 +1146,7 @@ a.bouton-lien { text-decoration: none; display: inline-flex; align-items: center
   .rejeu { bottom: calc(var(--h-outils, 50px) + 104px); }
   .menu-couches .menu, .menu-outils .menu { position: fixed; left: 8px; right: 8px; top: auto; bottom: calc(var(--h-outils, 50px) + 6px); max-height: 60vh; overflow-y: auto; }
 }
-@media (min-width: 701px) { .poignee-tiroir { display: none; } }
+@media (min-width: 701px) { .poignee-tiroir, .reduire-tiroir { display: none !important; } }
 /* Tablette en paysage : panneaux un peu plus étroits pour laisser la carte respirer */
 @media (pointer: coarse) and (min-width: 701px) and (max-width: 1366px) { :root { --l-panneau: 320px; --l-fiche: 340px; } }
 /* Tablette (portrait 701 à 1100 px, et toute tablette tactile jusqu'à 1366 px) : vraie mise en page tablette, pas celle du téléphone.

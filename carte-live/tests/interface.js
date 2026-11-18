@@ -727,6 +727,16 @@ async function essaiTelephone(navig) {
   await page.waitForTimeout(400);
   const g = await page.evaluate(() => { const b = (q) => { const e = document.querySelector(q); return e ? e.getBoundingClientRect() : null; }; const a = b('.barre'), s = b('.recherche-lieu'), l = b('.leaflet-top.leaflet-right'); return { barre: a && a.bottom, rech: s && [s.top, s.bottom], bouton: l && l.top }; });
   if (g.barre && g.rech && g.rech[0] >= g.barre && (!g.bouton || g.bouton >= g.rech[1])) ok('téléphone : recherche et bouton ◎ sous la barre du haut, sans chevauchement'); else ko('téléphone : chevauchement en haut ' + JSON.stringify(g));
+  // Tiroir plein avec texte agrandi (réglage Android) : jamais sous le titre ni la recherche, bouton ▾ pour réduire
+  await page.evaluate(() => { document.documentElement.style.fontSize = '130%'; document.querySelectorAll('.marque, .recherche-lieu').forEach((e) => { e.style.fontSize = '130%'; }); window.dispatchEvent(new Event('resize')); });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { const p = document.querySelector('.poignee-tiroir'); for (let i = 0; i < 3 && !document.body.classList.contains('tiroir-plein'); i++) { p.dispatchEvent(new PointerEvent('pointerdown', { clientY: 500, pointerId: 1, bubbles: true })); p.dispatchEvent(new PointerEvent('pointerup', { clientY: 500, pointerId: 1, bubbles: true })); } });
+  await page.waitForTimeout(500);
+  const t = await page.evaluate(() => { const r = (q) => document.querySelector(q).getBoundingClientRect(); const b = document.querySelector('.reduire-tiroir'); return { plein: document.body.classList.contains('tiroir-plein'), haut: r('.panneau').top, rech: r('.recherche-lieu').bottom, barre: r('.barre').bottom, bouton: b && b.offsetParent !== null }; });
+  if (t.plein && t.haut >= Math.max(t.rech, t.barre) && t.bouton) ok('téléphone : tiroir plein sous le titre et la recherche, bouton ▾ visible'); else ko('téléphone : tiroir ' + JSON.stringify(t));
+  await page.tap('.reduire-tiroir');
+  await page.waitForTimeout(400);
+  if (await page.evaluate(() => document.body.classList.contains('tiroir-reduit'))) ok('téléphone : bouton ▾ réduit le tiroir'); else ko('téléphone : ▾ sans effet');
   await capture(page, 'telephone');
   bilanErreurs(erreurs.filter((e) => !/HTTP 401|401/.test(e)), 'téléphone');
   await contexte.close();

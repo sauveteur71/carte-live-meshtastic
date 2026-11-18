@@ -6269,7 +6269,18 @@ function installerTiroir() {
   if (PANNEAU_SEUL) return; // fenêtre détachée : panneau plein écran, pas de tiroir
   const mq = matchMedia('(max-width: 700px)');
   const p = $('#panneau');
-  if (!p.querySelector('.poignee-tiroir')) p.insertAdjacentHTML('afterbegin', '<div class="poignee-tiroir" title="Tirer ou toucher pour agrandir / réduire"></div>');
+  if (!p.querySelector('.poignee-tiroir')) p.insertAdjacentHTML('afterbegin', '<div class="poignee-tiroir" title="Tirer ou toucher pour agrandir / réduire"></div><button type="button" class="reduire-tiroir" title="Réduire le panneau en bas" aria-label="Réduire le panneau">▾</button>');
+  // Hauteur pleine : du bas du titre ou de la recherche de lieu (le plus bas des deux, qui grandit avec le texte
+  // agrandi d'Android ou l'avis de mise à jour) jusqu'à la barre d'outils
+  const majPlein = () => {
+    if (!mq.matches) return;
+    let haut = 0;
+    for (const s of ['.barre', '.recherche-lieu']) { const e = document.querySelector(s); const r = e && e.getBoundingClientRect(); if (r && r.height > 0) haut = Math.max(haut, r.bottom); } // éléments fixes : offsetParent nul, d'où la taille
+    const o = document.querySelector('.outils'), ho = o ? o.offsetHeight : 50;
+    document.documentElement.style.setProperty('--h-tiroir-plein', Math.max(180, Math.round(window.innerHeight - ho - haut - 8)) + 'px');
+  };
+  setTimeout(majPlein, 400); setTimeout(majPlein, 2500);
+  if (window.ResizeObserver) { const ro = new ResizeObserver(majPlein); for (const s of ['.barre', '.recherche-lieu', '.outils']) { const e = document.querySelector(s); if (e) ro.observe(e); } }
   const ETATS = ['reduit', 'moitie', 'plein'];
   // Hauteur réduite : poignée + choix du réseau + onglets, sans contenu (mesurée une fois la page affichée)
   const majReduit = () => {
@@ -6283,18 +6294,19 @@ function installerTiroir() {
     etat.tiroir = e; ecrireLs('gaulix_tiroir', e);
     const o = document.querySelector('.outils');
     if (o) document.documentElement.style.setProperty('--h-outils', o.offsetHeight + 'px');
-    majReduit();
+    majReduit(); majPlein();
     setTimeout(() => { document.documentElement.style.setProperty('--h-tiroir-reel', p.offsetHeight + 'px'); if (typeof carte !== 'undefined' && carte) carte.invalidateSize(); }, 260);
   };
   // Hauteur réelle du tiroir suivie en continu (attribution et boutons de la carte juste au-dessus, jamais au milieu)
   if (window.ResizeObserver) new ResizeObserver(() => { if (mq.matches) document.documentElement.style.setProperty('--h-tiroir-reel', p.offsetHeight + 'px'); }).observe(p);
   appliquer(lireLs('gaulix_tiroir', 'reduit'));
   mq.addEventListener('change', () => appliquer(etat.tiroir || 'reduit'));
-  window.addEventListener('resize', () => { const o = document.querySelector('.outils'); if (o) document.documentElement.style.setProperty('--h-outils', o.offsetHeight + 'px'); majReduit(); });
+  window.addEventListener('resize', () => { const o = document.querySelector('.outils'); if (o) document.documentElement.style.setProperty('--h-outils', o.offsetHeight + 'px'); majReduit(); majPlein(); });
+  p.querySelector('.reduire-tiroir').onclick = () => appliquer('reduit');
   const poignee = p.querySelector('.poignee-tiroir');
   let depart = null;
   poignee.addEventListener('pointerdown', (ev) => { depart = { y: ev.clientY, h: p.offsetHeight, t: Date.now() }; poignee.setPointerCapture(ev.pointerId); p.style.transition = 'none'; });
-  poignee.addEventListener('pointermove', (ev) => { if (!depart) return; p.style.height = Math.max(70, depart.h + (depart.y - ev.clientY)) + 'px'; });
+  poignee.addEventListener('pointermove', (ev) => { if (!depart) return; const max = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--h-tiroir-plein')) || window.innerHeight; p.style.height = Math.max(70, Math.min(max, depart.h + (depart.y - ev.clientY))) + 'px'; });
   poignee.addEventListener('pointerup', (ev) => {
     if (!depart) return;
     const dy = depart.y - ev.clientY, h = p.offsetHeight;
