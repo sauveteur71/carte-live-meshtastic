@@ -366,7 +366,7 @@ public class MainActivity extends Activity {
         if (vue.canGoBack()) { vue.goBack(); return; }
         if (String.valueOf(vue.getUrl()).startsWith(ACCUEIL)) { finish(); return; }
         new AlertDialog.Builder(this)
-                .setTitle("Carte live")
+                .setTitle("Carte live · appli " + version())
                 .setItems(new String[]{"Changer de carte", "Recharger", "Rechercher une mise à jour", "Quitter"}, (d, i) -> {
                     if (i == 0) vue.loadUrl(ACCUEIL);
                     else if (i == 1) vue.reload();

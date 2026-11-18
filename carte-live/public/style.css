@@ -1705,3 +1705,6 @@ label.bouton-fichier { cursor: pointer; display: inline-flex; align-items: cente
 .interrupteur input:checked + .glissiere { background: var(--accent, #3ee6c4); }
 .interrupteur input:checked + .glissiere::after { transform: translateX(20px); }
 .interrupteur input:focus-visible + .glissiere { outline: 2px solid var(--accent, #3ee6c4); outline-offset: 2px; }
+
+/* Schéma des rôles Meshtastic (conseils de rôles) */
+.schema-roles { display: block; width: 100%; height: auto; border-radius: 10px; margin: 8px 0; border: 1px solid var(--bord, rgba(120,160,190,.3)); }

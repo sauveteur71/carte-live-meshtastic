@@ -571,6 +571,9 @@ function afficherVersion(v) {
   el.href = v.url;
   el.classList.toggle('maj', !!v.majDisponible);
   el.textContent = v.majDisponible ? `v${v.version} · v${v.derniere} disponible` : `v${v.version}${v.derniere ? ' · à jour' : ''}`;
+  // Ouverte dans l'application Android : sa version à côté de celle de la carte (téléphone et tablette à comparer)
+  const appli = /CarteLiveAndroid\/([\w.-]+)/.exec(navigator.userAgent);
+  if (appli) el.textContent += ` · appli ${appli[1]}`;
   el.title = v.majDisponible ? `Nouvelle version v${v.derniere} publiée sur GitHub : cliquez pour ${etat.admin ? 'mettre à jour' : 'voir les nouveautés'}` : v.derniere ? `Version installée v${v.version} — c'est la dernière publiée sur GitHub` : `Version installée v${v.version}`;
   // Administrateur : fenêtre de mise à jour en un clic. Sinon (pas connecté, ou mode consultation) : on explique comment
   // mettre à jour au lieu de partir sur GitHub ; les nouveautés restent accessibles par un lien.
@@ -3080,6 +3083,7 @@ async function chargerMaintenance(quoi) {
     r$.textContent = r.conseils.length ? `${r.conseils.length} conseil${r.conseils.length > 1 ? 's' : ''}` : 'rien à signaler';
     z.innerHTML = `<div class="rang">${Object.entries(r.repartition).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<span class="pastille">${esc(ROLES_LIB[k] || k)} : ${n}</span>`).join(' ')}</div>
       ${r.conseils.map((c) => `<div class="proposition conseil-role ${c.niveau}" data-fiche="${c.num}"><div class="entete-prop"><b>${esc(c.nom)}</b><span class="marge">${esc(ROLES_LIB[c.role] || c.role)} → <b>${esc(c.conseil)}</b></span></div><div class="meta-longue">${esc(c.raison)}</div>${c.roleCible && etat.gestion && gerable(c.num) ? `<div class="actions-prop"><button class="mini principal" data-role-num="${c.num}" data-role-cible="${esc(c.roleCible)}">Passer en ${esc(c.roleCible)}</button></div>` : ''}</div>`).join('') || '<div class="vide">Aucun conseil : les rôles paraissent cohérents.</div>'}
+      <a href="/images/roles-meshtastic.svg" target="_blank" rel="noopener" title="Agrandir"><img class="schema-roles" src="/images/roles-meshtastic.svg" alt="Rôles des nœuds Meshtastic : client muet, client de base, routeur, client, routeur tardif" loading="lazy"></a>
       <p class="note">Conseils d’après les règles de Meshtastic : ROUTER seulement sur un point haut et dégagé, ROUTER_LATE seulement pour un site indispensable qui ne voit aucun routeur (il réémet tout), CLIENT_BASE sur un toit, CLIENT par défaut ; changer de rôle au-delà de 7-8 % d’émission ou 25 % d’occupation du canal. Calculés avec la couverture de chaque relais (relief)${r.relief ? '' : ' — <b>relief pas encore prêt : conseils partiels</b>'}, les liaisons directes, la télémétrie et les fiches d’installation (« toit » dans le champ Site).</p>`;
     z.querySelectorAll('[data-role-num]').forEach((b) => (b.onclick = async (e) => {
       e.stopPropagation();
