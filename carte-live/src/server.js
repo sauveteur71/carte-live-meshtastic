@@ -3737,7 +3737,19 @@ const alertesOff = require('./alertes-officielles').creerAlertesOfficielles({
 });
 app.get('/api/alertes-officielles', (req, res) => res.set('Cache-Control', 'no-store').json({ ...alertesOff.etat(), niveauxVigipirate: alertesOff.NIVEAUX_VIGIPIRATE, ...(estAdmin(req) ? { departements: listeDepartements.map((d) => ({ code: d.code, nom: d.nom })), voisins: ((zoneVoisins() || {}).departements || []).map((d) => d.code), departementCarte: String(config.departement.code), canauxMc: config.meshcore.actif ? companion.canaux().map((c) => c.nom) : [] } : {}),
   // Canaux proposés pour l'envoi à la demande (gestionnaires) : ceux du companion MeshCore et du module Meshtastic
-  ...(estGestion(req) ? { envoi: { canauxMc: config.meshcore.actif ? companion.canaux().map((c) => c.nom).filter(Boolean) : [], canauxMt: (() => { try { const i = sourceRadio.infos(); return i.connecte ? (i.canaux || []).map((c) => c.nom).filter(Boolean) : []; } catch { return []; } })() } } : {}),
+  ...(estGestion(req) ? { envoi: (() => {
+    const canauxMc2 = config.meshcore.actif ? companion.canaux().map((c) => c.nom).filter(Boolean) : [];
+    let infosMt = { connecte: false, canaux: [] };
+    try { infosMt = sourceRadio.infos(); } catch { /* pas de module */ }
+    const canauxMt = infosMt.connecte ? (infosMt.canaux || []).map((c) => c.nom).filter(Boolean) : [];
+    // Pourquoi le bouton 📡 n'apparaît pas : dit à l'écran au lieu de le cacher en silence
+    const pourquoi = [];
+    if (!canauxMc2.length && !canauxMt.length) {
+      if (config.meshcore.actif) { let pret = false; try { pret = !!companion.etat().pret; } catch { /* */ } pourquoi.push(pret ? 'companion MeshCore relié mais sans canal nommé' : 'companion MeshCore non relié'); }
+      pourquoi.push(infosMt.connecte ? 'module Meshtastic relié mais sans canal nommé' : 'module Meshtastic non relié');
+    }
+    return { canauxMc: canauxMc2, canauxMt, pourquoi };
+  })() } : {}),
   fonctionsMasquees: [...fonctionsMasquees] }));
 // ---- Feux actifs vus par satellite (NASA FIRMS) : couche de la carte, alertes sur la zone, envoi radio à la demande ----
 const feux = require('./feux').creerFeux({ config, journal, diffuser });
