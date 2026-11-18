@@ -1881,7 +1881,10 @@ function indexReglages() {
     d.querySelectorAll('button, a, label').forEach((el) => {
       if (el.closest('[hidden]') || el.hidden) return;
       const txt = el.tagName === 'LABEL' ? el.textContent : el.textContent;
-      ajouter(txt, nomMenu.replace('▾', '').trim(), el.title || '', () => { d.open = true; surligner(el); });
+      // Bouton ou lien du menu Outils : lancé directement (encore dans le geste de l'utilisateur, ce qu'exigent l'USB
+      // et le Bluetooth) ; case à cocher d'un menu de couches : le menu s'ouvre et la case est montrée
+      const lancer = d.classList.contains('menu-outils') && (el.tagName === 'BUTTON' || el.tagName === 'A');
+      ajouter(txt, nomMenu.replace('▾', '').trim(), el.title || '', lancer ? () => { d.open = false; el.click(); } : () => { d.open = true; surligner(el); });
     });
   });
   return l;
