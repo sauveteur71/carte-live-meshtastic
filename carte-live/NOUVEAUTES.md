@@ -2,6 +2,15 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.28.9
+
+### 🛰️ Section ADRASEC : recherche de balise
+- **Diffusion aux équipes par LoRa** (zone blanche) : la position estimée part en point de passage « 🎯 Balise estimée » sur la carte de l'appli Meshtastic des équipiers, avec un message (coordonnées, locator, DFCI, taille de la zone), sur le canal choisi ; renvoi automatique quand l'estimation bouge de plus de 300 m ; point retiré à la clôture.
+- **Lien terrain** (réseau mobile) : lien secret ou QR code qui ouvre la carte de la recherche sans compte, en lecture seule, avec la distance et le cap jusqu'à la balise depuis le GPS du téléphone ; éteint à la clôture (48 h au plus).
+- **Relèvements bien visibles** : trait épais avec liseré, flèche, étiquette « équipe · direction · force » sur chaque point.
+- **Saisie** : point de l'équipe et aperçu du gisement dès le clic sur la carte, avant l'envoi.
+- **Missions** : choisies dans une liste (recherches en cours, missions des autres équipes) pour rattacher plusieurs équipes à la même mission.
+
 ## 2.28.8
 
 ### 🛠️ Corrections
