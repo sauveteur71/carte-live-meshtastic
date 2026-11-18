@@ -3724,6 +3724,10 @@ const alertesOff = require('./alertes-officielles').creerAlertesOfficielles({
     let b = Buffer.from(texte, 'utf8');
     if (b.length > 130) texte = b.subarray(0, 127).toString('utf8').replace(/\uFFFD+$/, '') + '…';
     await companion.envoyerCanal(c.index, texte);
+    // Noté comme envoyé : son écho relayé par les répéteurs n'est plus compté comme un message reçu (non lu)
+    const e = companion.etat();
+    reseauMc.noterMessage({ sens: 'envoye', genre: 'canal', canal: c.nom, indexCanal: c.index, de: e.cle, nomDe: e.nom, texte, statut: 'envoye', auteur: 'alertes', region: e.zoneDefaut == null ? null : e.zoneDefaut || '-' });
+    diffuser({ genre: 'mc-message', confirmation: true });
   },
   envoyer: async (nomCanal, texte) => {
     const i = sourceRadio.infos();

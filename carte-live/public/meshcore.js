@@ -1823,7 +1823,7 @@ function mcRecevoir(m) {
     mcAnimer(m);
     mcAjouterAuFlux(m);
     mcNoterActivite(m.de); (m.cheminResolu || []).forEach(mcNoterActivite);
-    if (m.texte && m.premiere && etat.membre) { mcNoterMessageRecu({ canal: m.canal }); mcMessagesARafraichir(); }
+    if (m.texte && m.premiere && etat.membre) { if (m.nouveauMessage && !mcEstDeMoi({ nomDe: m.expediteur })) mcNoterMessageRecu({ canal: m.canal }); mcMessagesARafraichir(); } // écho de nos envois (alertes, passerelle) : pas « non lu »
   } else if (m.genre === 'mc-etat') {
     mc.etat = { ...(mc.etat || {}), stats: m.stats, companion: { ...((mc.etat && mc.etat.companion) || {}), ...m.companion } };
     if (m.alertes) mc.etat.alertes = m.alertes;
