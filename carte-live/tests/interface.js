@@ -586,6 +586,20 @@ async function essaiAdrasec(navig, cookie) {
   await capture(page, 'adrasec-gestion');
   bilanErreurs(erreurs, 'section ADRASEC');
   await contexte.close();
+  // Réglages › Fonctions de la carte : interrupteurs (section ADRASEC, Winlink, fonctions affichées)
+  const c2 = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
+  await c2.addCookies([cookie]);
+  await c2.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const o = await ouvrir(c2, '/');
+  await o.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  const visible = await o.page.evaluate(() => !document.querySelector('#outil-fonctions').hidden);
+  await o.page.evaluate(() => dlgFonctionsCarte());
+  await o.page.waitForTimeout(1500);
+  const f = await o.page.evaluate(() => { const d = document.querySelector('#dlg-fonctions-carte'); return { ouvert: d && d.open, adrasec: !!(d && d.querySelector('[data-adrasec]:checked')), winlink: d ? /Pat joignable/.test(d.textContent) : false, inters: d ? d.querySelectorAll('.interrupteur').length : 0 }; });
+  if (visible && f.ouvert && f.adrasec && f.winlink && f.inters >= 7) ok('Fonctions de la carte : bouton du menu, section ADRASEC activée, Winlink joignable, interrupteurs'); else ko('Fonctions de la carte : ' + JSON.stringify({ visible, ...f }));
+  await capture(o.page, 'fonctions-carte');
+  bilanErreurs(o.erreurs, 'fonctions de la carte');
+  await c2.close();
 }
 async function essaiAgentDirect(cookie) {
   console.log('Agent zéro question (simulé)');

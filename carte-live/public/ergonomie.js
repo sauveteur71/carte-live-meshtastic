@@ -236,7 +236,7 @@ function rendreHubReglages() {
     ['🩺', 'Diagnostic', 'Pourquoi ça ne marche pas ? Vérifie MQTT, canaux, modules, MeshCore, passerelle', () => ficheDiagnostic()],
     ['🧩', 'Réglages avancés', 'Seuils d’alerte, fond de carte, MeshMonitor, exports, feux Meteosat… tout ce qui était dans le fichier .env', () => ficheReglagesAvances()],
     ['💾', 'Sauvegardes des réglages', 'Sauvegarder ou restaurer les réglages et les comptes', () => ouvrirDlg('sauvegardes')],
-    ['👁️', 'Fonctions affichées', 'Masquer les signalements, Vigipirate, FR-Alert, la main courante ou les alertes Bipper / GerMaCrise (pour ne garder que la vigilance météo, par exemple)', () => dlgFonctionsMasquees()],
+    ['🎚️', 'Fonctions de la carte', 'Activer la section ADRASEC et Winlink ; afficher ou masquer signalements, Vigipirate, FR-Alert, main courante, Bipper, feux', () => dlgFonctionsCarte()],
     ['📦', 'Sauvegarde complète', 'Tout télécharger en un fichier (base, réglages, comptes) pour changer de serveur', async () => { if (await confirmer('Télécharger la sauvegarde complète ? Le fichier contient les comptes et les clés des canaux : gardez-le en lieu sûr.', { ok: 'Télécharger' })) location.href = '/api/sauvegarde-complete'; }],
     ['♻️', 'Restaurer une sauvegarde complète', 'Reprendre tout depuis le fichier .tar.gz d’un autre serveur (remplace la base, les réglages et les comptes)', () => choisirEtRestaurer()],
     ['📜', 'Journal du serveur', 'Ce que fait la carte, erreurs', () => ouvrirDlg('journal')],
@@ -483,6 +483,65 @@ function demarrerErgonomie() {
     window.indexReglages = function () { const l = origine(); const tete = ergo.recents.map((n) => l.find((e) => e.t === n)).filter(Boolean); return [...tete, ...l.filter((e) => !tete.includes(e))]; };
   }
   setTimeout(() => visiteGuidee(false), 1800);
+}
+
+// Réglages › Fonctions de la carte : un seul écran, avec des interrupteurs, pour activer les modules (section
+// ADRASEC, Winlink) et choisir les fonctions affichées. Ouvert aussi depuis le menu Outils (administrateurs).
+async function dlgFonctionsCarte() {
+  let d = document.getElementById('dlg-fonctions-carte');
+  if (!d) { d = document.createElement('dialog'); d.id = 'dlg-fonctions-carte'; d.className = 'dlg-fonctions-carte'; document.body.appendChild(d); }
+  d.innerHTML = '<button class="fermer" type="button" data-fermer title="Fermer">×</button><h3>🎚️ Fonctions de la carte</h3><div class="vide">Lecture…</div>';
+  d.querySelector('[data-fermer]').onclick = () => d.close();
+  if (!d.open) d.showModal();
+  // Section ADRASEC (édition française) : absente ailleurs, le bloc ne s'affiche pas
+  const ad = await api('/api/adrasec/acces').catch(() => null);
+  const wl = ad ? await api('/api/adrasec/winlink/etat').catch(() => null) : null;
+  const vars = await api('/api/reglages/variables').then((r) => Object.fromEntries(r.variables.map((v) => [v.nom, v]))).catch(() => ({}));
+  const m = (etat.config && etat.config.fonctionsMasquees) || [];
+  const LISTE = [
+    ['signalements', '🚩 Signalements', 'Événements signalés sur la carte (route inondée…), leur couche et « Signaler un événement ici »'],
+    ['vigipirate', '🛡️ Vigipirate', 'Niveau affiché dans le bandeau et dans les alertes officielles'],
+    ['fr-alert', '📢 FR-Alert', 'Relais manuel des alertes reçues sur les téléphones'],
+    ['main-courante', '📋 Main courante des signalements', 'Page imprimable des signalements'],
+    ['bipper', '📟 Alertes Bipper / GerMaCrise', 'Envoi d’alertes aux pagers'],
+    ['feux', '🔥 Feux actifs (satellite)', 'Couche des foyers NASA FIRMS, alertes sur la zone et envoi radio'],
+  ];
+  const inter = (attr, coche, titre, texte, extra = '') => `<div class="carte-fonction"><label class="interrupteur"><input type="checkbox" ${attr} ${coche ? 'checked' : ''}><span class="glissiere"></span></label><div class="texte-fonction"><b>${titre}</b><small>${texte}</small>${extra}</div></div>`;
+  const patUrl = (vars.PAT_URL && vars.PAT_URL.valeur) || '';
+  const wlBloc = !ad ? '' : `
+    <div class="carte-fonction"><span class="icone-fonction">✉️</span><div class="texte-fonction"><b>Winlink</b><small>Messagerie radioamateur dans la section ADRASEC, par Pat (client Winlink libre). Rédiger et lancer une session : radioamateurs licenciés seulement.</small>
+      ${wl && wl.configure ? `<div class="etat-fonction">${wl.joignable ? '<span class="pastille ok">✔ Pat joignable</span>' : `<span class="pastille critique">✖ Pat injoignable</span> <small>${esc(wl.erreur || '')}</small>`}</div>` : '<div class="etat-fonction"><span class="pastille">Pas encore activé</span></div>'}
+      <ol class="etapes-fonction">
+        <li>Sur le serveur, dans le dossier de la carte : <span class="mono">docker compose --profile winlink up -d</span> (lance Pat).</li>
+        <li>Réglez la station dans Pat (indicatif, mot de passe Winlink, locator) : <span class="mono">http://127.0.0.1:8081/ui/config</span> sur le serveur. La carte ne voit jamais ce mot de passe.</li>
+        <li>Ici : <label class="ligne-mini">Adresse de Pat <input data-pat-url value="${esc(patUrl || 'http://pat:8080')}" placeholder="http://pat:8080"></label> <label class="ligne-mini">Indicatif de la station <input data-pat-ind value="${esc((vars.PAT_INDICATIF && vars.PAT_INDICATIF.valeur) || '')}" placeholder="F4ABC" size="9"></label>
+          <button type="button" data-wl-activer class="principal">${patUrl ? 'Enregistrer' : 'Activer Winlink'}</button>${patUrl ? ' <button type="button" data-wl-couper>Désactiver</button>' : ''}<br><small>La carte redémarre (quelques secondes) pour prendre le réglage.</small></li>
+      </ol></div></div>`;
+  d.innerHTML = `<button class="fermer" type="button" data-fermer title="Fermer">×</button><h3>🎚️ Fonctions de la carte</h3>
+    <p class="note">Activez ou masquez une fonction d’un clic. Les changements valent pour tous les utilisateurs de cette carte.</p>
+    ${ad ? `<h4>Modules</h4>
+    ${inter('data-adrasec', ad.actif, `🛰️ Section ${esc(ad.nom || 'ADRASEC')}`, 'Espace réservé aux membres de l’ADRASEC : main courante, radiogoniométrie (recherche de balise), équipes, Winlink. Une fois activée, ajoutez les membres dans la section, onglet ⚙️ Gestion.', '<div class="actions-fonction"><a class="bouton" href="adrasec" target="_blank" rel="noopener">Ouvrir la section ↗</a></div>')}
+    ${wlBloc}` : ''}
+    <h4>Fonctions affichées</h4>
+    ${LISTE.map(([k, t, x]) => inter(`data-f="${k}"`, !m.includes(k), t, esc(x))).join('')}
+    <p class="note">La vigilance Météo-France reste toujours affichée.</p>
+    <p class="erreur" data-retour></p>`;
+  d.querySelector('[data-fermer]').onclick = () => d.close();
+  const retour = (t) => { d.querySelector('[data-retour]').textContent = t; };
+  const ca = d.querySelector('[data-adrasec]');
+  if (ca) ca.onchange = async () => {
+    try { await postJson('/api/adrasec/reglages', { actif: ca.checked }, 'PUT'); annonce(ca.checked ? '✔ Section ADRASEC activée : ajoutez les membres dans la section, onglet Gestion' : 'Section ADRASEC désactivée', 'ok'); const l = $('#outil-adrasec'); if (l) l.hidden = false; } catch (e) { ca.checked = !ca.checked; retour(e.message); }
+  };
+  for (const c of d.querySelectorAll('[data-f]')) c.onchange = async () => {
+    const masquees = [...d.querySelectorAll('[data-f]')].filter((x) => !x.checked).map((x) => x.dataset.f);
+    try { const r = await postJson('/api/fonctions-masquees', { masquees }); etat.config.fonctionsMasquees = r.masquees; appliquerFonctionsMasquees(); annonce('✔ Fonctions affichées enregistrées', 'ok'); } catch (e) { c.checked = !c.checked; retour(e.message); }
+  };
+  const ba = d.querySelector('[data-wl-activer]'), bc = d.querySelector('[data-wl-couper]');
+  const enregistrerWl = async (variables) => {
+    try { await postJson('/api/reglages/variables', { variables }); d.querySelector('.etapes-fonction').innerHTML = '<div class="alerte info-lecture">Enregistré : redémarrage de la carte… la page se recharge.</div>'; setTimeout(() => location.reload(), 9000); } catch (e) { retour(e.message); }
+  };
+  if (ba) ba.onclick = () => { const u = d.querySelector('[data-pat-url]').value.trim(); if (!/^https?:\/\/[^\s]+$/.test(u)) { retour('Adresse de Pat : http://pat:8080 (service du docker-compose) ou http://adresse:port'); return; } enregistrerWl({ PAT_URL: u, PAT_INDICATIF: d.querySelector('[data-pat-ind]').value.trim().toUpperCase() || null }); };
+  if (bc) bc.onclick = () => enregistrerWl({ PAT_URL: null });
 }
 
 // Réglages › Fonctions affichées : l'administrateur masque des fonctions pour tous les utilisateurs de la carte

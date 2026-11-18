@@ -6044,6 +6044,7 @@ function brancherInterface() {
   { const bs = $('#outil-signalements'); if (bs) bs.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; if (masquee('signalements')) ficheAlertesOff(); else ficheSignalements(); }; }
   { const bt = $('#outil-trafic'); if (bt) bt.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTrafic(); }; }
   { const bc = $('#outil-connecter'); if (bc) bc.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ouvrirConnexion(); }; }
+  { const bf = $('#outil-fonctions'); if (bf) { bf.hidden = !etat.admin || !!etat.consultation; bf.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; dlgFonctionsCarte(); }; } }
   { const bj = $('#outil-rejoindre'); if (bj) { bj.hidden = !etat.admin || !!etat.consultation; bj.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheRejoindre(); }; } }
   // Membres et administrateurs : écrans d'administration préchargés quand la page est au calme (ouverture instantanée)
   if (etat.membre && !etat.consultation) (window.requestIdleCallback || ((f) => setTimeout(f, 3000)))(() => chargerAdministration().catch(() => {}));
