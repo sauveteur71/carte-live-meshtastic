@@ -3405,37 +3405,62 @@ const radioPointAdrasec = async ({ texte, canal, ...p }) => {
 };
 const adrasec = require('./adrasec').creerAdrasec({ config, journal, diffuser, radioPoint: radioPointAdrasec, nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); }, positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
 const winlink = require('./winlink').creerWinlink({ journal });
-// Membre de la section (ou administrateur, qui la règle même désactivée)
+// ADRASEC du compte (un administrateur de la carte choisit celle qu'il consulte : ?g=43) ; membre, président
+// (responsable) ou administrateur de la carte, qui règle la section même désactivée
 const routeAdrasec = (f, { admin = false, licencie = false } = {}) => async (req, res) => {
   const u = utilisateur(req);
   if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
-  if (admin ? u.role !== 'admin' : !(u.role === 'admin' || adrasec.estMembre(u))) return res.status(403).json({ erreur: admin ? 'Réservé aux administrateurs' : `Réservé aux membres de la section ${adrasec.nom()}` });
-  if (licencie && !adrasec.estLicencie(u)) return res.status(403).json({ erreur: 'Réservé aux radioamateurs licenciés (indicatif validé par un administrateur)' });
-  try { res.set('Cache-Control', 'no-store').json(await f(req, req.body || {}, u)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+  if (!(u.role === 'admin' || adrasec.estMembre(u))) return res.status(403).json({ erreur: 'Réservé aux membres d’une ADRASEC' });
+  const G = adrasec.groupePour(u, String(req.query.g || '').slice(0, 3) || null);
+  if (!G) return res.status(404).json({ erreur: 'Aucune ADRASEC créée sur cette carte : créez celle du département dans l’onglet Gestion', aucune: true });
+  if (admin && !G.estResponsable(u)) return res.status(403).json({ erreur: `Réservé au président et aux responsables de ${G.g.nom}` });
+  if (licencie && !G.estLicencie(u)) return res.status(403).json({ erreur: 'Réservé aux radioamateurs licenciés (indicatif validé par le président ou un administrateur)' });
+  try { res.set('Cache-Control', 'no-store').json(await f(req, req.body || {}, u, G)); } catch (e) { res.status(400).json({ erreur: e.message }); }
 };
 app.get('/adrasec', envoyerPage('adrasec.html'));
 app.get('/adrasec.html', envoyerPage('adrasec.html'));
-app.get('/api/adrasec/acces', (req, res) => { const u = utilisateur(req); res.set('Cache-Control', 'no-store').json({ nom: adrasec.nom(), actif: adrasec.actif(), acces: !!u && (u.role === 'admin' || adrasec.estMembre(u)) }); });
-app.get('/api/adrasec', routeAdrasec((req, b, u) => ({ ...adrasec.vue(u, comptes.lister(), u.role === 'admin'), winlink: { configure: winlink.actif() } })));
-app.put('/api/adrasec/reglages', routeAdrasec((req, b) => adrasec.reglages(b), { admin: true }));
-app.put('/api/adrasec/membres/:compte', routeAdrasec((req, b, u) => adrasec.majMembre(req.params.compte, b, nomCompte(u)), { admin: true }));
-app.post('/api/adrasec/equipes', routeAdrasec((req, b) => adrasec.majEquipe(null, b), { admin: true }));
-app.patch('/api/adrasec/equipes/:id', routeAdrasec((req, b) => adrasec.majEquipe(req.params.id, b), { admin: true }));
-app.post('/api/adrasec/main-courante', routeAdrasec((req, b, u) => adrasec.ajouterMc(u, b)));
+app.get('/api/adrasec/acces', (req, res) => {
+  const u = utilisateur(req), dm = adrasec.demandeDe(u), mien = adrasec.groupeDe(u);
+  res.set('Cache-Control', 'no-store').json({ nom: mien ? adrasec.nomGroupe(mien) : 'ADRASEC', actif: adrasec.actif(), connecte: !!u, identifiant: u ? u.identifiant : null, indicatif: u ? u.indicatif || null : null,
+    demande: dm ? { heure: dm.heure, nomGroupe: dm.nomGroupe } : null, groupes: adrasec.groupes().map((x) => ({ code: x.code, nom: x.nom })), inscriptions: config.inscriptions, acces: !!u && (u.role === 'admin' || adrasec.estMembre(u)) });
+});
+// Demande d'adhésion : tout compte connecté de la carte peut la faire, pour l'ADRASEC de son département ; le président l'accepte
+app.post('/api/adrasec/demande', (req, res) => { const u = utilisateur(req); if (!u) return res.status(401).json({ erreur: 'Connexion requise' }); try { res.json(adrasec.demander(u, req.body || {})); } catch (e) { res.status(400).json({ erreur: e.message }); } });
+app.delete('/api/adrasec/demandes/:compte', routeAdrasec((req, b, u, G) => G.refuserDemande(req.params.compte, nomCompte(u)), { admin: true }));
+// ADRASEC hébergées (administrateur de la carte) : création, nom, suppression
+app.put('/api/adrasec/groupes/:code', (req, res) => { const u = utilisateur(req); if (!u || u.role !== 'admin') return res.status(403).json({ erreur: 'Réservé aux administrateurs de la carte' }); try { res.json(adrasec.majGroupe(req.params.code, req.body || {}, nomCompte(u))); } catch (e) { res.status(400).json({ erreur: e.message }); } });
+// Case ADRASEC de la gestion des comptes de la carte (administrateur)
+app.get('/api/adrasec/roles', (req, res) => { const u = utilisateur(req); if (!u || u.role !== 'admin') return res.status(403).json({ erreur: 'Réservé aux administrateurs de la carte' }); res.set('Cache-Control', 'no-store').json(adrasec.rolesComptes()); });
+app.put('/api/adrasec/roles/:compte', (req, res) => { const u = utilisateur(req); if (!u || u.role !== 'admin') return res.status(403).json({ erreur: 'Réservé aux administrateurs de la carte' }); try { res.json(adrasec.roleCompte(req.params.compte, req.body || {}, nomCompte(u))); } catch (e) { res.status(400).json({ erreur: e.message }); } });
+app.get('/api/adrasec', routeAdrasec((req, b, u, G) => ({ ...adrasec.vue(u, comptes.lister(), G), winlink: { configure: winlink.actif() } })));
+// Réglages : activation de la section sur la carte (administrateur) ; nom et conservation de l'ADRASEC (président)
+app.put('/api/adrasec/reglages', (req, res, next) => {
+  const u = utilisateur(req), b = req.body || {};
+  if (b.actif === undefined) return next();
+  if (!u || u.role !== 'admin') return res.status(403).json({ erreur: 'Réservé aux administrateurs de la carte' });
+  const r = adrasec.reglagesGlobaux({ actif: b.actif });
+  if (b.nom === undefined && b.conservationJours === undefined) return res.json(r);
+  next();
+}, routeAdrasec((req, b, u, G) => (b.nom !== undefined || b.conservationJours !== undefined ? G.reglages(b) : { ok: true }), { admin: true }));
+app.put('/api/adrasec/membres/:compte', routeAdrasec((req, b, u, G) => G.majMembre(req.params.compte, b, nomCompte(u), u.role === 'admin'), { admin: true }));
+app.post('/api/adrasec/equipes', routeAdrasec((req, b, u, G) => G.majEquipe(null, b), { admin: true }));
+app.patch('/api/adrasec/equipes/:id', routeAdrasec((req, b, u, G) => G.majEquipe(req.params.id, b), { admin: true }));
+app.post('/api/adrasec/main-courante', routeAdrasec((req, b, u, G) => G.ajouterMc(u, b)));
 app.get('/api/adrasec/main-courante.csv', (req, res) => {
   const u = utilisateur(req);
-  if (!u || !(u.role === 'admin' || adrasec.estMembre(u))) return res.status(403).json({ erreur: 'Réservé à la section' });
-  res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', `attachment; filename="main-courante-${new Date().toISOString().slice(0, 10)}.csv"`).send(adrasec.csvMc());
+  const G = u && (u.role === 'admin' || adrasec.estMembre(u)) ? adrasec.groupePour(u, String(req.query.g || '').slice(0, 3) || null) : null;
+  if (!G) return res.status(403).json({ erreur: 'Réservé à la section' });
+  res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', `attachment; filename="main-courante-${G.g.code}-${new Date().toISOString().slice(0, 10)}.csv"`).send(G.csvMc());
 });
-app.post('/api/adrasec/recherches', routeAdrasec((req, b, u) => adrasec.majRecherche(null, b, u)));
-app.patch('/api/adrasec/recherches/:id', routeAdrasec((req, b, u) => adrasec.majRecherche(req.params.id, b, u)));
-app.post('/api/adrasec/releves', routeAdrasec((req, b, u) => adrasec.ajouterReleve(u, b)));
-app.delete('/api/adrasec/releves/:id', routeAdrasec((req, b, u) => adrasec.retirerReleve(u, req.params.id)));
+app.post('/api/adrasec/recherches', routeAdrasec((req, b, u, G) => G.majRecherche(null, b, u)));
+app.patch('/api/adrasec/recherches/:id', routeAdrasec((req, b, u, G) => G.majRecherche(req.params.id, b, u)));
+app.post('/api/adrasec/releves', routeAdrasec((req, b, u, G) => G.ajouterReleve(u, b)));
+app.delete('/api/adrasec/releves/:id', routeAdrasec((req, b, u, G) => G.retirerReleve(u, req.params.id)));
 app.get('/api/adrasec/canaux', routeAdrasec(() => { try { return signalements.canaux().mt; } catch { return { connecte: false, canaux: [] }; } }));
-app.post('/api/adrasec/recherches/:id/diffuser', routeAdrasec((req, b, u) => adrasec.diffuserBalise(req.params.id, b, u)));
+app.post('/api/adrasec/recherches/:id/diffuser', routeAdrasec((req, b, u, G) => G.diffuserBalise(req.params.id, b, u)));
 app.get('/api/adrasec/qr', routeAdrasec(async (req) => ({ qr: await require('qrcode').toDataURL(String(req.query.u || '').slice(0, 300), { margin: 1, width: 240 }) })));
-app.post('/api/adrasec/recherches/:id/lien', routeAdrasec((req, b, u) => adrasec.creerLien(req.params.id, u)));
-app.delete('/api/adrasec/recherches/:id/lien', routeAdrasec((req, b, u) => adrasec.couperLien(req.params.id, u)));
+app.post('/api/adrasec/recherches/:id/lien', routeAdrasec((req, b, u, G) => G.creerLien(req.params.id, u)));
+app.delete('/api/adrasec/recherches/:id/lien', routeAdrasec((req, b, u, G) => G.couperLien(req.params.id, u)));
 // Lien terrain : lecture seule, sans compte (jeton secret de 128 bits, valable jusqu'à la clôture de la recherche)
 app.get('/terrain/:jeton', envoyerPage('terrain.html'));
 app.get('/api/terrain/:jeton', (req, res) => {
@@ -3447,14 +3472,14 @@ app.get('/api/adrasec/winlink/etat', routeAdrasec(() => winlink.etat()));
 app.get('/api/adrasec/winlink/boite/:nom', routeAdrasec((req) => winlink.boite(req.params.nom)));
 app.get('/api/adrasec/winlink/boite/:nom/:mid', routeAdrasec((req) => winlink.message(req.params.nom, req.params.mid)));
 app.get('/api/adrasec/winlink/passerelles', routeAdrasec((req) => winlink.passerelles({ mode: String(req.query.mode || '').slice(0, 20), bande: String(req.query.bande || '').slice(0, 10) })));
-app.post('/api/adrasec/winlink/envoyer', routeAdrasec(async (req, b, u) => {
-  const r = await winlink.envoyer({ ...b, signature: `${adrasec.signature(u)} · ${adrasec.nom()}` });
-  adrasec.ajouterMc(u, { texte: `Winlink : message « ${String(b.sujet || '').slice(0, 80)} » déposé pour ${String(b.a || '').slice(0, 80)}`, type: 'message-emis' });
+app.post('/api/adrasec/winlink/envoyer', routeAdrasec(async (req, b, u, G) => {
+  const r = await winlink.envoyer({ ...b, signature: `${G.signature(u)} · ${G.g.nom}` });
+  G.ajouterMc(u, { texte: `Winlink : message « ${String(b.sujet || '').slice(0, 80)} » déposé pour ${String(b.a || '').slice(0, 80)}`, type: 'message-emis' });
   return r;
 }, { licencie: true }));
-app.post('/api/adrasec/winlink/session', routeAdrasec(async (req, b, u) => {
-  const r = await winlink.session(b.cible, adrasec.signature(u));
-  adrasec.ajouterMc(u, { texte: `Winlink : session ${String(b.cible).split('?')[0]} terminée${r.recus != null ? `, ${r.recus} message(s) reçu(s)` : ''}`, type: 'information' });
+app.post('/api/adrasec/winlink/session', routeAdrasec(async (req, b, u, G) => {
+  const r = await winlink.session(b.cible, G.signature(u));
+  G.ajouterMc(u, { texte: `Winlink : session ${String(b.cible).split('?')[0]} terminée${r.recus != null ? `, ${r.recus} message(s) reçu(s)` : ''}`, type: 'information' });
   return r;
 }, { licencie: true }));
 // Demande de position à un ou plusieurs nœuds (gestionnaire) : le nœud répond avec sa position

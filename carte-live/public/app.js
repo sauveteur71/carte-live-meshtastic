@@ -6121,6 +6121,10 @@ async function attendreRedemarrage(message) {
 
 function brancherComptes() {
   const dlgC = $('#dlg-compte'), dlgG = $('#dlg-gestion');
+  // Lien « /?compte=inscription&retour=/adrasec » (page d'adhésion d'une section) : ouvre la connexion ou l'inscription,
+  // puis revient à la page d'origine (chemin local seulement)
+  const pu = new URLSearchParams(location.search), retour = pu.get('retour');
+  const apres = () => { if (retour && /^\/[a-z0-9/_-]*$/i.test(retour)) location.href = retour; else location.reload(); };
   ongletsDialogue(dlgC);
   ongletsDialogue(dlgG);
   $('#fermer-compte').onclick = () => dlgC.close();
@@ -6137,7 +6141,7 @@ function brancherComptes() {
   $('#form-connexion').onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target;
-    try { await postJson('/api/connexion', { identifiant: f.identifiant.value, motDePasse: f.motDePasse.value, code: f.code.value || undefined }); location.reload(); }
+    try { await postJson('/api/connexion', { identifiant: f.identifiant.value, motDePasse: f.motDePasse.value, code: f.code.value || undefined }); apres(); }
     catch (err) {
       // Double authentification : le code à 6 chiffres est demandé après le mot de passe
       if (err.donnees && err.donnees.codeRequis) { $('#champ-code').hidden = false; f.code.required = true; f.code.focus(); f.querySelector('.erreur').textContent = f.code.value ? err.message : ''; }
@@ -6151,9 +6155,14 @@ function brancherComptes() {
     try {
       const r = await postJson('/api/inscription', { identifiant: f.identifiant.value, indicatif: f.indicatif.value, email: f.email.value, motDePasse: f.motDePasse.value });
       if (r.enAttente) { f.innerHTML = '<p class="succes">Inscription enregistrée ✓<br>Un administrateur doit valider votre compte ; vous pourrez ensuite vous connecter.</p>'; }
-      else location.reload();
+      else apres();
     } catch (x) { err.textContent = x.message; }
   };
+  if (['connexion', 'inscription'].includes(pu.get('compte'))) setTimeout(() => {
+    if (etat.membre) { apres(); return; }
+    $('#btn-admin').click();
+    if (pu.get('compte') === 'inscription' && !$('#onglet-inscription').hidden) $('#onglet-inscription').click();
+  }, 600);
 }
 
 // Bouton « Reprendre la lecture » d'une lecture de configuration incomplète

@@ -1,7 +1,12 @@
 'use strict';
-// Section ADRASEC (édition française) : espace réservé aux membres d'une association départementale de
-// radiotransmetteurs au service de la sécurité civile, géré par les administrateurs de la carte.
-// - Membres : un compte de la carte devient membre quand un administrateur le valide ; l'administrateur coche aussi
+// Section ADRASEC (édition française) : espaces réservés aux associations départementales de radiotransmetteurs au
+// service de la sécurité civile. Une carte peut héberger les ADRASEC de plusieurs départements, chacune séparée
+// (membres, équipes, main courante, recherches). L'administrateur de la carte crée les ADRASEC et nomme leurs
+// présidents ; le président intègre ses membres, radioamateurs licenciés ou SWL (écouteurs, sans émission).
+// - Membres : un compte de la carte demande à rejoindre la section (page /adrasec) ; un administrateur de la carte
+//   ou un responsable de la section accepte la demande, ou l'ajoute directement. Les responsables (nommés par un
+//   administrateur de la carte) gèrent membres, équipes et réglages de la section sans être administrateurs de la carte.
+//   Un compte devient membre quand il est validé ; l'administrateur coche aussi
 //   « radioamateur licencié » avec l'indicatif (vérifié sur pièce par lui : certificat d'opérateur / ANFR), affecte
 //   une équipe et, en option, le nœud Meshtastic porté par le membre (sa position devient celle de l'équipe).
 // - Main courante : événements horodatés, signés par leur auteur, jamais modifiés (seulement complétés), export CSV.
@@ -24,71 +29,219 @@ const id = () => crypto.randomBytes(6).toString('hex');
 const txt = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b-\u001f]/g, '').trim().slice(0, max);
 
 function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positionDe = () => null, nomDe = () => null, radioPoint = null }) {
+  // Une carte peut héberger les ADRASEC de plusieurs départements : chacune a ses membres, son président (responsable),
+  // ses équipes, sa main courante et ses recherches. L'administrateur de la carte crée les ADRASEC et nomme les présidents.
   const fichier = path.join(path.dirname(config.fichierBase), 'adrasec.json');
-  let d = { actif: false, nom: 'ADRASEC', conservationJours: 365, membres: {}, equipes: [], mainCourante: [], recherches: [], releves: [] };
-  try { d = { ...d, ...lireJson(fichier) }; } catch { /* première utilisation */ }
+  const vide = (code, nom) => ({ code, nom: nom || 'ADRASEC ' + code, conservationJours: 365, membres: {}, demandes: {}, equipes: [], mainCourante: [], recherches: [], releves: [] });
+  let racine = { actif: false, groupes: {} };
+  try {
+    const brut = lireJson(fichier);
+    if (brut && brut.groupes) racine = { actif: !!brut.actif, groupes: brut.groupes };
+    else if (brut) { // ancien fichier (une seule section) : devient l'ADRASEC du département de la carte
+      const code = String((config.departement || {}).code || '00');
+      const g = { ...vide(code), ...brut, code, nom: !brut.nom || brut.nom === 'ADRASEC' ? 'ADRASEC ' + code : brut.nom };
+      delete g.actif;
+      racine = { actif: !!brut.actif, groupes: { [code]: g } };
+    }
+  } catch { /* première utilisation */ }
   let minuterie = null;
   const sauver = (vite) => {
     clearTimeout(minuterie);
-    const f = () => { try { ecrireSur(fichier, JSON.stringify(d)); } catch (e) { journal('[ADRASEC] enregistrement impossible :', e.message); } };
+    const f = () => { try { ecrireSur(fichier, JSON.stringify(racine)); } catch (e) { journal('[ADRASEC] enregistrement impossible :', e.message); } };
     if (vite) f(); else minuterie = setTimeout(f, 1500);
   };
-  const purger = () => {
-    const limite = Date.now() - Math.max(7, d.conservationJours || 365) * 86400000;
-    const n = d.mainCourante.length + d.releves.length;
-    d.mainCourante = d.mainCourante.filter((x) => x.heure >= limite);
-    d.releves = d.releves.filter((x) => x.heure >= limite);
-    d.recherches = d.recherches.filter((r) => r.statut === 'en-cours' || (r.fin || r.debut) >= limite);
-    if (d.mainCourante.length + d.releves.length !== n) sauver();
+  const groupeDeCompte = (cid) => Object.keys(racine.groupes).find((k) => racine.groupes[k].membres[cid]) || null;
+  const nomGroupe = (code) => (racine.groupes[code] || {}).nom || 'ADRASEC ' + code;
+  const ctx = { actif: () => racine.actif, sauver, journal, diffuser, positionDe, nomDe, radioPoint, groupeDeCompte, nomGroupe };
+  const instances = new Map();
+  const inst = (code) => {
+    const g = racine.groupes[code];
+    if (!g) return null;
+    let i = instances.get(code);
+    if (!i || i.g !== g) { i = creerGroupe(g, ctx); instances.set(code, i); }
+    return i;
   };
-  purger();
-  setInterval(purger, 6 * 3600000).unref();
+  const toutes = () => Object.keys(racine.groupes).sort().map(inst);
+  const purgerTout = () => toutes().forEach((i) => i.purger());
+  purgerTout();
+  setInterval(purgerTout, 6 * 3600000).unref();
+
+  const groupeDe = (compte) => (compte ? groupeDeCompte(compte.id) : null);
+  // ADRASEC vue par ce compte : la sienne ; un administrateur de la carte choisit (code) ou voit la première
+  function groupePour(compte, code) {
+    if (!compte) return null;
+    const mien = groupeDe(compte);
+    if (code && racine.groupes[code] && (compte.role === 'admin' || mien === code)) return inst(code);
+    if (mien) return inst(mien);
+    if (compte.role === 'admin') { const dep = String((config.departement || {}).code || ''); const c = racine.groupes[dep] ? dep : Object.keys(racine.groupes).sort()[0]; return c ? inst(c) : null; }
+    return null;
+  }
+  const estMembre = (compte) => !!compte && racine.actif && (compte.role === 'admin' || !!groupeDe(compte));
+  const listeGroupes = () => Object.values(racine.groupes).sort((a, b) => a.code.localeCompare(b.code)).map((g) => ({ code: g.code, nom: g.nom, membres: Object.keys(g.membres).length, presidents: Object.values(g.membres).filter((m) => m.responsable).length }));
+  // Créer, renommer ou supprimer une ADRASEC (administrateur de la carte)
+  function majGroupe(code, b, auteur) {
+    const c = txt(code || b.code, 3).toUpperCase();
+    if (!/^(\d{2,3}|2A|2B)$/.test(c)) throw new Error('Département : numéro à 2 ou 3 chiffres (ex. 43, 2A, 971)');
+    const g = racine.groupes[c];
+    if (b.supprimer) {
+      if (!g) return { groupes: listeGroupes() };
+      if (Object.keys(g.membres).length || g.recherches.length || g.mainCourante.length) throw new Error('Cette ADRASEC a encore des membres ou un historique : retirez d’abord les membres et attendez la fin de la conservation');
+      delete racine.groupes[c]; instances.delete(c);
+      journal(`[ADRASEC] ${g.nom} supprimée par ${auteur}`);
+    } else if (g) { if (b.nom !== undefined) g.nom = txt(b.nom, 40) || g.nom; }
+    else { racine.groupes[c] = vide(c, txt(b.nom, 40)); journal(`[ADRASEC] ${racine.groupes[c].nom} créée par ${auteur}`); }
+    sauver(true);
+    return { groupes: listeGroupes() };
+  }
+  function reglagesGlobaux(b) {
+    if (b.actif !== undefined) racine.actif = !!b.actif;
+    sauver(true);
+    return { actif: racine.actif };
+  }
+  function demander(compte, b) {
+    const codes = Object.keys(racine.groupes);
+    const code = b.groupe ? String(b.groupe) : codes.length === 1 ? codes[0] : null;
+    if (!code || !racine.groupes[code]) throw new Error('Choisissez l’ADRASEC de votre département');
+    for (const k of codes) if (k !== code) delete racine.groupes[k].demandes[compte.id];
+    return inst(code).demander(compte, b);
+  }
+  function demandeDe(compte) {
+    if (!compte) return null;
+    for (const g of Object.values(racine.groupes)) { const x = g.demandes && g.demandes[compte.id]; if (x) return { ...x, groupe: g.code, nomGroupe: g.nom }; }
+    return null;
+  }
+  // Gestion des comptes de la carte (administrateur) : case ADRASEC, ADRASEC du compte et président
+  function rolesComptes() {
+    const roles = {};
+    for (const g of Object.values(racine.groupes)) for (const [cid, m] of Object.entries(g.membres)) roles[cid] = { groupe: g.code, president: !!m.responsable };
+    return { actif: racine.actif, departement: String((config.departement || {}).code || ''), groupes: listeGroupes(), roles };
+  }
+  function roleCompte(compteId, b, auteur) {
+    const cid = Number(compteId);
+    if (!Number.isInteger(cid)) throw new Error('Compte inconnu');
+    const actuel = groupeDeCompte(cid);
+    if (!b.groupe) {
+      if (actuel) { delete racine.groupes[actuel].membres[cid]; journal(`[ADRASEC] compte ${cid} retiré de ${nomGroupe(actuel)} par ${auteur}`); }
+      sauver(true);
+      return { groupe: null, president: false };
+    }
+    let code = String(b.groupe).toUpperCase();
+    // Première ADRASEC : celle du département de la carte, créée à la première case cochée
+    if (code === 'AUTO') code = actuel || String((config.departement || {}).code || '') || Object.keys(racine.groupes)[0];
+    if (!racine.groupes[code]) { if (!/^(\d{2,3}|2A|2B)$/.test(code)) throw new Error('ADRASEC inconnue'); racine.groupes[code] = vide(code); journal(`[ADRASEC] ${racine.groupes[code].nom} créée par ${auteur}`); }
+    if (!racine.actif) racine.actif = true;
+    let m = actuel ? racine.groupes[actuel].membres[cid] : null;
+    if (actuel && actuel !== code) { delete racine.groupes[actuel].membres[cid]; m = { ...m, equipe: null }; }
+    m = m || { valide: Date.now(), par: auteur };
+    if (b.president !== undefined) m.responsable = !!b.president;
+    racine.groupes[code].membres[cid] = m;
+    delete racine.groupes[code].demandes[cid];
+    sauver(true);
+    journal(`[ADRASEC] compte ${cid} : ${m.responsable ? 'président' : 'membre'} de ${nomGroupe(code)} (par ${auteur})`);
+    return { groupe: code, president: !!m.responsable };
+  }
+  function vue(compte, comptesListe, G) {
+    return { ...G.vue(compte, comptesListe), groupes: compte.role === 'admin' ? listeGroupes() : undefined };
+  }
+
+  return {
+    actif: () => racine.actif, nom: () => 'ADRASEC', groupes: listeGroupes, groupeDe, groupePour, estMembre, nomGroupe,
+    majGroupe, reglagesGlobaux, demander, demandeDe, vue, rolesComptes, roleCompte,
+    texteRecu: (evt) => { if (racine.actif) toutes().forEach((i) => i.texteRecu(evt)); },
+    vueTerrain: (jeton) => { for (const i of toutes()) { const v = i.vueTerrain(jeton); if (v) return v; } return null; },
+  };
+}
+
+// ---- Une ADRASEC départementale ----------------------------------------------------------------------------------
+function creerGroupe(g, ctx) {
+  const { sauver, journal, diffuser, positionDe, nomDe, radioPoint } = ctx;
+  for (const k of ['membres', 'demandes']) g[k] = g[k] || {};
+  for (const k of ['equipes', 'mainCourante', 'recherches', 'releves']) g[k] = g[k] || [];
+  const purger = () => {
+    const limite = Date.now() - Math.max(7, g.conservationJours || 365) * 86400000;
+    const n = g.mainCourante.length + g.releves.length;
+    g.mainCourante = g.mainCourante.filter((x) => x.heure >= limite);
+    g.releves = g.releves.filter((x) => x.heure >= limite);
+    g.recherches = g.recherches.filter((r) => r.statut === 'en-cours' || (r.fin || r.debut) >= limite);
+    if (g.mainCourante.length + g.releves.length !== n) sauver();
+  };
 
   // ---- Accès ------------------------------------------------------------------------------------------------
-  const membre = (compte) => (compte && d.actif ? d.membres[compte.id] || null : null);
-  const estMembre = (compte) => !!compte && d.actif && (compte.role === 'admin' || !!membre(compte));
+  const membre = (compte) => (compte && ctx.actif() ? g.membres[compte.id] || null : null);
+  const estMembre = (compte) => !!compte && ctx.actif() && (compte.role === 'admin' || !!membre(compte));
+  // Responsable : gère la section (membres, équipes, réglages) ; nommé par un administrateur de la carte
+  const estResponsable = (compte) => !!compte && (compte.role === 'admin' || !!(membre(compte) && membre(compte).responsable));
   const estLicencie = (compte) => { const m = membre(compte); return !!(m && m.licencie && m.indicatif); };
-  const signature = (compte) => { const m = membre(compte); return (m && m.indicatif) || compte.indicatif || compte.identifiant; };
+  const signature = (compte) => { const m = membre(compte); return (m && (m.indicatif || m.numeroSwl)) || compte.indicatif || compte.identifiant; };
 
   // ---- Réglages et membres (administrateur) -----------------------------------------------------------------
   function reglages(b) {
-    if (b.actif !== undefined) d.actif = !!b.actif;
-    if (b.nom !== undefined) d.nom = txt(b.nom, 40) || 'ADRASEC';
-    if (b.conservationJours !== undefined) d.conservationJours = Math.min(3650, Math.max(7, Math.round(Number(b.conservationJours) || 365)));
+    if (b.nom !== undefined) g.nom = txt(b.nom, 40) || 'ADRASEC ' + g.code;
+    if (b.conservationJours !== undefined) g.conservationJours = Math.min(3650, Math.max(7, Math.round(Number(b.conservationJours) || 365)));
     sauver(true);
-    return { actif: d.actif, nom: d.nom, conservationJours: d.conservationJours };
+    return { nom: g.nom, conservationJours: g.conservationJours };
   }
-  function majMembre(compteId, b, auteur) {
+  function majMembre(compteId, b, auteur, parAdmin = false) {
     const cid = Number(compteId);
     if (!Number.isInteger(cid)) throw new Error('Compte inconnu');
+    if (!parAdmin && g.membres[cid] && g.membres[cid].responsable && (b.membre === false || b.responsable === false)) throw new Error('Seul un administrateur de la carte peut retirer un responsable');
     if (b.membre === false) {
-      if (d.membres[cid]) { delete d.membres[cid]; journal(`[ADRASEC] compte ${cid} retiré par ${auteur}`); }
+      if (g.membres[cid]) { delete g.membres[cid]; journal(`[ADRASEC] compte ${cid} retiré par ${auteur}`); }
       sauver(true);
       return { ok: true };
     }
-    const m = d.membres[cid] || { valide: Date.now(), par: auteur };
+    if (!g.membres[cid]) { const ailleurs = ctx.groupeDeCompte(cid); if (ailleurs && ailleurs !== g.code) throw new Error(`Ce compte est déjà membre de ${ctx.nomGroupe(ailleurs)}`); }
+    const m = g.membres[cid] || { valide: Date.now(), par: auteur };
+    // Qualité : radioamateur licencié (indicatif vérifié) ou SWL (écouteur, sans émission sur les bandes amateurs)
+    if (b.qualite !== undefined) { m.qualite = ['radioamateur', 'swl'].includes(b.qualite) ? b.qualite : null; b.licencie = m.qualite === 'radioamateur'; }
+    if (b.numeroSwl !== undefined) m.numeroSwl = txt(b.numeroSwl, 20).toUpperCase() || null;
     if (b.indicatif !== undefined) {
       const ind = txt(b.indicatif, 12).toUpperCase();
       if (ind && !INDICATIF.test(ind)) throw new Error('Indicatif invalide (ex. F4ABC)');
       m.indicatif = ind || null;
     }
-    if (b.licencie !== undefined) m.licencie = !!b.licencie;
+    if (b.licencie !== undefined) { m.licencie = !!b.licencie; if (m.licencie) m.qualite = 'radioamateur'; else if (m.qualite === 'radioamateur') m.qualite = null; }
     if (m.licencie && !m.indicatif) throw new Error('Un licencié doit avoir son indicatif');
-    if (b.equipe !== undefined) m.equipe = b.equipe && d.equipes.some((e) => e.id === b.equipe) ? b.equipe : null;
+    if (b.equipe !== undefined) m.equipe = b.equipe && g.equipes.some((e) => e.id === b.equipe) ? b.equipe : null;
     if (b.noeud !== undefined) { const n = Number(b.noeud); m.noeud = b.noeud === null || b.noeud === '' ? null : Number.isInteger(n) && n > 0 ? n >>> 0 : m.noeud ?? null; }
     if (b.fonction !== undefined) m.fonction = txt(b.fonction, 40) || null;
-    d.membres[cid] = m;
+    if (b.responsable !== undefined && !!b.responsable !== !!m.responsable) {
+      if (!parAdmin) throw new Error('Seul un administrateur de la carte peut nommer un responsable de la section');
+      m.responsable = !!b.responsable;
+    }
+    g.membres[cid] = m;
+    if (g.demandes) delete g.demandes[cid]; // demande d'adhésion satisfaite
     sauver(true);
     journal(`[ADRASEC] membre ${cid} mis à jour par ${auteur}${m.licencie ? ' (licencié ' + m.indicatif + ')' : ''}`);
     return { ok: true, membre: m };
   }
+  // ---- Demandes d'adhésion (un compte de la carte demande à rejoindre la section) ------------------------------
+  function demander(compte, b) {
+    if (!ctx.actif()) throw new Error('La section n’est pas encore ouverte');
+    if (ctx.groupeDeCompte(compte.id)) throw new Error('Vous êtes déjà membre d’une ADRASEC');
+    const ind = txt(b.indicatif, 12).toUpperCase();
+    if (ind && !INDICATIF.test(ind)) throw new Error('Indicatif invalide (ex. F4ABC)');
+    g.demandes = g.demandes || {};
+    const qualite = ['radioamateur', 'swl'].includes(b.qualite) ? b.qualite : null;
+    g.demandes[compte.id] = { heure: Date.now(), qualite, indicatif: qualite === 'swl' ? null : ind || null, numeroSwl: qualite === 'swl' ? txt(b.numeroSwl, 20).toUpperCase() || null : null, message: txt(b.message, 300) || null };
+    sauver(true);
+    journal(`[ADRASEC] demande d'adhésion du compte ${compte.id} (${g.nom})`);
+    diffuser({ genre: 'adrasec', quoi: 'demande' });
+    return { ok: true };
+  }
+  function refuserDemande(compteId, auteur) {
+    const cid = Number(compteId);
+    if (g.demandes && g.demandes[cid]) { delete g.demandes[cid]; sauver(true); journal(`[ADRASEC] demande du compte ${cid} refusée par ${auteur}`); }
+    return { ok: true };
+  }
+  const demandeDe = (compte) => (compte && g.demandes && g.demandes[compte.id]) || null;
   function majEquipe(eid, b) {
     if (eid) {
-      const e = d.equipes.find((x) => x.id === eid);
+      const e = g.equipes.find((x) => x.id === eid);
       if (!e) throw new Error('Équipe inconnue');
       if (b.supprimer) {
-        d.equipes = d.equipes.filter((x) => x !== e);
-        for (const m of Object.values(d.membres)) if (m.equipe === eid) m.equipe = null;
+        g.equipes = g.equipes.filter((x) => x !== e);
+        for (const m of Object.values(g.membres)) if (m.equipe === eid) m.equipe = null;
       } else {
         if (b.nom !== undefined) e.nom = txt(b.nom, 30) || e.nom;
         if (b.couleur !== undefined && /^#[0-9a-f]{6}$/i.test(b.couleur)) e.couleur = b.couleur;
@@ -98,10 +251,10 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
       const nom = txt(b.nom, 30);
       if (!nom) throw new Error('Nom d’équipe manquant');
       const couleurs = ['#ff8a1f', '#4cc9f0', '#b48cff', '#3ee68a', '#ff5c6c', '#ffd23f', '#e07bff', '#80ed99'];
-      d.equipes.push({ id: id(), nom, couleur: couleurs[d.equipes.length % couleurs.length], mission: txt(b.mission, 120) || null });
+      g.equipes.push({ id: id(), nom, couleur: couleurs[g.equipes.length % couleurs.length], mission: txt(b.mission, 120) || null });
     }
     sauver(true);
-    return { equipes: d.equipes };
+    return { equipes: g.equipes };
   }
 
   // ---- Main courante ----------------------------------------------------------------------------------------
@@ -109,17 +262,17 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
     const texte = txt(b.texte, 1000);
     if (!texte) throw new Error('Texte vide');
     const x = { id: id(), heure: Date.now(), auteur: compte ? signature(compte) : extra.auteur || 'radio', type: TYPES_MC.includes(b.type) ? b.type : 'information',
-      equipe: b.equipe && d.equipes.some((e) => e.id === b.equipe) ? b.equipe : (compte && membre(compte) && membre(compte).equipe) || null, texte, complete: b.complete && d.mainCourante.some((y) => y.id === b.complete) ? b.complete : null, ...extra };
-    d.mainCourante.push(x);
-    if (d.mainCourante.length > 20000) d.mainCourante.splice(0, d.mainCourante.length - 20000);
+      equipe: b.equipe && g.equipes.some((e) => e.id === b.equipe) ? b.equipe : (compte && membre(compte) && membre(compte).equipe) || null, texte, complete: b.complete && g.mainCourante.some((y) => y.id === b.complete) ? b.complete : null, ...extra };
+    g.mainCourante.push(x);
+    if (g.mainCourante.length > 20000) g.mainCourante.splice(0, g.mainCourante.length - 20000);
     sauver();
     diffuser({ genre: 'adrasec', quoi: 'main-courante' });
     return x;
   }
   function csvMc() {
-    const eq = new Map(d.equipes.map((e) => [e.id, e.nom]));
+    const eq = new Map(g.equipes.map((e) => [e.id, e.nom]));
     const c = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    return '﻿' + ['Date;Heure;Auteur;Équipe;Type;Texte;Complète'].concat(d.mainCourante.map((x) => {
+    return '﻿' + ['Date;Heure;Auteur;Équipe;Type;Texte;Complète'].concat(g.mainCourante.map((x) => {
       const t = new Date(x.heure);
       return [t.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }), t.toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris' }), x.auteur, eq.get(x.equipe) || '', x.type, x.texte, x.complete || ''].map(c).join(';');
     })).join('\r\n');
@@ -130,12 +283,12 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
     if (!rid) {
       const nom = txt(b.nom, 60) || `Recherche du ${new Date().toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}`;
       const r = { id: id(), nom, frequence: FREQUENCES.includes(b.frequence) ? b.frequence : '121,5 MHz', detail: txt(b.detail, 120) || null, debut: Date.now(), fin: null, statut: 'en-cours', ouvertePar: signature(compte) };
-      d.recherches.unshift(r);
+      g.recherches.unshift(r);
       ajouterMc(compte, { texte: `Ouverture de la recherche « ${r.nom} » (${r.frequence}${r.detail ? ', ' + r.detail : ''})`, type: 'decision' });
       sauver(true);
       return r;
     }
-    const r = d.recherches.find((x) => x.id === rid);
+    const r = g.recherches.find((x) => x.id === rid);
     if (!r) throw new Error('Recherche inconnue');
     if (b.cloturer) {
       r.statut = 'terminee'; r.fin = Date.now();
@@ -156,10 +309,10 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
     return p && p.lat != null ? p : null;
   }
   function ajouterReleve(compte, b, origine = 'saisie') {
-    const r = d.recherches.find((x) => x.id === b.recherche) || d.recherches.find((x) => x.statut === 'en-cours');
+    const r = g.recherches.find((x) => x.id === b.recherche) || g.recherches.find((x) => x.statut === 'en-cours');
     if (!r || r.statut !== 'en-cours') throw new Error('Aucune recherche en cours : ouvrez-en une d’abord');
-    const g = Number(String(b.gisement).replace(',', '.'));
-    if (!(g >= 0 && g <= 360)) throw new Error('Gisement entre 0 et 360°');
+    const gis = Number(String(b.gisement).replace(',', '.'));
+    if (!(gis >= 0 && gis <= 360)) throw new Error('Gisement entre 0 et 360°');
     const inc = b.incertitude == null || b.incertitude === '' ? 5 : Number(String(b.incertitude).replace(',', '.'));
     if (!(inc >= 0.5 && inc <= 45)) throw new Error('Incertitude entre 0,5 et 45°');
     let pos = null, source = null;
@@ -169,8 +322,8 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
     else if (b.noeud || (m && m.noeud)) { const n = Number(b.noeud || m.noeud) >>> 0; const p = positionDe(n); if (!p || p.lat == null) throw new Error('Position du nœud inconnue'); pos = p; source = 'nœud ' + (nomDe(n) || '!' + n.toString(16)); }
     if (!pos || Math.abs(pos.lat) > 90 || Math.abs(pos.lon) > 180) throw new Error('Position de l’équipe manquante (GPS, locator, clic sur la carte ou nœud)');
     const x = { id: id(), recherche: r.id, heure: Date.now(), auteur: compte ? signature(compte) : b.auteur || 'radio', equipe: b.equipe || (m && m.equipe) || null,
-      lat: +pos.lat.toFixed(6), lon: +pos.lon.toFixed(6), source, gisement: +(g % 360).toFixed(1), incertitude: +inc.toFixed(1), force: txt(b.force, 20) || null, note: txt(b.note, 200) || null, origine };
-    d.releves.push(x);
+      lat: +pos.lat.toFixed(6), lon: +pos.lon.toFixed(6), source, gisement: +(gis % 360).toFixed(1), incertitude: +inc.toFixed(1), force: txt(b.force, 20) || null, note: txt(b.note, 200) || null, origine };
+    g.releves.push(x);
     sauver();
     ajouterMc(compte, { texte: `Relevé ${x.gisement}° ±${x.incertitude}° depuis ${Gonio.versLocator(x.lat, x.lon, 8)} (${x.source})${x.force ? ', force ' + x.force : ''}${x.note ? ' — ' + x.note : ''}`, type: 'information', equipe: x.equipe }, compte ? {} : { auteur: x.auteur });
     diffuser({ genre: 'adrasec', quoi: 'releves', recherche: r.id });
@@ -178,9 +331,9 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
     return x;
   }
   function retirerReleve(compte, rid) {
-    const x = d.releves.find((y) => y.id === rid);
+    const x = g.releves.find((y) => y.id === rid);
     if (!x) throw new Error('Relevé inconnu');
-    if (compte.role !== 'admin' && x.auteur !== signature(compte)) throw new Error('Seul l’auteur ou un administrateur peut retirer ce relevé');
+    if (!estResponsable(compte) && x.auteur !== signature(compte)) throw new Error('Seul l’auteur ou un responsable peut retirer ce relevé');
     x.retire = { heure: Date.now(), par: signature(compte) }; // gardé pour la main courante, mais hors calcul
     ajouterMc(compte, { texte: `Relevé ${x.gisement}° de ${x.auteur} retiré du calcul`, type: 'decision' });
     sauver();
@@ -188,17 +341,17 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
     return { ok: true };
   }
   function localiser(rid) {
-    return Gonio.localiser(d.releves.filter((x) => x.recherche === rid && !x.retire));
+    return Gonio.localiser(g.releves.filter((x) => x.recherche === rid && !x.retire));
   }
 
   // Relevé reçu par radio : « GONIO 125 » / « GIS 125/5 » depuis le nœud d'un membre, sur une recherche en cours
   const vus = new Map();
   function texteRecu(evt) {
-    if (!d.actif || !evt || !evt.texte) return;
+    if (!ctx.actif() || !evt || !evt.texte) return;
     const lu = Gonio.lireMessage(evt.texte);
     if (!lu) return;
     const de = evt.de >>> 0;
-    const entree = Object.entries(d.membres).find(([, m]) => m.noeud === de);
+    const entree = Object.entries(g.membres).find(([, m]) => m.noeud === de);
     if (!entree) return;
     const cle = `${de}:${evt.texte}`;
     if (Date.now() - (vus.get(cle) || 0) < 120000) return; // même message reçu par plusieurs sources
@@ -227,7 +380,7 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
     return `🎯 BALISE ${r.nom} : ${e.lat.toFixed(5)},${e.lon.toFixed(5)} · ${Gonio.versLocator(e.lat, e.lon, 8)}${dfci ? ' · DFCI ' + dfci : ''} · ±${fmtKm(loc.ellipse ? loc.ellipse.grandAxeM : 0)} (${loc.utilises || loc.nb} relevés)`;
   }
   async function diffuserBalise(rid, b = {}, compte = null, { fin = false, auto = false } = {}) {
-    const r = d.recherches.find((x) => x.id === rid);
+    const r = g.recherches.find((x) => x.id === rid);
     if (!r) throw new Error('Recherche inconnue');
     if (!radioPoint) throw new Error('Envoi radio indisponible sur cette carte');
     r.diffusion = r.diffusion || { idPoint: (crypto.randomBytes(4).readUInt32LE(0) >>> 0) || 1, canal: 0, auto: false, dernier: null };
@@ -250,7 +403,7 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
   }
   let derniereAuto = 0;
   function diffusionAuto(rid) {
-    const r = d.recherches.find((x) => x.id === rid);
+    const r = g.recherches.find((x) => x.id === rid);
     if (!r || r.statut !== 'en-cours' || !r.diffusion || !r.diffusion.auto) return;
     const loc = localiser(rid);
     if (!loc.estimation) return;
@@ -262,7 +415,7 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
 
   // ---- Lien terrain : lecture seule, sans compte, une recherche, jusqu'à sa clôture (48 h au plus) ------------
   function creerLien(rid, compte) {
-    const r = d.recherches.find((x) => x.id === rid);
+    const r = g.recherches.find((x) => x.id === rid);
     if (!r || r.statut !== 'en-cours') throw new Error('Recherche en cours inconnue');
     r.lien = { jeton: crypto.randomBytes(16).toString('hex'), expire: Date.now() + 48 * 3600000, cree: Date.now(), par: signature(compte) };
     sauver(true);
@@ -270,48 +423,51 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
     return { jeton: r.lien.jeton, expire: r.lien.expire };
   }
   function couperLien(rid, compte) {
-    const r = d.recherches.find((x) => x.id === rid);
+    const r = g.recherches.find((x) => x.id === rid);
     if (!r) throw new Error('Recherche inconnue');
     if (r.lien) { r.lien = null; sauver(true); ajouterMc(compte, { texte: `Lien terrain de la recherche « ${r.nom} » désactivé`, type: 'information' }); }
     return { ok: true };
   }
   function vueTerrain(jeton) {
-    if (!d.actif || !/^[0-9a-f]{32}$/.test(String(jeton || ''))) return null;
-    const r = d.recherches.find((x) => x.lien && x.lien.jeton === jeton);
+    if (!ctx.actif() || !/^[0-9a-f]{32}$/.test(String(jeton || ''))) return null;
+    const r = g.recherches.find((x) => x.lien && x.lien.jeton === jeton);
     if (!r || r.statut !== 'en-cours' || r.lien.expire < Date.now()) return null;
-    const eq = new Map(d.equipes.map((e) => [e.id, e]));
+    const eq = new Map(g.equipes.map((e) => [e.id, e]));
     return {
-      section: d.nom, recherche: { nom: r.nom, frequence: r.frequence, detail: r.detail, debut: r.debut },
-      releves: d.releves.filter((x) => x.recherche === r.id && !x.retire).map((x) => ({ id: x.id, heure: x.heure, equipe: x.equipe ? (eq.get(x.equipe) || {}).nom || null : null, couleur: x.equipe ? (eq.get(x.equipe) || {}).couleur || null : null, lat: x.lat, lon: x.lon, gisement: x.gisement, incertitude: x.incertitude, force: x.force })),
+      section: g.nom, recherche: { nom: r.nom, frequence: r.frequence, detail: r.detail, debut: r.debut },
+      releves: g.releves.filter((x) => x.recherche === r.id && !x.retire).map((x) => ({ id: x.id, heure: x.heure, equipe: x.equipe ? (eq.get(x.equipe) || {}).nom || null : null, couleur: x.equipe ? (eq.get(x.equipe) || {}).couleur || null : null, lat: x.lat, lon: x.lon, gisement: x.gisement, incertitude: x.incertitude, force: x.force })),
       calcul: localiser(r.id),
       // Positions des équipes (nœud porté), sans nom de personne
-      equipes: d.equipes.map((e) => ({ nom: e.nom, couleur: e.couleur, mission: e.mission || null, positions: Object.values(d.membres).filter((m) => m.equipe === e.id).map(positionMembre).filter(Boolean).map((p) => ({ lat: p.lat, lon: p.lon, heure: p.heure || null })) })),
+      equipes: g.equipes.map((e) => ({ nom: e.nom, couleur: e.couleur, mission: e.mission || null, positions: Object.values(g.membres).filter((m) => m.equipe === e.id).map(positionMembre).filter(Boolean).map((p) => ({ lat: p.lat, lon: p.lon, heure: p.heure || null })) })),
       expire: r.lien.expire,
     };
   }
 
   // ---- Vue complète pour la page ADRASEC --------------------------------------------------------------------
-  function vue(compte, comptesListe, admin) {
+  function vue(compte, comptesListe) {
+    const admin = estResponsable(compte);
     const moi = membre(compte);
-    const membres = Object.entries(d.membres).map(([cid, m]) => {
+    const membres = Object.entries(g.membres).map(([cid, m]) => {
       const c = comptesListe.find((x) => x.id === Number(cid));
       const pos = positionMembre(m);
-      return { compte: Number(cid), nom: c ? c.identifiant : '(compte supprimé)', indicatif: m.indicatif || null, licencie: !!m.licencie, equipe: m.equipe || null, fonction: m.fonction || null,
+      return { compte: Number(cid), nom: c ? c.identifiant : '(compte supprimé)', indicatif: m.indicatif || null, licencie: !!m.licencie, qualite: m.qualite || (m.licencie ? 'radioamateur' : null), numeroSwl: m.numeroSwl || null, responsable: !!m.responsable, equipe: m.equipe || null, fonction: m.fonction || null,
         noeud: m.noeud || null, nomNoeud: m.noeud ? nomDe(m.noeud) : null, position: pos ? { lat: pos.lat, lon: pos.lon, heure: pos.heure || null } : null };
     });
-    const recherches = d.recherches.slice(0, 30).map((r) => ({ ...r, releves: d.releves.filter((x) => x.recherche === r.id), calcul: localiser(r.id) }));
+    const recherches = g.recherches.slice(0, 30).map((r) => ({ ...r, releves: g.releves.filter((x) => x.recherche === r.id), calcul: localiser(r.id) }));
     return {
-      nom: d.nom, actif: d.actif, conservationJours: d.conservationJours,
-      moi: { identifiant: compte.identifiant, admin: compte.role === 'admin', membre: !!moi, licencie: estLicencie(compte), indicatif: moi ? moi.indicatif : null, equipe: moi ? moi.equipe : null, noeud: moi ? moi.noeud : null },
-      equipes: d.equipes, membres, typesMc: TYPES_MC, frequences: FREQUENCES,
-      mainCourante: d.mainCourante.slice(-400),
+      nom: g.nom, code: g.code, actif: ctx.actif(), conservationJours: g.conservationJours,
+      moi: { identifiant: compte.identifiant, admin: compte.role === 'admin', responsable: admin, membre: !!moi, licencie: estLicencie(compte), qualite: moi ? moi.qualite || (moi.licencie ? 'radioamateur' : null) : null, indicatif: moi ? moi.indicatif : null, equipe: moi ? moi.equipe : null, noeud: moi ? moi.noeud : null },
+      equipes: g.equipes, membres, typesMc: TYPES_MC, frequences: FREQUENCES,
+      mainCourante: g.mainCourante.slice(-400),
       recherches,
-      comptes: admin ? comptesListe.filter((c) => c.statut === 'actif').map((c) => ({ id: c.id, identifiant: c.identifiant, indicatif: c.indicatif || null, role: c.role, adrasec: !!d.membres[c.id] })) : undefined,
+      comptes: admin ? comptesListe.filter((c) => c.statut === 'actif').map((c) => ({ id: c.id, identifiant: c.identifiant, indicatif: c.indicatif || null, role: c.role, adrasec: !!g.membres[c.id], autre: g.membres[c.id] ? null : ctx.groupeDeCompte(c.id) })) : undefined,
+      demandes: admin ? Object.entries(g.demandes || {}).map(([cid, x]) => { const c = comptesListe.find((y) => y.id === Number(cid) && y.statut === 'actif'); return c && !g.membres[cid] ? { compte: c.id, identifiant: c.identifiant, indicatifCompte: c.indicatif || null, ...x } : null; }).filter(Boolean) : undefined,
+      comptesEnAttente: compte.role === 'admin' ? comptesListe.filter((c) => c.statut === 'en_attente').length : undefined,
     };
   }
 
   return {
-    actif: () => d.actif, nom: () => d.nom, estMembre, estLicencie, signature,
+    g, purger, membre, estMembre, estResponsable, estLicencie, signature, demander, refuserDemande, demandeDe,
     reglages, majMembre, majEquipe, ajouterMc, csvMc, majRecherche, ajouterReleve, retirerReleve, localiser, texteRecu, vue,
     diffuserBalise, creerLien, couperLien, vueTerrain,
   };

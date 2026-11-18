@@ -858,12 +858,19 @@ async function rendreComptes() {
   const z = $('#pan-comptes');
   let liste;
   try { liste = await api('/api/comptes'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  // Section ADRASEC (édition française) : case par compte, ADRASEC du département et président
+  const ad = await api('/api/adrasec/roles').catch(() => null);
+  const caseAdrasec = (c) => {
+    const r = (ad.roles || {})[c.id], gr = ad.groupes || [];
+    return `<td class="col-adrasec"><label class="case" title="Membre d’une ADRASEC : ouvre la section ADRASEC (main courante, radiogoniométrie, équipes)"><input type="checkbox" data-adrasec ${r ? 'checked' : ''}> ADRASEC</label>${r ? `${gr.length > 1 ? `<br><select data-adrasec-groupe class="mini">${gr.map((g) => `<option value="${esc(g.code)}" ${g.code === r.groupe ? 'selected' : ''}>${esc(g.nom)}</option>`).join('')}</select>` : ''}<br><label class="case" title="Président (responsable) de son ADRASEC : accepte les demandes, intègre les membres et gère l’ADRASEC, sans être administrateur de la carte"><input type="checkbox" data-adrasec-pres ${r.president ? 'checked' : ''}> Président</label>` : ''}</td>`;
+  };
   const STATUTS = { actif: 'Actif', en_attente: 'À valider', desactive: 'Désactivé' };
   z.innerHTML = `
-    <table class="voisins comptes"><thead><tr><th>Identifiant</th><th>Indicatif</th><th>Rôle</th><th>Statut</th><th>Dernière connexion</th><th></th></tr></thead><tbody>
+    <table class="voisins comptes"><thead><tr><th>Identifiant</th><th>Indicatif</th><th>Rôle</th>${ad ? '<th>ADRASEC</th>' : ''}<th>Statut</th><th>Dernière connexion</th><th></th></tr></thead><tbody>
     ${liste.map((c) => `<tr data-id="${c.id}">
       <td><b>${esc(c.identifiant)}</b>${c.email ? `<br><small>${esc(c.email)}</small>` : ''}</td><td>${esc(c.indicatif || '–')}</td>
       <td><select data-role>${['membre', 'gestionnaire', 'admin'].map((r) => `<option value="${r}" ${c.role === r ? 'selected' : ''}>${ROLES_COMPTE[r]}</option>`).join('')}</select>${c.role === 'gestionnaire' ? `<br><button class="mini" data-secteur>Secteur : ${(c.noeuds || []).length} nœud(s)…</button>` : ''}</td>
+      ${ad ? caseAdrasec(c) : ''}
       <td><span class="badge ${c.statut === 'actif' ? 'actif' : c.statut === 'en_attente' ? 'attente' : 'inactif'}">${STATUTS[c.statut] || c.statut}</span>${c.deuxFacteurs ? ' <span class="badge actif" title="Double authentification activée">2FA</span>' : ''}</td>
       <td>${c.derniere ? ilYa(c.derniere) : 'jamais'}</td>
       <td class="actions-ligne">${c.statut === 'en_attente' ? '<button data-statut="actif" class="principal">Valider</button>' : c.statut === 'actif' ? '<button data-statut="desactive">Désactiver</button>' : '<button data-statut="actif">Réactiver</button>'}${c.deuxFacteurs ? '<button data-retirer-2fa title="Téléphone perdu : retirer la double authentification de ce compte">Retirer 2FA</button>' : ''}<button data-deco title="Fermer toutes les sessions ouvertes de ce compte">Déconnecter</button><button data-suppr title="Supprimer">✕</button></td>
@@ -879,7 +886,8 @@ async function rendreComptes() {
     </form>
     <p class="erreur" id="retour-comptes"></p>
     <div id="edition-secteur"></div>
-    <p class="note">Un <b>membre</b> voit les messages texte et les positions exactes. Un <b>gestionnaire de secteur</b> programme à distance, remplit la fiche d’installation et teste (traceroute) les seuls nœuds de son secteur, Meshtastic ou MeshCore. Un <b>administrateur</b> gère en plus les comptes, les réglages, les modules et tous les nœuds.</p>`;
+    <p class="note">Un <b>membre</b> voit les messages texte et les positions exactes. Un <b>gestionnaire de secteur</b> programme à distance, remplit la fiche d’installation et teste (traceroute) les seuls nœuds de son secteur, Meshtastic ou MeshCore. Un <b>administrateur</b> gère en plus les comptes, les réglages, les modules et tous les nœuds.</p>
+    ${ad ? '<p class="note">ADRASEC : la case ouvre la section ADRASEC au compte. Président : il gère son ADRASEC et en intègre les membres.</p>' : ''}`;
   const retour = (t) => ($('#retour-comptes').textContent = t);
   const action = async (fn) => { try { await fn(); rendreComptes(); } catch (e) { retour(e.message); } };
   z.querySelectorAll('tr[data-id]').forEach((tr) => {
@@ -891,6 +899,14 @@ async function rendreComptes() {
     const b2f = tr.querySelector('[data-retirer-2fa]');
     if (b2f) b2f.onclick = async () => { if ((await confirmer('Retirer la double authentification de ce compte ?'))) action(() => postJson(`/api/comptes/${id}`, { retirerDeuxFacteurs: true })); };
     tr.querySelector('[data-deco]').onclick = () => action(() => postJson(`/api/comptes/${id}`, { deconnecter: true }));
+    const ca = tr.querySelector('[data-adrasec]');
+    if (ca) {
+      const r = (ad.roles || {})[id], groupe = () => (tr.querySelector('[data-adrasec-groupe]') || {}).value || (r && r.groupe) || 'AUTO';
+      const envoyer = (corps) => action(() => postJson(`/api/adrasec/roles/${id}`, corps, 'PUT'));
+      ca.onchange = () => envoyer(ca.checked ? { groupe: 'AUTO' } : { groupe: '' });
+      const sg = tr.querySelector('[data-adrasec-groupe]'); if (sg) sg.onchange = () => envoyer({ groupe: sg.value });
+      const cp = tr.querySelector('[data-adrasec-pres]'); if (cp) cp.onchange = () => envoyer({ groupe: groupe(), president: cp.checked });
+    }
     const bsec = tr.querySelector('[data-secteur]');
     if (bsec) bsec.onclick = () => editerSecteur(liste.find((c) => String(c.id) === id), () => rendreComptes());
   });

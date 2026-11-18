@@ -4,14 +4,37 @@ Espace **réservé** aux membres d'une ADRASEC (radiotransmetteurs au service de
 
 Rien de cette section n'apparaît sur la carte publique.
 
-## Mise en route (administrateur)
+## Organisation : une ADRASEC par département
 
-1. **Outils › 🛰️ Section ADRASEC › ⚙️ Gestion** : cocher **Section activée**, donner le nom affiché (ex. *ADRASEC 43*) et la durée de conservation.
-2. **Équipes** : créer les équipes (ex. *Gonio 1*, *Gonio 2*, *PC radio*) ; chacune a sa couleur et une mission.
-3. **Membres** : pour chaque compte de la carte, cocher **Membre**, choisir l'équipe et, si le membre porte un nœud Meshtastic, son numéro (`!a1b2c3d4`). Sa position s'affiche alors en direct et sert de position par défaut pour ses relevés.
-4. **Licencié** : à cocher **seulement après avoir vérifié** le certificat d'opérateur radioamateur (ou l'autorisation ANFR), avec l'indicatif. C'est cette case qui ouvre la rédaction et les sessions Winlink.
+Une même carte peut héberger les ADRASEC de **plusieurs départements**. Chacune est **séparée** : ses membres, son président, ses équipes, sa main courante et ses recherches de balise. Un membre appartient à une seule ADRASEC et ne voit que la sienne.
 
-Un compte doit d'abord exister sur la carte (voir [[Comptes et sécurité|Comptes-et-sécurité]]).
+| Qui | Fait quoi |
+|---|---|
+| **Administrateur de la carte** | Active la section, crée les ADRASEC hébergées (43, 42, 07…), nomme leurs **présidents**. Il voit toutes les ADRASEC (liste de choix en haut à droite). |
+| **Président** (ou responsable) | Accepte les demandes d'adhésion, intègre les membres, crée les équipes et les missions, règle son ADRASEC. Il n'est pas administrateur de la carte. |
+| **Membre** | **Radioamateur licencié** (indicatif vérifié) ou **SWL** (écouteur) : main courante, relevés gonio, équipes. Seuls les licenciés émettent (Winlink). |
+
+## Mise en route
+
+**Administrateur de la carte**
+1. **Outils › 🛰️ Section ADRASEC › ⚙️ Gestion** : cocher **Section ADRASEC activée sur la carte**.
+2. **ADRASEC hébergées** : saisir le numéro du département et le nom (ex. *ADRASEC 43*), puis **Créer l'ADRASEC**.
+3. Nommer le président : ouvrir l'ADRASEC, intégrer son compte comme membre et cocher **Président / responsable**.
+
+**Futurs membres**
+1. Ouvrir `https://votre-carte/adrasec`, cliquer **Créer mon compte** (ou **Me connecter**).
+2. Revenir sur la page, choisir l'ADRASEC de son département, indiquer **radioamateur licencié** (avec l'indicatif) ou **SWL** (avec son numéro d'écouteur s'il en a un), puis **Demander à rejoindre**.
+
+**Président**
+1. **⚙️ Gestion › Demandes d'adhésion** : **Accepter** ou **Refuser**. Le bouton **Copier** donne le lien à envoyer aux membres.
+2. Sur chaque fiche : **Qualité** (radioamateur licencié, SWL ou autre bénévole), équipe, fonction et, si le membre porte un nœud Meshtastic, son nom ou son numéro (`!a1b2c3d4`). Sa position s'affiche alors en direct et sert de position par défaut pour ses relevés.
+3. **Radioamateur licencié** : à choisir **seulement après avoir vérifié** le certificat d'opérateur (ou l'autorisation ANFR). C'est ce choix qui ouvre la rédaction et les sessions Winlink.
+4. **Intégrer un compte de la carte** : pour ajouter directement quelqu'un qui a déjà un compte.
+5. **Équipes** : créer les équipes (ex. *Gonio 1*, *PC radio*) ; chacune a sa couleur et sa mission.
+
+Si la carte valide les nouveaux comptes (**inscriptions sur validation**), l'administrateur de la carte doit d'abord valider le compte dans **Gérer › Comptes** ; la page Gestion de l'ADRASEC le signale.
+
+> **Winlink** : le client Pat est unique sur la carte (un seul indicatif Winlink). Si plusieurs ADRASEC sont hébergées, leurs membres licenciés partagent la même boîte ; chaque message est signé de l'indicatif du membre et du nom de son ADRASEC.
 
 ## Main courante
 

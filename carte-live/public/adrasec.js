@@ -6,7 +6,10 @@
   const esc = (s) => String(s ?? '').replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmt = (n, d = 0) => (n == null || !Number.isFinite(Number(n)) ? '–' : Number(n).toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }));
   const heure = (t) => new Date(t).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  let groupe = null; // ADRASEC consultée par un administrateur de la carte (?g=43)
+  const avecGroupe = (url) => (groupe && /^\/api\/adrasec(\/|$|\?|\.)/.test(url) && !/\/api\/adrasec\/(acces|demande|groupes)/.test(url) ? url + (url.includes('?') ? '&' : '?') + 'g=' + encodeURIComponent(groupe) : url);
   async function api(url, opts = {}) {
+    url = avecGroupe(url);
     const r = await fetch(url, { credentials: 'same-origin', ...opts, headers: { ...(opts.body ? { 'Content-Type': 'application/json' } : {}), ...(opts.headers || {}) }, body: opts.body ? JSON.stringify(opts.body) : undefined });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.erreur || 'Erreur ' + r.status);
@@ -15,11 +18,40 @@
   const memo = (k, v) => { try { if (v === undefined) return localStorage.getItem('adrasec-' + k); localStorage.setItem('adrasec-' + k, v); } catch { /* navigateur sans stockage */ } return null; };
 
   // ---- Accès -----------------------------------------------------------------------------------------------
+  groupe = memo('groupe') || null;
   const acces = await api('/api/adrasec/acces').catch(() => ({ acces: false }));
   $('#titre').textContent = `Section ${acces.nom || 'ADRASEC'}`;
   document.title = `Section ${acces.nom || 'ADRASEC'}`;
   if (!acces.acces) {
-    document.querySelector('main').innerHTML = `<div style="margin:auto;max-width:520px;padding:24px" class="bandeau"><b>Accès réservé.</b><br>Cette section est réservée aux membres de ${esc(acces.nom || 'l’ADRASEC')} validés par un administrateur de la carte. Connectez-vous sur la carte avec votre compte, puis demandez à un administrateur de vous ajouter à la section.</div>`;
+    // Pas encore membre : se connecter (ou créer son compte), puis demander à rejoindre l'ADRASEC de son département
+    const nomS = esc(acces.nom || 'ADRASEC'), z = document.querySelector('main');
+    const cadre = (h) => { z.innerHTML = `<div class="adhesion bandeau">${h}</div>`; };
+    if (!acces.connecte) {
+      cadre(`<h2>Section ${nomS}</h2><p>Cette section est réservée aux membres des ADRASEC (radioamateurs et SWL). Pour la rejoindre :</p>
+        <ol><li><b>Créez votre compte</b> sur la carte (ou connectez-vous si vous en avez déjà un).</li><li>Revenez ici et demandez à rejoindre l’ADRASEC de votre département.</li><li>Le président de l’ADRASEC valide votre demande.</li></ol>
+        <div class="ligne-champs">${acces.inscriptions !== 'fermees' ? '<a class="bouton principal" href="/?compte=inscription&amp;retour=/adrasec">Créer mon compte</a>' : ''}<a class="bouton" href="/?compte=connexion&amp;retour=/adrasec">Me connecter</a></div>
+        ${acces.inscriptions === 'validation' ? '<p class="note">Sur cette carte, un administrateur valide d’abord les nouveaux comptes.</p>' : ''}`);
+    } else if (!acces.actif || !(acces.groupes || []).length) {
+      cadre(`<h2>Section ${nomS}</h2><p>Aucune ADRASEC n’est encore ouverte sur cette carte. Revenez plus tard.</p>`);
+    } else if (acces.demande) {
+      cadre(`<h2>${esc(acces.demande.nomGroupe || nomS)}</h2><p>✔ Votre demande a été envoyée le ${new Date(acces.demande.heure).toLocaleString('fr-FR')}.</p><p>Le président de l’ADRASEC doit la valider ; cette page s’ouvrira alors entièrement.</p>`);
+    } else {
+      const gr = acces.groupes;
+      cadre(`<h2>Rejoindre une ADRASEC</h2><p>Connecté en tant que <b>${esc(acces.identifiant)}</b>.</p>
+        <label>ADRASEC de votre département <select id="ad-groupe">${gr.length > 1 ? '<option value="">— choisir —</option>' : ''}${gr.map((x) => `<option value="${esc(x.code)}">${esc(x.nom)}</option>`).join('')}</select></label>
+        <label>Vous êtes <select id="ad-qualite"><option value="radioamateur">radioamateur licencié</option><option value="swl">SWL (écouteur)</option><option value="">autre bénévole</option></select></label>
+        <label title="Votre indicatif radioamateur (vérifié ensuite par le président)">Indicatif <input id="ad-ind" class="mono" value="${esc(acces.indicatif || '')}" placeholder="F4ABC"></label>
+        <label title="Votre numéro d’écouteur si vous en avez un (ex. F-12345)" id="ad-swl-l" hidden>Numéro SWL (facultatif) <input id="ad-swl" class="mono" placeholder="F-12345"></label>
+        <label>Message au président (facultatif) <textarea id="ad-msg" rows="3" placeholder="ex. Membre depuis 2019, équipe gonio de Monistrol"></textarea></label>
+        <div class="ligne-champs"><button id="ad-envoyer" class="principal">Demander à rejoindre</button><span id="ad-retour" class="erreur"></span></div>`);
+      const majQ = () => { const q = $('#ad-qualite').value; $('#ad-ind').closest('label').hidden = q !== 'radioamateur'; $('#ad-swl-l').hidden = q !== 'swl'; };
+      $('#ad-qualite').onchange = majQ; majQ();
+      $('#ad-envoyer').onclick = async () => {
+        const q = $('#ad-qualite').value;
+        try { await api('/api/adrasec/demande', { method: 'POST', body: { groupe: $('#ad-groupe').value, qualite: q, indicatif: q === 'radioamateur' ? $('#ad-ind').value : '', numeroSwl: q === 'swl' ? $('#ad-swl').value : '', message: $('#ad-msg').value } }); location.reload(); }
+        catch (e) { $('#ad-retour').textContent = e.message; }
+      };
+    }
     return;
   }
 
@@ -89,14 +121,23 @@
   }
 
   async function charger() {
-    try { E = await api('/api/adrasec'); } catch (e) { $('#vue-mc').innerHTML = `<p class="erreur">${esc(e.message)}</p>`; return; }
-    $('#moi').innerHTML = `${esc(E.moi.indicatif || E.moi.identifiant)} ${E.moi.licencie ? '<span class="pastille ok">licencié</span>' : '<span class="pastille">non licencié</span>'}${E.moi.admin ? ' <span class="pastille">admin</span>' : ''}`;
-    $('#onglets [data-vue="gestion"]').hidden = !E.moi.admin;
-    if (!E.actif) $('#vue-mc').innerHTML = `<div class="bandeau">La section est <b>désactivée</b>. ${E.moi.admin ? 'Activez-la dans l’onglet ⚙️ Gestion, puis ajoutez les membres.' : ''}</div>`;
+    try { E = await api('/api/adrasec'); } catch (e) {
+      // Administrateur de la carte, aucune ADRASEC encore créée : création de la première
+      if (/Aucune ADRASEC/.test(e.message)) { rendreCreation(); return; }
+      $('#vue-mc').innerHTML = `<p class="erreur">${esc(e.message)}</p>`; return;
+    }
+    if (!groupe) groupe = E.code;
+    $('#titre').textContent = E.nom; document.title = E.nom;
+    const q = E.moi.qualite === 'swl' ? '<span class="pastille">SWL</span>' : E.moi.licencie ? '<span class="pastille ok">licencié</span>' : E.moi.membre ? '<span class="pastille">non licencié</span>' : '';
+    $('#moi').innerHTML = `${E.groupes && E.groupes.length > 1 ? `<select id="choix-groupe" title="ADRASEC affichée (administrateur de la carte)">${E.groupes.map((x) => `<option value="${esc(x.code)}" ${x.code === E.code ? 'selected' : ''}>${esc(x.nom)}</option>`).join('')}</select> ` : ''}${esc(E.moi.indicatif || E.moi.identifiant)} ${q}${E.moi.admin ? ' <span class="pastille">admin carte</span>' : E.moi.responsable ? ' <span class="pastille ok">président</span>' : ''}`;
+    if ($('#choix-groupe')) $('#choix-groupe').onchange = () => { groupe = $('#choix-groupe').value; memo('groupe', groupe); rechercheChoisie = null; ajoutes = new Set(); charger(); };
+    $('#onglets [data-vue="gestion"]').hidden = !E.moi.responsable;
+    { const b = $('#onglets [data-vue="gestion"]'), n = (E.demandes || []).length; if (b) b.dataset.nb = n || ''; }
+    if (!E.actif) $('#vue-mc').innerHTML = `<div class="bandeau">La section est <b>désactivée</b>. ${E.moi.responsable ? 'Activez-la dans l’onglet ⚙️ Gestion, puis ajoutez les membres.' : ''}</div>`;
     if (!E.recherches.some((r) => r.id === rechercheChoisie)) rechercheChoisie = (E.recherches.find((r) => r.statut === 'en-cours') || E.recherches[0] || {}).id || null;
     if (E.actif) rendreMc();
     rendreGonio(); rendreEquipes();
-    if (E.moi.admin) rendreGestion();
+    if (E.moi.responsable) rendreGestion();
   }
 
   // ---- Main courante ----------------------------------------------------------------------------------------
@@ -108,7 +149,7 @@
       <div class="ligne-champs"><label>Type <select id="mc-type">${E.typesMc.map((t) => `<option value="${t}">${LIB_TYPE[t] || t}</option>`).join('')}</select></label>
         <label>Équipe <select id="mc-equipe"><option value="">—</option>${E.equipes.map((e) => `<option value="${e.id}" ${E.moi.equipe === e.id ? 'selected' : ''}>${esc(e.nom)}</option>`).join('')}</select></label></div>
       <textarea id="mc-texte" placeholder="Événement, message reçu ou émis, décision… (heure et auteur ajoutés tout seuls)"></textarea>
-      <div class="ligne-champs"><button class="principal" id="mc-ajouter">Inscrire</button><a href="/api/adrasec/main-courante.csv" download><button type="button">⬇ Export CSV</button></a><span class="erreur" id="mc-erreur"></span></div>
+      <div class="ligne-champs"><button class="principal" id="mc-ajouter">Inscrire</button><a href="${avecGroupe('/api/adrasec/main-courante.csv')}" download><button type="button">⬇ Export CSV</button></a><span class="erreur" id="mc-erreur"></span></div>
       <p class="note">Les inscriptions ne se modifient pas : pour corriger, inscrivez une nouvelle ligne. Les relevés, recherches et messages Winlink s'y ajoutent tout seuls.</p>
       <div id="mc-liste">${E.mainCourante.length ? E.mainCourante.slice().reverse().map((x) => `<div class="entree"><div class="tete"><b>${heure(x.heure)}</b><span>${esc(x.auteur)}</span>${x.equipe ? `<span><i class="equipe-pastille" style="background:${couleurEquipe(x.equipe)}"></i>${esc(nomEquipe(x.equipe))}</span>` : ''}<span class="type">${esc(LIB_TYPE[x.type] || x.type)}</span></div><div class="corps">${esc(x.texte)}</div></div>`).join('') : '<div class="vide">Aucune inscription.</div>'}</div>`;
     $('#mc-texte').value = brouillon;
@@ -289,8 +330,8 @@
     couchesEquipes.clearLayers();
     const parEq = new Map([[null, []], ...E.equipes.map((e) => [e.id, []])]);
     for (const m of E.membres) (parEq.get(m.equipe) || parEq.get(null)).push(m);
-    v.innerHTML = `<h2>Équipes</h2>${E.moi.admin ? '<div class="ligne-champs"><label>Nouvelle équipe <input id="eq-nom" placeholder="ex. Gonio 1"></label><button id="eq-creer">Créer</button></div>' : ''}
-      ${E.equipes.map((e) => `<div class="entree"><div class="tete"><b><i class="equipe-pastille" style="background:${e.couleur}"></i>${esc(e.nom)}</b>${e.mission ? `<span class="type">🎯 ${esc(e.mission)}</span>` : ''}${E.moi.admin ? ` <button class="mini" data-mission="${e.id}">Mission</button> <button class="mini danger" data-suppr-eq="${e.id}">Supprimer</button>` : ''}</div>
+    v.innerHTML = `<h2>Équipes</h2>${E.moi.responsable ? '<div class="ligne-champs"><label>Nouvelle équipe <input id="eq-nom" placeholder="ex. Gonio 1"></label><button id="eq-creer">Créer</button></div>' : ''}
+      ${E.equipes.map((e) => `<div class="entree"><div class="tete"><b><i class="equipe-pastille" style="background:${e.couleur}"></i>${esc(e.nom)}</b>${e.mission ? `<span class="type">🎯 ${esc(e.mission)}</span>` : ''}${E.moi.responsable ? ` <button class="mini" data-mission="${e.id}">Mission</button> <button class="mini danger" data-suppr-eq="${e.id}">Supprimer</button>` : ''}</div>
         <div class="corps">${parEq.get(e.id).map((m) => `${esc(m.indicatif || m.nom)}${m.fonction ? ' (' + esc(m.fonction) + ')' : ''}${m.position ? ' 📍' : ''}`).join(', ') || '<span class="note">Aucun membre</span>'}</div></div>`).join('') || '<div class="vide">Aucune équipe : un administrateur les crée ici.</div>'}
       ${parEq.get(null).length ? `<h3>Sans équipe</h3><div class="corps">${parEq.get(null).map((m) => esc(m.indicatif || m.nom)).join(', ')}</div>` : ''}
       <p class="note">📍 : position en direct du nœud Meshtastic associé au membre (Gestion). Elle s'affiche sur la carte et sert de position par défaut pour ses relevés.</p>`;
@@ -400,42 +441,110 @@
     } catch (e) { z.innerHTML = `<p class="erreur">${esc(e.message)}</p>`; }
   }
 
-  // ---- Gestion (administrateurs) --------------------------------------------------------------------------------
-  function rendreGestion() {
-    const v = $('#vue-gestion');
-    v.innerHTML = `<h2>Réglages de la section</h2>
-      <div class="ligne-champs"><label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="ge-actif" ${E.actif ? 'checked' : ''}> Section activée</label></div>
-      <div class="ligne-champs"><label>Nom affiché <input id="ge-nom" value="${esc(E.nom)}" placeholder="ADRASEC 43"></label><label>Conservation (jours) <input id="ge-cons" type="number" min="7" max="3650" value="${E.conservationJours}"></label><button id="ge-ok">Enregistrer</button></div>
-      <p class="note">Main courante et relevés plus anciens que la durée choisie sont effacés (données personnelles : indicatifs, positions).</p>
-      <h2>Membres</h2>
-      <p class="note">Une fiche par compte de la carte. Cochez <b>Membre</b> pour lui ouvrir la section, puis <b>Enregistrer</b>.</p>
-      <datalist id="ge-noeuds"></datalist>
-      ${E.comptes.map((c) => { const m = E.membres.find((x) => x.compte === c.id); return `<div class="fiche-membre" data-compte="${c.id}">
-        <div class="tete-membre"><b>${esc(c.identifiant)}</b>${c.role === 'admin' ? ' <span class="pastille">admin</span>' : ''}
-          <label class="case" title="Ouvre la section ADRASEC à ce compte"><input type="checkbox" class="ge-membre" ${m ? 'checked' : ''}> Membre</label>
-          <label class="case" title="À cocher seulement après avoir vérifié le certificat d’opérateur radioamateur (ou l’autorisation ANFR). Ouvre la rédaction et les sessions Winlink."><input type="checkbox" class="ge-lic" ${m && m.licencie ? 'checked' : ''}> Licencié</label></div>
+  // ---- Gestion : président (responsable) de l'ADRASEC et administrateurs de la carte -----------------------------
+  // L'administrateur de la carte crée les ADRASEC hébergées et nomme leurs présidents ; le président (ou
+  // l'administrateur) accepte les demandes et intègre les membres radioamateurs ou SWL de son ADRASEC.
+  let ajoutes = new Set(); // comptes ajoutés à la main, pas encore enregistrés
+  function blocGroupes(titre) {
+    return `<h2>${titre}</h2>
+      ${E && E.groupes && E.groupes.length ? `<div class="liste-groupes">${E.groupes.map((x) => `<div class="ligne-groupe${E && x.code === E.code ? ' actif' : ''}"><b>${esc(x.nom)}</b> <span class="note">${x.membres} membre${x.membres > 1 ? 's' : ''} · ${x.presidents ? x.presidents + ' président' + (x.presidents > 1 ? 's' : '') : '<span class="attention">pas de président</span>'}</span>${E && x.code === E.code ? ' <span class="pastille">affichée</span>' : ` <button class="mini" data-voir-groupe="${esc(x.code)}">Ouvrir</button>`}</div>`).join('')}</div>` : ''}
+      <div class="ligne-champs"><label title="Numéro du département (43, 07, 2A, 971…)">Département <input id="gr-code" class="mono" maxlength="3" placeholder="43" style="width:80px"></label><label>Nom <input id="gr-nom" placeholder="ADRASEC 43"></label><button id="gr-creer" class="principal">Créer l’ADRASEC</button></div>
+      <p class="note">Ensuite, ajoutez son président : ouvrez l’ADRASEC, intégrez son compte comme membre et cochez <b>Président</b>. Il gérera lui-même ses membres.</p>`;
+  }
+  function brancherGroupes(err) {
+    $('#gr-code').oninput = () => { const c = $('#gr-code').value.trim().toUpperCase(); if (!$('#gr-nom').dataset.touche) $('#gr-nom').value = c ? 'ADRASEC ' + c : ''; };
+    $('#gr-nom').oninput = () => { $('#gr-nom').dataset.touche = '1'; };
+    $('#gr-creer').onclick = async () => {
+      const code = $('#gr-code').value.trim().toUpperCase();
+      try { await api('/api/adrasec/groupes/' + encodeURIComponent(code), { method: 'PUT', body: { nom: $('#gr-nom').value } }); groupe = code; memo('groupe', code); ajoutes = new Set(); await charger(); montrer('gestion'); }
+      catch (e) { err(e.message); }
+    };
+    for (const b of document.querySelectorAll('[data-voir-groupe]')) b.onclick = async () => { groupe = b.dataset.voirGroupe; memo('groupe', groupe); rechercheChoisie = null; ajoutes = new Set(); await charger(); montrer('gestion'); };
+  }
+  // Administrateur de la carte, aucune ADRASEC créée : seulement la création
+  function rendreCreation() {
+    $('#onglets [data-vue="gestion"]').hidden = false;
+    $('#vue-mc').innerHTML = '<div class="bandeau">Aucune ADRASEC n’est encore créée sur cette carte. Créez celle de votre département dans l’onglet <b>⚙️ Gestion</b>.</div>';
+    $('#vue-gestion').innerHTML = `${blocGroupes('ADRASEC hébergées sur cette carte')}<p class="erreur" id="ge-erreur"></p>`;
+    brancherGroupes((m) => { $('#ge-erreur').textContent = m; });
+    montrer('gestion');
+  }
+  const QUALITES = { radioamateur: 'Radioamateur licencié', swl: 'SWL (écouteur)', '': 'Autre bénévole' };
+  function ficheMembre(c, m) {
+    const peutResp = E.moi.admin;
+    const qual = m ? m.qualite || (m.licencie ? 'radioamateur' : '') : (c.indicatif ? 'radioamateur' : '');
+    return `<div class="fiche-membre${m ? '' : ' nouvelle'}" data-compte="${c.id}">
+        <div class="tete-membre"><b>${esc(c.identifiant)}</b>${c.role === 'admin' ? ' <span class="pastille">admin carte</span>' : ''}${m && m.responsable ? ' <span class="pastille ok">président</span>' : ''}
+          <label class="case" title="Ouvre la section à ce compte"><input type="checkbox" class="ge-membre" ${m || !c.adrasec ? 'checked' : ''}> Membre</label>
+          <label class="case" title="${peutResp ? 'Président (ou responsable) de cette ADRASEC : gère les membres, les équipes, les missions et les réglages de l’ADRASEC, sans être administrateur de la carte.' : 'Seul un administrateur de la carte nomme les présidents.'}"><input type="checkbox" class="ge-resp" ${m && m.responsable ? 'checked' : ''} ${peutResp ? '' : 'disabled'}> Président / responsable</label></div>
         <div class="ligne-champs">
-          <label title="Indicatif radioamateur, ex. F4ABC. Obligatoire pour un licencié ; il signe la main courante et les messages Winlink.">Indicatif <input type="text" class="ge-ind mono" value="${esc((m && m.indicatif) || c.indicatif || '')}" placeholder="F4ABC"></label>
+          <label title="Radioamateur licencié : à choisir seulement après avoir vérifié son certificat d’opérateur (ou l’autorisation ANFR) ; ouvre la rédaction et les sessions Winlink. SWL : écouteur, fait des relevés mais n’émet pas sur les bandes amateurs.">Qualité <select class="ge-qual">${Object.entries(QUALITES).map(([k, t]) => `<option value="${k}" ${qual === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+          <label class="ge-ind-l" title="Indicatif radioamateur, ex. F4ABC. Il signe la main courante et les messages Winlink.">Indicatif <input type="text" class="ge-ind mono" value="${esc((m && m.indicatif) || c.indicatif || '')}" placeholder="F4ABC"></label>
+          <label class="ge-swl-l" title="Numéro d’écouteur (facultatif), ex. F-12345 ; il signe la main courante.">N° SWL <input type="text" class="ge-swl mono" value="${esc((m && m.numeroSwl) || '')}" placeholder="F-12345"></label>
+        </div>
+        <div class="ligne-champs">
           <label title="Équipe d’intervention du membre (créées dans l’onglet Équipes)">Équipe <select class="ge-eq"><option value="">—</option>${E.equipes.map((e) => `<option value="${e.id}" ${m && m.equipe === e.id ? 'selected' : ''}>${esc(e.nom)}</option>`).join('')}</select></label>
+          <label title="Rôle dans l’ADRASEC, ex. chef d’équipe, opérateur gonio, transmissions">Fonction <input type="text" class="ge-fonc" value="${esc((m && m.fonction) || '')}" placeholder="ex. opérateur gonio"></label>
         </div>
         <label title="Facultatif. Le module Meshtastic que ce membre emporte sur le terrain : sa position s’affiche en direct pour l’équipe, sert de position par défaut pour ses relevés, et ses messages « GONIO 125 » arrivent comme relevés. Commencez à taper son nom pour le choisir dans la liste des nœuds connus.">Nœud porté sur le terrain (facultatif) <input type="text" class="ge-noeud" list="ge-noeuds" value="${m && m.noeud ? '!' + (m.noeud >>> 0).toString(16).padStart(8, '0') + (m.nomNoeud ? ' · ' + esc(m.nomNoeud) : '') : ''}" placeholder="tapez le nom du nœud, ou !a1b2c3d4"></label>
         <div class="ligne-champs"><button class="ge-sauver principal">Enregistrer</button><span class="ge-retour note"></span></div>
-      </div>`; }).join('')}<p class="erreur" id="ge-erreur"></p>`;
-    $('#ge-ok').onclick = async () => { try { await api('/api/adrasec/reglages', { method: 'PUT', body: { actif: $('#ge-actif').checked, nom: $('#ge-nom').value, conservationJours: $('#ge-cons').value } }); location.reload(); } catch (e) { $('#ge-erreur').textContent = e.message; } };
+      </div>`;
+  }
+  function rendreGestion() {
+    const v = $('#vue-gestion');
+    const membres = E.comptes.filter((c) => c.adrasec || ajoutes.has(c.id));
+    const autres = E.comptes.filter((c) => !c.adrasec && !ajoutes.has(c.id));
+    const lien = location.origin + '/adrasec';
+    v.innerHTML = `${(E.demandes || []).length ? `<h2>Demandes d’adhésion <span class="pastille att">${E.demandes.length}</span></h2>
+      ${E.demandes.map((x) => `<div class="fiche-membre demande" data-demande="${x.compte}"><div class="tete-membre"><b>${esc(x.identifiant)}</b> <span class="pastille">${esc(QUALITES[x.qualite || ''] || '')}</span>${x.indicatif || x.numeroSwl ? ` <span class="mono">${esc(x.indicatif || x.numeroSwl)}</span>` : ''} <small class="note">le ${new Date(x.heure).toLocaleString('fr-FR')}</small></div>
+        ${x.message ? `<p class="message-demande">« ${esc(x.message)} »</p>` : ''}
+        <div class="ligne-champs"><button class="principal ge-accepter">✔ Accepter</button><button class="danger ge-refuser">Refuser</button></div>
+        ${x.qualite === 'radioamateur' ? '<p class="note">Vérifiez son certificat d’opérateur avant de laisser la qualité « radioamateur licencié ».</p>' : ''}</div>`).join('')}` : ''}
+      <h2>Membres de ${esc(E.nom)} <span class="pastille">${E.membres.length}</span></h2>
+      <p class="note">Pour faire entrer quelqu’un : envoyez-lui le lien <b class="mono">${esc(lien)}</b> <button class="mini" id="ge-copier">Copier</button>. Il crée son compte sur la carte, puis demande à rejoindre ${esc(E.nom)} ; sa demande apparaît ici. Vous pouvez aussi intégrer directement un compte existant (plus bas).</p>
+      ${E.comptesEnAttente ? `<div class="bandeau">⏳ ${E.comptesEnAttente} compte${E.comptesEnAttente > 1 ? 's' : ''} de la carte attend${E.comptesEnAttente > 1 ? 'ent' : ''} votre validation (carte → Gérer → Comptes) avant de pouvoir demander à rejoindre.</div>` : ''}
+      <datalist id="ge-noeuds"></datalist>
+      <input type="search" id="ge-filtre" placeholder="🔎 Chercher un membre (nom, indicatif)">
+      <div id="ge-fiches">${membres.map((c) => ficheMembre(c, E.membres.find((x) => x.compte === c.id))).join('') || '<p class="note">Aucun membre pour l’instant.</p>'}</div>
+      <h2>Intégrer un compte de la carte</h2>
+      ${autres.length ? `<div class="ligne-champs"><label>Compte <select id="ge-ajout"><option value="">— choisir —</option>${autres.map((c) => `<option value="${c.id}" ${c.autre ? 'disabled' : ''}>${esc(c.identifiant)}${c.indicatif ? ' · ' + esc(c.indicatif) : ''}${c.autre ? ' (membre de l’ADRASEC ' + esc(c.autre) + ')' : ''}</option>`).join('')}</select></label><button id="ge-ajouter">Intégrer</button></div>` : '<p class="note">Tous les comptes de la carte sont déjà membres. Les nouveaux membres créent d’abord leur compte avec le lien ci-dessus.</p>'}
+      <h2>Réglages de ${esc(E.nom)}</h2>
+      <div class="ligne-champs"><label>Nom affiché <input id="ge-nom" value="${esc(E.nom)}" placeholder="ADRASEC 43"></label><label>Conservation (jours) <input id="ge-cons" type="number" min="7" max="3650" value="${E.conservationJours}"></label><button id="ge-ok">Enregistrer</button></div>
+      <p class="note">Main courante et relevés plus anciens que la durée choisie sont effacés (données personnelles : indicatifs, positions).</p>
+      ${E.moi.admin ? `<div class="ligne-champs"><label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="ge-actif" ${E.actif ? 'checked' : ''}> Section ADRASEC activée sur la carte</label></div>${blocGroupes('ADRASEC hébergées sur cette carte')}` : ''}
+      <p class="erreur" id="ge-erreur"></p>`;
+    const err = (m) => { $('#ge-erreur').textContent = m; if (m) $('#ge-erreur').scrollIntoView({ block: 'nearest' }); };
+    $('#ge-copier').onclick = async () => { try { await navigator.clipboard.writeText(lien); $('#ge-copier').textContent = '✔ Copié'; } catch { prompt('Lien à envoyer :', lien); } };
+    $('#ge-ok').onclick = async () => { try { await api('/api/adrasec/reglages', { method: 'PUT', body: { nom: $('#ge-nom').value, conservationJours: $('#ge-cons').value } }); await charger(); } catch (e) { err(e.message); } };
+    if ($('#ge-actif')) { $('#ge-actif').onchange = async () => { try { await api('/api/adrasec/reglages', { method: 'PUT', body: { actif: $('#ge-actif').checked } }); await charger(); } catch (e) { err(e.message); } }; brancherGroupes(err); }
+    $('#ge-filtre').oninput = () => { const q = $('#ge-filtre').value.trim().toLowerCase(); for (const f of v.querySelectorAll('#ge-fiches .fiche-membre')) f.hidden = !!q && !f.textContent.toLowerCase().includes(q) && !$('.ge-ind', f).value.toLowerCase().includes(q); };
+    if ($('#ge-ajouter')) $('#ge-ajouter').onclick = () => { const id = Number($('#ge-ajout').value); if (!id) return; ajoutes.add(id); rendreGestion(); const f = v.querySelector(`.fiche-membre[data-compte="${id}"]`); if (f) { f.scrollIntoView({ block: 'center' }); $('.ge-qual', f).focus(); } };
+    for (const f of v.querySelectorAll('.fiche-membre[data-demande]')) {
+      const cid = f.dataset.demande, x = E.demandes.find((y) => String(y.compte) === cid);
+      $('.ge-accepter', f).onclick = async () => { try { await api('/api/adrasec/membres/' + cid, { method: 'PUT', body: { membre: true, qualite: x.qualite || '', indicatif: x.indicatif || x.indicatifCompte || '', numeroSwl: x.numeroSwl || '' } }); await charger(); } catch (e) { err(e.message); } };
+      $('.ge-refuser', f).onclick = async () => { if (!confirm(`Refuser la demande de ${x.identifiant} ?`)) return; try { await api('/api/adrasec/demandes/' + cid, { method: 'DELETE' }); await charger(); } catch (e) { err(e.message); } };
+    }
+    // Champs selon la qualité : indicatif pour un radioamateur, numéro d'écouteur pour un SWL
+    for (const f of v.querySelectorAll('.fiche-membre[data-compte]')) { const maj = () => { const q = $('.ge-qual', f).value; $('.ge-ind-l', f).hidden = q !== 'radioamateur'; $('.ge-swl-l', f).hidden = q !== 'swl'; }; $('.ge-qual', f).onchange = maj; maj(); }
     // Liste des nœuds Meshtastic connus, pour choisir le nœud porté par son nom
     api('/api/noeuds').then((l) => { const d = $('#ge-noeuds'); if (d) d.innerHTML = (Array.isArray(l) ? l : []).filter((n) => n.num != null).map((n) => `<option value="!${(n.num >>> 0).toString(16).padStart(8, '0')} · ${esc(n.nomLong || n.nomCourt || '')}">`).join(''); }).catch(() => {});
     for (const tr of v.querySelectorAll('.fiche-membre[data-compte]')) $('.ge-sauver', tr).onclick = async () => {
-      $('#ge-erreur').textContent = '';
+      err('');
       // « !a1b2c3d4 · Nom » (choisi dans la liste), « !a1b2c3d4 » ou numéro décimal
       const n = $('.ge-noeud', tr).value.trim();
       const hex = /^!?([0-9a-f]{8})\b/i.exec(n);
       const noeud = !n ? null : hex ? parseInt(hex[1], 16) : /^\d+$/.test(n) ? Number(n) : NaN;
-      if (Number.isNaN(noeud)) { $('#ge-erreur').textContent = 'Nœud : choisissez-le dans la liste en tapant son nom, ou saisissez son identifiant (!a1b2c3d4)'; return; }
+      if (Number.isNaN(noeud)) { err('Nœud : choisissez-le dans la liste en tapant son nom, ou saisissez son identifiant (!a1b2c3d4)'); return; }
       const membre = $('.ge-membre', tr).checked;
+      if (!membre && !confirm('Retirer ce compte de l’ADRASEC ?')) return;
+      const q = $('.ge-qual', tr).value;
+      const corps = { membre: true, qualite: q, indicatif: q === 'radioamateur' ? $('.ge-ind', tr).value : '', numeroSwl: q === 'swl' ? $('.ge-swl', tr).value : '', equipe: $('.ge-eq', tr).value || null, fonction: $('.ge-fonc', tr).value, noeud };
+      if (E.moi.admin) corps.responsable = $('.ge-resp', tr).checked;
       try {
-        await api('/api/adrasec/membres/' + tr.dataset.compte, { method: 'PUT', body: membre ? { membre: true, licencie: $('.ge-lic', tr).checked, indicatif: $('.ge-ind', tr).value, equipe: $('.ge-eq', tr).value || null, noeud } : { membre: false } });
+        await api('/api/adrasec/membres/' + tr.dataset.compte, { method: 'PUT', body: membre ? corps : { membre: false } });
+        ajoutes.delete(Number(tr.dataset.compte));
         $('.ge-retour', tr).textContent = '✔ Enregistré'; charger();
-      } catch (e) { $('#ge-erreur').textContent = e.message; }
+      } catch (e) { err(e.message); }
     };
   }
 

@@ -531,7 +531,11 @@ async function essaiAdrasec(navig, cookie) {
   const H = { 'Content-Type': 'application/json', Cookie: `${cookie.name}=${cookie.value}` };
   const appel = async (m, url, b) => { const r = await fetch(BASE + url, { method: m, headers: H, body: b ? JSON.stringify(b) : undefined }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(url + ' : ' + (j.erreur || r.status)); return j; };
   const moi = await (await fetch(BASE + '/api/compte', { headers: H })).json();
-  await appel('PUT', '/api/adrasec/reglages', { actif: true, nom: 'ADRASEC 43' });
+  await appel('PUT', '/api/adrasec/reglages', { actif: true });
+  let sansGroupe = '';
+  try { await appel('GET', '/api/adrasec'); } catch (e) { sansGroupe = e.message; }
+  await appel('PUT', '/api/adrasec/groupes/43', { nom: 'ADRASEC 43' });
+  if (/Aucune ADRASEC/.test(sansGroupe)) ok('ADRASEC : création de l’ADRASEC du département demandée avant usage'); else ko('ADRASEC sans groupe : ' + sansGroupe);
   const eq = await appel('POST', '/api/adrasec/equipes', { nom: 'Gonio 1' });
   await appel('PUT', '/api/adrasec/membres/' + moi.id, { membre: true, licencie: true, indicatif: 'F4XYZ', equipe: eq.equipes[0].id });
   let refus = '';
@@ -552,6 +556,33 @@ async function essaiAdrasec(navig, cookie) {
   if (/Date;Heure;Auteur/.test(csv) && /F4XYZ/.test(csv)) ok('ADRASEC : export CSV de la main courante'); else ko('ADRASEC CSV : ' + csv.slice(0, 100));
   const anonyme = await fetch(BASE + '/api/adrasec');
   if (anonyme.status === 401) ok('ADRASEC : refusé sans connexion'); else ko('ADRASEC sans connexion : HTTP ' + anonyme.status);
+  // Plusieurs départements : l'administrateur crée l'ADRASEC 42 ; un compte demande à la rejoindre comme SWL,
+  // l'administrateur l'accepte et le nomme président ; il ne voit que son ADRASEC et ne nomme pas de président
+  await appel('PUT', '/api/adrasec/groupes/42', { nom: 'ADRASEC 42' });
+  const b1 = await appel('POST', '/api/comptes', { identifiant: 'benevole42', motDePasse: 'Essai-benevole-2026!' });
+  const cx = await fetch(BASE + '/api/connexion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifiant: 'benevole42', motDePasse: 'Essai-benevole-2026!' }) });
+  const HB = { 'Content-Type': 'application/json', Cookie: (cx.headers.get('set-cookie') || '').split(';')[0] };
+  const appelB = async (m, url, b) => { const x = await fetch(BASE + url, { method: m, headers: HB, body: b ? JSON.stringify(b) : undefined }); return { statut: x.status, j: await x.json().catch(() => ({})) }; };
+  const avant = await appelB('GET', '/api/adrasec');
+  const sansChoix = await appelB('POST', '/api/adrasec/demande', { qualite: 'swl' });
+  const dem = await appelB('POST', '/api/adrasec/demande', { groupe: '42', qualite: 'swl', numeroSwl: 'f-12345', message: 'Équipe gonio' });
+  const vue43 = await appel('GET', '/api/adrasec?g=43'), vue42 = await appel('GET', '/api/adrasec?g=42');
+  const d1 = (vue42.demandes || []).find((x) => x.compte === b1.id);
+  if (avant.statut === 403 && sansChoix.statut === 400 && dem.statut === 200 && d1 && d1.qualite === 'swl' && d1.numeroSwl === 'F-12345' && !(vue43.demandes || []).length && vue42.groupes.length === 2) ok('ADRASEC : demande d’adhésion pour l’ADRASEC de son département (SWL), visible de cette seule ADRASEC'); else ko('ADRASEC demande : ' + JSON.stringify({ avant: avant.statut, sansChoix: sansChoix.statut, dem, d1, d43: vue43.demandes }));
+  await appel('PUT', '/api/adrasec/membres/' + b1.id + '?g=42', { membre: true, qualite: 'swl', numeroSwl: 'F-12345', responsable: true });
+  const apres = await appelB('GET', '/api/adrasec?g=43'); // demande une autre ADRASEC : reçoit la sienne
+  const eqB = await appelB('POST', '/api/adrasec/equipes', { nom: 'Gonio B' });
+  const nomme = await appelB('PUT', '/api/adrasec/membres/' + b1.id, { membre: true, qualite: 'swl', responsable: false });
+  const winB = await appelB('POST', '/api/adrasec/winlink/envoyer', { a: 'X', sujet: 'x', corps: 'x' });
+  const double = await appel('PUT', '/api/adrasec/membres/' + b1.id + '?g=43', { membre: true }).then(() => 'accepté', (e) => e.message);
+  if (apres.statut === 200 && apres.j.code === '42' && apres.j.moi.responsable && apres.j.moi.qualite === 'swl' && !apres.j.mainCourante.length && eqB.statut === 200 && nomme.statut === 400 && /administrateur de la carte/.test(nomme.j.erreur) && winB.statut === 403 && /déjà membre de ADRASEC 42/.test(double)) ok('ADRASEC : président de son département (équipes, membres), ADRASEC séparées, SWL sans Winlink, un seul département par membre'); else ko('ADRASEC président : ' + JSON.stringify({ apres: apres.statut, code: apres.j.code, resp: apres.j.moi && apres.j.moi.responsable, mc: apres.j.mainCourante && apres.j.mainCourante.length, eqB: eqB.statut, nomme, win: winB.statut, double }));
+  // Case ADRASEC de la gestion des comptes : cocher intègre le compte à l'ADRASEC du département de la carte
+  const b2 = await appel('POST', '/api/comptes', { identifiant: 'bruno43', motDePasse: 'Essai-bruno-2026!!' });
+  const r1 = await appel('PUT', '/api/adrasec/roles/' + b2.id, { groupe: 'AUTO' });
+  const r2 = await appel('PUT', '/api/adrasec/roles/' + b2.id, { groupe: r1.groupe, president: true });
+  const roles = await appel('GET', '/api/adrasec/roles');
+  const r3 = await appel('PUT', '/api/adrasec/roles/' + b2.id, { groupe: '' });
+  if (r1.groupe === '43' && r2.president && roles.roles[b2.id] && roles.roles[b2.id].president && roles.groupes.length === 2 && r3.groupe === null) ok('ADRASEC : case ADRASEC et président depuis la gestion des comptes'); else ko('ADRASEC case comptes : ' + JSON.stringify({ r1, r2, r3, role: roles.roles[b2.id] }));
   // Diffusion radio (pas de module dans l'essai : refus explicite) et lien terrain sans compte
   let refusRadio = '';
   try { await appel('POST', `/api/adrasec/recherches/${r.id}/diffuser`, { canal: 0 }); } catch (e) { refusRadio = e.message; }
@@ -612,10 +643,21 @@ async function essaiAdrasec(navig, cookie) {
   await page.click('[data-vue="gestion"]');
   await page.waitForTimeout(1200);
   const g = await page.evaluate(() => { const f = document.querySelector('.fiche-membre'); const v = document.querySelector('#vue-gestion'); const n = f && f.querySelector('.ge-noeud'); return { fiche: !!f, deborde: v.scrollWidth > v.clientWidth + 2, aide: n ? (n.closest('label').title || '').length : 0, liste: document.querySelectorAll('#ge-noeuds option').length }; });
-  if (g.fiche && !g.deborde && g.aide > 50) ok('page ADRASEC : fiches membres sans débordement, aide sur le nœud'); else ko('page ADRASEC gestion : ' + JSON.stringify(g));
+  const g2 = await page.evaluate(() => ({ resp: !!document.querySelector('.ge-resp:not([disabled])'), lien: /\/adrasec/.test(document.querySelector('#vue-gestion').textContent), qual: !!document.querySelector('.ge-qual'), groupes: document.querySelectorAll('.ligne-groupe').length, choix: document.querySelectorAll('#choix-groupe option').length }));
+  if (g.fiche && !g.deborde && g.aide > 50 && g2.resp && g2.lien && g2.qual && g2.groupes === 2 && g2.choix === 2) ok('page ADRASEC : ADRASEC hébergées, fiches (qualité, président), lien d’adhésion, sans débordement'); else ko('page ADRASEC gestion : ' + JSON.stringify({ ...g, ...g2 }));
   await capture(page, 'adrasec-gestion');
   bilanErreurs(erreurs, 'section ADRASEC');
   await contexte.close();
+  // Lien d'adhésion sans compte : la carte ouvre directement l'inscription
+  const c3 = await navig.newContext({ viewport: { width: 1200, height: 850 }, locale: 'fr-FR' });
+  await c3.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const p3 = await ouvrir(c3, '/adrasec');
+  const liens = await p3.page.evaluate(() => [...document.querySelectorAll('.adhesion a.bouton')].map((a) => a.getAttribute('href')));
+  await p3.page.goto(BASE + liens[0]);
+  await p3.page.waitForTimeout(1800);
+  const insc = await p3.page.evaluate(() => ({ ouvert: document.querySelector('#dlg-compte').open, form: !!document.querySelector('#form-inscription') && document.querySelector('#form-inscription').offsetParent !== null }));
+  if (liens.length === 2 && /compte=inscription/.test(liens[0]) && insc.ouvert && insc.form) ok('page ADRASEC sans compte : « Créer mon compte » ouvre l’inscription de la carte'); else ko('adhésion sans compte : ' + JSON.stringify({ liens, insc }));
+  await c3.close();
   // Réglages › Fonctions de la carte : interrupteurs (section ADRASEC, Winlink, fonctions affichées)
   const c2 = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
   await c2.addCookies([cookie]);
