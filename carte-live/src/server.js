@@ -3398,7 +3398,12 @@ app.get('/api/equipes/:id/export', routeEquipe((req, b, a) => {
 }));
 const reqNomSig = stockage.db.prepare('SELECT nom_court, nom_long FROM noeuds WHERE num = ?');
 // ---- Section ADRASEC (radiogoniométrie, main courante) et Winlink par Pat ----
-const adrasec = require('./adrasec').creerAdrasec({ config, journal, diffuser, nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); }, positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
+// Envoi radio d'un point de passage + message (diffusion de la position estimée d'une balise aux équipes)
+const radioPointAdrasec = async ({ texte, canal, ...p }) => {
+  signalements.envoyerPoint({ ...p, canal });
+  if (texte) { await new Promise((r) => setTimeout(r, 400)); administration.envoyerTexte({ texte: signalements.couper(texte, 200), canal }, 'ADRASEC'); }
+};
+const adrasec = require('./adrasec').creerAdrasec({ config, journal, diffuser, radioPoint: radioPointAdrasec, nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); }, positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
 const winlink = require('./winlink').creerWinlink({ journal });
 // Membre de la section (ou administrateur, qui la règle même désactivée)
 const routeAdrasec = (f, { admin = false, licencie = false } = {}) => async (req, res) => {
@@ -3426,6 +3431,18 @@ app.post('/api/adrasec/recherches', routeAdrasec((req, b, u) => adrasec.majReche
 app.patch('/api/adrasec/recherches/:id', routeAdrasec((req, b, u) => adrasec.majRecherche(req.params.id, b, u)));
 app.post('/api/adrasec/releves', routeAdrasec((req, b, u) => adrasec.ajouterReleve(u, b)));
 app.delete('/api/adrasec/releves/:id', routeAdrasec((req, b, u) => adrasec.retirerReleve(u, req.params.id)));
+app.get('/api/adrasec/canaux', routeAdrasec(() => { try { return signalements.canaux().mt; } catch { return { connecte: false, canaux: [] }; } }));
+app.post('/api/adrasec/recherches/:id/diffuser', routeAdrasec((req, b, u) => adrasec.diffuserBalise(req.params.id, b, u)));
+app.get('/api/adrasec/qr', routeAdrasec(async (req) => ({ qr: await require('qrcode').toDataURL(String(req.query.u || '').slice(0, 300), { margin: 1, width: 240 }) })));
+app.post('/api/adrasec/recherches/:id/lien', routeAdrasec((req, b, u) => adrasec.creerLien(req.params.id, u)));
+app.delete('/api/adrasec/recherches/:id/lien', routeAdrasec((req, b, u) => adrasec.couperLien(req.params.id, u)));
+// Lien terrain : lecture seule, sans compte (jeton secret de 128 bits, valable jusqu'à la clôture de la recherche)
+app.get('/terrain/:jeton', envoyerPage('terrain.html'));
+app.get('/api/terrain/:jeton', (req, res) => {
+  const v = adrasec.vueTerrain(req.params.jeton);
+  if (!v) return res.status(404).json({ erreur: 'Lien terrain expiré ou recherche terminée' });
+  res.set('Cache-Control', 'no-store').set('Referrer-Policy', 'no-referrer').json(v);
+});
 app.get('/api/adrasec/winlink/etat', routeAdrasec(() => winlink.etat()));
 app.get('/api/adrasec/winlink/boite/:nom', routeAdrasec((req) => winlink.boite(req.params.nom)));
 app.get('/api/adrasec/winlink/boite/:nom/:mid', routeAdrasec((req) => winlink.message(req.params.nom, req.params.mid)));

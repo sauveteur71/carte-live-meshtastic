@@ -552,6 +552,22 @@ async function essaiAdrasec(navig, cookie) {
   if (/Date;Heure;Auteur/.test(csv) && /F4XYZ/.test(csv)) ok('ADRASEC : export CSV de la main courante'); else ko('ADRASEC CSV : ' + csv.slice(0, 100));
   const anonyme = await fetch(BASE + '/api/adrasec');
   if (anonyme.status === 401) ok('ADRASEC : refusé sans connexion'); else ko('ADRASEC sans connexion : HTTP ' + anonyme.status);
+  // Diffusion radio (pas de module dans l'essai : refus explicite) et lien terrain sans compte
+  let refusRadio = '';
+  try { await appel('POST', `/api/adrasec/recherches/${r.id}/diffuser`, { canal: 0 }); } catch (e) { refusRadio = e.message; }
+  const reglage = await appel('POST', `/api/adrasec/recherches/${r.id}/diffuser`, { canal: 1, auto: true, reglageSeul: true });
+  if (/module radio non connecté/.test(refusRadio) && reglage.diffusion.canal === 1 && reglage.diffusion.auto) ok('ADRASEC : diffusion radio réglée, refus clair sans module'); else ko('diffusion : ' + refusRadio + ' ' + JSON.stringify(reglage));
+  const lien = await appel('POST', `/api/adrasec/recherches/${r.id}/lien`);
+  const vt = await (await fetch(BASE + '/api/terrain/' + lien.jeton)).json();
+  const faux = await fetch(BASE + '/api/terrain/' + '0'.repeat(32));
+  if (vt.releves && vt.releves.length === 4 && vt.calcul.estimation && !JSON.stringify(vt).includes('F4XYZ') && faux.status === 404) ok('lien terrain : recherche visible sans compte, aucun nom de compte, faux jeton refusé'); else ko('lien terrain : ' + JSON.stringify(vt).slice(0, 200) + ' ' + faux.status);
+  const ct = await navig.newContext({ viewport: { width: 412, height: 860 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, locale: 'fr-FR' });
+  const t = await ouvrir(ct, '/terrain/' + lien.jeton);
+  const tf = await t.page.evaluate(() => ({ fiche: document.querySelector('#fiche').textContent, titre: document.querySelector('#titre').textContent }));
+  if (/Position la plus probable/.test(tf.fiche) && /Balise essai/.test(tf.titre)) ok('page terrain (téléphone) : position estimée affichée'); else ko('page terrain : ' + JSON.stringify(tf));
+  await capture(t.page, 'adrasec-terrain');
+  bilanErreurs(t.erreurs, 'page terrain');
+  await ct.close();
   // Winlink par le faux Pat
   const boite = await appel('GET', '/api/adrasec/winlink/boite/in');
   await appel('POST', '/api/adrasec/winlink/envoyer', { a: 'F1PREF, cod@prefecture.example', sujet: 'Essai', corps: 'Bonjour' });

@@ -157,7 +157,19 @@
         <span class="mono">${Gonio.versLocator(est.lat, est.lon, 8)}</span>${window.DFCI ? ` · DFCI <span class="mono">${esc(DFCI.versDfci(est.lat, est.lon) || '–')}</span>` : ''}<br>
         <span class="note">Zone à 95 % : ellipse de ${fmt(c.ellipse.grandAxeM / 1000, 1)} × ${fmt(c.ellipse.petitAxeM / 1000, 1)} km (demi-axes). Première indication à confirmer sur le terrain : réflexions sur le relief et les bâtiments possibles.</span></div>`
       : `<p class="note">${c && c.nb >= 2 ? 'Les relèvements ne se croisent pas devant les équipes : vérifiez les gisements (vrais, pas magnétiques) et les positions.' : 'Il faut au moins deux relèvements, de deux endroits éloignés, pour situer l’émetteur.'}</p>`}
-      ${enCours ? `<h3>Nouveau relevé</h3>
+      ${enCours ? `<h3>Diffusion aux équipes</h3>
+      <div class="bandeau diffusion">
+        <div><b>📡 Par radio LoRa</b> <span class="note">(zone blanche : point « 🎯 Balise estimée » sur la carte de l’appli Meshtastic + message texte)</span></div>
+        <div class="ligne-champs"><label title="Canal du module de la carte sur lequel partent le point et le message : de préférence le canal chiffré des équipes">Canal <select id="d-canal"><option value="${r.diffusion ? r.diffusion.canal : 0}">${r.diffusion ? 'canal ' + r.diffusion.canal : 'chargement…'}</option></select></label>
+          <label class="case" title="Renvoyer le point à chaque nouveau relevé si la position estimée bouge de plus de 300 m (au plus une fois par minute)" style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="d-auto" ${r.diffusion && r.diffusion.auto ? 'checked' : ''}> Automatique</label>
+          <button id="d-envoyer" class="principal" ${est ? '' : 'disabled title="Il faut d’abord une position estimée"'}>Diffuser maintenant</button></div>
+        <div class="note" id="d-retour">${r.diffusion && r.diffusion.dernier ? `Dernière diffusion : ${heure(r.diffusion.dernier.heure)}` : 'Pas encore diffusée.'}</div>
+        <div style="margin-top:10px"><b>🔗 Lien terrain</b> <span class="note">(réseau mobile : la carte de cette recherche, sans compte, en lecture seule, jusqu’à la clôture)</span></div>
+        ${r.lien ? `<div class="ligne-champs"><input id="d-lien" readonly class="mono" value="${esc(location.origin + '/terrain/' + r.lien.jeton)}"><button id="d-copier">Copier</button><button id="d-qr">QR code</button><button class="danger" id="d-couper">Désactiver</button></div>
+          <div id="d-qr-zone"></div><p class="note">Envoyez-le par SMS ou faites scanner le QR code. Il ne marche que si la carte est joignable depuis le téléphone (adresse en …ts.net avec Tailscale, ou adresse publique) : pas avec « localhost ».</p>`
+        : '<div class="ligne-champs"><button id="d-lien-creer">Créer le lien terrain</button></div>'}
+      </div>
+      <h3>Nouveau relevé</h3>
       <div class="ligne-champs"><label>Gisement vrai (°) <input id="g-gis" inputmode="decimal" placeholder="0 à 360"></label><label>Incertitude ± (°) <input id="g-inc" inputmode="decimal"></label><label>Force <select id="g-force"><option value="">—</option><option>S1-S3 faible</option><option>S4-S6 moyen</option><option>S7-S9 fort</option><option>Saturé</option></select></label></div>
       <div class="note">Position de l’équipe :</div>
       <div class="choix-pos"><button data-pos="gps">📍 Mon GPS</button><button data-pos="noeud" ${E.moi.noeud ? '' : 'disabled title="Aucun nœud associé à votre compte"'}>📡 Mon nœud</button><button data-pos="carte">🖱 Clic sur la carte</button><button data-pos="locator">⌗ Locator</button></div>
@@ -194,8 +206,30 @@
       try { await api('/api/adrasec/releves', { method: 'POST', body: corps }); $('#g-gis').value = ''; $('#g-note').value = ''; charger(); } catch (e) { $('#g-erreur').textContent = e.message; }
     };
     dessinerGonio(r);
+    if (r && enCours) brancherDiffusion(r);
     for (const id of ['#g-gis', '#g-inc', '#g-loc']) { const e = $(id); if (e) e.addEventListener('input', majApercu); }
     majApercu();
+  }
+  async function brancherDiffusion(r) {
+    const sel = $('#d-canal');
+    if (sel) api('/api/adrasec/canaux').then((m) => {
+      const cur = r.diffusion ? r.diffusion.canal : 0;
+      if (!m.connecte) { sel.innerHTML = `<option value="${cur}">module radio non relié</option>`; return; }
+      sel.innerHTML = m.canaux.map((c) => `<option value="${c.index}" ${c.index === cur ? 'selected' : ''}>${c.index} · ${esc(c.nom)}</option>`).join('');
+    }).catch(() => {});
+    const regler = (b) => api(`/api/adrasec/recherches/${r.id}/diffuser`, { method: 'POST', body: { ...b, reglageSeul: true } }).catch((e) => { $('#d-retour').textContent = e.message; });
+    if (sel) sel.onchange = () => regler({ canal: Number(sel.value) });
+    const au = $('#d-auto'); if (au) au.onchange = () => regler({ auto: au.checked, canal: Number(sel.value) });
+    const be = $('#d-envoyer');
+    if (be) be.onclick = async () => {
+      be.disabled = true;
+      try { const x = await api(`/api/adrasec/recherches/${r.id}/diffuser`, { method: 'POST', body: { canal: Number(sel.value) } }); $('#d-retour').textContent = '✔ Diffusé : ' + x.texte; } catch (e) { $('#d-retour').innerHTML = `<span class="erreur">${esc(e.message)}</span>`; }
+      be.disabled = false;
+    };
+    const bc = $('#d-lien-creer'); if (bc) bc.onclick = async () => { await api(`/api/adrasec/recherches/${r.id}/lien`, { method: 'POST' }).catch((e) => alert(e.message)); charger(); };
+    const bx = $('#d-couper'); if (bx) bx.onclick = async () => { if (!confirm('Désactiver le lien terrain ? Les équipes qui l’ont ne verront plus la carte.')) return; await api(`/api/adrasec/recherches/${r.id}/lien`, { method: 'DELETE' }).catch((e) => alert(e.message)); charger(); };
+    const bp = $('#d-copier'); if (bp) bp.onclick = () => navigator.clipboard && navigator.clipboard.writeText($('#d-lien').value).then(() => { bp.textContent = 'Copié ✓'; });
+    const bq = $('#d-qr'); if (bq) bq.onclick = async () => { const z = $('#d-qr-zone'); if (z.innerHTML) { z.innerHTML = ''; return; } const q = await api('/api/adrasec/qr?u=' + encodeURIComponent($('#d-lien').value)).catch(() => null); if (q) z.innerHTML = `<img src="${q.qr}" alt="QR code du lien terrain" style="background:#fff;padding:6px;border-radius:8px;margin-top:6px">`; };
   }
   function choisirPosition(mode) {
     modeClic = null; consigne(''); // un autre choix annule l'attente d'un clic sur la carte

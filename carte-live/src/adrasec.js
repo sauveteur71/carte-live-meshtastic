@@ -23,7 +23,7 @@ const INDICATIF = /^[A-Z0-9]{1,3}[0-9][A-Z0-9]{0,4}[A-Z](\/[A-Z0-9]{1,4})?$/;
 const id = () => crypto.randomBytes(6).toString('hex');
 const txt = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b-\u001f]/g, '').trim().slice(0, max);
 
-function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positionDe = () => null, nomDe = () => null }) {
+function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positionDe = () => null, nomDe = () => null, radioPoint = null }) {
   const fichier = path.join(path.dirname(config.fichierBase), 'adrasec.json');
   let d = { actif: false, nom: 'ADRASEC', conservationJours: 365, membres: {}, equipes: [], mainCourante: [], recherches: [], releves: [] };
   try { d = { ...d, ...lireJson(fichier) }; } catch { /* première utilisation */ }
@@ -139,6 +139,8 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
     if (!r) throw new Error('Recherche inconnue');
     if (b.cloturer) {
       r.statut = 'terminee'; r.fin = Date.now();
+      r.lien = null;
+      if (r.diffusion && r.diffusion.dernier) setTimeout(() => diffuserBalise(r.id, {}, compte, { fin: true }).catch((e) => journal('[ADRASEC] fin de diffusion impossible :', e.message)), 0);
       const loc = localiser(r.id);
       r.resultat = b.resultat ? txt(b.resultat, 200) : null;
       r.positionFinale = loc.estimation ? { ...loc.estimation, locator: Gonio.versLocator(loc.estimation.lat, loc.estimation.lon, 8) } : null;
@@ -172,6 +174,7 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
     sauver();
     ajouterMc(compte, { texte: `Relevé ${x.gisement}° ±${x.incertitude}° depuis ${Gonio.versLocator(x.lat, x.lon, 8)} (${x.source})${x.force ? ', force ' + x.force : ''}${x.note ? ' — ' + x.note : ''}`, type: 'information', equipe: x.equipe }, compte ? {} : { auteur: x.auteur });
     diffuser({ genre: 'adrasec', quoi: 'releves', recherche: r.id });
+    setTimeout(() => diffusionAuto(r.id), 0);
     return x;
   }
   function retirerReleve(compte, rid) {
@@ -212,6 +215,81 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
     }
   }
 
+  // ---- Diffusion radio de la position estimée (équipes en zone blanche) ---------------------------------------
+  // Point de passage Meshtastic (toujours le même identifiant par recherche : il se déplace dans les applis au lieu
+  // de se multiplier) et message texte, sur le canal choisi (canal chiffré de l'équipe de préférence).
+  // Automatique : renvoyé à chaque nouveau relevé si l'estimation bouge de plus de 300 m (au plus une fois par minute).
+  const fmtKm = (m) => (m >= 1000 ? (m / 1000).toFixed(1).replace('.', ',') + ' km' : Math.round(m) + ' m');
+  function texteBalise(r, loc, fin) {
+    const e = loc.estimation;
+    if (fin) return `✅ Fin recherche ${r.nom}${r.resultat ? ' : ' + r.resultat : ''}`;
+    const dfci = require('../public/dfci.js').versDfci(e.lat, e.lon);
+    return `🎯 BALISE ${r.nom} : ${e.lat.toFixed(5)},${e.lon.toFixed(5)} · ${Gonio.versLocator(e.lat, e.lon, 8)}${dfci ? ' · DFCI ' + dfci : ''} · ±${fmtKm(loc.ellipse ? loc.ellipse.grandAxeM : 0)} (${loc.utilises || loc.nb} relevés)`;
+  }
+  async function diffuserBalise(rid, b = {}, compte = null, { fin = false, auto = false } = {}) {
+    const r = d.recherches.find((x) => x.id === rid);
+    if (!r) throw new Error('Recherche inconnue');
+    if (!radioPoint) throw new Error('Envoi radio indisponible sur cette carte');
+    r.diffusion = r.diffusion || { idPoint: (crypto.randomBytes(4).readUInt32LE(0) >>> 0) || 1, canal: 0, auto: false, dernier: null };
+    const df = r.diffusion;
+    if (b.canal !== undefined) { const c = Number(b.canal); if (!Number.isInteger(c) || c < 0 || c > 7) throw new Error('Canal 0 à 7'); df.canal = c; }
+    if (b.auto !== undefined) df.auto = !!b.auto;
+    if (b.reglageSeul) { sauver(true); return { diffusion: df }; }
+    const loc = localiser(r.id);
+    if (!fin && !loc.estimation) throw new Error('Pas encore de position estimée : il faut au moins deux relevés qui se croisent');
+    const p = fin ? (df.dernier || loc.estimation) : loc.estimation;
+    if (!p) return { diffusion: df };
+    const texte = texteBalise(r, loc, fin);
+    await radioPoint({ idPoint: df.idPoint, lat: p.lat, lon: p.lon, nom: fin ? '✅ Balise : fin' : '🎯 Balise estimée',
+      description: fin ? r.nom : `${r.nom} · ±${fmtKm(loc.ellipse ? loc.ellipse.grandAxeM : 0)} · ${new Date().toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' })}`,
+      expireS: fin ? Math.floor(Date.now() / 1000) - 60 : Math.floor(Date.now() / 1000) + 12 * 3600, canal: df.canal, texte });
+    df.dernier = { lat: p.lat, lon: p.lon, heure: Date.now() };
+    sauver(true);
+    ajouterMc(compte, { texte: `${auto ? 'Diffusion radio automatique' : 'Diffusion radio'} (canal ${df.canal}) : ${texte}`, type: 'message-emis' }, compte ? {} : { auteur: 'carte' });
+    return { diffusion: df, texte };
+  }
+  let derniereAuto = 0;
+  function diffusionAuto(rid) {
+    const r = d.recherches.find((x) => x.id === rid);
+    if (!r || r.statut !== 'en-cours' || !r.diffusion || !r.diffusion.auto) return;
+    const loc = localiser(rid);
+    if (!loc.estimation) return;
+    if (r.diffusion.dernier && Gonio.distance(r.diffusion.dernier, loc.estimation) < 300) return;
+    if (Date.now() - derniereAuto < 60000) { setTimeout(() => diffusionAuto(rid), 61000 - (Date.now() - derniereAuto)).unref(); return; }
+    derniereAuto = Date.now();
+    diffuserBalise(rid, {}, null, { auto: true }).catch((e) => journal('[ADRASEC] diffusion automatique impossible :', e.message));
+  }
+
+  // ---- Lien terrain : lecture seule, sans compte, une recherche, jusqu'à sa clôture (48 h au plus) ------------
+  function creerLien(rid, compte) {
+    const r = d.recherches.find((x) => x.id === rid);
+    if (!r || r.statut !== 'en-cours') throw new Error('Recherche en cours inconnue');
+    r.lien = { jeton: crypto.randomBytes(16).toString('hex'), expire: Date.now() + 48 * 3600000, cree: Date.now(), par: signature(compte) };
+    sauver(true);
+    ajouterMc(compte, { texte: `Lien terrain créé pour la recherche « ${r.nom} » (lecture seule, 48 h au plus)`, type: 'information' });
+    return { jeton: r.lien.jeton, expire: r.lien.expire };
+  }
+  function couperLien(rid, compte) {
+    const r = d.recherches.find((x) => x.id === rid);
+    if (!r) throw new Error('Recherche inconnue');
+    if (r.lien) { r.lien = null; sauver(true); ajouterMc(compte, { texte: `Lien terrain de la recherche « ${r.nom} » désactivé`, type: 'information' }); }
+    return { ok: true };
+  }
+  function vueTerrain(jeton) {
+    if (!d.actif || !/^[0-9a-f]{32}$/.test(String(jeton || ''))) return null;
+    const r = d.recherches.find((x) => x.lien && x.lien.jeton === jeton);
+    if (!r || r.statut !== 'en-cours' || r.lien.expire < Date.now()) return null;
+    const eq = new Map(d.equipes.map((e) => [e.id, e]));
+    return {
+      section: d.nom, recherche: { nom: r.nom, frequence: r.frequence, detail: r.detail, debut: r.debut },
+      releves: d.releves.filter((x) => x.recherche === r.id && !x.retire).map((x) => ({ id: x.id, heure: x.heure, equipe: x.equipe ? (eq.get(x.equipe) || {}).nom || null : null, couleur: x.equipe ? (eq.get(x.equipe) || {}).couleur || null : null, lat: x.lat, lon: x.lon, gisement: x.gisement, incertitude: x.incertitude, force: x.force })),
+      calcul: localiser(r.id),
+      // Positions des équipes (nœud porté), sans nom de personne
+      equipes: d.equipes.map((e) => ({ nom: e.nom, couleur: e.couleur, mission: e.mission || null, positions: Object.values(d.membres).filter((m) => m.equipe === e.id).map(positionMembre).filter(Boolean).map((p) => ({ lat: p.lat, lon: p.lon, heure: p.heure || null })) })),
+      expire: r.lien.expire,
+    };
+  }
+
   // ---- Vue complète pour la page ADRASEC --------------------------------------------------------------------
   function vue(compte, comptesListe, admin) {
     const moi = membre(compte);
@@ -235,6 +313,7 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
   return {
     actif: () => d.actif, nom: () => d.nom, estMembre, estLicencie, signature,
     reglages, majMembre, majEquipe, ajouterMc, csvMc, majRecherche, ajouterReleve, retirerReleve, localiser, texteRecu, vue,
+    diffuserBalise, creerLien, couperLien, vueTerrain,
   };
 }
 

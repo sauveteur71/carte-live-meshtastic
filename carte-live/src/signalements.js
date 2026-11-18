@@ -326,7 +326,17 @@ function creerSignalements({ config, radio, administration, companion, reseauMc,
   }
   const listerAlertes = () => alertes.liste.filter((a) => Date.now() - a.heure < 7 * 86400000).slice().reverse();
 
-  return { canaux, creer, terminer, renvoyer, recu, lister, TYPES, envoyerAlerte, finAlerte, texteRecu, listerAlertes, GENRES };
+  // Point de passage quelconque (section ADRASEC : position estimée d'une balise), même chemin radio que les signalements
+  function envoyerPoint({ idPoint, lat, lon, nom, description, code = 0x1F3AF, expireS, canal }) {
+    const i = radio.infos();
+    if (!i.connecte) throw new Error('module radio non connecté');
+    if (!(i.canaux || []).some((c) => c.index === canal)) throw new Error(`canal ${canal} inconnu du module`);
+    const charge = Waypoint.encode(Waypoint.create({ id: idPoint, latitudeI: Math.round(lat * 1e7), longitudeI: Math.round(lon * 1e7), expire: expireS, lockedTo: 0, name: couper(nom, 30), description: couper(description || '', 100), icon: code })).finish();
+    const paquet = { to: 0xffffffff, id: crypto.randomBytes(4).readUInt32LE(0) >>> 0 || 1, channel: canal, wantAck: false, priority: PRIORITE_ALERTE, hopLimit: i.hopLimit, decoded: { portnum: 8, payload: charge } };
+    radio.envoyerPaquet(paquet);
+    try { radio.injecter({ ...paquet, from: i.noeudLocal, rxTime: Math.floor(Date.now() / 1000), hopStart: i.hopLimit }); } catch { /* historique seulement */ }
+  }
+  return { canaux, creer, terminer, renvoyer, recu, lister, TYPES, envoyerAlerte, finAlerte, texteRecu, listerAlertes, GENRES, envoyerPoint, couper };
 }
 
 module.exports = { creerSignalements, TYPES, CATEGORIES };
