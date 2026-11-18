@@ -2930,9 +2930,15 @@ async function calculerProfil() {
       ${[['A', r.a, f.ha.value, r.serie[0]], ['B', r.b, f.hb.value, r.serie[r.serie.length - 1]]].map(([k, o, h, p]) => `<div class="mesure"><span>Antenne ${k} · ${esc(String(o.nom).slice(0, 14))}</span><b>${fmt(Number(h), 1, ' m')} au-dessus du sol <small>(sol ${fmt(p.sol ?? p.solCourbe, 0, ' m')} → antenne ${fmt((p.sol ?? p.solCourbe) + Number(h), 0, ' m')})</small></b></div>`).join('')}
       <div class="mesure"><span>Obstacle principal</span><b>à ${fmt(r.obstacle.distanceKm, 1, ' km')} · ${r.obstacle.degagementM >= 0 ? `dégagement ${fmt(r.obstacle.degagementM, 0, ' m')}` : `dépasse la visée de ${fmt(-r.obstacle.degagementM, 0, ' m')}`}</b></div>
     </div>
+    <div class="actions-prop"><button type="button" id="profil-3d" title="Visée et zone de Fresnel posées sur le relief, à faire tourner (nouvel onglet)">🏔️ Voir ce profil en 3D</button></div>
     <p class="note">Survolez le profil pour lire l’altitude ; cliquez pour voir l’endroit sur la carte.</p>
     <p class="note">Altitudes : ${esc(r.sourceAltitude)} · terre à 4/3 du rayon réel · 1re zone de Fresnel à ${r.parametres.frequenceMHz} MHz · diffraction lame de couteau (ITU-R P.526) · bruit −174 dBm/Hz + 6 dB. Estimation indicative : la végétation et le bâti ne sont pas modélisés.</p>`;
   brancherCurseurProfil(r);
+  $('#profil-3d').onclick = () => {
+    const p3 = new URLSearchParams({ profil: 1, ...Object.fromEntries(qs) });
+    if (etat.depEtude) p3.set('dep', etat.depEtude);
+    window.open('relief3d.html?' + p3, '_blank', 'noopener');
+  };
 }
 function graphiqueProfil(r) {
   const W = 640, H = 220, m = { g: 44, d: 10, h: 10, b: 24 };

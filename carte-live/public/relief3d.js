@@ -144,6 +144,100 @@
   await charger();
   setInterval(charger, 120000);
 
+  // ---- Profil de liaison en 3D (?profil=1&a=…&b=… ou aLat/aLon/bLat/bLon, mêmes réglages que le profil 2D) --
+  // Visée et 1re zone de Fresnel dessinées en volumes (extrusions) découpés en tronçons : MapLibre pose chaque
+  // tronçon sur le relief à l'altitude de son centre, la hauteur est donc le dégagement au-dessus du sol (× relief).
+  const prm = new URLSearchParams(location.search);
+  if (prm.get('profil')) {
+    const qp = new URLSearchParams();
+    for (const k of ['a', 'b', 'aLat', 'aLon', 'bLat', 'bLon', 'aNom', 'bNom', 'ha', 'hb', 'ptx', 'ga', 'gb', 'pertes', 'preset']) if (prm.get(k) != null) qp.set(k, prm.get(k));
+    const pr = await lire('/api/profil?' + qp);
+    if (!pr || !pr.serie) avis(tr('Profil impossible à calculer pour ces deux points.'));
+    else dessinerProfil(pr);
+  }
+  function dessinerProfil(pr) {
+    const s = pr.serie, D = s[s.length - 1].d || 1, A = pr.a, B = pr.b;
+    const mLat = 111320, mLon = 111320 * Math.cos(((A.lat + B.lat) / 2) * Math.PI / 180);
+    // Axe A→B en mètres locaux, et sa normale pour donner une largeur aux volumes
+    const dx = (B.lon - A.lon) * mLon, dy = (B.lat - A.lat) * mLat, L = Math.hypot(dx, dy) || 1;
+    const nx = -dy / L, ny = dx / L;
+    const pos = (d) => [A.lon + (B.lon - A.lon) * d / D, A.lat + (B.lat - A.lat) * d / D];
+    const quad = (d1, d2, demiLargeur) => {
+      const [x1, y1] = pos(d1), [x2, y2] = pos(d2);
+      const ox = (nx * demiLargeur) / mLon, oy = (ny * demiLargeur) / mLat;
+      return [[[x1 + ox, y1 + oy], [x2 + ox, y2 + oy], [x2 - ox, y2 - oy], [x1 - ox, y1 - oy], [x1 + ox, y1 + oy]]];
+    };
+    const etatPt = (p) => { const c = p.visee - p.solCourbe; return c < 0 ? 'bloque' : c < 0.6 * p.fresnel ? 'partiel' : 'libre'; };
+    const COUL = { libre: '#3ee68a', partiel: '#ffb547', bloque: '#ff5c6c' };
+    const largeurVisee = Math.max(8, D / 500), epaisseur = Math.max(2, D / 1500); // trait de visée épaissi pour rester visible
+    function donnees(ex) {
+      // ex : exagération du relief affiché, ou null sans relief (hauteurs absolues au-dessus du niveau de la mer)
+      const fres = [], visee = [], mats = [];
+      for (let i = 0; i < s.length - 1; i++) {
+        const p = s[i], q2 = s[i + 1];
+        const c = ((p.visee - p.solCourbe) + (q2.visee - q2.solCourbe)) / 2, F = (p.fresnel + q2.fresnel) / 2;
+        const sol = (p.sol + q2.sol) / 2, et = c < 0 ? 'bloque' : c < 0.6 * F ? 'partiel' : 'libre';
+        const h = (z) => Math.max(0, ex == null ? sol + z : z * ex);
+        if (F > 0.5) fres.push({ type: 'Feature', properties: { b: h(c - F), h: h(c + F), c: COUL[et] }, geometry: { type: 'Polygon', coordinates: quad(p.d, q2.d, F) } });
+        visee.push({ type: 'Feature', properties: c < 0 ? { b: h(0), h: h(6), c: COUL.bloque } : { b: h(c - epaisseur), h: h(c + epaisseur), c: COUL[et] }, geometry: { type: 'Polygon', coordinates: quad(p.d, q2.d, largeurVisee) } });
+      }
+      for (const [x, ant] of [[0, A.antenne], [D, B.antenne]]) {
+        const sol = x ? s[s.length - 1].sol : s[0].sol;
+        mats.push({ type: 'Feature', properties: { b: ex == null ? sol : 0, h: ex == null ? sol + ant : ant * ex, c: '#f1f5f9' }, geometry: { type: 'Polygon', coordinates: quad(Math.max(0, x - 3), Math.min(D, x + 3), 3) } });
+      }
+      return { fres: { type: 'FeatureCollection', features: fres }, visee: { type: 'FeatureCollection', features: [...visee, ...mats] } };
+    }
+    const exaActuelle = () => (carte.getTerrain() ? carte.getTerrain().exaggeration ?? 1 : null);
+    const d0 = donnees(exaActuelle());
+    carte.addSource('profil-fresnel', { type: 'geojson', data: d0.fres });
+    carte.addSource('profil-visee', { type: 'geojson', data: d0.visee });
+    carte.addSource('profil-trace', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [pos(0), pos(D)] } } });
+    carte.addLayer({ id: 'profil-trace', type: 'line', source: 'profil-trace', paint: { 'line-color': '#f1f5f9', 'line-width': 2, 'line-dasharray': [2, 2], 'line-opacity': 0.8 } });
+    carte.addLayer({ id: 'profil-fresnel', type: 'fill-extrusion', source: 'profil-fresnel', paint: { 'fill-extrusion-color': ['get', 'c'], 'fill-extrusion-base': ['get', 'b'], 'fill-extrusion-height': ['get', 'h'], 'fill-extrusion-opacity': 0.3 } });
+    carte.addLayer({ id: 'profil-visee', type: 'fill-extrusion', source: 'profil-visee', paint: { 'fill-extrusion-color': ['get', 'c'], 'fill-extrusion-base': ['get', 'b'], 'fill-extrusion-height': ['get', 'h'], 'fill-extrusion-opacity': 0.95 } });
+    const maj = () => { const d = donnees(exaActuelle()); carte.getSource('profil-fresnel').setData(d.fres); carte.getSource('profil-visee').setData(d.visee); };
+    $('#exa').addEventListener('input', () => setTimeout(maj, 0));
+    carte.on('terrain', maj);
+
+    // Étiquettes : antennes A et B, obstacle principal
+    const etiquette = (lngLat, html, classe, dessus) => {
+      // dessus : étiquette au-dessus du point (obstacle), pour ne pas chevaucher celles des antennes
+      const el = document.createElement('div');
+      el.className = 'pt3d etiq-profil ' + (classe || '') + (dessus ? ' dessus' : '');
+      el.innerHTML = dessus ? `<span class="nom">${html}</span><span class="rond"></span>` : `<span class="rond"></span><span class="nom">${html}</span>`;
+      return new maplibregl.Marker({ element: el, anchor: dessus ? 'bottom' : 'top', offset: [0, dessus ? 9 : -9] }).setLngLat(lngLat).addTo(carte);
+    };
+    const m = (v) => `${Math.round(v)} m`;
+    etiquette(pos(0), `A · <span translate="no">${esc(A.nom)}</span> · ${esc(tr('antenne'))} ${m(A.antenne)}`, 'ant');
+    etiquette(pos(D), `B · <span translate="no">${esc(B.nom)}</span> · ${esc(tr('antenne'))} ${m(B.antenne)}`, 'ant');
+    const iOb = s.reduce((k, p, i) => (i > 0 && i < s.length - 1 && (p.visee - p.solCourbe) / (p.fresnel || 1) < (s[k].visee - s[k].solCourbe) / (s[k].fresnel || 1) ? i : k), Math.floor(s.length / 2));
+    const ob = pr.obstacle;
+    etiquette(pos(s[iOb].d), `${esc(tr('Obstacle principal'))} · ${ob.degagementM >= 0 ? esc(tr('dégagement')) + ' ' + m(ob.degagementM) : esc(tr('dépasse la visée de')) + ' ' + m(-ob.degagementM)}`, etatPt(s[iOb]), true);
+
+    // Bandeau de synthèse et légende propre au profil
+    document.body.classList.add('mode-profil');
+    document.title = `${tr('Profil 3D')} · ${A.nom} → ${B.nom}`;
+    $('h1').innerHTML = `${esc(tr('Profil 3D'))} · <span translate="no">${esc(A.nom)} → ${esc(B.nom)}</span>`;
+    const coul = pr.bilan.marge >= 10 ? COUL.libre : pr.bilan.marge >= 0 ? COUL.partiel : COUL.bloque;
+    const bandeau = document.createElement('div');
+    bandeau.id = 'profil-info';
+    bandeau.innerHTML = `<b>${esc(tr(pr.verdict))}</b><br><span translate="no">${pr.distanceKm.toLocaleString('fr-FR')} km · ${esc(pr.preset)}</span> · ${esc(tr('marge'))} <b style="color:${coul}" translate="no">${pr.bilan.marge.toLocaleString('fr-FR')} dB</b> · ${esc(tr('SNR estimé'))} <span translate="no">${pr.bilan.snrEstime.toLocaleString('fr-FR')} dB</span>`;
+    $('#carte3d').appendChild(bandeau);
+    $('#legende').innerHTML = `<div><b class="ligne" style="background:${COUL.libre}"></b> ${esc(tr('Visée dégagée'))}</div>`
+      + `<div><b class="ligne" style="background:${COUL.partiel}"></b> ${esc(tr('Zone de Fresnel gênée'))}</div>`
+      + `<div><b class="ligne" style="background:${COUL.bloque}"></b> ${esc(tr('Visée coupée par le relief'))}</div>`
+      + `<div><i style="background:rgba(62,230,138,.35)"></i> ${esc(tr('1re zone de Fresnel (volume clair)'))}</div>`
+      + `<div class="note">${esc(tr('Hauteurs multipliées comme le relief. Végétation et bâti non modélisés.'))}</div>`;
+    // Liaisons du réseau masquées pour la lisibilité (case à cocher pour les remettre)
+    $('#voir-liens').checked = false;
+    for (const c of ['liens', 'liens-mc', 'liens-halo']) if (carte.getLayer(c)) carte.setLayoutProperty(c, 'visibility', 'none');
+
+    // Vue de côté : la liaison traverse l'écran de gauche à droite, le relief au premier plan
+    const azimut = Math.atan2(dx, dy) * 180 / Math.PI;
+    const cam = carte.cameraForBounds([[Math.min(A.lon, B.lon), Math.min(A.lat, B.lat)], [Math.max(A.lon, B.lon), Math.max(A.lat, B.lat)]], { padding: 80, bearing: azimut - 90 });
+    carte.jumpTo({ center: cam.center, zoom: Math.min((cam.zoom || 12) + 0.6, 15), bearing: azimut - 90, pitch: 72 });
+  }
+
   $('#voir-liens').onchange = () => { const v = $('#voir-liens').checked ? 'visible' : 'none'; for (const c of ['liens', 'liens-mc', 'liens-halo']) carte.setLayoutProperty(c, 'visibility', v); };
   $('#voir-noms').onchange = () => document.body.classList.toggle('sans-noms', !$('#voir-noms').checked);
   $('#voir-clients').onchange = dessinerNoeuds;

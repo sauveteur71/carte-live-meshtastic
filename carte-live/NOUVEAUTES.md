@@ -2,6 +2,11 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.28.6
+
+### 🏔️ Profil de liaison en 3D
+- **Bouton « Voir ce profil en 3D »** dans le profil de relief : la liaison s'ouvre dans la vue 3D, vue de côté, sur le vrai relief. La ligne de visée est colorée tronçon par tronçon (vert dégagée, orange zone de Fresnel gênée, rouge coupée par le relief), la 1re zone de Fresnel est dessinée en volume clair, les mâts d'antenne à leur hauteur et l'obstacle principal est signalé. Les hauteurs suivent le curseur « Relief × », et la vue se tourne à la souris comme le reste de la vue 3D.
+
 ## 2.28.5
 
 ### 🛠️ Corrections

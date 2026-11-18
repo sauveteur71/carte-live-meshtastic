@@ -37,6 +37,13 @@
     .pt3d.mc .rond { border-radius: 3px; }
     .pt3d .nom { margin-top: 3px; padding: 1px 6px; border-radius: 6px; background: rgba(11, 17, 23, .85); color: var(--texte); font-size: 12px; font-weight: 600; white-space: nowrap; }
     body.sans-noms .pt3d .nom { display: none; }
+    #profil-info { position: absolute; z-index: 2; left: 12px; top: 12px; max-width: min(460px, calc(100% - 80px)); background: rgba(11, 17, 23, .9); border: 1px solid var(--bord); border-radius: 10px; padding: 8px 12px; font-size: 13px; }
+    body.mode-profil #avis { top: auto; bottom: 64px; left: auto; right: 12px; transform: none; max-width: min(420px, calc(100% - 32px)); }
+    #legende .note { color: var(--doux); font-size: 12px; max-width: 260px; }
+    .etiq-profil .rond { width: 12px; height: 12px; background: #f1f5f9; }
+    .etiq-profil.bloque .rond { background: #ff5c6c; } .etiq-profil.partiel .rond { background: #ffb547; } .etiq-profil.libre .rond { background: #3ee68a; }
+    .etiq-profil { cursor: default; }
+    .etiq-profil.dessus .nom { margin: 0 0 3px; }
     .maplibregl-popup-content { background: var(--surface); color: var(--texte); border: 1px solid var(--bord); border-radius: 10px; font: 13px/1.45 var(--police); padding: 10px 14px; }
     .maplibregl-popup-tip { border-top-color: var(--surface) !important; border-bottom-color: var(--surface) !important; }
     .maplibregl-popup-close-button { color: var(--texte); font-size: 18px; }

@@ -473,6 +473,37 @@ async function essaiVue3D(navig) {
   bilanErreurs(erreurs, 'vue 3D');
   await contexte.close();
 }
+async function essaiProfil3D(navig) {
+  console.log('Profil 3D d’une liaison');
+  const contexte = await navig.newContext({ viewport: { width: 1280, height: 800 } });
+  // Altitudes simulées (le service IGN n'est pas joignable pendant les essais) : une bosse au milieu qui coupe la visée
+  const serie = [];
+  for (let i = 0; i <= 40; i++) {
+    const d = i * 250, sol = 800 + 400 * Math.exp(-(((i - 20) / 5) ** 2)), visee = 806 + (i / 40) * 100;
+    serie.push({ d, sol, solCourbe: sol, visee, fresnel: i === 0 || i === 40 ? 0 : 20 * Math.sin((Math.PI * i) / 40) });
+  }
+  await contexte.route('**/api/profil?**', (r) => r.fulfill({ json: {
+    a: { num: null, nom: 'Sommet A', lat: 45.05, lon: 3.85, sol: 800, antenne: 6 }, b: { num: null, nom: 'Sommet B', lat: 45.08, lon: 3.97, sol: 900, antenne: 6 },
+    distanceKm: 10, sourceAltitude: 'essai', preset: 'LONG_FAST', parametres: { frequenceMHz: 869.525 }, serie,
+    obstacle: { distanceKm: 5, degagementM: -350, v: 20 }, verdict: 'Obstruée par le relief à 5.0 km (350 m au-dessus de la ligne de visée)',
+    bilan: { fspl: 111, diffraction: 30, puissanceRecue: -110, bruit: -117, sensibilite: -137, snrEstime: 7, snrLimite: -20, marge: 27 }, mesure: {},
+  } }));
+  const { page, erreurs } = await ouvrir(contexte, '/relief3d.html?profil=1&aLat=45.05&aLon=3.85&bLat=45.08&bLon=3.97&ha=6&hb=6');
+  await page.waitForTimeout(2500);
+  const v = await page.evaluate(() => {
+    const c = window.carte3d;
+    const src = c && c.getSource('profil-visee');
+    return { couches: c ? ['profil-trace', 'profil-fresnel', 'profil-visee'].filter((id) => c.getLayer(id)).length : 0,
+      troncons: src ? src.serialize().data.features.length : 0, h1: document.querySelector('h1').textContent,
+      info: (document.querySelector('#profil-info') || {}).textContent || '', etiquettes: document.querySelectorAll('.etiq-profil').length,
+      bloque: !!document.querySelector('.etiq-profil.bloque') };
+  });
+  if (v.couches === 3 && v.troncons >= 40) ok('profil 3D : visée, Fresnel et tracé dessinés'); else ko('profil 3D : ' + JSON.stringify(v));
+  if (/Sommet A → Sommet B/.test(v.h1) && /Obstruée|Blocked/.test(v.info) && v.etiquettes === 3 && v.bloque) ok('profil 3D : titre, verdict et obstacle signalés'); else ko('profil 3D (textes) : ' + JSON.stringify(v));
+  await capture(page, 'profil-3d');
+  bilanErreurs(erreurs, 'profil 3D');
+  await contexte.close();
+}
 async function essaiAgentDirect(cookie) {
   console.log('Agent zéro question (simulé)');
   const net = require('net');
@@ -607,6 +638,7 @@ async function essaiPagesPubliques(navig) {
     await essaiRejoindre(navigateur, cookie);
     await essaiRegistreEtExports(navigateur, cookie);
     await essaiVue3D(navigateur);
+    await essaiProfil3D(navigateur);
     await essaiAdministrationALaDemande(navigateur, cookie);
     await essaiAgentDirect(cookie);
     await essaiUsbAuto(navigateur, cookie);
