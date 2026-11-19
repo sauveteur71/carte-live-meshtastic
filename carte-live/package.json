@@ -16,6 +16,7 @@
     "js-yaml": "^5.5.0",
     "leaflet": "1.9.4",
     "maplibre-gl": "6.18.0",
+    "maxmind": "^5.0.8",
     "mqtt": "^5.10.4",
     "nodemailer": "^10.4.0",
     "pg": "^8.23.1",

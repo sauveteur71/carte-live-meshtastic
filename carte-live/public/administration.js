@@ -833,6 +833,41 @@ const ACTIONS_AUDIT = [
   [/radio\/(connecter|deconnecter|modules|scanner|agents)/, 'Module radio'], [/reglages|mqtt|config/, 'Réglages'],
 ];
 const libelleAudit = (a) => { for (const [re, l] of ACTIONS_AUDIT) if (re.test(a)) return `${l} <small class="mono">${esc(a)}</small>`; return esc(a); };
+// ---- Fréquentation : visiteurs par jour, pays, pages, provenance (aucune adresse IP gardée) ----------------------
+let joursFrequentation = 30;
+async function rendreFrequentation(jours) {
+  if (jours) joursFrequentation = jours;
+  const z = $('#pan-frequentation');
+  let f;
+  try { f = await api('/api/frequentation?jours=' + joursFrequentation); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const nb = (n) => Number(n || 0).toLocaleString('fr-FR');
+  let noms = null;
+  try { noms = new Intl.DisplayNames(['fr'], { type: 'region' }); } catch { /* navigateur ancien */ }
+  const drapeau = (c) => (/^[A-Z]{2}$/.test(c) ? String.fromCodePoint(...[...c].map((x) => 0x1f1e6 + x.charCodeAt(0) - 65)) : '');
+  const nomPays = (c) => (c === 'LAN' ? '🏠 Réseau local' : c === 'VPN' ? '🔒 VPN (Tailscale…)' : c === '?' ? '❔ Inconnu' : `${drapeau(c)} ${(noms && noms.of(c)) || c}`);
+  const max = Math.max(1, ...f.parJour.map((x) => x.visiteurs));
+  const totPays = Math.max(1, f.pays.reduce((s, x) => s + x.visiteurs, 0));
+  const ligneBarre = (libelle, n, total, extra = '') => `<tr><td>${libelle}</td><td class="barre-cellule"><span class="barre-freq" style="width:${Math.max(2, Math.round((n / total) * 100))}%"></span></td><td class="nombre">${nb(n)}</td>${extra}</tr>`;
+  z.innerHTML = `<div class="ligne-champs"><label>Période <select id="freq-jours">${[7, 30, 90, 365].map((j) => `<option value="${j}" ${j === f.jours ? 'selected' : ''}>${j} derniers jours</option>`).join('')}</select></label><button class="mini" id="freq-maj">↻ Actualiser</button></div>
+    ${f.actif ? '' : '<div class="alerte info-lecture">Le comptage est arrêté (Réglages avancés › Services › Statistiques de fréquentation).</div>'}
+    <div class="cartes-freq">
+      <div class="carte-freq"><b>${nb(f.enLigne)}</b><span>en ligne maintenant</span></div>
+      <div class="carte-freq"><b>${nb(f.aujourdhui.visiteurs)}</b><span>visiteurs aujourd’hui</span><small>${nb(f.aujourdhui.visites)} pages ouvertes</small></div>
+      <div class="carte-freq"><b>${nb(f.total.visiteurs)}</b><span>visiteurs sur ${f.jours} jours</span><small>${nb(f.total.visites)} pages ouvertes</small></div>
+      <div class="carte-freq"><b>${nb(f.pays.filter((x) => /^[A-Z]{2}$/.test(x.pays)).length)}</b><span>pays</span></div>
+    </div>
+    <h3>Visiteurs par jour</h3>
+    <div class="histo-freq" role="img" aria-label="Visiteurs par jour">${f.parJour.map((x) => `<div class="colonne-freq" title="${new Date(x.jour + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })} : ${nb(x.visiteurs)} visiteurs, ${nb(x.visites)} pages"><span style="height:${Math.round((x.visiteurs / max) * 100)}%"></span></div>`).join('')}</div>
+    <div class="axe-freq"><span>${new Date(f.parJour[0].jour + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</span><span>aujourd’hui</span></div>
+    <div class="grille-freq">
+      <div><h3>Pays</h3><table class="voisins tableau-freq"><tbody>${f.pays.map((x) => ligneBarre(nomPays(x.pays), x.visiteurs, totPays)).join('') || '<tr><td class="vide">Pas encore de visite.</td></tr>'}</tbody></table></div>
+      <div><h3>Pages ouvertes</h3><table class="voisins tableau-freq"><tbody>${f.pages.map((x) => ligneBarre(esc(x.page), x.visites, Math.max(1, f.total.visites))).join('') || '<tr><td class="vide">—</td></tr>'}</tbody></table>
+        <h3>Venus de</h3><table class="voisins tableau-freq"><tbody>${f.provenances.map((x) => ligneBarre(`<a href="https://${esc(x.provenance)}" target="_blank" rel="noopener noreferrer">${esc(x.provenance)}</a>`, x.visites, Math.max(1, f.provenances[0].visites))).join('') || '<tr><td class="vide">Accès directs seulement (favori, adresse tapée, appli).</td></tr>'}</tbody></table></div>
+    </div>
+    <p class="note">Un visiteur est compté une fois par jour ; les robots (moteurs de recherche, aperçus de liens) sont ignorés. Aucune adresse IP n’est enregistrée et aucun cookie n’est posé : seuls des totaux par jour sont gardés, 400 jours. Pays : base IP to Country Lite de <a href="https://db-ip.com" target="_blank" rel="noopener">DB-IP</a> (CC BY 4.0), consultée sur le serveur${f.geo.etat === 'prête' ? '' : ` — <b>${esc(f.geo.etat)}</b>${f.geo.etat === 'absente' ? ' (téléchargement automatique dans les minutes qui suivent le démarrage)' : ''}`}.</p>`;
+  $('#freq-jours').onchange = (e) => rendreFrequentation(Number(e.target.value));
+  $('#freq-maj').onclick = () => rendreFrequentation();
+}
 async function rendreJournal(filtre) {
   const z = $('#pan-journal');
   let l;

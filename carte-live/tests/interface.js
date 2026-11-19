@@ -30,7 +30,7 @@ fs.writeFileSync(path.join(donnees, 'feux.json'), JSON.stringify({ maj: Date.now
 ] }));
 function demarrerServeur() {
   serveur = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
-    env: { ...process.env, PORT: String(PORT), FICHIER_BASE: path.join(donnees, 'carte-live.db'), MQTT_URL: 'mqtt://127.0.0.1:1', DEPARTEMENT: '43', MESHCORE: 'oui', ADMIN_MOT_DE_PASSE: '', AGENTS_PORT: String(PORT + 5), PAT_URL: `http://127.0.0.1:${PORT + 7}`, PAT_INDICATIF: 'F4XYZ', SMTP_HOTE: 'fichier', CARTE_ADRESSE: 'https://carte.essai' },
+    env: { ...process.env, PORT: String(PORT), FICHIER_BASE: path.join(donnees, 'carte-live.db'), MQTT_URL: 'mqtt://127.0.0.1:1', DEPARTEMENT: '43', MESHCORE: 'oui', ADMIN_MOT_DE_PASSE: '', AGENTS_PORT: String(PORT + 5), PAT_URL: `http://127.0.0.1:${PORT + 7}`, PAT_INDICATIF: 'F4XYZ', SMTP_HOTE: 'fichier', CARTE_ADRESSE: 'https://carte.essai', STATS_PAYS: 'non' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const log = fs.createWriteStream(path.join(sorties, 'serveur.log'));
@@ -441,7 +441,7 @@ async function essaiAdministrationALaDemande(navig, cookie) {
     }, f);
     if (!/^ERREUR/.test(t) && t.includes(attendu)) ok(`${f} : écran ouvert`); else ko(`${f} : ${t.slice(0, 140)}`);
   }
-  for (const pan of ['comptes', 'journal', 'sauvegardes', 'reglages']) {
+  for (const pan of ['comptes', 'journal', 'sauvegardes', 'reglages', 'frequentation']) {
     const t = await page.evaluate(async (p) => { await ouvrirDlg(p); await new Promise((r) => setTimeout(r, 700)); const x = document.querySelector(`#pan-${p}`); const v = x ? x.textContent.trim().length : 0; document.querySelectorAll('dialog[open]').forEach((d) => d.close()); return v; }, pan);
     if (t > 20) ok(`gestion › ${pan} : rempli`); else ko(`gestion › ${pan} vide`);
   }
@@ -790,6 +790,34 @@ async function essaiMotDePasseOublie(navig, cookie) {
   for (const id of [a1.id, a2.id, f1.j.id]) await appel('DELETE', '/api/comptes/' + id);
 }
 
+async function essaiFrequentation(navig, cookie) {
+  console.log('Fréquentation (visiteurs, pays, provenance)');
+  const H = { Cookie: `${cookie.name}=${cookie.value}` };
+  const avant = await (await fetch(BASE + '/api/frequentation?jours=7', { headers: H })).json();
+  const ua = 'Mozilla/5.0 (Windows NT 10.0) Essai/1.0';
+  for (let k = 0; k < 3; k++) await fetch(BASE + '/', { headers: { 'User-Agent': ua, Referer: 'https://l.facebook.com/l.php?u=x' } });
+  await fetch(BASE + '/adrasec', { headers: { 'User-Agent': ua } });
+  await fetch(BASE + '/', { headers: { 'User-Agent': 'Googlebot/2.1' } });
+  await fetch(BASE + '/', { headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14) CarteLiveAndroid/2.28.12' } });
+  const f = await (await fetch(BASE + '/api/frequentation?jours=7', { headers: H })).json();
+  const page = (n) => (f.pages.find((x) => x.page === n) || {}).visites || 0;
+  const pageAv = (n) => (avant.pages.find((x) => x.page === n) || {}).visites || 0;
+  const fb = (f.provenances.find((x) => x.provenance === 'facebook.com') || {}).visites || 0;
+  const lan = f.pays.find((x) => x.pays === 'LAN');
+  const anonyme = await fetch(BASE + '/api/frequentation');
+  if (page('carte') - pageAv('carte') === 3 && page('ADRASEC') - pageAv('ADRASEC') === 1 && page('appli Android') - pageAv('appli Android') === 1 && fb >= 3 && lan && f.aujourdhui.visiteurs - avant.aujourdhui.visiteurs === 2 && anonyme.status === 401 && !JSON.stringify(f).includes('127.0.0.1')) ok('fréquentation : pages, visiteurs uniques du jour, provenance Facebook, réseau local, robots ignorés, sans adresse IP, réservé aux administrateurs');
+  else ko('fréquentation : ' + JSON.stringify({ pages: f.pages, avant: avant.pages, fb, lan, v: [avant.aujourdhui, f.aujourdhui], anonyme: anonyme.status }));
+  const ctx = await navig.newContext({ viewport: { width: 1366, height: 800 }, locale: 'fr-FR' });
+  await ctx.addCookies([cookie]);
+  await ctx.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const { page: pg, erreurs } = await ouvrir(ctx, '/');
+  await pg.waitForTimeout(800);
+  const e = await pg.evaluate(async () => { await ouvrirDlg('frequentation'); await new Promise((r) => setTimeout(r, 1200)); const z = document.querySelector('#pan-frequentation'); return { cartes: z.querySelectorAll('.carte-freq').length, colonnes: z.querySelectorAll('.colonne-freq').length, fb: /facebook\.com/.test(z.textContent), lan: /Réseau local/.test(z.textContent), deborde: document.querySelector('#dlg-gestion').scrollWidth - document.querySelector('#dlg-gestion').clientWidth }; });
+  await capture(pg, 'frequentation');
+  if (e.cartes === 4 && e.colonnes === 30 && e.fb && e.lan && e.deborde <= 2 && !erreurs.length) ok('Gérer › Fréquentation : chiffres, visiteurs par jour, pays et provenance'); else ko('écran fréquentation : ' + JSON.stringify({ ...e, erreurs }));
+  await ctx.close();
+}
+
 async function essaiAgentDirect(cookie) {
   console.log('Agent zéro question (simulé)');
   const net = require('net');
@@ -938,6 +966,7 @@ async function essaiPagesPubliques(navig) {
     await essaiProfil3D(navigateur);
     await essaiAdrasec(navigateur, cookie);
     await essaiMotDePasseOublie(navigateur, cookie);
+    await essaiFrequentation(navigateur, cookie);
     await essaiAdministrationALaDemande(navigateur, cookie);
     await essaiAgentDirect(cookie);
     await essaiUsbAuto(navigateur, cookie);

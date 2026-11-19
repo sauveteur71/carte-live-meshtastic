@@ -1727,3 +1727,22 @@ dialog.large:has(#pan-comptes:not([hidden])) { width: min(1240px, 97vw); }
 #pan-comptes .actions-ligne { flex-wrap: wrap; justify-content: flex-start; max-width: 260px; }
 #pan-comptes td > b + button[data-fiche] { padding: 2px 6px !important; min-height: 0; vertical-align: middle; }
 #pan-comptes .bouton-enregistrer { background: var(--accent) !important; color: #062019 !important; border-color: var(--accent) !important; font-weight: 700; }
+
+/* Fréquentation (Gérer › Fréquentation) */
+.cartes-freq { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 10px 0 14px; }
+.carte-freq { background: var(--surface); border: 1px solid var(--bord); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.carte-freq b { font-size: 28px; line-height: 1.1; color: var(--accent); font-variant-numeric: tabular-nums; }
+.carte-freq span { font-weight: 650; }
+.carte-freq small { color: var(--doux); }
+.histo-freq { display: flex; align-items: flex-end; gap: 2px; height: 140px; padding: 6px; background: var(--surface); border: 1px solid var(--bord); border-radius: 10px; }
+.colonne-freq { flex: 1; height: 100%; display: flex; align-items: flex-end; min-width: 2px; }
+.colonne-freq span { width: 100%; min-height: 1px; background: var(--accent); border-radius: 3px 3px 0 0; }
+.colonne-freq:hover span { background: #fff; }
+.axe-freq { display: flex; justify-content: space-between; color: var(--doux); font-size: 12px; margin: 2px 4px 10px; }
+.grille-freq { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.tableau-freq td { padding: 4px 6px; }
+.tableau-freq .barre-cellule { width: 40%; }
+.barre-freq { display: block; height: 10px; border-radius: 5px; background: var(--accent); }
+.tableau-freq .nombre { text-align: right; font-variant-numeric: tabular-nums; font-weight: 650; white-space: nowrap; }
+.tableau-freq a { color: var(--accent); }
+#pan-frequentation > .ligne-champs select { width: auto; min-width: 190px; }

@@ -93,6 +93,8 @@ function lireCookie(req, nom) {
 const utilisateur = (req) => comptes.lireJeton(lireCookie(req, 'gaulix_session'));
 const audit = creerAudit(stockage.db);
 const courriel = require('./courriel').creerCourriel({ config, journal });
+// Fréquentation (administrateurs) : compteurs par jour, sans adresse IP gardée ; pays par la base DB-IP sur place
+const frequentation = require('./frequentation').creerFrequentation({ db: stockage.db, config, journal, clientsEnLigne: () => (typeof wss !== 'undefined' ? wss.clients.size : 0) });
 const nomCompte = (c) => (c ? c.indicatif ? `${c.identifiant} (${c.indicatif})` : c.identifiant : null);
 // « Membre » : tout compte connecté (messages texte, positions exactes) ; « admin » : réglages et pilotage
 // Démonstration (?consultation, en-tête X-Demo) : un visiteur lit en plus, en GET seulement, une liste d'écrans de
@@ -215,7 +217,15 @@ function pageVersionnee(fichier) {
   }
   return pagesVersionnees.get(fichier);
 }
-const envoyerPage = (fichier) => (req, res) => res.set('Cache-Control', 'no-cache').type('html').send(pageVersionnee(fichier));
+const NOMS_PAGES = { 'index.html': 'carte', 'publique.html': 'page publique', 'rejoindre.html': 'rejoindre', 'adrasec.html': 'ADRASEC', 'terrain.html': 'lien terrain' };
+const envoyerPage = (fichier) => (req, res) => {
+  try { frequentation.noter(req, /CarteLiveAndroid/.test(req.get('user-agent') || '') ? 'appli Android' : NOMS_PAGES[fichier] || fichier.replace(/\.html$/, '')); } catch { /* comptage sans importance */ }
+  res.set('Cache-Control', 'no-cache').type('html').send(pageVersionnee(fichier));
+};
+app.get('/api/frequentation', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.set('Cache-Control', 'no-store').json(frequentation.resume(req.query.jours));
+});
 app.get(['/', '/index.html'], envoyerPage('index.html'));
 app.get('/publique.html', envoyerPage('publique.html'));
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '5m', index: false }));
