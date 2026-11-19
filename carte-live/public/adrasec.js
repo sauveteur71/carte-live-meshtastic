@@ -160,6 +160,11 @@
 
   // ---- Radiogoniométrie ---------------------------------------------------------------------------------------
   let posReleve = null; // { lat, lon, source, locator? }
+  // Équipe qui donne le relevé (le PC saisit souvent les relevés des équipes reçus par radio) : retenue d'un relevé à l'autre
+  let equipeReleve = memo('equipeReleve');
+  const equipeChoisie = () => { const s = $('#g-equipe'); return s ? s.value || null : equipeReleve && equipe(equipeReleve) ? equipeReleve : E.moi.equipe || null; };
+  // Membre de l'équipe dont le nœud a la position la plus récente
+  const noeudEquipe = (eid) => E.membres.filter((m) => eid && m.equipe === eid && m.position && m.noeud).sort((a, b) => (b.position.heure || 0) - (a.position.heure || 0))[0] || null;
   // Aperçu du relevé en cours de saisie : point de l'équipe (dès qu'il est choisi) et trait du gisement tapé
   function majApercu() {
     couchesApercu.clearLayers();
@@ -177,7 +182,7 @@
       L.polyline([[p.lat, p.lon], [bout.lat, bout.lon]], { color: '#3ee6c4', weight: 4, dashArray: '12 8', interactive: false }).addTo(couchesApercu);
     }
     L.circleMarker([p.lat, p.lon], { radius: 10, color: '#ffffff', weight: 3, fillColor: '#3ee6c4', fillOpacity: 1, interactive: false })
-      .bindTooltip('Position de l’équipe (relevé pas encore envoyé)', { permanent: true, direction: 'top', offset: [0, -10], className: 'etq-equipe' }).addTo(couchesApercu);
+      .bindTooltip(`${equipeChoisie() ? esc(nomEquipe(equipeChoisie())) + ' · ' : ''}position du relevé (pas encore envoyé)`, { permanent: true, direction: 'top', offset: [0, -10], className: 'etq-equipe' }).addTo(couchesApercu);
   }
   function rendreGonio() {
     const v = $('#vue-gonio');
@@ -211,9 +216,10 @@
         : '<div class="ligne-champs"><button id="d-lien-creer">Créer le lien terrain</button></div>'}
       </div>
       <h3>Nouveau relevé</h3>
+      <div class="ligne-champs"><label title="Équipe qui a fait ce relevé : son nom et sa couleur s’affichent sur la carte et dans la main courante">Équipe qui donne le relevé <select id="g-equipe"><option value="">— aucune —</option>${E.equipes.map((e) => `<option value="${e.id}" ${e.id === equipeChoisie() ? 'selected' : ''}>● ${esc(e.nom)}</option>`).join('')}</select></label></div>
       <div class="ligne-champs"><label>Gisement vrai (°) <input id="g-gis" inputmode="decimal" placeholder="0 à 360"></label><label>Incertitude ± (°) <input id="g-inc" inputmode="decimal"></label><label>Force <select id="g-force"><option value="">—</option><option>S1-S3 faible</option><option>S4-S6 moyen</option><option>S7-S9 fort</option><option>Saturé</option></select></label></div>
       <div class="note">Position de l’équipe :</div>
-      <div class="choix-pos"><button data-pos="gps">📍 Mon GPS</button><button data-pos="noeud" ${E.moi.noeud ? '' : 'disabled title="Aucun nœud associé à votre compte"'}>📡 Mon nœud</button><button data-pos="carte">🖱 Clic sur la carte</button><button data-pos="locator">⌗ Locator</button></div>
+      <div class="choix-pos"><button data-pos="gps">📍 Mon GPS</button><button data-pos="equipe" ${noeudEquipe(equipeChoisie()) ? '' : 'disabled title="Aucun membre de cette équipe n’a de nœud suivi (Gestion › Nœud porté)"'}>📡 Nœud de l’équipe</button><button data-pos="noeud" ${E.moi.noeud ? '' : 'disabled title="Aucun nœud associé à votre compte"'}>📡 Mon nœud</button><button data-pos="carte">🖱 Clic sur la carte</button><button data-pos="locator">⌗ Locator</button></div>
       <div id="g-pos-detail" class="note">${posReleve ? `Retenue : <b class="mono">${posReleve.lat.toFixed(5)}, ${posReleve.lon.toFixed(5)}</b> (${esc(posReleve.source)})` : 'Aucune position choisie.'}</div>
       <div id="g-loc-zone" hidden><label>QTH-locator (6 à 10 caractères) <input id="g-loc" placeholder="JN15XC33"></label></div>
       <label>Note <input id="g-note" placeholder="ex. réflexion probable, antenne Yagi 3 él."></label>
@@ -236,12 +242,21 @@
     for (const b of v.querySelectorAll('[data-copier]')) b.onclick = () => navigator.clipboard && navigator.clipboard.writeText(b.dataset.copier).then(() => { b.textContent = 'Copié ✓'; });
     for (const b of v.querySelectorAll('[data-retirer]')) b.onclick = async () => { await api('/api/adrasec/releves/' + b.dataset.retirer, { method: 'DELETE' }).catch((e) => alert(e.message)); charger(); };
     for (const b of v.querySelectorAll('[data-pos]')) b.onclick = () => choisirPosition(b.dataset.pos);
+    const se = $('#g-equipe');
+    if (se) se.onchange = () => {
+      equipeReleve = se.value || ''; memo('equipeReleve', equipeReleve);
+      const be = v.querySelector('[data-pos="equipe"]'), ok = !!noeudEquipe(se.value);
+      be.disabled = !ok; be.title = ok ? '' : 'Aucun membre de cette équipe n’a de nœud suivi (Gestion › Nœud porté)';
+      if (posReleve && posReleve.noeud) { if (ok) choisirPosition('equipe'); else { posReleve = null; be.classList.remove('actif'); $('#g-pos-detail').textContent = 'Aucune position choisie.'; } }
+      majApercu();
+    };
     const env = $('#g-envoyer');
     if (env) env.onclick = async () => {
       $('#g-erreur').textContent = '';
-      const corps = { recherche: r.id, gisement: $('#g-gis').value, incertitude: $('#g-inc').value, force: $('#g-force').value, note: $('#g-note').value };
+      const corps = { recherche: r.id, equipe: $('#g-equipe').value || null, gisement: $('#g-gis').value, incertitude: $('#g-inc').value, force: $('#g-force').value, note: $('#g-note').value };
       if (!$('#g-loc-zone').hidden && $('#g-loc').value.trim()) corps.locator = $('#g-loc').value.trim();
       else if (posReleve && posReleve.source === 'mon nœud') corps.noeud = E.moi.noeud;
+      else if (posReleve && posReleve.noeud) corps.noeud = posReleve.noeud;
       else if (posReleve) Object.assign(corps, { lat: posReleve.lat, lon: posReleve.lon, source: posReleve.source === 'GPS' ? 'gps' : 'carte' });
       memo('incertitude', $('#g-inc').value);
       try { await api('/api/adrasec/releves', { method: 'POST', body: corps }); $('#g-gis').value = ''; $('#g-note').value = ''; charger(); } catch (e) { $('#g-erreur').textContent = e.message; }
@@ -284,6 +299,9 @@
     } else if (mode === 'noeud') {
       const m = E.membres.find((x) => x.noeud === E.moi.noeud);
       if (m && m.position) maj({ ...m.position, source: 'mon nœud' }); else { posReleve = { lat: 0, lon: 0, source: 'mon nœud' }; $('#g-pos-detail').textContent = 'Position de votre nœud : prise par le serveur à l’envoi.'; }
+    } else if (mode === 'equipe') {
+      const m = noeudEquipe(equipeChoisie());
+      if (m) maj({ ...m.position, source: 'nœud de ' + (m.indicatif || m.nom), noeud: m.noeud }); else $('#g-pos-detail').textContent = 'Aucun nœud suivi dans cette équipe.';
     } else if (mode === 'carte') {
       consigne('Cliquez sur la carte à l’endroit où se trouve l’équipe');
       modeClic = (ll) => maj({ lat: ll.lat, lon: ll.lng, source: 'carte' });

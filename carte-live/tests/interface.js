@@ -627,6 +627,12 @@ async function essaiAdrasec(navig, cookie) {
   await page.waitForTimeout(400);
   const ap = await page.evaluate(() => ({ retenue: /Retenue/.test(document.querySelector('#g-pos-detail').textContent), tip: /pas encore envoyé/.test(document.body.innerText) }));
   if (ap.retenue && ap.tip) ok('page ADRASEC : point de l’équipe et aperçu du gisement après un clic'); else ko('aperçu du relevé : ' + JSON.stringify(ap));
+  // Relevé donné par une autre équipe (saisie au PC) : équipe choisie dans la liste
+  const eqs = await page.evaluate(() => [...document.querySelectorAll('#g-equipe option')].map((o) => o.value).filter(Boolean));
+  if (eqs.length) await page.selectOption('#g-equipe', eqs[eqs.length - 1]);
+  await page.click('#g-envoyer'); await page.waitForTimeout(1500);
+  const der = await page.evaluate(async () => { const v = await (await fetch('/api/adrasec')).json(); const r = v.recherches.find((x) => x.statut === 'en-cours'); const x = v.releves ? null : null; return { eqChoisie: document.querySelector('#g-equipe') && document.querySelector('#g-equipe').value, dernier: r && r.releves && r.releves[r.releves.length - 1] }; });
+  if (eqs.length && der.dernier && der.dernier.equipe === eqs[eqs.length - 1] && der.eqChoisie === eqs[eqs.length - 1]) ok('page ADRASEC : équipe qui donne le relevé choisie à la saisie (gardée pour le suivant)'); else ko('relevé d’une équipe : ' + JSON.stringify({ eqs, der }));
   await capture(page, 'adrasec-gonio');
   await page.click('[data-vue="winlink"]');
   await page.waitForTimeout(1500);

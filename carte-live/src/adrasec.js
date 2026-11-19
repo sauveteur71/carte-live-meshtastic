@@ -321,7 +321,9 @@ function creerGroupe(g, ctx) {
     else if (Number.isFinite(Number(b.lat)) && Number.isFinite(Number(b.lon)) && b.lat !== '' && b.lon !== '') { pos = { lat: Number(b.lat), lon: Number(b.lon) }; source = b.source === 'gps' ? 'GPS' : 'carte'; }
     else if (b.noeud || (m && m.noeud)) { const n = Number(b.noeud || m.noeud) >>> 0; const p = positionDe(n); if (!p || p.lat == null) throw new Error('Position du nœud inconnue'); pos = p; source = 'nœud ' + (nomDe(n) || '!' + n.toString(16)); }
     if (!pos || Math.abs(pos.lat) > 90 || Math.abs(pos.lon) > 180) throw new Error('Position de l’équipe manquante (GPS, locator, clic sur la carte ou nœud)');
-    const x = { id: id(), recherche: r.id, heure: Date.now(), auteur: compte ? signature(compte) : b.auteur || 'radio', equipe: b.equipe || (m && m.equipe) || null,
+    const x = { id: id(), recherche: r.id, heure: Date.now(), auteur: compte ? signature(compte) : b.auteur || 'radio',
+      // Équipe choisie par celui qui saisit (le PC saisit les relevés des équipes), sinon la sienne
+      equipe: b.equipe !== undefined ? (b.equipe && g.equipes.some((e) => e.id === b.equipe) ? b.equipe : null) : (m && m.equipe) || null,
       lat: +pos.lat.toFixed(6), lon: +pos.lon.toFixed(6), source, gisement: +(gis % 360).toFixed(1), incertitude: +inc.toFixed(1), force: txt(b.force, 20) || null, note: txt(b.note, 200) || null, origine };
     g.releves.push(x);
     sauver();
