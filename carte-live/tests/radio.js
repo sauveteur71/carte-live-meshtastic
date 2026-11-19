@@ -567,3 +567,29 @@ test('MeshCore : sauvegarde du configurateur importée sans secrets, comparée a
   assert.ok(n.aFaire.some((t) => /path\.hash\.mode 1/.test(t)));
   assert.ok(n.aFaire.some((t) => /9 annonces en inondation/.test(t)));
 });
+
+test('Jeux de canaux : placement sur la radio (ajout, déjà présent, place à libérer, canaux gardés groupés)', () => {
+  const { planifier } = require('../src/jeux-canaux');
+  const K = (n) => Buffer.alloc(32, n).toString('base64');
+  const vide = { nom: '', cle: '', role: 'DISABLED' };
+  const actuels = [{ nom: '', cle: 'AQ==', role: 'PRIMARY' }, { nom: 'Fr_Balise', cle: 'AQ==', role: 'SECONDARY' }, { nom: 'ADRASEC43', cle: K(1), role: 'SECONDARY', precision: 32 }, { nom: 'Perso', cle: K(2), role: 'SECONDARY', precision: 13 }, vide, vide, vide, vide];
+  const ajouts = [{ nom: 'ADRASEC43', psk: Buffer.alloc(32, 1) }, { nom: 'Alerte', psk: Buffer.from([1]) }];
+  let r = planifier(actuels, ajouts);
+  assert.deepEqual(r.deja, ['ADRASEC43']);
+  assert.deepEqual(r.ops.map((o) => [o.index, o.nom]), [[4, 'Alerte']]);
+  // Fr_Balise libéré : les suivants remontent d'un cran, avec leurs réglages, et rien d'autre ne bouge
+  r = planifier(actuels, ajouts, [1]);
+  assert.deepEqual(r.ops.map((o) => [o.index, o.supprimer ? '-' : o.nom]), [[1, 'ADRASEC43'], [2, 'Perso'], [3, 'Alerte']]);
+  assert.equal(r.ops[1].precision, 13);
+  assert.ok(Buffer.from(r.ops[1].psk).equals(Buffer.alloc(32, 2)));
+  // Même nom, autre clé : le canal du jeu le remplace à sa place
+  r = planifier(actuels, [{ nom: 'Perso', psk: Buffer.alloc(32, 9) }]);
+  assert.deepEqual(r.ops.map((o) => [o.index, o.nom]), [[3, 'Perso']]);
+  // Radio pleine : il manque des places tant que rien n'est libéré ; le canal 0 n'apparaît jamais
+  const plein = [actuels[0], ...[1, 2, 3, 4, 5, 6, 7].map((i) => ({ nom: 'C' + i, cle: 'AQ==', role: 'SECONDARY' }))];
+  assert.equal(planifier(plein, ajouts).manque, 2);
+  r = planifier(plein, ajouts, [2, 5]);
+  assert.equal(r.manque, 0);
+  assert.ok(r.ops.every((o) => o.index >= 1 && o.index <= 7));
+  assert.deepEqual(r.final.map((c) => c.nom), ['C1', 'C3', 'C4', 'C6', 'C7', 'ADRASEC43', 'Alerte']);
+});

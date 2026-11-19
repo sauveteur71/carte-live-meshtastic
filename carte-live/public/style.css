@@ -1746,3 +1746,23 @@ dialog.large:has(#pan-comptes:not([hidden])) { width: min(1240px, 97vw); }
 .tableau-freq .nombre { text-align: right; font-variant-numeric: tabular-nums; font-weight: 650; white-space: nowrap; }
 .tableau-freq a { color: var(--accent); }
 #pan-frequentation > .ligne-champs select { width: auto; min-width: 190px; }
+
+/* Passerelle d'une page : canaux de la radio et jeux de canaux (carte, ADRASEC) */
+.canaux-radio { margin-top: 14px; padding: 12px; border: 1px solid var(--bord, #cbd5e1); border-radius: 10px; background: var(--fond-carte, transparent); }
+.canaux-radio h3 { margin: 0 0 8px; font-size: 1rem; }
+.canaux-radio h3 small { font-weight: normal; opacity: .8; margin-left: 6px; }
+.grille-canaux { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: 10px; }
+.case-canal { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid var(--bord, #cbd5e1); border-radius: 6px; min-width: 0; }
+.case-canal b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.case-canal.vide { opacity: .55; border-style: dashed; }
+.canaux-radio .num { display: inline-block; min-width: 1.2em; font-variant-numeric: tabular-nums; opacity: .75; }
+.jeu-canaux, .liberer-canaux { border: 1px solid var(--bord, #cbd5e1); border-radius: 8px; margin: 8px 0; padding: 6px 10px 8px; }
+.jeu-canaux legend, .liberer-canaux legend { font-weight: 600; padding: 0 4px; }
+.jeu-canaux label.case, .liberer-canaux label.case { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 3px 0; }
+.liberer-canaux { border-color: #d97706; }
+.badge-clair { font-size: .78em; padding: 1px 6px; border-radius: 9px; background: #fef3c7; color: #78350f; border: 1px solid #f59e0b; }
+.badge-cle { font-size: .9em; }
+.editeur-jeu { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--bord, #cbd5e1); }
+.ligne-jeu { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.ligne-jeu [data-champ="nom"] { width: 9.5em; }
+.ligne-jeu [data-champ="collee"] { flex: 1 1 16em; min-width: 12em; }

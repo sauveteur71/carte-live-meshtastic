@@ -149,11 +149,13 @@ function creerAgents(config, { surArrivee, surDirect } = {}) {
       return a.socket;
     },
     // Module relié par la page web elle-même (USB ou Bluetooth du navigateur) : flux déjà ouvert
-    ajouterVirtuel(nom, source, flux, ip, version = 'navigateur') {
+    // proprietaire : compte d'un membre relié en passerelle ; il ne peut jamais remplacer le module d'un autre
+    ajouterVirtuel(nom, source, flux, ip, version = 'navigateur', proprietaire = null) {
       const hote = slug(nom);
       const ancien = agents.get(hote);
+      if (ancien && ancien.socket !== flux && proprietaire != null && ancien.proprietaire !== proprietaire) throw new Error(`nom « ${nom} » déjà utilisé par un autre module`);
       if (ancien && ancien.socket !== flux) ancien.socket.destroy();
-      const a = { hote, nom, source, version, ip, depuis: Date.now(), socket: flux, occupe: false, virtuel: true };
+      const a = { hote, nom, source, version, ip, depuis: Date.now(), socket: flux, occupe: false, virtuel: true, proprietaire };
       agents.set(hote, a);
       const par = version === 'navigateur' ? 'le navigateur' : `l’agent ${version}`;
       flux.on('close', () => { if (agents.get(hote) === a) agents.delete(hote); journal(`module « ${nom} » (${par}) déconnecté`); });

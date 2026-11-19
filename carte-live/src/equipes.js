@@ -286,6 +286,8 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
     return l;
   }
   return {
+    // Même clé maîtresse pour les jeux de canaux des groupes (jeux-canaux.js)
+    chiffreur: { chiffrer, dechiffrer, empreinte },
     alertes,
     liste: () => liste.map(vue),
     equipe: (id) => vue(exiger(id)),

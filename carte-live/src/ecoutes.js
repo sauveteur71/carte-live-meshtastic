@@ -25,11 +25,11 @@ function creerEcoutes({ config, fabriquerRadio, fabriquerCompanion, journal, sur
   const changer = () => { if (surChangement) setImmediate(surChangement); };
 
   // ---- Meshtastic ----
-  function ajouterRadio(hote, port, nom = null, { navigateur = false, source = null } = {}) {
+  function ajouterRadio(hote, port, nom = null, { navigateur = false, source = null, compte = null } = {}) {
     const k = cleRadio(hote, port);
     if (radios.has(k)) return radios.get(k);
     if (!nom) nom = hote.startsWith('agent-') ? hote.replace(/^agent-/, '') : `Meshtastic ${hote}`;
-    const r = { hote, port, nom, navigateur, source, depuis: Date.now() };
+    const r = { hote, port, nom, navigateur, source, compte, depuis: Date.now() };
     r.instance = fabriquerRadio({ hote, port, nom });
     radios.set(k, r);
     if (!navigateur && !memo.meshtastic.some((m) => m.hote === hote && m.port === port)) { memo.meshtastic.push({ hote, port, nom }); sauver(); }
@@ -50,11 +50,11 @@ function creerEcoutes({ config, fabriquerRadio, fabriquerCompanion, journal, sur
   const estRadio = (hote, port) => radios.has(cleRadio(hote, port));
 
   // ---- MeshCore ----
-  function ajouterCompanion(cible, nom = null, { navigateur = null, source = null } = {}) {
+  function ajouterCompanion(cible, nom = null, { navigateur = null, source = null, compte = null } = {}) {
     if (!nom && cible) nom = cible.type === 'agent' ? cible.hote.replace(/^agent-/, '') : cible.type === 'serie' ? `MeshCore ${cible.chemin.split('/').pop()}` : `MeshCore ${cible.hote}`;
     const cle = navigateur ? 'nav:' + nom : cleCompanion(cible);
     if (companions.has(cle)) { const c = companions.get(cle); if (!navigateur) return c; try { c.instance.detruire(); } catch { /* déjà */ } }
-    const c = { cle, cible: navigateur ? null : cible, nom: nom || (cible ? cible.hote : 'companion'), navigateur: !!navigateur, source, depuis: Date.now() };
+    const c = { cle, cible: navigateur ? null : cible, nom: nom || (cible ? cible.hote : 'companion'), navigateur: !!navigateur, source, compte, depuis: Date.now() };
     c.instance = fabriquerCompanion({ cible: navigateur ? null : cible, nom: c.nom });
     companions.set(cle, c);
     if (navigateur) {
@@ -91,11 +91,11 @@ function creerEcoutes({ config, fabriquerRadio, fabriquerCompanion, journal, sur
     return {
       meshtastic: [...radios.values()].map((r) => {
         const e = r.instance.etat();
-        return { hote: r.hote, port: r.port, nom: e.nomLocal || r.nom, navigateur: r.navigateur, source: r.source, depuis: r.depuis, connecte: !!e.connecte, noeud: e.noeudLocal, paquets: e.paquets || 0, erreur: e.erreur || null, reprise: e.reprise || null, preset: e.preset || null };
+        return { hote: r.hote, port: r.port, nom: e.nomLocal || r.nom, navigateur: r.navigateur, source: r.source, compte: r.compte || null, depuis: r.depuis, connecte: !!e.connecte, noeud: e.noeudLocal, paquets: e.paquets || 0, erreur: e.erreur || null, reprise: e.reprise || null, preset: e.preset || null };
       }),
       meshcore: [...companions.values()].map((c) => {
         const e = c.instance.etat();
-        return { cle: c.cle, cible: c.cible, nom: e.nom || c.nom, navigateur: c.navigateur, source: c.source, depuis: c.depuis, connecte: !!e.connecte, cleNoeud: e.cle, paquets: e.paquets || 0, erreur: e.erreur || null, lat: e.lat, lon: e.lon, radio: e.radio };
+        return { cle: c.cle, cible: c.cible, nom: e.nom || c.nom, navigateur: c.navigateur, source: c.source, compte: c.compte || null, depuis: c.depuis, connecte: !!e.connecte, cleNoeud: e.cle, paquets: e.paquets || 0, erreur: e.erreur || null, lat: e.lat, lon: e.lon, radio: e.radio };
       }),
     };
   }

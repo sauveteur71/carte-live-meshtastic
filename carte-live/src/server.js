@@ -280,6 +280,7 @@ app.get('/api/config', (req, res) => {
     gestion: estGestion(req),
     membre: estMembre(req),
     compte: utilisateur(req),
+    passerelleMembres: passerelleMembresActive(),
     installation: comptes.installationRequise(),
     inscriptions: config.inscriptions,
     departement: config.departement,
@@ -1017,6 +1018,9 @@ app.post('/api/ecoutes', (req, res) => {
 app.delete('/api/ecoutes', (req, res) => {
   if (!exigerAdmin(req, res)) return;
   const b = req.body || {};
+  // Passerelle d'un membre coupée par un administrateur : elle ne peut pas se relier de nouveau pendant 12 h
+  const p = passerellesNav.get(b.protocole === 'meshcore' ? String(b.cle || '') : String(b.hote || ''));
+  if (p && !p.admin) { passerellesBloquees.set(p.compteId, Date.now() + 12 * 3600000); audit.noter(nomCompte(utilisateur(req)), req.ip, 'passerelle coupée', `passerelle de ${p.compte}, refusée pendant 12 h`); }
   if (b.protocole === 'meshcore') ecoutes.retirerCompanion(String(b.cle || ''));
   else ecoutes.retirerRadio(String(b.hote || ''), Number(b.port) || 0);
   res.json(ecoutes.liste());
@@ -2873,13 +2877,50 @@ const wssModule = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
 // Modules reliés par une page : un « ping » toutes les 25 s garde la liaison ouverte à travers les proxys
 // inversés (nginx, Traefik, Cloudflare coupent souvent une WebSocket silencieuse au bout de 60 à 100 s)
 setInterval(() => { for (const ws of wssModule.clients) { try { ws.ping(); } catch { /* fermée */ } } }, 25000);
+// Passerelle d'un membre : un compte validé relie sa radio depuis son navigateur. Elle n'est jamais module principal
+// (pas d'envoi, pas d'administration des autres nœuds) : elle ajoute ce qu'elle entend à la carte, comme une passerelle
+// MQTT. Débit limité, deux radios par compte au plus, coupure par un administrateur (refusée ensuite pendant 12 h).
+const passerelleMembresActive = () => String(process.env.PASSERELLE_MEMBRES || 'oui').toLowerCase() !== 'non';
+const passerellesNav = new Map(); // hôte virtuel → { compteId, compte, admin, protocole, role, source, depuis }
+const passerellesBloquees = new Map(); // compte → fin du blocage
+const PASSERELLES_PAR_COMPTE = 2, PASSERELLES_MAX = 30;
+function refusPasserelle(req) {
+  const u = utilisateur(req);
+  if (!u) return 'connexion requise';
+  if (u.role === 'admin') return null;
+  if (!passerelleMembresActive()) return 'passerelles des membres désactivées sur cette carte';
+  const b = passerellesBloquees.get(u.id);
+  if (b && b > Date.now()) return 'passerelle coupée par un administrateur';
+  const miennes = [...passerellesNav.values()].filter((x) => x.compteId === u.id).length;
+  if (miennes >= PASSERELLES_PAR_COMPTE) return `${PASSERELLES_PAR_COMPTE} radios au plus par compte`;
+  if ([...passerellesNav.values()].filter((x) => !x.admin).length >= PASSERELLES_MAX) return 'trop de passerelles reliées en ce moment';
+  return null;
+}
 serveur.on('upgrade', (req, socket, tete) => {
   const chemin = (req.url || '').split('?')[0];
+  const refus = (raison) => { socket.write(`HTTP/1.1 403 Forbidden\r\nX-Refus: ${encodeURIComponent(raison || 'refusé')}\r\n\r\n`); socket.destroy(); };
   if (chemin === '/ws') wss.handleUpgrade(req, socket, tete, (ws) => wss.emit('connection', ws, req));
-  else if (chemin === '/ws/module' && estAdmin(req)) wssModule.handleUpgrade(req, socket, tete, (ws) => wssModule.emit('connection', ws, req));
-  else if (chemin === '/ws/meshcore' && estAdmin(req) && config.meshcore.actif) wssModule.handleUpgrade(req, socket, tete, (ws) => brancherCompanionNavigateur(ws, req));
-  else { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); }
+  else if (chemin === '/ws/module' || (chemin === '/ws/meshcore' && config.meshcore.actif)) {
+    const r = refusPasserelle(req);
+    if (r) return refus(r);
+    wssModule.handleUpgrade(req, socket, tete, (ws) => (chemin === '/ws/module' ? wssModule.emit('connection', ws, req) : brancherCompanionNavigateur(ws, req)));
+  } else refus();
 });
+// Hôte, compte et rôle d'une passerelle de page : envoyés à la page (trame texte, ignorée par le relais du flux)
+function noterPasserelle(ws, hote, u, protocole, role, source) {
+  passerellesNav.set(hote, { compteId: u.id, compte: nomCompte(u), admin: u.role === 'admin', protocole, role, source, depuis: Date.now() });
+  ws.on('close', () => { const p = passerellesNav.get(hote); if (p && p.compteId === u.id) passerellesNav.delete(hote); });
+  try { ws.send(JSON.stringify({ genre: 'passerelle', hote, role })); } catch { /* fermée */ }
+}
+// Débit d'une passerelle de membre : au-delà, la liaison est coupée (une radio normale reste très en dessous)
+function limiterDebit(ws, octetsParMinute) {
+  let fenetre = Date.now(), octets = 0;
+  ws.on('message', (d) => {
+    if (Date.now() - fenetre > 60000) { fenetre = Date.now(); octets = 0; }
+    octets += d.length || d.byteLength || 0;
+    if (octets > octetsParMinute) { journal(`passerelle coupée : débit trop élevé (${Math.round(octets / 1024)} Ko/min)`); try { ws.close(1008, 'débit trop élevé'); } catch { /* déjà */ } }
+  });
+}
 const { Duplex } = require('stream');
 // Flux duplex au-dessus d'une WebSocket, avec les méthodes d'un socket TCP utilisées par le module radio
 function fluxWebSocket(ws) {
@@ -2899,19 +2940,29 @@ function fluxWebSocket(ws) {
 }
 wssModule.on('connection', (ws, req) => {
   const u = utilisateur(req);
+  if (!u) { ws.close(1008, 'connexion requise'); return; }
+  const admin = u.role === 'admin';
   const q = new URL(req.url, 'http://x').searchParams;
-  const nom = (q.get('nom') || `Navigateur ${u ? u.identifiant : ''}`).slice(0, 40);
+  // Le nom d'une passerelle de membre porte son identifiant : elle ne peut pas prendre la place d'un autre module
+  const base = (q.get('nom') || `Navigateur ${u.identifiant}`).slice(0, 40);
+  const nom = admin ? base : `${base} · ${u.identifiant}`.slice(0, 60);
   const source = (q.get('source') || 'USB').slice(0, 40);
-  brancherModuleFlux(fluxWebSocket(ws), nom, source + ' (navigateur)', (req.socket.remoteAddress || '').replace(/^::ffff:/, ''), q.get('role') === 'ecoute' ? 'ecoute' : 'principal');
+  const role = admin && q.get('role') !== 'ecoute' ? 'principal' : 'ecoute';
+  if (!admin) limiterDebit(ws, 512 * 1024);
+  try {
+    const hote = brancherModuleFlux(fluxWebSocket(ws), nom, source + ' (navigateur)', (req.socket.remoteAddress || '').replace(/^::ffff:/, ''), role, undefined, admin ? null : u.id, admin ? null : nomCompte(u));
+    noterPasserelle(ws, hote, u, 'meshtastic', role, source);
+    if (!admin) audit.noter(nomCompte(u), (req.socket.remoteAddress || '').replace(/^::ffff:/, ''), 'passerelle reliée', `radio « ${base} » (${source})`);
+  } catch (e) { journal('passerelle refusée :', e.message); try { ws.close(1008, String(e.message).slice(0, 100)); } catch { /* déjà */ } }
 });
 // Module Meshtastic déjà ouvert (page web ou agent 1.7 « direct ») : principal tant que le flux reste ouvert, puis
 // retour au module utilisé avant ; ou passerelle d'écoute en plus du principal
-function brancherModuleFlux(flux, nom, source, ip, role, version) {
+function brancherModuleFlux(flux, nom, source, ip, role, version, proprietaire = null, compte = null) {
   if (role === 'ecoute') {
-    const h = agents.ajouterVirtuel(nom, source, flux, ip, version);
-    ecoutes.ajouterRadio(h, 1, nom, { navigateur: true, source });
+    const h = agents.ajouterVirtuel(nom, source, flux, ip, version, proprietaire);
+    ecoutes.ajouterRadio(h, 1, nom, { navigateur: true, source, compte });
     flux.on('close', () => { ecoutes.retirerRadio(h, 1); rafraichirEtat(); diffuser({ genre: 'statut' }); });
-    return;
+    return h;
   }
   const precedent = sourceRadio.modules().actif;
   const hote = agents.ajouterVirtuel(nom, source, flux, ip, version);
@@ -2927,19 +2978,28 @@ function brancherModuleFlux(flux, nom, source, ip, role, version) {
     rafraichirEtat(); diffuser({ genre: 'statut' });
   });
   rafraichirEtat(); diffuser({ genre: 'statut' });
+  return hote;
 }
 // Companion MeshCore branché sur le PC de l'utilisateur, relayé par la page
 function brancherCompanionNavigateur(ws, req) {
   const u = utilisateur(req);
+  if (!u) { ws.close(1008, 'connexion requise'); return; }
+  const admin = u.role === 'admin';
   const q = new URL(req.url, 'http://x').searchParams;
   const source = q.get('source') === 'Bluetooth' ? 'Bluetooth' : 'USB';
-  const nom = (q.get('nom') || `${source} ${u ? u.identifiant : ''}`).slice(0, 40);
-  brancherCompanionFlux(fluxWebSocket(ws), nom, source, q.get('role') === 'ecoute' ? 'ecoute' : 'principal');
+  const base = (q.get('nom') || `${source} ${u.identifiant}`).slice(0, 40);
+  const nom = admin ? base : `${base} · ${u.identifiant}`.slice(0, 60);
+  const role = admin && q.get('role') !== 'ecoute' ? 'principal' : 'ecoute';
+  if (!admin) limiterDebit(ws, 512 * 1024);
+  try {
+    brancherCompanionFlux(fluxWebSocket(ws), nom, source, role, admin ? null : nomCompte(u));
+    noterPasserelle(ws, 'nav:' + nom, u, 'meshcore', role, source);
+  } catch (e) { try { ws.close(1008, String(e.message).slice(0, 100)); } catch { /* déjà */ } }
 }
 // Companion MeshCore déjà ouvert (page web ou agent 1.7 « direct ») : principal tant que le flux reste ouvert, ou en écoute
-function brancherCompanionFlux(flux, nom, source, role) {
+function brancherCompanionFlux(flux, nom, source, role, compte = null) {
   if (!config.meshcore.actif) throw new Error('companion MeshCore reconnu, mais MeshCore n’est pas activé dans cette carte');
-  if (role === 'ecoute') ecoutes.ajouterCompanion(null, nom, { navigateur: flux, source });
+  if (role === 'ecoute') ecoutes.ajouterCompanion(null, nom, { navigateur: flux, source, compte });
   else companion.brancherNavigateur(flux, nom, source);
   diffuserEtatMc();
 }
@@ -3498,6 +3558,78 @@ app.delete('/api/adrasec/demandes/:compte', routeAdrasec((req, b, u, G) => G.ref
 // ADRASEC hébergées (administrateur de la carte) : création, nom, suppression
 app.put('/api/adrasec/groupes/:code', (req, res) => { const u = utilisateur(req); if (!u || u.role !== 'admin') return res.status(403).json({ erreur: 'Réservé aux administrateurs de la carte' }); try { res.json(adrasec.majGroupe(req.params.code, req.body || {}, nomCompte(u))); } catch (e) { res.status(400).json({ erreur: e.message }); } });
 // Case ADRASEC de la gestion des comptes de la carte (administrateur)
+// ---- Jeux de canaux (carte, ADRASEC) et passerelles des membres ---------------------------------------------------
+// Une communauté décrit les canaux que ses membres doivent avoir ; un membre qui relie sa radio depuis son navigateur
+// les y écrit en un clic. Les clés restent sur le serveur (chiffrées) : une page n'en voit jamais que le nom.
+const jeuxCanaux = require('./jeux-canaux').creerJeuxCanaux({ config, chiffreur: equipes.chiffreur, journal });
+const { planifier: planifierCanaux } = require('./jeux-canaux');
+function jeuxPour(u) {
+  const l = [{ ...jeuxCanaux.vue('carte', u.role === 'admin'), titre: config.carte.titre || 'Carte live', modifiable: u.role === 'admin' }];
+  if (adrasec.actif()) {
+    const codes = u.role === 'admin' ? adrasec.groupes().map((g) => g.code) : [adrasec.groupeDe(u)].filter(Boolean);
+    for (const code of codes) {
+      const G = adrasec.groupePour(u, code);
+      if (G) l.push({ ...jeuxCanaux.vue('adrasec:' + code, G.estResponsable(u)), titre: G.g.nom, modifiable: G.estResponsable(u) });
+    }
+  }
+  return l.filter((j) => j.canaux.length || j.modifiable);
+}
+const routeCompte = (f) => async (req, res) => {
+  const u = utilisateur(req);
+  if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
+  try { res.set('Cache-Control', 'no-store').json(await f(req, req.body || {}, u)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+};
+app.get('/api/jeux-canaux', routeCompte((req, b, u) => ({ jeux: jeuxPour(u) })));
+app.put('/api/jeux-canaux/carte', (req, res) => {
+  if (!exigerAdmin(req, res)) return;
+  try { res.json(jeuxCanaux.definir('carte', (req.body || {}).canaux, nomCompte(utilisateur(req)))); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.get('/api/adrasec/canaux', routeAdrasec((req, b, u, G) => ({ ...jeuxCanaux.vue('adrasec:' + G.g.code, G.estResponsable(u)), modifiable: G.estResponsable(u) })));
+app.put('/api/adrasec/canaux', routeAdrasec((req, b, u, G) => jeuxCanaux.definir('adrasec:' + G.g.code, b.canaux, nomCompte(u)), { admin: true }));
+// Portées qu'un compte a le droit d'écrire sur sa radio
+function porteesPermises(u) {
+  const l = ['carte'];
+  if (adrasec.actif()) { if (u.role === 'admin') l.push(...adrasec.groupes().map((g) => 'adrasec:' + g.code)); else { const c = adrasec.groupeDe(u); if (c) l.push('adrasec:' + c); } }
+  return l;
+}
+// Radio d'une passerelle de page, si elle appartient à ce compte (un administrateur : aussi le module principal)
+function radioDePasserelle(u, hote) {
+  const p = passerellesNav.get(String(hote || ''));
+  if (!p || p.protocole !== 'meshtastic' || (p.compteId !== u.id && u.role !== 'admin')) throw new Error('Radio introuvable : reliez-la depuis cette page (Outils › Connecter un module)');
+  const a = sourceRadio.modules().actif;
+  const r = p.role === 'principal' ? (a && a.hote === hote ? sourceRadio : null) : ecoutes.radio(hote, 1);
+  if (!r) throw new Error('Radio déconnectée');
+  return { p, r };
+}
+app.get('/api/passerelle/miennes', routeCompte((req, b, u) => ({
+  actif: u.role === 'admin' || passerelleMembresActive(),
+  refus: refusPasserelle(req),
+  passerelles: [...passerellesNav.entries()].filter(([, p]) => p.compteId === u.id).map(([hote, p]) => {
+    let radio = null;
+    try { if (p.protocole === 'meshtastic') { const { r } = radioDePasserelle(u, hote); const e = r.etat(); radio = { connecte: !!e.connecte && e.noeudLocal != null, noeud: e.noeudLocal, nom: e.nomLocal, paquets: e.paquets || 0, canaux: e.noeudLocal != null ? r.canauxDetail() : [] }; } } catch { /* déconnectée */ }
+    return { hote, protocole: p.protocole, role: p.role, source: p.source, depuis: p.depuis, radio };
+  }),
+})));
+app.post('/api/passerelle/canaux', routeCompte(async (req, b, u) => {
+  const { p, r } = radioDePasserelle(u, b.hote);
+  const permises = new Set(porteesPermises(u));
+  const ajouts = [];
+  for (const x of Array.isArray(b.ajouter) ? b.ajouter : []) {
+    if (!permises.has(String(x.portee))) throw new Error('Jeu de canaux non autorisé pour ce compte');
+    const c = jeuxCanaux.canal(String(x.portee), x.id);
+    if (!c) throw new Error('Canal supprimé entre-temps : rouvrez la liste');
+    if (!ajouts.some((a) => a.nom === c.nom)) ajouts.push(c);
+  }
+  const liberer = (Array.isArray(b.liberer) ? b.liberer : []).map(Number).filter((i) => Number.isInteger(i) && i >= 1 && i <= 7);
+  if (!ajouts.length && !liberer.length) throw new Error('Rien à écrire');
+  const plan = planifierCanaux(r.canauxBruts(), ajouts, liberer);
+  if (plan.manque) throw new Error(`Place insuffisante : libérez encore ${plan.manque} emplacement(s)`);
+  if (!plan.ops.length) return { canaux: r.canauxDetail(), journal: ['canaux déjà présents : rien à écrire'], deja: plan.deja };
+  const j = [];
+  const canaux = await r.ecrireCanauxLocal(plan.ops, (t) => j.push(t));
+  audit.noter(nomCompte(u), req.ip, 'canaux écrits sur sa radio', `${p.source} : ${ajouts.map((a) => a.nom).join(', ')}${liberer.length ? ` ; libérés ${liberer.join(', ')}` : ''}`, true);
+  return { canaux, journal: j, deja: plan.deja };
+}));
 app.get('/api/adrasec/roles', (req, res) => { const u = utilisateur(req); if (!u || u.role !== 'admin') return res.status(403).json({ erreur: 'Réservé aux administrateurs de la carte' }); res.set('Cache-Control', 'no-store').json(adrasec.rolesComptes()); });
 app.put('/api/adrasec/roles/:compte', (req, res) => { const u = utilisateur(req); if (!u || u.role !== 'admin') return res.status(403).json({ erreur: 'Réservé aux administrateurs de la carte' }); try { res.json(adrasec.roleCompte(req.params.compte, req.body || {}, nomCompte(u))); } catch (e) { res.status(400).json({ erreur: e.message }); } });
 app.get('/api/adrasec', routeAdrasec((req, b, u, G) => ({ ...adrasec.vue(u, comptes.lister(), G), winlink: { configure: winlink.actif(), autorise: winlinkAutorise(u, G), adrasec: adrasec.nomGroupe(adrasecWinlink()) } })));

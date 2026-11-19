@@ -543,6 +543,40 @@
         <div class="ligne-champs"><button class="ge-sauver principal">Enregistrer</button><span class="ge-retour note"></span></div>
       </div>`;
   }
+  // ---- Jeu de canaux de l'ADRASEC (président et responsables) ----
+  async function chargerCanaux() {
+    const z = $('#ge-canaux'); if (!z) return;
+    let j;
+    try { j = await api('/api/adrasec/canaux'); } catch (e) { z.innerHTML = `<p class="erreur">${esc(e.message)}</p>`; return; }
+    const badge = (c) => (c.chiffrement === 'prive' ? `🔒 <span class="mono">${esc(c.empreinte || '')}</span>` : '<span class="pastille att">en clair</span>');
+    const ligne = (c = {}) => `<div class="ligne-champs ligne-jeu" data-id="${esc(c.id || '')}">
+      <input class="mono" data-champ="nom" maxlength="11" placeholder="Nom (11 car.)" value="${esc(c.nom || '')}" style="width:9.5em">
+      <select data-champ="cle">${c.id ? `<option value="">garder la clé${c.empreinte ? ' ' + esc(c.empreinte) : ' (publique)'}</option>` : ''}<option value="aleatoire" ${c.id ? '' : 'selected'}>nouvelle clé privée (aléatoire)</option><option value="publique">clé publique (en clair)</option><option value="coller">coller une clé (base64)</option></select>
+      <input class="mono" data-champ="collee" placeholder="clé en base64 (16 ou 32 octets)" hidden autocomplete="off">
+      <label class="case"><input type="checkbox" data-champ="positions" ${c.positions ? 'checked' : ''}> positions</label>
+      <button type="button" class="mini" data-retirer title="Retirer ce canal">✕</button></div>`;
+    z.innerHTML = `${j.canaux.length ? `<div class="liste-canaux-adrasec">${j.canaux.map((c) => `<div class="ligne-champs"><b class="mono">${esc(c.nom)}</b> ${badge(c)}${c.positions ? ' <small>positions partagées</small>' : ''}</div>`).join('')}</div>` : '<p class="note">Aucun canal défini pour l’instant.</p>'}
+      ${j.maj ? `<p class="note">Modifié le ${new Date(j.maj).toLocaleString('fr-FR')}${j.auteur ? ' par ' + esc(j.auteur) : ''}.</p>` : ''}
+      ${j.modifiable ? `<details class="edition-canaux"><summary>✏️ Modifier les canaux</summary>
+        <p class="note">7 canaux au plus (le canal 0 de la radio n’est jamais touché). Nom : lettres sans accent, chiffres, _ + - . (11 caractères).</p>
+        <div class="lignes-jeu">${j.canaux.map(ligne).join('')}</div>
+        <div class="ligne-champs"><button type="button" id="gc-plus">＋ Canal</button><button type="button" class="principal" id="gc-ok">✔ Enregistrer les canaux</button><span class="erreur" id="gc-err"></span></div></details>` : ''}`;
+    if (!j.modifiable) return;
+    const brancher = () => z.querySelectorAll('.ligne-jeu').forEach((l) => {
+      const sel = l.querySelector('[data-champ="cle"]'), col = l.querySelector('[data-champ="collee"]');
+      sel.onchange = () => { col.hidden = sel.value !== 'coller'; if (!col.hidden) col.focus(); };
+      l.querySelector('[data-retirer]').onclick = () => l.remove();
+    });
+    brancher();
+    $('#gc-plus').onclick = () => { if (z.querySelectorAll('.ligne-jeu').length >= 7) return; z.querySelector('.lignes-jeu').insertAdjacentHTML('beforeend', ligne()); brancher(); };
+    $('#gc-ok').onclick = async () => {
+      const canaux = [...z.querySelectorAll('.ligne-jeu')].map((l) => {
+        const v = (k) => l.querySelector(`[data-champ="${k}"]`);
+        return { id: l.dataset.id || undefined, nom: v('nom').value.trim(), cle: v('cle').value === 'coller' ? v('collee').value.trim() : v('cle').value, positions: v('positions').checked };
+      });
+      try { await api('/api/adrasec/canaux', { method: 'PUT', body: { canaux } }); chargerCanaux(); } catch (e) { $('#gc-err').textContent = e.message; }
+    };
+  }
   function rendreGestion() {
     const v = $('#vue-gestion');
     const membres = E.comptes.filter((c) => c.adrasec || ajoutes.has(c.id));
@@ -564,12 +598,16 @@
         <div class="ligne-champs"><input type="search" id="ge-ajout-filtre" placeholder="🔎 Filtrer les comptes"><label class="case"><input type="checkbox" id="ge-ajout-tout"> Tout cocher</label></div>
         <div class="liste-ajout" id="ge-ajout-liste">${autres.map((c) => `<label class="case${c.autre ? ' indispo' : ''}" data-texte="${esc((c.identifiant + ' ' + (c.indicatif || '')).toLowerCase())}"><input type="checkbox" value="${c.id}" ${c.autre ? 'disabled' : ''}> <b>${esc(c.identifiant)}</b>${c.indicatif ? ` <span class="mono">${esc(c.indicatif)}</span>` : ''}${c.autre ? ` <small>(membre de l’ADRASEC ${esc(c.autre)})</small>` : ''}</label>`).join('')}</div>
         <div class="ligne-champs"><button id="ge-ajouter" class="principal" disabled>Intégrer la sélection</button><span class="note" id="ge-ajout-retour"></span></div>` : '<p class="note">Tous les comptes de la carte sont déjà membres. Les nouveaux membres créent d’abord leur compte avec le lien ci-dessus.</p>'}
+      <h2>🎚️ Canaux de ${esc(E.nom)}</h2>
+      <p class="note">Les canaux Meshtastic que vos membres doivent avoir sur leur radio. Un membre qui relie sa radio à la carte depuis son navigateur (carte › Outils › 📡 Devenir passerelle) les y écrit en un clic. Les clés restent sur le serveur, chiffrées : personne ne les voit, pas même ici (une empreinte courte permet de les reconnaître).</p>
+      <div id="ge-canaux"><p class="note">Chargement…</p></div>
       <h2>Réglages de ${esc(E.nom)}</h2>
       <div class="ligne-champs"><label>Nom affiché <input id="ge-nom" value="${esc(E.nom)}" placeholder="ADRASEC 43"></label><label>Conservation (jours) <input id="ge-cons" type="number" min="7" max="3650" value="${E.conservationJours}"></label><button id="ge-ok">Enregistrer</button></div>
       <p class="note">Main courante et relevés plus anciens que la durée choisie sont effacés (données personnelles : indicatifs, positions).</p>
       ${E.moi.admin ? `<div class="ligne-champs"><label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="ge-actif" ${E.actif ? 'checked' : ''}> Section ADRASEC activée sur la carte</label></div>${blocGroupes('ADRASEC hébergées sur cette carte')}` : ''}
       <p class="erreur" id="ge-erreur"></p>`;
     const err = (m) => { $('#ge-erreur').textContent = m; if (m) $('#ge-erreur').scrollIntoView({ block: 'nearest' }); };
+    chargerCanaux();
     $('#ge-copier').onclick = async () => { try { await navigator.clipboard.writeText(lien); $('#ge-copier').textContent = '✔ Copié'; } catch { prompt('Lien à envoyer :', lien); } };
     $('#ge-ok').onclick = async () => { try { await api('/api/adrasec/reglages', { method: 'PUT', body: { nom: $('#ge-nom').value, conservationJours: $('#ge-cons').value } }); await charger(); } catch (e) { err(e.message); } };
     if ($('#ge-actif')) { $('#ge-actif').onchange = async () => { try { await api('/api/adrasec/reglages', { method: 'PUT', body: { actif: $('#ge-actif').checked } }); await charger(); } catch (e) { err(e.message); } }; brancherGroupes(err); }
@@ -629,6 +667,6 @@
   montrer(ongletActif);
   cadrerGonio();
   // Rafraîchissement : toutes les 15 s, sans perdre la saisie en cours
-  setInterval(() => { const a = document.activeElement; if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return; if (document.querySelector('.choix-mission, .choix-membres, #g-form-nouvelle:not([hidden]), #ge-ajout-liste input:checked, .fiche-membre.nouvelle')) return; charger(); }, 15000);
+  setInterval(() => { const a = document.activeElement; if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return; if (document.querySelector('.choix-mission, .choix-membres, #g-form-nouvelle:not([hidden]), #ge-ajout-liste input:checked, .fiche-membre.nouvelle, .edition-canaux[open]')) return; charger(); }, 15000);
   window.adrasecEtat = () => E; // essais
 })();

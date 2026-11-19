@@ -94,3 +94,25 @@ Un module Meshtastic n'accepte qu'un client Wi-Fi, et un companion MeshCore qu'u
 
 ## Quel module choisir pour programmer ?
 Le module de la carte doit **bien entendre** les nœuds à programmer. Un module mal placé (qui entend le réseau vers −15 dB) fera échouer beaucoup de demandes. Pour une intervention, le plus efficace est de relier un module **proche du nœud** : en voiture en Bluetooth, par exemple.
+
+## Passerelle d'un membre (📡 Devenir passerelle)
+Un membre connecté, même s'il n'est pas administrateur, peut relier **sa propre radio** à la carte depuis son ordinateur, sans rien installer : **Outils › 📡 Devenir passerelle…**, puis **USB** ou **Bluetooth** (Chrome ou Edge, carte en **HTTPS**). C'est utile pour un opérateur ADRASEC en mission, un membre qui habite dans un trou de couverture, ou une association qui veut faire profiter la carte de ses radios.
+
+- La radio reste **en écoute** : elle ajoute ce qu'elle entend à la carte (avec sa mesure SNR/RSSI, comme une passerelle MQTT), mais elle n'émet rien pour la carte. Les envois de messages et l'administration des nœuds passent toujours par le module principal, réservé aux administrateurs.
+- Son nom porte l'identifiant du membre (ex. « Radio USB · Paul ») : elle ne peut jamais prendre la place d'un autre module.
+- **Deux radios par compte** au plus, débit limité (une radio normale reste très en dessous).
+- Gardez l'onglet ouvert : le relais s'arrête si la page se ferme ou si le PC se met en veille.
+- L'administrateur voit chaque passerelle dans **Modules radio** (« 📡 passerelle de Paul ») et peut la **couper** : elle est alors refusée pendant 12 h.
+- Réglage : **Réglages avancés › Module radio › Passerelles des membres** (oui par défaut, « non » pour réserver le relais aux administrateurs).
+
+> ⚠️ Sur une carte en simple **HTTP** (ex. `http://mon-serveur:8095`), les navigateurs bloquent l'USB et le Bluetooth : il faut une adresse en **HTTPS** (certificat Let's Encrypt derrière un reverse proxy, ou adresse Tailscale en …ts.net).
+
+### Écrire les canaux de la communauté sur sa radio
+Une fois la radio reliée, le panneau **🎚️ Canaux de la radio** montre ses 8 emplacements et les **jeux de canaux** proposés :
+- le jeu de la **carte**, réglé par un administrateur (bouton ✏️ Régler ce jeu) ;
+- celui de son **ADRASEC**, réglé par le président ou un responsable (page ADRASEC › Gestion › Canaux).
+
+Le membre coche les canaux voulus et clique **Écrire sur la radio** ; la carte les écrit puis relit la radio pour contrôle. S'il manque de la place, la carte demande quels canaux **libérer** (aucun n'est supprimé sans être coché) ; les canaux gardés restent groupés à partir de 1, avec leurs réglages. Le canal 0 (principal, qui fixe la fréquence) n'est **jamais** touché. Un avertissement rappelle quand un canal coché est **en clair** (clé publique) : aucune donnée personnelle dessus.
+
+**Les clés ne quittent jamais le serveur** : elles sont chiffrées sur disque (même clé maîtresse que les équipes, `CLE_EQUIPES`), une page n'en voit que le nom, et ceux qui règlent un jeu ne voient qu'une empreinte courte. Pour une clé privée, choisissez « nouvelle clé privée (aléatoire) » ou collez la clé existante (base64, 16 ou 32 octets).
+

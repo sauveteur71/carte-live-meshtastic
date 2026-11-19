@@ -68,6 +68,7 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
   let clePubliqueLocale = null;
   let utilisateurLocal = null;
   const configBrute = { canaux: [], lora: null };
+  const attentesConfig = new Set(); // relectures de configuration attendues (canaux écrits depuis la carte)
   let prochainCycle = Date.now() + 10 * 60000;
   let cycleEnCours = false;
   let etat = { connecte: false, noeudLocal: null, nomLocal: null, noeuds: 0, canaux: [], depuis: null, paquets: 0, erreur: null, firmware: null };
@@ -291,6 +292,7 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
         nom: s.name || '',
         cle: s.psk && s.psk.length ? Buffer.from(s.psk).toString('base64') : '',
         role: ROLES_CANAL[c.role || 0],
+        precision: (s.moduleSettings && s.moduleSettings.positionPrecision) || 0, montant: !!s.uplinkEnabled, descendant: !!s.downlinkEnabled,
       });
     } else if (fr.nodeInfo) {
       stockage.transaction(() => integrerNodeInfo(fr.nodeInfo))();
@@ -298,6 +300,8 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
     } else if (fr.configCompleteId !== undefined && fr.configCompleteId !== null && fr.configCompleteId !== 0) {
       enConfiguration = false;
       mettreAJourCanaux();
+      for (const f of attentesConfig) { try { f(); } catch { /* ignore */ } }
+      attentesConfig.clear();
       // Copie de référence des canaux et du réglage LoRa du module (fichier réservé à l'administrateur du NAS)
       if (!ecoute) try { ecrireSur(path.join(path.dirname(config.fichierBase), 'config-module.json'), JSON.stringify({ heure: Date.now(), noeud: etat.noeudLocal, ...configBrute }, null, 1), { mode: 0o600 }); } catch { /* ignore */ }
       try { require('./reglages-noeuds').enregistrer(etat.noeudLocal, { canaux: configBrute.canaux.filter(Boolean), lora: configBrute.lora, source: 'module' }); } catch (e) { console.error('[Radio] réglages :', e.message); }
@@ -507,8 +511,64 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
     if (memo.actif && memo.actif.hote === hote && !arretVoulu && !(socket && !socket.destroyed) && !(etat.evince && etat.reprise > Date.now())) { tentative = 0; connecter(); }
   }
 
+  // ---- Canaux du module lui-même (passerelle d'une page : canaux écrits par son propriétaire) ----
+  // Chiffrement d'un canal sans montrer la clé : aucun, clé publique par défaut (AQ== ou 1 octet), clé privée
+  const genreCle = (cle) => { if (!cle) return 'aucun'; const b = Buffer.from(cle, 'base64'); return b.length <= 1 ? 'public' : 'prive'; };
+  function canauxDetail() {
+    const l = [];
+    for (let i = 0; i < 8; i++) {
+      const c = canauxModule.get(i);
+      l.push({ index: i, nom: c && c.role !== 'DISABLED' ? nomCanal(i) : '', role: c ? c.role : 'DISABLED', chiffrement: c && c.role !== 'DISABLED' ? genreCle(c.cle) : null });
+    }
+    return l;
+  }
+  // Copie interne avec les clés (jamais renvoyée à une page) : pour recopier un canal gardé à un autre emplacement
+  const canauxBruts = () => { const l = []; for (let i = 0; i < 8; i++) { const c = canauxModule.get(i); l.push(c ? { ...c } : { nom: '', cle: '', role: 'DISABLED' }); } return l; };
+  function relireConfig(delai = 25000) {
+    return new Promise((ok, ko) => {
+      const f = () => { clearTimeout(m); ok(); };
+      const m = setTimeout(() => { attentesConfig.delete(f); ko(new Error('configuration non relue (le module redémarre peut-être : rouvrez la liste dans un instant)')); }, delai);
+      attentesConfig.add(f);
+      enConfiguration = true;
+      envoyer({ wantConfigId: (configId = (configId + 1) >>> 0) });
+    });
+  }
+  // Écrit des canaux secondaires sur le module relié (commandes d'administration locales, sans clé de session) puis
+  // relit sa configuration. ops : [{ index, supprimer } | { index, nom, psk (Buffer), positions }] ; le canal 0 n'est jamais touché.
+  let ecritureEnCours = false;
+  async function ecrireCanauxLocal(ops, j = () => {}) {
+    if (ecritureEnCours) throw new Error('une écriture est déjà en cours sur ce module');
+    if (!etat.connecte || etat.noeudLocal == null || enConfiguration || !socket || socket.destroyed) throw new Error('Module radio non connecté');
+    for (const o of ops) if (!Number.isInteger(o.index) || o.index < 1 || o.index > 7) throw new Error('Emplacement de canal invalide');
+    ecritureEnCours = true;
+    const AdminMessage = racine.lookupType('meshtastic.AdminMessage');
+    const moi = etat.noeudLocal >>> 0;
+    const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+    const admin = async (objet) => {
+      if (!socket || socket.destroyed) throw new Error('module déconnecté pendant l’écriture');
+      const id = crypto.randomBytes(4).readUInt32LE(0) >>> 0 || 1;
+      envoyer({ packet: { to: moi, id, channel: 0, wantAck: false, hopLimit: hopLimitLora, decoded: { portnum: 6, payload: AdminMessage.encode(AdminMessage.create(objet)).finish(), wantResponse: false } } });
+      await pause(400);
+    };
+    try {
+      await admin({ beginEditSettings: true });
+      for (const o of [...ops].sort((a, b) => a.index - b.index)) {
+        const settings = o.supprimer ? {} : { name: String(o.nom).slice(0, 11), psk: o.psk, uplinkEnabled: !!o.montant, downlinkEnabled: !!o.descendant, moduleSettings: { positionPrecision: o.precision != null ? o.precision : o.positions ? 32 : 0 } };
+        await admin({ setChannel: { index: o.index, role: o.supprimer ? 0 : 2, settings } });
+        j(o.supprimer ? `emplacement ${o.index} libéré` : `canal « ${settings.name} » écrit en ${o.index}`);
+      }
+      await admin({ commitEditSettings: true });
+      j('modifications enregistrées par le module, relecture…');
+      await pause(2500);
+      await relireConfig();
+      journal(`canaux écrits depuis la carte : ${etat.canaux.join(', ')}`);
+      return canauxDetail();
+    } finally { ecritureEnCours = false; }
+  }
+
   if (memo.actif) connecter();
   return {
+    canauxDetail, canauxBruts, ecrireCanauxLocal,
     agentDisponible,
     modules: () => ({
       modules: memo.modules.map((m) => ({ ...m, actif: !!(memo.actif && memo.actif.hote === m.hote && memo.actif.port === m.port) })),

@@ -818,6 +818,127 @@ async function essaiFrequentation(navig, cookie) {
   await ctx.close();
 }
 
+// Passerelle d'un membre : sa radio (simulée derrière la WebSocket de la page) reste en écoute, porte son identifiant,
+// ne remplace aucun module ; il y écrit les canaux de la carte et de son ADRASEC (clés jamais montrées), avec place libérée.
+function fausseRadio(ws, num) {
+  const { racine } = require('../src/decodeur');
+  const FromRadio = racine.lookupType('meshtastic.FromRadio'), ToRadio = racine.lookupType('meshtastic.ToRadio'), Admin = racine.lookupType('meshtastic.AdminMessage');
+  const cle = (n) => Buffer.alloc(32, n);
+  const canaux = [
+    { index: 0, role: 1, settings: { name: '', psk: Buffer.from([1]) } },
+    { index: 1, role: 2, settings: { name: 'Fr_Balise', psk: Buffer.from([1]) } },
+    { index: 2, role: 2, settings: { name: 'Perso', psk: cle(7), moduleSettings: { positionPrecision: 13 } } },
+    ...[3, 4, 5, 6, 7].map((i) => ({ index: i, role: 0, settings: {} })),
+  ];
+  const ordres = [];
+  const envoyer = (o) => { const c = FromRadio.encode(FromRadio.create(o)).finish(); const t = Buffer.from([0x94, 0xc3, c.length >> 8, c.length & 255]); ws.send(Buffer.concat([t, Buffer.from(c)])); };
+  let tampon = Buffer.alloc(0);
+  ws.on('message', (d, binaire) => {
+    if (!binaire) return;
+    tampon = Buffer.concat([tampon, Buffer.from(d)]);
+    for (;;) {
+      const i = tampon.indexOf(Buffer.from([0x94, 0xc3]));
+      if (i < 0) { tampon = tampon.subarray(Math.max(0, tampon.length - 1)); break; }
+      tampon = tampon.subarray(i);
+      if (tampon.length < 4) break;
+      const n = tampon.readUInt16BE(2); if (tampon.length < 4 + n) break;
+      const tr = ToRadio.decode(tampon.subarray(4, 4 + n)); tampon = tampon.subarray(4 + n);
+      if (tr.wantConfigId) {
+        envoyer({ myInfo: { myNodeNum: num } });
+        envoyer({ nodeInfo: { num, user: { id: '!' + num.toString(16), longName: 'Radio de Paul', shortName: 'PAUL' } } });
+        envoyer({ config: { lora: { modemPreset: 0, hopLimit: 3, region: 3 } } });
+        for (const c of canaux) envoyer({ channel: c });
+        envoyer({ configCompleteId: tr.wantConfigId });
+      } else if (tr.packet && tr.packet.decoded && tr.packet.decoded.portnum === 6) {
+        const a = Admin.decode(tr.packet.decoded.payload);
+        ordres.push({ vers: tr.packet.to >>> 0, a: Object.keys(Admin.toObject(a)).filter((k) => a[k] != null)[0] });
+        if (a.setChannel) canaux[a.setChannel.index] = Admin.toObject(a, { defaults: false }).setChannel;
+      }
+    }
+  });
+  return { canaux, ordres };
+}
+async function essaiPasserelleMembre(navig, cookie) {
+  console.log('Passerelle d’un membre et jeux de canaux');
+  const WebSocket = require('ws');
+  const HA = { 'Content-Type': 'application/json', Cookie: `${cookie.name}=${cookie.value}` };
+  const appelA = async (m, url, b) => { const r = await fetch(BASE + url, { method: m, headers: HA, body: b ? JSON.stringify(b) : undefined }); return { statut: r.status, j: await r.json().catch(() => ({})) }; };
+  const paul = (await appelA('POST', '/api/comptes', { identifiant: 'Paul passerelle', motDePasse: 'Essai-paul-2026!!' })).j;
+  await appelA('PUT', '/api/adrasec/roles/' + paul.id, { groupe: '43' });
+  const cx = await fetch(BASE + '/api/connexion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifiant: 'Paul passerelle', motDePasse: 'Essai-paul-2026!!' }) });
+  const cookieP = (cx.headers.get('set-cookie') || '').split(';')[0];
+  const HP = { 'Content-Type': 'application/json', Cookie: cookieP };
+  const appelP = async (m, url, b) => { const r = await fetch(BASE + url, { method: m, headers: HP, body: b ? JSON.stringify(b) : undefined }); return { statut: r.status, j: await r.json().catch(() => ({})) }; };
+  // Jeux de canaux : carte (administrateur) et ADRASEC 43 (président / administrateur)
+  const jc = await appelA('PUT', '/api/jeux-canaux/carte', { canaux: [{ nom: 'Fr_EMCOM', cle: 'publique' }] });
+  const ja = await appelA('PUT', '/api/adrasec/canaux?g=43', { canaux: [{ nom: 'ADRASEC43', cle: 'aleatoire', positions: true }, { nom: 'Alerte', cle: 'publique' }] });
+  const refusP = await appelP('PUT', '/api/jeux-canaux/carte', { canaux: [] });
+  const mauvais = await appelA('PUT', '/api/jeux-canaux/carte', { canaux: [{ nom: 'Accentué_é', cle: 'publique' }] });
+  const vueP = await appelP('GET', '/api/jeux-canaux');
+  const texte = JSON.stringify([jc.j, ja.j, vueP.j]);
+  const adr = (vueP.j.jeux || []).find((x) => x.portee === 'adrasec:43');
+  if (jc.statut === 200 && ja.statut === 200 && refusP.statut === 401 && mauvais.statut === 400 && adr && adr.canaux.length === 2 && !adr.modifiable && !adr.canaux[0].empreinte && ja.j.canaux[0].empreinte && !/psk|"cle"|[A-Za-z0-9+/]{40,}={0,2}/.test(texte)) ok('jeux de canaux : carte et ADRASEC, réglés par l’administrateur, clés jamais renvoyées (empreinte pour qui règle)');
+  else ko('jeux de canaux : ' + JSON.stringify({ jc: jc.statut, ja: ja.statut, refusP: refusP.statut, mauvais: mauvais.statut, adr }).slice(0, 400));
+  // Radio de Paul reliée par « sa page » : demande « principal », reçoit « en écoute » avec son identifiant
+  const ws = new WebSocket(BASE.replace('http', 'ws') + '/ws/module?nom=Radio%20USB&source=USB&role=principal', { headers: { Cookie: cookieP } });
+  const premier = new Promise((r) => ws.on('message', (d, bin) => { if (!bin) r(JSON.parse(d.toString())); }));
+  await new Promise((r, k) => { ws.once('open', r); ws.once('error', k); });
+  const radio = fausseRadio(ws, 0x11223344);
+  const info = await Promise.race([premier, new Promise((r) => setTimeout(() => r({}), 3000))]);
+  let mien = null;
+  for (let k = 0; k < 30; k++) { mien = (await appelP('GET', '/api/passerelle/miennes')).j; if (mien.passerelles && mien.passerelles[0] && mien.passerelles[0].radio && mien.passerelles[0].radio.connecte) break; await new Promise((r) => setTimeout(r, 300)); }
+  const p0 = mien.passerelles && mien.passerelles[0];
+  const ecA = await appelA('GET', '/api/ecoutes');
+  const vueAdmin = (ecA.j.meshtastic || []).find((x) => x.hote === info.hote);
+  const anonyme = await new Promise((r) => { const w = new WebSocket(BASE.replace('http', 'ws') + '/ws/module'); w.on('open', () => { w.close(); r('ouverte'); }); w.on('error', () => r('refusée')); w.on('unexpected-response', () => r('refusée')); });
+  if (info.role === 'ecoute' && /paul-passerelle/.test(info.hote || '') && p0 && p0.radio.connecte && p0.radio.canaux.length === 8 && p0.radio.canaux[2].chiffrement === 'prive' && !JSON.stringify(mien).includes('BwcH') && vueAdmin && /Paul passerelle/.test(vueAdmin.compte) && anonyme === 'refusée') ok('passerelle d’un membre : en écoute seulement, nom à son identifiant, vue de l’administrateur, canaux lus sans clé, refusée sans compte');
+  else ko('passerelle membre : ' + JSON.stringify({ info, p0, vueAdmin, anonyme }).slice(0, 500));
+  // Page de Paul : « Devenir passerelle » et le panneau des canaux de sa radio
+  const ctx = await navig.newContext({ viewport: { width: 1366, height: 860 }, locale: 'fr-FR' });
+  const [n, v] = cookieP.split('=');
+  await ctx.addCookies([{ name: n, value: v, domain: '127.0.0.1', path: '/' }]);
+  await ctx.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(ctx, '/');
+  await page.waitForTimeout(800);
+  const e1 = await page.evaluate(async (hote) => {
+    const bouton = document.querySelector('#outil-connecter').textContent;
+    moduleNav.etat = 'relie'; moduleNav.hote = hote; moduleNav.type = 'usb'; moduleNav.role = 'ecoute';
+    await ouvrirConnexion();
+    await new Promise((r) => setTimeout(r, 1500));
+    const z = document.querySelector('#cx-canaux');
+    const cases = [...z.querySelectorAll('[data-ajout]')].map((x) => x.dataset.nom + (x.checked ? '+' : ''));
+    return { bouton, titre: document.querySelector('#fiche-contenu h2').textContent, serie: !!document.querySelector('[data-cx="serie"]'), role: document.querySelector('#cx-role').hidden, grille: z.querySelectorAll('.case-canal').length, cases, clair: !z.querySelector('.avert-clair').hidden, liberer: !z.querySelector('.liberer-canaux').hidden, bouton2: !!document.querySelector('#cx-ecrire') };
+  }, info.hote);
+  await capture(page, 'passerelle-membre');
+  if (/Devenir passerelle/.test(e1.bouton) && /Devenir passerelle/.test(e1.titre) && !e1.serie && e1.role && e1.grille === 8 && e1.cases.join(',') === 'Fr_EMCOM+,ADRASEC43+,Alerte+' && e1.clair && !e1.liberer && e1.bouton2 && !erreurs.length) ok('page d’un membre : « Devenir passerelle », canaux de sa radio et jeux à cocher, avertissement « en clair »');
+  else ko('page passerelle : ' + JSON.stringify({ ...e1, erreurs }));
+  // Écriture : 3 canaux à ajouter, 5 places libres ; « Perso » (clé privée, précision 13) reste à sa place
+  const w1 = await appelP('POST', '/api/passerelle/canaux', { hote: info.hote, ajouter: (adr.canaux.map((c) => ({ portee: 'adrasec:43', id: c.id }))).concat([{ portee: 'carte', id: vueP.j.jeux.find((x) => x.portee === 'carte').canaux[0].id }]) });
+  const noms = radio.canaux.map((c) => (c.role ? (c.settings && c.settings.name) || '' : '-'));
+  const k3 = radio.canaux.find((c) => c.settings && c.settings.name === 'ADRASEC43');
+  const versLui = radio.ordres.every((o) => o.vers === 0x11223344);
+  // Radio pleine : il faut libérer ; refus clair puis écriture avec un emplacement libéré
+  const autre = (await appelA('PUT', '/api/jeux-canaux/carte', { canaux: [{ nom: 'Fr_EMCOM', cle: '' , id: vueP.j.jeux.find((x) => x.portee === 'carte').canaux[0].id }, { nom: 'C6', cle: 'publique' }, { nom: 'C7', cle: 'publique' }, { nom: 'C8', cle: 'aleatoire' }] })).j;
+  const ids = (nm) => autre.canaux.filter((c) => nm.includes(c.nom)).map((c) => ({ portee: 'carte', id: c.id }));
+  const plein = await appelP('POST', '/api/passerelle/canaux', { hote: info.hote, ajouter: ids(['C6', 'C7', 'C8']) });
+  const libere = await appelP('POST', '/api/passerelle/canaux', { hote: info.hote, ajouter: ids(['C6', 'C7', 'C8']), liberer: [1] });
+  const noms2 = radio.canaux.map((c) => (c.role ? (c.settings && c.settings.name) || '' : '-'));
+  const perso = radio.canaux.find((c) => c.settings && c.settings.name === 'Perso');
+  const autreCompte = await appelA('POST', '/api/passerelle/canaux', { hote: 'agent-inconnu', ajouter: ids(['C6']) });
+  if (w1.statut === 200 && noms.join(',') === ',Fr_Balise,Perso,ADRASEC43,Alerte,Fr_EMCOM,-,-' && k3 && Buffer.from(k3.settings.psk).length === 32 && k3.settings.moduleSettings.positionPrecision === 32 && versLui && radio.ordres[0].a === 'beginEditSettings'
+    && plein.statut === 400 && /libérez encore 1/.test(plein.j.erreur) && libere.statut === 200 && noms2.join(',') === ',Perso,ADRASEC43,Alerte,Fr_EMCOM,C6,C7,C8' && perso.settings.moduleSettings.positionPrecision === 13 && Buffer.from(perso.settings.psk).equals(Buffer.alloc(32, 7)) && autreCompte.statut === 400)
+    ok('canaux écrits sur la radio du membre : ajout, clé ADRASEC privée, place libérée sur demande, canal gardé déplacé intact, relecture');
+  else ko('écriture des canaux : ' + JSON.stringify({ w1, noms, k3: !!k3, versLui, ordre0: radio.ordres[0], plein, libere: libere.statut, noms2, autre: autreCompte.statut }).slice(0, 700));
+  // Coupure par l'administrateur : la passerelle ne peut plus se relier (12 h)
+  await appelA('DELETE', '/api/ecoutes', { hote: info.hote, port: 1 });
+  await new Promise((r) => setTimeout(r, 500));
+  const apres = (await appelP('GET', '/api/passerelle/miennes')).j;
+  const ws2 = await new Promise((r) => { const w = new WebSocket(BASE.replace('http', 'ws') + '/ws/module?nom=Radio%20USB', { headers: { Cookie: cookieP } }); w.on('open', () => { w.close(); r('ouverte'); }); w.on('unexpected-response', () => r('refusée')); w.on('error', () => r('refusée')); });
+  if (ws.readyState !== 1 && ws2 === 'refusée' && /coupée par un administrateur/.test(apres.refus || '')) ok('passerelle coupée par l’administrateur : refusée ensuite, motif affiché au membre'); else ko('coupure passerelle : ' + JSON.stringify({ etat: ws.readyState, ws2, refus: apres.refus }));
+  try { ws.close(); } catch { /* déjà */ }
+  await ctx.close();
+}
+
 async function essaiAgentDirect(cookie) {
   console.log('Agent zéro question (simulé)');
   const net = require('net');
@@ -967,6 +1088,7 @@ async function essaiPagesPubliques(navig) {
     await essaiAdrasec(navigateur, cookie);
     await essaiMotDePasseOublie(navigateur, cookie);
     await essaiFrequentation(navigateur, cookie);
+    await essaiPasserelleMembre(navigateur, cookie);
     await essaiAdministrationALaDemande(navigateur, cookie);
     await essaiAgentDirect(cookie);
     await essaiUsbAuto(navigateur, cookie);

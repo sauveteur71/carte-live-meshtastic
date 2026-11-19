@@ -1359,7 +1359,7 @@ function mcOuvrirWs(source, versCompanion) {
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/meshcore?role=${mc.nav.role === 'ecoute' ? 'ecoute' : 'principal'}&source=${source}&nom=${encodeURIComponent(source + ' ' + ((etat.config.compte && etat.config.compte.identifiant) || ''))}`);
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => ok(ws);
-    ws.onerror = () => ko(new Error('connexion au serveur refusée (êtes-vous connecté en admin ?)'));
+    ws.onerror = () => ko(new Error('connexion au serveur refusée (connectez-vous avec votre compte ; passerelle coupée ou désactivée ?)'));
     ws.onmessage = (ev) => { if (ev.data instanceof ArrayBuffer) versCompanion(new Uint8Array(ev.data)); };
     ws.onclose = () => {
       if (mc.nav.ws !== ws) return;

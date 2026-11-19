@@ -4703,9 +4703,9 @@ async function rendreModules(force) {
   const btnEcoute = (m) => `<button data-ec-on="${esc(m.hote)}" data-port="${m.port}" title="Le relier en plus du module principal, pour l'écoute seulement">👂 En écoute</button>`;
   const ligneEcoute = (x) => {
     const estAg = x.hote.startsWith('agent-');
-    const sous = x.navigateur ? `${esc(x.source || 'navigateur')} d'une page de la carte` : estAg ? 'agent' : x.hote.startsWith('/dev/') ? `USB du serveur ${esc(x.hote)}` : `${esc(x.hote)}${x.port !== 4403 ? ':' + x.port : ''}`;
+    const sous = x.navigateur ? `${esc(x.source || 'navigateur')} d'une page de la carte${x.compte ? ` · 📡 passerelle de ${esc(x.compte)}` : ''}` : estAg ? 'agent' : x.hote.startsWith('/dev/') ? `USB du serveur ${esc(x.hote)}` : `${esc(x.hote)}${x.port !== 4403 ? ':' + x.port : ''}`;
     const statut = x.connecte ? `en écoute · ${x.paquets} paquets${x.noeud != null ? '' : ' · configuration…'}` : `connexion…${x.erreur ? ' (' + esc(x.erreur) + ')' : ''}`;
-    const boutons = `${!x.navigateur ? `<button data-ec-princ="${esc(x.hote)}" data-port="${x.port}" title="En faire le module principal (envois, administration) ; l'actuel passe en écoute">⭐ Principal</button>` : ''}<button data-ec-off="${esc(x.hote)}" data-port="${x.port}">Arrêter l'écoute</button>`;
+    const boutons = `${!x.navigateur ? `<button data-ec-princ="${esc(x.hote)}" data-port="${x.port}" title="En faire le module principal (envois, administration) ; l'actuel passe en écoute">⭐ Principal</button>` : ''}<button data-ec-off="${esc(x.hote)}" data-port="${x.port}" title="${x.compte ? 'Couper cette passerelle : elle ne pourra pas se relier de nouveau pendant 12 h' : ''}">${x.compte ? 'Couper la passerelle' : 'Arrêter l\'écoute'}</button>`;
     return `<div class="ligne module ecoute"><span class="point ${x.connecte ? 'actif' : 'alerte'}"></span><span class="titre">${esc(x.nom || 'Module')} <span class="badge">👂 écoute</span><small>${sous}</small></span><span class="meta"></span>
       <span class="sous-ligne meta-longue">${statut}</span><span class="sous-ligne boutons-module">${boutons}</span></div>`;
   };
@@ -6548,6 +6548,8 @@ async function demarrer() {
   etat.gestion = !!etat.config.gestion;
   etat.secteur = etat.admin ? null : (etat.config.compte && etat.config.compte.noeuds) || [];
   etat.membre = etat.config.membre;
+  // Membre non administrateur : « Connecter un module » devient « Devenir passerelle » (sa radio, en écoute)
+  { const bc = $('#outil-connecter'); if (bc && !etat.admin) { bc.hidden = !(etat.membre && etat.config.passerelleMembres); bc.textContent = '📡 Devenir passerelle…'; bc.title = 'Relier votre radio Meshtastic ou MeshCore à la carte depuis ce PC (USB ou Bluetooth) et y écrire les canaux de la carte ou de votre ADRASEC'; } }
   if (etat.consultation) {
     const b = document.createElement('div');
     b.className = 'bandeau-consultation';
@@ -6851,8 +6853,12 @@ function ouvrirWsModule(nom, source, envoyerAuModule) {
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/module?nom=${encodeURIComponent(nom)}&source=${encodeURIComponent(source)}&role=${moduleNav.role === 'ecoute' ? 'ecoute' : 'principal'}`);
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => ok(ws);
-    ws.onerror = () => ko(new Error('connexion au serveur refusée (êtes-vous connecté en admin ?)'));
-    ws.onmessage = (e) => { if (e.data instanceof ArrayBuffer) envoyerAuModule(new Uint8Array(e.data)); };
+    ws.onerror = () => ko(new Error('connexion au serveur refusée (connectez-vous avec votre compte ; passerelle coupée ou désactivée ?)'));
+    ws.onmessage = (e) => {
+      if (e.data instanceof ArrayBuffer) { envoyerAuModule(new Uint8Array(e.data)); return; }
+      // Trame texte du serveur : nom réel de la passerelle (celui d'un membre porte son identifiant) et rôle accordé
+      try { const d = JSON.parse(e.data); if (d.genre === 'passerelle') setTimeout(() => { moduleNav.hote = d.hote; moduleNav.role = d.role; majModuleNav(moduleNav.etat, moduleNav.erreur); }, 0); } catch { /* autre */ }
+    };
     ws.onclose = () => {
       if (moduleNav.ws !== ws) return;
       // Liaison avec le serveur coupée (redémarrage, proxy) : le module est toujours là, on se reconnecte
@@ -7124,16 +7130,20 @@ async function reconnaitreUsb(port, duree = 8000) {
   return { type, texte: new TextDecoder().decode(tampon).replace(/[^\x20-\x7e\n]/g, '').trim() };
 }
 async function ouvrirConnexion(message) {
-  if (!etat.admin) { alert('Connectez-vous en administrateur pour relier un module à la carte.'); return; }
+  // Un membre (non administrateur) relie sa radio en passerelle : en écoute seulement, par USB ou Bluetooth de ce PC
+  const membreSeul = !etat.admin;
+  if (membreSeul && !etat.membre) { alert('Connectez-vous avec votre compte pour relier votre radio à la carte (passerelle).'); return; }
+  if (membreSeul && !(etat.config && etat.config.passerelleMembres)) { alert('Les passerelles des membres sont désactivées sur cette carte.'); return; }
   const https = window.isSecureContext; // HTTPS, ou la carte ouverte sur ce PC même (localhost) : USB et Bluetooth permis
   const nav = !!navigator.bluetooth, ser = 'serial' in navigator;
   $('#fiche').hidden = false;
   etat.selection = null;
   const z = $('#fiche-contenu');
-  z.innerHTML = `<h2>Connecter un module</h2>
-    <p class="note">Meshtastic ou MeshCore : le type est reconnu tout seul. Choisissez simplement comment le module est relié.</p>
+  z.innerHTML = `<h2>${membreSeul ? '📡 Devenir passerelle' : 'Connecter un module'}</h2>
+    ${membreSeul ? `<p class="note">Reliez votre radio Meshtastic ou MeshCore à ce PC : la page relaie ce qu’elle entend vers la carte, sans rien installer. Elle reste en écoute (elle n’émet rien pour la carte) et vous pouvez y écrire les canaux de la carte ou de votre ADRASEC.</p>
+      <p class="note">Gardez cet onglet ouvert : le relais s’arrête si la page se ferme ou si le PC se met en veille.</p>` : '<p class="note">Meshtastic ou MeshCore : le type est reconnu tout seul. Choisissez simplement comment le module est relié.</p>'}
     <div class="cx-etat" id="cx-etat"><small>état des modules…</small></div>
-    <fieldset class="cx-role" id="cx-role"><legend>Ce nouveau module sera…</legend>
+    <fieldset class="cx-role" id="cx-role" ${membreSeul ? 'hidden' : ''}><legend>Ce nouveau module sera…</legend>
       <label><input type="radio" name="cx-role" value="principal" checked> <b>le module principal</b> <small>(remplace l’actuel : écoute, envois de messages, administration)</small></label>
       <label><input type="radio" name="cx-role" value="ecoute"> <b>👂 en écoute, en plus</b> <small>(l’actuel reste principal ; celui-ci ajoute ce qu’il entend à la carte)</small></label>
     </fieldset>
@@ -7142,11 +7152,12 @@ async function ouvrirConnexion(message) {
       <button class="cx-gros" data-cx="usb" ${!https || !ser ? 'disabled' : ''}><span>🔌</span><b>USB</b><small>câble branché sur ce PC</small></button>
     </div>
     ${!https ? '<p class="alerte attention">Bluetooth et USB demandent la carte en <b>HTTPS</b> (adresse en …ts.net), dans Chrome ou Edge.</p>' : !nav || !ser ? '<p class="alerte attention">Ce navigateur ne gère pas le Bluetooth ou l’USB : utilisez <b>Chrome ou Edge</b> (pas Firefox ni Safari).</p>' : ''}
-    <div class="cx-serie"><button type="button" class="cx-gros cx-large" data-cx="serie"><span>🖥️</span><b>USB du serveur</b><small>module branché sur la machine qui fait tourner la carte (NAS, Raspberry Pi…)</small></button><div id="cx-ports"></div></div>
+    ${membreSeul ? '' : `<div class="cx-serie"><button type="button" class="cx-gros cx-large" data-cx="serie"><span>🖥️</span><b>USB du serveur</b><small>module branché sur la machine qui fait tourner la carte (NAS, Raspberry Pi…)</small></button><div id="cx-ports"></div></div>
     <form class="cx-ip" id="cx-ip"><label><span>🌐 <b>Adresse IP</b> du module en Wi-Fi</span>
       <span class="ligne-ip"><input name="adresse" placeholder="192.168.1.122" inputmode="decimal" autocomplete="off" required><button class="principal">Connecter</button></span></label>
-      <small>Si le module est sur un autre réseau que la carte, un PC de ce réseau avec l’agent Gaulix 1.6 sert de relais tout seul.</small></form>
+      <small>Si le module est sur un autre réseau que la carte, un PC de ce réseau avec l’agent Gaulix 1.6 sert de relais tout seul.</small></form>`}
     <div id="cx-retour" class="cx-retour">${message ? esc(message) : ''}</div>
+    <div id="cx-canaux"></div>
     <details class="cx-aide"><summary>Ça ne marche pas ?</summary><ul>
       <li><b>Bluetooth</b> : fermez l’appli Meshtastic / MeshCore du téléphone (un seul appareil à la fois). Code PIN : celui affiché par le module, sinon 123456. En cas d’échec, appairez d’abord le module dans les réglages Bluetooth de Windows.</li>
       <li><b>Meshtastic en Wi-Fi</b> (ESP32 : Heltec, T-Beam…) : le Bluetooth est coupé tant que le Wi-Fi est actif ; utilisez l’adresse IP.</li>
@@ -7156,10 +7167,27 @@ async function ouvrirConnexion(message) {
       <li><b>Adresse IP</b> : le module doit être allumé, en Wi-Fi, et sur un réseau joignable par la carte ou par un PC avec l’agent 1.6 (<a href="/agent/agent-gaulix-windows.exe">télécharger pour Windows</a>).</li>
     </ul></details>`;
   const retour = (t, cls = '') => { const r = $('#cx-retour'); if (r) { r.className = 'cx-retour ' + cls; r.innerHTML = t; } };
-  const role = () => { const c = z.querySelector('input[name="cx-role"]:checked'); return c ? c.value : 'principal'; };
+  const role = () => { if (membreSeul) return 'ecoute'; const c = z.querySelector('input[name="cx-role"]:checked'); return c ? c.value : 'principal'; };
   const libRole = (r) => (r === 'ecoute' ? ' en écoute, en plus du module principal' : '');
   let premierEtat = true;
+  // Passerelles de ce compte (vue d'un membre : la liste des modules de la carte lui est fermée)
+  const majEtatMembre = async () => {
+    const el = $('#cx-etat'); if (!el) return;
+    let r;
+    try { r = await api('/api/passerelle/miennes'); } catch (e) { el.innerHTML = `<small class="attention">${esc(e.message)}</small>`; return; }
+    const relie = typeof moduleNav !== 'undefined' && moduleNav.etat === 'relie', relieMc = mcActif() && mc.nav && mc.nav.etat === 'relie';
+    el.innerHTML = r.passerelles.length ? r.passerelles.map((p) => {
+      const ok = p.protocole === 'meshcore' || (p.radio && p.radio.connecte);
+      const nom = p.radio && p.radio.nom ? p.radio.nom : p.protocole === 'meshcore' ? 'Companion MeshCore' : 'Radio Meshtastic';
+      const stop = p.protocole === 'meshcore' ? (relieMc ? `<button class="mini" data-cx-stop="mc">Débrancher</button>` : '') : relie && p.hote === moduleNav.hote ? `<button class="mini" data-cx-stop="mt">Débrancher</button>` : '';
+      return `<div><span class="point ${ok ? 'actif' : 'recent'}"></span><b>📡 ${esc(nom)}</b> · ${esc(p.source || '')} · 👂 passerelle en écoute${p.radio ? ` · ${p.radio.paquets} paquets` : ''}${ok ? '' : ' · configuration…'} ${stop}</div>`;
+    }).join('') : '<div><span class="point inactif"></span>Aucune radio reliée depuis ce compte.</div>';
+    if (r.refus) el.insertAdjacentHTML('beforeend', `<div class="attention">⚠️ ${esc(r.refus)}</div>`);
+    el.querySelectorAll('[data-cx-stop]').forEach((b) => (b.onclick = async () => { if (b.dataset.cxStop === 'mt') await debrancherModuleNav(); else await mcDebrancherNav(); setTimeout(majEtat, 1500); }));
+  };
   const majEtat = async () => {
+    if (membreSeul) { await majEtatMembre(); rendreCanauxPasserelle(); return; }
+    rendreCanauxPasserelle();
     const e = await etatConnexions();
     const el = $('#cx-etat'); if (!el) return;
     const mt = e.mt, m = e.mc && e.mc.companion;
@@ -7178,6 +7206,9 @@ async function ouvrirConnexion(message) {
     }));
   };
   majEtat();
+  // Tant que le dialogue est ouvert : état et canaux de la radio relus toutes les 5 s (rien n'est redessiné sans changement)
+  clearInterval(ouvrirConnexion.minuterie);
+  ouvrirConnexion.minuterie = setInterval(() => { if (!document.getElementById('cx-etat') || $('#fiche').hidden) { clearInterval(ouvrirConnexion.minuterie); return; } majEtat(); }, 5000);
   const fini = (type) => { setTimeout(majEtat, 2500); setTimeout(majEtat, 8000); return type; };
 
   z.querySelector('[data-cx="ble"]').onclick = async () => {
@@ -7250,7 +7281,7 @@ async function ouvrirConnexion(message) {
     fini(type);
   };
 
-  z.querySelector('[data-cx="serie"]').onclick = async () => {
+  if (!membreSeul) z.querySelector('[data-cx="serie"]').onclick = async () => {
     const zp = $('#cx-ports');
     zp.innerHTML = '<small>recherche des ports…</small>';
     let r;
@@ -7265,7 +7296,7 @@ async function ouvrirConnexion(message) {
       b.disabled = false;
     }));
   };
-  $('#cx-ip').onsubmit = async (ev) => {
+  if (!membreSeul) $('#cx-ip').onsubmit = async (ev) => {
     ev.preventDefault();
     const adresse = ev.target.adresse.value.trim();
     const b = ev.target.querySelector('button'); b.disabled = true;
@@ -7279,6 +7310,120 @@ async function ouvrirConnexion(message) {
       retour(`✗ ${esc(e.message)}${conseil ? '<br>' + esc(conseil) : ''}`, 'ko');
     }
     b.disabled = false;
+  };
+}
+
+// ---- Canaux de la radio reliée par cette page : jeux de canaux de la carte et de l'ADRASEC ------------------------
+// Les clés ne quittent jamais le serveur : la page choisit des canaux par leur nom, le serveur les écrit sur la radio.
+async function rendreCanauxPasserelle(force) {
+  const z = $('#cx-canaux');
+  if (!z) return;
+  if (typeof moduleNav === 'undefined' || moduleNav.etat !== 'relie') { z.innerHTML = ''; z.dataset.sig = ''; return; }
+  if (!force && (z.querySelector('.editeur-jeu:not([hidden])') || z.dataset.ecriture)) return; // réglage ou écriture en cours
+  let m, j;
+  try { [m, j] = await Promise.all([api('/api/passerelle/miennes'), api('/api/jeux-canaux')]); } catch (e) { z.innerHTML = `<p class="note">${esc(e.message)}</p>`; return; }
+  const p = m.passerelles.find((x) => x.hote === moduleNav.hote) || m.passerelles.find((x) => x.protocole === 'meshtastic' && x.role === moduleNav.role);
+  if (!p || !p.radio || !p.radio.connecte) { if (!z.dataset.sig) z.innerHTML = '<p class="note">🎚️ Lecture des canaux de la radio…</p>'; return; }
+  const sig = JSON.stringify([p.hote, p.radio.canaux, j.jeux]);
+  if (!force && z.dataset.sig === sig) return;
+  z.dataset.sig = sig;
+  const canaux = p.radio.canaux;
+  const presents = new Set(canaux.filter((c) => c.index > 0 && c.role !== 'DISABLED').map((c) => c.nom));
+  const badge = (c) => (c === 'prive' ? '<span class="badge-cle" title="Clé privée">🔒</span>' : c === 'public' ? '<span class="badge-clair">en clair</span>' : c === 'aucun' ? '<span class="badge-clair">sans chiffrement</span>' : '');
+  z.innerHTML = `<div class="canaux-radio">
+    <h3>🎚️ Canaux de la radio <small>${esc(p.radio.nom || '')}</small></h3>
+    <div class="grille-canaux">${canaux.map((c) => `<div class="case-canal ${c.role === 'DISABLED' ? 'vide' : ''}"><span class="num">${c.index}</span><b class="mono">${c.role === 'DISABLED' ? '—' : esc(c.nom)}</b>${badge(c.chiffrement)}</div>`).join('')}</div>
+    ${j.jeux.length ? j.jeux.map((jeu) => `<fieldset class="jeu-canaux" data-portee="${esc(jeu.portee)}"><legend>${esc(jeu.titre)}${jeu.modifiable ? ` <button type="button" class="mini" data-jeu-edit="${esc(jeu.portee)}">✏️ Régler ce jeu</button>` : ''}</legend>
+      ${jeu.canaux.length ? jeu.canaux.map((c) => `<label class="case"><input type="checkbox" data-ajout="${esc(jeu.portee)}" data-id="${esc(c.id)}" data-nom="${esc(c.nom)}" data-clair="${c.chiffrement === 'public' ? 1 : ''}" ${presents.has(c.nom) ? '' : 'checked'}> <b class="mono">${esc(c.nom)}</b> ${badge(c.chiffrement)}${presents.has(c.nom) ? ' <small>déjà sur la radio : cochez pour lui remettre la clé du jeu</small>' : ''}</label>`).join('') : '<p class="note">Aucun canal dans ce jeu pour l’instant.</p>'}
+      <div class="editeur-jeu" hidden></div></fieldset>`).join('') : '<p class="note">Aucun jeu de canaux proposé sur cette carte. Un administrateur (ou le président de votre ADRASEC) peut en définir un.</p>'}
+    <fieldset class="liberer-canaux" hidden><legend></legend><div class="liste-liberer"></div></fieldset>
+    <p class="alerte attention avert-clair" hidden>🔓 Canaux non chiffrés : ils utilisent la clé publique par défaut, tout le monde peut les lire. N’y faites passer aucune donnée personnelle (nom, adresse, état de santé).</p>
+    ${j.jeux.some((x) => x.canaux.length) ? `<div class="boutons"><button class="principal" id="cx-ecrire">Écrire sur la radio</button> <small>La radio n’est modifiée qu’à ce clic.</small></div>` : ''}
+    <div id="cx-ecrire-retour" class="cx-retour"></div>
+  </div>`;
+  const occupes = canaux.filter((c) => c.index > 0 && c.role !== 'DISABLED');
+  const libres = canaux.filter((c) => c.index > 0 && c.role === 'DISABLED').length;
+  const fsLib = z.querySelector('.liberer-canaux');
+  const maj = () => {
+    const coches = [...z.querySelectorAll('[data-ajout]:checked')];
+    const noms = new Set(coches.map((x) => x.dataset.nom));
+    const nouveaux = [...noms].filter((n) => !presents.has(n)).length;
+    // Canaux de la radio qui peuvent céder leur place : ceux que le jeu ne remplace pas
+    const candidats = occupes.filter((c) => !noms.has(c.nom));
+    const dejaLib = new Set([...z.querySelectorAll('[data-liberer]:checked')].map((x) => Number(x.dataset.liberer)));
+    const besoin = Math.max(0, nouveaux - libres - [...dejaLib].filter((i) => candidats.some((c) => c.index === i)).length);
+    const montrer = besoin > 0 || dejaLib.size > 0;
+    fsLib.hidden = !montrer;
+    if (montrer) {
+      fsLib.querySelector('legend').textContent = besoin ? `Place insuffisante : libérer ${besoin} emplacement(s)` : 'Emplacements libérés';
+      const l = fsLib.querySelector('.liste-liberer');
+      const sigL = candidats.map((c) => c.index).join(',');
+      if (l.dataset.sig !== sigL) {
+        l.dataset.sig = sigL;
+        l.innerHTML = candidats.map((c) => `<label class="case"><input type="checkbox" data-liberer="${c.index}" ${dejaLib.has(c.index) ? 'checked' : ''}> <span class="num">${c.index}</span> <b class="mono">${esc(c.nom)}</b> <small>sera supprimé de la radio</small></label>`).join('');
+        l.querySelectorAll('[data-liberer]').forEach((x) => (x.onchange = maj));
+      }
+    }
+    z.querySelector('.avert-clair').hidden = !coches.some((x) => x.dataset.clair);
+    const b = $('#cx-ecrire');
+    if (b) b.disabled = besoin > 0 || (!coches.length && !dejaLib.size);
+  };
+  z.querySelectorAll('[data-ajout]').forEach((x) => (x.onchange = maj));
+  maj();
+  const b = $('#cx-ecrire');
+  if (b) b.onclick = async () => {
+    const ajouter = [...z.querySelectorAll('[data-ajout]:checked')].map((x) => ({ portee: x.dataset.ajout, id: x.dataset.id }));
+    const liberer = [...z.querySelectorAll('[data-liberer]:checked')].map((x) => Number(x.dataset.liberer));
+    const ret = $('#cx-ecrire-retour');
+    b.disabled = true; z.dataset.ecriture = '1';
+    ret.className = 'cx-retour'; ret.textContent = 'Écriture sur la radio puis relecture de contrôle (une vingtaine de secondes)…';
+    try {
+      const r = await postJson('/api/passerelle/canaux', { hote: p.hote, ajouter, liberer });
+      ret.className = 'cx-retour'; ret.classList.add('ok'); ret.innerHTML = '✓ ' + r.journal.map(esc).join(' · ');
+      setTimeout(() => { delete z.dataset.ecriture; rendreCanauxPasserelle(true).then(() => { const x = $('#cx-ecrire-retour'); if (x) { x.className = 'cx-retour'; x.classList.add('ok'); x.innerHTML = '✓ Canaux écrits et relus sur la radio.'; } }); }, 1500);
+    } catch (e) { ret.className = 'cx-retour'; ret.classList.add('ko'); ret.textContent = '✗ ' + e.message; b.disabled = false; delete z.dataset.ecriture; }
+  };
+  z.querySelectorAll('[data-jeu-edit]').forEach((x) => (x.onclick = () => {
+    const jeu = j.jeux.find((k) => k.portee === x.dataset.jeuEdit);
+    const ed = x.closest('fieldset').querySelector('.editeur-jeu');
+    if (!ed.hidden) { ed.hidden = true; return; }
+    editeurJeuCanaux(ed, jeu, () => rendreCanauxPasserelle(true));
+  }));
+}
+// Régler un jeu de canaux (administrateur pour la carte, président ou responsable pour une ADRASEC)
+function editeurJeuCanaux(zone, jeu, apres) {
+  zone.hidden = false;
+  const ligne = (c = {}) => `<div class="ligne-jeu" data-id="${esc(c.id || '')}">
+    <input class="mono" data-champ="nom" maxlength="11" placeholder="Nom (11 car.)" value="${esc(c.nom || '')}">
+    <select data-champ="cle">${c.id ? `<option value="">garder la clé${c.empreinte ? ' ' + esc(c.empreinte) : c.chiffrement === 'public' ? ' (publique)' : ''}</option>` : ''}<option value="aleatoire" ${c.id ? '' : 'selected'}>nouvelle clé privée (aléatoire)</option><option value="publique">clé publique (en clair)</option><option value="coller">coller une clé (base64)</option></select>
+    <input class="mono" data-champ="collee" placeholder="clé en base64 (16 ou 32 octets)" hidden autocomplete="off">
+    <label class="case" title="Partager la position des membres sur ce canal"><input type="checkbox" data-champ="positions" ${c.positions ? 'checked' : ''}> positions</label>
+    <button type="button" class="mini" data-retirer title="Retirer ce canal du jeu">✕</button></div>`;
+  zone.innerHTML = `<p class="note">7 canaux au plus (le canal 0 de la radio n’est jamais touché). Les clés restent sur le serveur, chiffrées : seule une empreinte courte est montrée ici.</p>
+    <div class="lignes-jeu">${jeu.canaux.map(ligne).join('')}</div>
+    <div class="boutons"><button type="button" data-plus>＋ Canal</button><button type="button" class="principal" data-enreg>✔ Enregistrer le jeu</button><button type="button" data-fermer>Annuler</button></div>
+    <div class="cx-retour" data-ret></div>`;
+  const brancher = () => zone.querySelectorAll('.ligne-jeu').forEach((l) => {
+    const sel = l.querySelector('[data-champ="cle"]'), col = l.querySelector('[data-champ="collee"]');
+    sel.onchange = () => { col.hidden = sel.value !== 'coller'; if (!col.hidden) col.focus(); };
+    l.querySelector('[data-retirer]').onclick = () => l.remove();
+  });
+  brancher();
+  zone.querySelector('[data-plus]').onclick = () => { if (zone.querySelectorAll('.ligne-jeu').length >= 7) return; zone.querySelector('.lignes-jeu').insertAdjacentHTML('beforeend', ligne()); brancher(); };
+  zone.querySelector('[data-fermer]').onclick = () => { zone.hidden = true; zone.innerHTML = ''; };
+  zone.querySelector('[data-enreg]').onclick = async () => {
+    const canaux = [...zone.querySelectorAll('.ligne-jeu')].map((l) => {
+      const v = (k) => l.querySelector(`[data-champ="${k}"]`);
+      const cle = v('cle').value === 'coller' ? v('collee').value.trim() : v('cle').value;
+      return { id: l.dataset.id || undefined, nom: v('nom').value.trim(), cle, positions: v('positions').checked };
+    });
+    const ret = zone.querySelector('[data-ret]');
+    const url = jeu.portee === 'carte' ? '/api/jeux-canaux/carte' : '/api/adrasec/canaux?g=' + encodeURIComponent(jeu.portee.split(':')[1]);
+    try {
+      await api(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ canaux }) });
+      zone.hidden = true; zone.innerHTML = '';
+      apres();
+    } catch (e) { ret.className = 'cx-retour'; ret.classList.add('ko'); ret.textContent = '✗ ' + e.message; }
   };
 }
 

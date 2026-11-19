@@ -36,6 +36,9 @@ Si la carte valide les nouveaux comptes (**inscriptions sur validation**), l'adm
 
 > **Winlink** : le client Pat est unique sur la carte (une station, un indicatif). Sa boîte est réservée à **une** ADRASEC (`PAT_ADRASEC`, par défaut celle du département de la carte) : les membres des autres ADRASEC hébergées ne la voient pas. Chaque message est signé de l'indicatif du membre et du nom de son ADRASEC.
 
+## Canaux de l'ADRASEC
+Dans **Gestion › 🎚️ Canaux**, le président (ou un responsable) décrit les canaux Meshtastic que les membres doivent avoir : nom, clé (privée tirée au hasard, publique, ou collée) et partage des positions, 7 au plus. Un membre qui relie sa radio à la carte (**Outils › 📡 Devenir passerelle**) les y écrit en un clic, en choisissant au besoin les canaux à libérer. Les clés restent sur le serveur, chiffrées : personne ne les voit, pas même le président (une empreinte courte permet de les reconnaître). Voir [[Connecter un module|Connecter-un-module]].
+
 ## Main courante
 
 Chaque inscription est **horodatée et signée** (indicatif du membre), avec un type (information, message reçu ou émis, décision, mouvement, incident, fin) et l'équipe concernée. Une inscription ne se modifie pas : pour corriger, on en inscrit une nouvelle. Les ouvertures et clôtures de recherche, les relevés et les messages Winlink s'y ajoutent tout seuls.
