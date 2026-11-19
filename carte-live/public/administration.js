@@ -871,9 +871,9 @@ async function rendreComptes() {
       <td><b>${esc(c.identifiant)}</b>${c.email ? `<br><small>${esc(c.email)}</small>` : ''}</td><td>${esc(c.indicatif || '–')}</td>
       <td><select data-role>${['membre', 'gestionnaire', 'admin'].map((r) => `<option value="${r}" ${c.role === r ? 'selected' : ''}>${ROLES_COMPTE[r]}</option>`).join('')}</select>${c.role === 'gestionnaire' ? `<br><button class="mini" data-secteur>Secteur : ${(c.noeuds || []).length} nœud(s)…</button>` : ''}</td>
       ${ad ? caseAdrasec(c) : ''}
-      <td><span class="badge ${c.statut === 'actif' ? 'actif' : c.statut === 'en_attente' ? 'attente' : 'inactif'}">${STATUTS[c.statut] || c.statut}</span>${c.deuxFacteurs ? ' <span class="badge actif" title="Double authentification activée">2FA</span>' : ''}</td>
+      <td><span class="badge ${c.statut === 'actif' ? 'actif' : c.statut === 'en_attente' ? 'attente' : 'inactif'}">${STATUTS[c.statut] || c.statut}</span>${c.deuxFacteurs ? ' <span class="badge actif" title="Double authentification activée">2FA</span>' : ''}${c.reinitDemande ? `<br><span class="badge attente" title="Demande faite le ${new Date(c.reinitDemande).toLocaleString()}">🔑 mot de passe oublié</span>` : ''}</td>
       <td>${c.derniere ? ilYa(c.derniere) : 'jamais'}</td>
-      <td class="actions-ligne">${c.statut === 'en_attente' ? '<button data-statut="actif" class="principal">Valider</button>' : c.statut === 'actif' ? '<button data-statut="desactive">Désactiver</button>' : '<button data-statut="actif">Réactiver</button>'}${c.deuxFacteurs ? '<button data-retirer-2fa title="Téléphone perdu : retirer la double authentification de ce compte">Retirer 2FA</button>' : ''}<button data-deco title="Fermer toutes les sessions ouvertes de ce compte">Déconnecter</button><button data-suppr title="Supprimer">✕</button></td>
+      <td class="actions-ligne">${c.statut === 'en_attente' ? '<button data-statut="actif" class="principal">Valider</button>' : c.statut === 'actif' ? '<button data-statut="desactive">Désactiver</button>' : '<button data-statut="actif">Réactiver</button>'}<button data-lien-mdp class="${c.reinitDemande ? 'principal' : ''}" title="Mot de passe oublié : créer un lien (24 h, usage unique) pour que cette personne choisisse un nouveau mot de passe">🔑 Lien</button>${c.deuxFacteurs ? '<button data-retirer-2fa title="Téléphone perdu : retirer la double authentification de ce compte">Retirer 2FA</button>' : ''}<button data-deco title="Fermer toutes les sessions ouvertes de ce compte">Déconnecter</button><button data-suppr title="Supprimer">✕</button></td>
     </tr>`).join('')}
     </tbody></table>
     <h3>Ajouter un compte</h3>
@@ -899,6 +899,21 @@ async function rendreComptes() {
     const b2f = tr.querySelector('[data-retirer-2fa]');
     if (b2f) b2f.onclick = async () => { if ((await confirmer('Retirer la double authentification de ce compte ?'))) action(() => postJson(`/api/comptes/${id}`, { retirerDeuxFacteurs: true })); };
     tr.querySelector('[data-deco]').onclick = () => action(() => postJson(`/api/comptes/${id}`, { deconnecter: true }));
+    // Mot de passe oublié : lien à usage unique (24 h), que l'administrateur transmet lui-même
+    tr.querySelector('[data-lien-mdp]').onclick = async () => {
+      try {
+        const r = await postJson(`/api/comptes/${id}`, { lienReinit: true });
+        const lien = location.origin + '/?reinit=' + r.jeton, c = liste.find((x) => String(x.id) === String(id)) || {};
+        let boite = z.querySelector('.lien-mdp');
+        if (!boite) { boite = document.createElement('div'); boite.className = ['lien-mdp', 'alerte', 'info-lecture'].join(' '); z.prepend(boite); }
+        boite.innerHTML = `<b>🔑 Lien de nouveau mot de passe pour ${esc(c.identifiant || '')}</b><br><small>Valable 24 h, une seule fois. Transmettez-le à cette personne (SMS, e-mail, messagerie) ; elle y choisira son nouveau mot de passe.</small>
+          <div class="ligne-lien"><input class="mono" readonly value="${esc(lien)}"><button class="mini principal">Copier</button></div>`;
+        const champ = boite.querySelector('input'), bc = boite.querySelector('button');
+        bc.onclick = async () => { try { await navigator.clipboard.writeText(lien); bc.textContent = '✔ Copié'; } catch { champ.select(); document.execCommand('copy'); bc.textContent = '✔ Copié'; } };
+        champ.onfocus = () => champ.select();
+        boite.scrollIntoView({ block: 'nearest' });
+      } catch (e) { alert(e.message); }
+    };
     const ca = tr.querySelector('[data-adrasec]');
     if (ca) {
       const r = (ad.roles || {})[id], groupe = () => (tr.querySelector('[data-adrasec-groupe]') || {}).value || (r && r.groupe) || 'AUTO';

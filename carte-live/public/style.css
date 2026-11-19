@@ -1708,3 +1708,9 @@ label.bouton-fichier { cursor: pointer; display: inline-flex; align-items: cente
 
 /* Schéma des rôles Meshtastic (conseils de rôles) */
 .schema-roles { display: block; width: 100%; height: auto; border-radius: 10px; margin: 8px 0; border: 1px solid var(--bord, rgba(120,160,190,.3)); }
+
+/* Mot de passe oublié */
+.lien-discret { background: none; border: 0; color: var(--accent); text-decoration: underline; padding: 6px 0; min-height: 0; cursor: pointer; font-weight: 600; }
+.lien-mdp { margin-bottom: 10px; }
+.lien-mdp .ligne-lien { display: flex; gap: 8px; margin-top: 6px; }
+.lien-mdp .ligne-lien input { flex: 1; min-width: 0; }

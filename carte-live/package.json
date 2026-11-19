@@ -17,6 +17,7 @@
     "leaflet": "1.9.4",
     "maplibre-gl": "6.18.0",
     "mqtt": "^5.10.4",
+    "nodemailer": "^10.4.0",
     "pg": "^8.23.1",
     "protobufjs": "^8.8.1",
     "protomaps-leaflet": "5.1.0",

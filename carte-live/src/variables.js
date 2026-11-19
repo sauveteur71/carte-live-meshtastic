@@ -89,6 +89,14 @@ const CATALOGUE = [
   { nom: 'PAT_URL', groupe: 'Services', libelle: 'Winlink : adresse de Pat', type: 'texte', aide: 'Section ADRASEC : http://pat:8080 avec le service « pat » du docker-compose (docker compose --profile winlink up -d). Vide = Winlink désactivé.' },
   { nom: 'PAT_INDICATIF', groupe: 'Services', libelle: 'Winlink : indicatif de la station', type: 'texte', aide: 'Affiché dans la section ADRASEC. Le mot de passe Winlink reste dans la configuration de Pat, jamais dans la carte.' },
   { nom: 'RELIEF_FRANCE_URL', groupe: 'Services', libelle: 'Adresse du paquet « relief France »', type: 'texte', aide: 'Adresse de téléchargement du relief de toute la France (calcul de couverture hors ligne). Vide = adresse fournie par le projet.' },
+  // E-mail : récupération du mot de passe oublié
+  { nom: 'CARTE_ADRESSE', groupe: 'E-mail', libelle: 'Adresse publique de la carte', type: 'texte', aide: 'Ex. https://carte.mon-club.fr — sert à construire le lien envoyé par e-mail pour un mot de passe oublié. Vide = pas d’e-mail : les demandes vont aux administrateurs.' },
+  { nom: 'SMTP_HOTE', groupe: 'E-mail', libelle: 'Serveur d’envoi (SMTP)', type: 'texte', aide: 'Ex. smtp.gmail.com, smtp.orange.fr, ssl0.ovh.net. Vide = pas d’e-mail : les demandes de mot de passe oublié vont aux administrateurs.' },
+  { nom: 'SMTP_PORT', groupe: 'E-mail', libelle: 'Port SMTP', type: 'nombre', min: 1, max: 65535, defaut: 587, aide: '587 (STARTTLS) le plus souvent, ou 465 (SSL). Par défaut 587.' },
+  { nom: 'SMTP_SECURISE', groupe: 'E-mail', libelle: 'Connexion SSL directe', type: 'choix', choix: OUI_NON, aide: 'Oui pour le port 465. Par défaut : oui sur 465, STARTTLS sinon.' },
+  { nom: 'SMTP_UTILISATEUR', groupe: 'E-mail', libelle: 'Compte SMTP', type: 'texte', aide: 'Souvent l’adresse e-mail d’envoi.' },
+  { nom: 'SMTP_MOT_DE_PASSE', groupe: 'E-mail', libelle: 'Mot de passe SMTP', type: 'secret', aide: 'Enregistré comme secret, jamais réaffiché. Gmail : créez un « mot de passe d’application ».' },
+  { nom: 'SMTP_EXPEDITEUR', groupe: 'E-mail', libelle: 'Expéditeur', type: 'texte', aide: 'Ex. « Carte live <carte@mon-club.fr> ». Vide = le compte SMTP.' },
   { nom: 'LANGUE', groupe: 'Services', libelle: 'Langue du journal du serveur', type: 'choix', choix: [['', '(par défaut)'], ['fr', 'français'], ['en', 'anglais']], aide: 'Langue des messages du journal du serveur et des alertes envoyées (domotique, radio). L’interface suit la langue de chaque visiteur.' },
 ];
 const PAR_NOM = new Map(CATALOGUE.map((v) => [v.nom, v]));

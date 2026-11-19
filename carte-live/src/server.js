@@ -92,6 +92,7 @@ function lireCookie(req, nom) {
 }
 const utilisateur = (req) => comptes.lireJeton(lireCookie(req, 'gaulix_session'));
 const audit = creerAudit(stockage.db);
+const courriel = require('./courriel').creerCourriel({ config, journal });
 const nomCompte = (c) => (c ? c.indicatif ? `${c.identifiant} (${c.indicatif})` : c.identifiant : null);
 // « Membre » : tout compte connecté (messages texte, positions exactes) ; « admin » : réglages et pilotage
 // Démonstration (?consultation, en-tête X-Demo) : un visiteur lit en plus, en GET seulement, une liste d'écrans de
@@ -1947,6 +1948,50 @@ app.post('/api/inscription', (req, res) => {
   } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 
+// ---- Mot de passe oublié ----
+// Par e-mail si le serveur SMTP et l'adresse publique de la carte sont réglés (lien valable 1 h), sinon demande
+// signalée aux administrateurs, qui créent un lien (24 h) et le transmettent eux-mêmes. La réponse est la même que
+// le compte existe ou non, pour ne pas révéler les comptes.
+app.get('/api/mot-de-passe/oubli', (req, res) => res.json({ courriel: courriel.actif() }));
+app.post('/api/mot-de-passe/oubli', async (req, res) => {
+  if (limiter('mdp:' + req.ip)) return res.status(429).json({ erreur: 'Trop de tentatives, réessayez dans 15 minutes' });
+  const b = req.body || {}, saisi = String(b.identifiant || '').slice(0, 32) || null;
+  const reponse = { ok: true, courriel: courriel.actif() };
+  const c = comptes.trouverPourOubli(b.identifiant);
+  if (!c) { audit.noter(saisi, req.ip, 'mot de passe oublié', 'aucun compte actif correspondant', false); return res.json(reponse); }
+  if (courriel.actif() && c.email) {
+    try {
+      const { jeton } = comptes.creerReinit(c.id, 3600000, 'e-mail');
+      const lien = `${courriel.adresseCarte()}/?reinit=${jeton}`;
+      await courriel.envoyer({ a: c.email, sujet: 'Carte live : nouveau mot de passe', texte: [`Bonjour ${c.identifiant},`, '', `Une demande de nouveau mot de passe a été faite pour votre compte sur la carte ${courriel.adresseCarte()}.`, '', 'Pour choisir un nouveau mot de passe, ouvrez ce lien (valable 1 heure, une seule fois) :', lien, '', 'Si vous n’avez rien demandé, ignorez ce message : votre mot de passe actuel reste valable.'].join('\n') });
+      audit.noter(nomCompte(c), req.ip, 'mot de passe oublié', 'lien envoyé par e-mail', true);
+      journal(`Mot de passe oublié : lien envoyé par e-mail à ${c.identifiant}`);
+      return res.json(reponse);
+    } catch (e) { journal('[e-mail] envoi impossible, demande transmise aux administrateurs :', e.message); }
+  }
+  comptes.noterDemandeReinit(c.id);
+  audit.noter(nomCompte(c), req.ip, 'mot de passe oublié', 'demande transmise aux administrateurs', true);
+  journal(`Mot de passe oublié : ${c.identifiant} demande un lien de réinitialisation (Gérer › Comptes)`);
+  res.json(reponse);
+});
+app.post('/api/mot-de-passe/reinitialiser', (req, res) => {
+  if (limiter('reinit:' + req.ip)) return res.status(429).json({ erreur: 'Trop de tentatives, réessayez dans 15 minutes' });
+  try {
+    const b = req.body || {};
+    const c = comptes.reinitialiser(b.jeton, b.nouveau);
+    audit.noter(nomCompte(c), req.ip, 'mot de passe réinitialisé', null, true);
+    journal(`Mot de passe réinitialisé : ${c.identifiant}`);
+    // Sans double authentification, la personne est connectée tout de suite ; avec, elle se connecte avec son code
+    if (!c.deuxFacteurs) ouvrirSession(req, res, c);
+    res.json({ ok: true, identifiant: c.identifiant, connecte: !c.deuxFacteurs });
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/compte/email', (req, res) => {
+  const u = utilisateur(req);
+  if (!u) return res.status(401).json({ erreur: 'Connexion requise' });
+  try { comptes.changerEmail(u.id, (req.body || {}).email); res.json({ ok: true }); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+
 app.get('/api/compte', (req, res) => res.json(utilisateur(req)));
 app.post('/api/compte/mot-de-passe', (req, res) => {
   const u = utilisateur(req);
@@ -2024,6 +2069,12 @@ app.post('/api/comptes/:id', (req, res) => {
     if (b.noeuds !== undefined) comptes.changerNoeuds(id, b.noeuds);
     if (b.retirerDeuxFacteurs) comptes.retirerDeuxFacteurs(id, null, true);
     if (b.deconnecter) comptes.deconnecterPartout(id);
+    // Lien de nouveau mot de passe (24 h, usage unique), que l'administrateur transmet lui-même
+    if (b.lienReinit) {
+      const r = comptes.creerReinit(id, 24 * 3600000, 'administrateur');
+      audit.noter(nomCompte(utilisateur(req)), req.ip, 'lien de mot de passe', `créé pour le compte ${id}`, true);
+      return res.json({ ok: true, jeton: r.jeton, expire: r.expire });
+    }
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ erreur: e.message }); }
 });

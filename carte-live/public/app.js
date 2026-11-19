@@ -6131,6 +6131,51 @@ function brancherComptes() {
   const apres = () => { if (retour && /^\/[a-z0-9/_-]*$/i.test(retour)) location.href = retour; else location.reload(); };
   ongletsDialogue(dlgC);
   ongletsDialogue(dlgG);
+  // ---- Mot de passe oublié : par e-mail si la carte en envoie, sinon demande aux administrateurs ----
+  const montrerPan = (nom) => {
+    dlgC.querySelectorAll('[data-pan]').forEach((f) => (f.hidden = f.dataset.pan !== nom));
+    dlgC.querySelectorAll('.onglets-dlg [data-dlg]').forEach((b) => b.classList.toggle('actif', b.dataset.dlg === nom));
+    dlgC.querySelectorAll('.erreur').forEach((x) => (x.textContent = ''));
+  };
+  const fo = $('#form-oubli');
+  $('#btn-oubli').onclick = async () => {
+    montrerPan('oubli');
+    fo.identifiant.value = $('#form-connexion').identifiant.value;
+    $('#note-oubli').textContent = 'Indiquez votre identifiant, votre indicatif ou votre adresse e-mail.';
+    try { const r = await api('/api/mot-de-passe/oubli'); $('#note-oubli').textContent = r.courriel ? 'Indiquez votre identifiant, votre indicatif ou votre adresse e-mail : un lien pour choisir un nouveau mot de passe sera envoyé à l’adresse e-mail de votre compte.' : 'Indiquez votre identifiant, votre indicatif ou votre adresse e-mail : les administrateurs de la carte seront prévenus et vous transmettront un lien pour choisir un nouveau mot de passe.'; } catch { /* note par défaut */ }
+    fo.identifiant.focus();
+  };
+  dlgC.querySelectorAll('.retour-connexion').forEach((b) => (b.onclick = () => montrerPan('connexion')));
+  fo.onsubmit = async (e) => {
+    e.preventDefault();
+    const err = fo.querySelector('.erreur');
+    try {
+      const r = await postJson('/api/mot-de-passe/oubli', { identifiant: fo.identifiant.value });
+      err.textContent = '';
+      $('#note-oubli').innerHTML = r.courriel
+        ? '<span class="succes">✔ Demande envoyée.</span> Si ce compte existe et a une adresse e-mail, un lien valable 1 heure vient d’y être envoyé (regardez aussi les indésirables). Sinon, les administrateurs de la carte ont été prévenus.'
+        : '<span class="succes">✔ Demande envoyée.</span> Si ce compte existe, les administrateurs de la carte ont été prévenus : ils vous transmettront un lien pour choisir un nouveau mot de passe.';
+    } catch (x) { err.textContent = x.message; }
+  };
+  // Lien reçu (/?reinit=…) : choix du nouveau mot de passe, puis connexion
+  const jetonReinit = pu.get('reinit');
+  if (jetonReinit) {
+    try { history.replaceState(null, '', location.pathname); } catch { /* */ }
+    const fr = $('#form-reinit');
+    fr.onsubmit = async (e) => {
+      e.preventDefault();
+      const err = fr.querySelector('.erreur');
+      if (fr.nouveau.value !== fr.confirmation.value) { err.textContent = 'Les deux mots de passe sont différents'; return; }
+      try {
+        const r = await postJson('/api/mot-de-passe/reinitialiser', { jeton: jetonReinit, nouveau: fr.nouveau.value });
+        if (r.connecte) { location.reload(); return; }
+        montrerPan('connexion');
+        $('#form-connexion').identifiant.value = r.identifiant;
+        $('#form-connexion').querySelector('.erreur').innerHTML = '<span class="succes">✔ Mot de passe changé : connectez-vous avec lui et votre code.</span>';
+      } catch (x) { err.textContent = x.message; }
+    };
+    setTimeout(() => { if (!dlgC.open) dlgC.showModal(); montrerPan('reinit'); fr.nouveau.focus(); }, 500);
+  }
   $('#fermer-compte').onclick = () => dlgC.close();
   $('#fermer-gestion').onclick = () => dlgG.close();
   $('#btn-admin').onclick = () => {
@@ -6190,6 +6235,13 @@ function ouvrirGestion() {
       <div class="mesure"><span>Double authentification</span><b>${c.deuxFacteurs ? '✔ activée' : 'non'}</b></div>
       <div class="mesure"><span>Indicatif</span><b>${esc(c.indicatif || '–')}</b></div>
     </div>
+    <h3>Adresse e-mail</h3>
+    <p class="note">Sert à recevoir un lien si vous oubliez votre mot de passe. Elle n’est montrée qu’aux administrateurs.</p>
+    <form id="form-email" class="parametres compact">
+      <label>E-mail <input name="email" type="email" autocomplete="email" value="${esc(c.email || '')}" placeholder="prenom@exemple.fr"></label>
+      <button type="submit">Enregistrer</button>
+    </form>
+    <p class="erreur" id="retour-email"></p>
     <h3>Changer de mot de passe</h3>
     <form id="form-mdp" class="parametres compact">
       <label>Actuel <input name="ancien" type="password" autocomplete="current-password" required></label>
@@ -6219,6 +6271,11 @@ function ouvrirGestion() {
   const f2 = $('#form-2fa-retirer');
   if (f2) f2.onsubmit = async (e) => { e.preventDefault(); try { await postJson('/api/compte/deux-facteurs/retirer', { motDePasse: e.target.motDePasse.value }); etat.config.compte.deuxFacteurs = false; ouvrirGestion(); } catch (x) { r2(x.message); } };
   $('#btn-deco-partout').onclick = async () => { try { await postJson('/api/compte/deconnecter-partout'); r2('✔ Toutes vos autres sessions sont fermées.'); } catch (x) { r2(x.message); } };
+  $('#form-email').onsubmit = async (e) => {
+    e.preventDefault();
+    try { await postJson('/api/compte/email', { email: e.target.email.value }); etat.config.compte.email = e.target.email.value.trim() || null; $('#retour-email').innerHTML = '<span class="succes">E-mail enregistré ✓</span>'; }
+    catch (x) { $('#retour-email').textContent = x.message; }
+  };
   $('#form-mdp').onsubmit = async (e) => {
     e.preventDefault();
     try { await postJson('/api/compte/mot-de-passe', { ancien: e.target.ancien.value, nouveau: e.target.nouveau.value }); $('#retour-mdp').textContent = 'Mot de passe changé ✓'; e.target.reset(); }

@@ -376,6 +376,21 @@
       <label id="champ-code" hidden>Code de l’application d’authentification <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123456"></label>
       <p class="erreur"></p>
       <div class="actions"><button type="submit" class="principal">Se connecter</button></div>
+      <button type="button" class="lien-discret" id="btn-oubli">Mot de passe oublié ?</button>
+    </form>
+    <form id="form-oubli" data-pan="oubli" hidden>
+      <h3>Mot de passe oublié</h3>
+      <p class="note" id="note-oubli"></p>
+      <label>Identifiant, indicatif ou e-mail <input name="identifiant" autocomplete="username" required maxlength="120"></label>
+      <p class="erreur"></p>
+      <div class="actions"><button type="button" class="retour-connexion">← Retour</button><button type="submit" class="principal">Demander un nouveau mot de passe</button></div>
+    </form>
+    <form id="form-reinit" data-pan="reinit" hidden>
+      <h3>Choisir un nouveau mot de passe</h3>
+      <label>Nouveau mot de passe <input name="nouveau" type="password" autocomplete="new-password" required minlength="8"></label>
+      <label>Confirmer <input name="confirmation" type="password" autocomplete="new-password" required minlength="8"></label>
+      <p class="erreur"></p>
+      <div class="actions"><button type="submit" class="principal">Enregistrer</button></div>
     </form>
     <form id="form-inscription" data-pan="inscription" hidden>
       <p class="note" id="note-inscription"></p>

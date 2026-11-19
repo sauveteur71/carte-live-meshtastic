@@ -68,6 +68,10 @@ function creerComptes(db, config) {
   if (!colonnes.includes('noeuds')) db.exec('ALTER TABLE comptes ADD COLUMN noeuds TEXT');
   // Double authentification (TOTP) : secret actif, secret en cours d'activation, dernier pas utilisé (anti-rejeu)
   for (const col of ['totp TEXT', 'totp_attente TEXT', 'totp_dernier INTEGER']) if (!colonnes.includes(col.split(' ')[0])) db.exec('ALTER TABLE comptes ADD COLUMN ' + col);
+  // Mot de passe oublié : heure de la dernière demande (signalée aux administrateurs) ; liens à usage unique
+  // (seule l'empreinte SHA-256 du jeton est gardée, comme pour un mot de passe)
+  if (!colonnes.includes('reinit_demande')) db.exec('ALTER TABLE comptes ADD COLUMN reinit_demande INTEGER');
+  db.exec('CREATE TABLE IF NOT EXISTS reinitialisations (empreinte TEXT PRIMARY KEY, compte INTEGER NOT NULL, expire INTEGER NOT NULL, cree INTEGER NOT NULL, origine TEXT)');
   const q = {
     nombre: db.prepare('SELECT COUNT(*) AS n FROM comptes'),
     nbAdmins: db.prepare("SELECT COUNT(*) AS n FROM comptes WHERE role = 'admin' AND statut = 'actif'"),
@@ -77,7 +81,14 @@ function creerComptes(db, config) {
     parIdentifiantSouple: db.prepare('SELECT * FROM comptes WHERE identifiant = ? COLLATE NOCASE ORDER BY identifiant = ? DESC LIMIT 1'),
     parIndicatif: db.prepare('SELECT * FROM comptes WHERE indicatif = ? COLLATE NOCASE LIMIT 2'),
     inserer: db.prepare('INSERT INTO comptes (identifiant, indicatif, email, hash, role, statut, cree) VALUES (@identifiant, @indicatif, @email, @hash, @role, @statut, @cree)'),
-    tous: db.prepare('SELECT id, identifiant, indicatif, email, role, statut, cree, derniere, noeuds, totp IS NOT NULL AS deuxFacteurs FROM comptes ORDER BY statut DESC, identifiant'),
+    tous: db.prepare('SELECT id, identifiant, indicatif, email, role, statut, cree, derniere, noeuds, reinit_demande AS reinitDemande, totp IS NOT NULL AS deuxFacteurs FROM comptes ORDER BY statut DESC, identifiant'),
+    parEmail: db.prepare('SELECT * FROM comptes WHERE email = ? COLLATE NOCASE LIMIT 2'),
+    email: db.prepare('UPDATE comptes SET email = ? WHERE id = ?'),
+    demandeReinit: db.prepare('UPDATE comptes SET reinit_demande = ? WHERE id = ?'),
+    reinitAjouter: db.prepare('INSERT INTO reinitialisations (empreinte, compte, expire, cree, origine) VALUES (?, ?, ?, ?, ?)'),
+    reinitParEmpreinte: db.prepare('SELECT * FROM reinitialisations WHERE empreinte = ?'),
+    reinitRetirerCompte: db.prepare('DELETE FROM reinitialisations WHERE compte = ?'),
+    reinitPurger: db.prepare('DELETE FROM reinitialisations WHERE expire < ?'),
     noeuds: db.prepare('UPDATE comptes SET noeuds = ? WHERE id = ?'),
     totpAttente: db.prepare('UPDATE comptes SET totp_attente = ? WHERE id = ?'),
     totpActiver: db.prepare('UPDATE comptes SET totp = totp_attente, totp_attente = NULL, totp_dernier = ?, version = version + 1 WHERE id = ?'),
@@ -230,6 +241,43 @@ function creerComptes(db, config) {
     },
     // Toutes les sessions ouvertes du compte deviennent invalides (le jeton contient la version du compte)
     deconnecterPartout(id) { q.version.run(id); },
+    // ---- Mot de passe oublié ----
+    // Compte désigné par son identifiant, son e-mail ou son indicatif (s'il n'en désigne qu'un), actif seulement
+    trouverPourOubli(texte) {
+      const t = String(texte || '').trim().slice(0, 120);
+      if (!t) return null;
+      let c = q.parIdentifiantSouple.get(t, t);
+      if (!c && t.includes('@')) { const l = q.parEmail.all(t); if (l.length === 1) c = l[0]; }
+      if (!c) { const l = q.parIndicatif.all(t); if (l.length === 1) c = l[0]; }
+      return c && c.statut === 'actif' ? nettoyer(c) : null;
+    },
+    noterDemandeReinit(id) { q.demandeReinit.run(Date.now(), id); },
+    // Lien à usage unique : le jeton n'est rendu qu'une fois ; un nouveau lien annule les précédents
+    creerReinit(id, dureeMs, origine) {
+      const c = q.parId.get(id);
+      if (!c) throw new Error('Compte inconnu');
+      q.reinitPurger.run(Date.now());
+      q.reinitRetirerCompte.run(id);
+      const jeton = crypto.randomBytes(32).toString('base64url');
+      q.reinitAjouter.run(crypto.createHash('sha256').update(jeton).digest('hex'), id, Date.now() + dureeMs, Date.now(), origine || null);
+      return { jeton, expire: Date.now() + dureeMs };
+    },
+    reinitialiser(jeton, nouveau) {
+      const r = q.reinitParEmpreinte.get(crypto.createHash('sha256').update(String(jeton || '')).digest('hex'));
+      if (!r || r.expire < Date.now()) throw new Error('Lien expiré ou déjà utilisé : demandez-en un nouveau');
+      const c = q.parId.get(r.compte);
+      if (!c || c.statut !== 'actif') throw new Error('Compte désactivé');
+      if (String(nouveau || '').length < 8) throw new Error('Mot de passe : 8 caractères minimum');
+      q.mdp.run(hacher(String(nouveau)), c.id); // déconnecte aussi les autres sessions (version + 1)
+      q.reinitRetirerCompte.run(c.id);
+      q.demandeReinit.run(null, c.id);
+      return nettoyer(q.parId.get(c.id));
+    },
+    changerEmail(id, email) {
+      const e = email ? String(email).trim().slice(0, 120) : null;
+      if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error('Adresse e-mail invalide');
+      q.email.run(e, id);
+    },
     changerMotDePasse(id, ancien, nouveau) {
       const c = q.parId.get(id);
       if (!c || !verifierHash(String(ancien || ''), c.hash)) throw new Error('Mot de passe actuel incorrect');

@@ -30,7 +30,7 @@ fs.writeFileSync(path.join(donnees, 'feux.json'), JSON.stringify({ maj: Date.now
 ] }));
 function demarrerServeur() {
   serveur = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
-    env: { ...process.env, PORT: String(PORT), FICHIER_BASE: path.join(donnees, 'carte-live.db'), MQTT_URL: 'mqtt://127.0.0.1:1', DEPARTEMENT: '43', MESHCORE: 'oui', ADMIN_MOT_DE_PASSE: '', AGENTS_PORT: String(PORT + 5), PAT_URL: `http://127.0.0.1:${PORT + 7}`, PAT_INDICATIF: 'F4XYZ' },
+    env: { ...process.env, PORT: String(PORT), FICHIER_BASE: path.join(donnees, 'carte-live.db'), MQTT_URL: 'mqtt://127.0.0.1:1', DEPARTEMENT: '43', MESHCORE: 'oui', ADMIN_MOT_DE_PASSE: '', AGENTS_PORT: String(PORT + 5), PAT_URL: `http://127.0.0.1:${PORT + 7}`, PAT_INDICATIF: 'F4XYZ', SMTP_HOTE: 'fichier', CARTE_ADRESSE: 'https://carte.essai' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const log = fs.createWriteStream(path.join(sorties, 'serveur.log'));
@@ -673,6 +673,61 @@ async function essaiAdrasec(navig, cookie) {
   bilanErreurs(o.erreurs, 'fonctions de la carte');
   await c2.close();
 }
+async function essaiMotDePasseOublie(navig, cookie) {
+  console.log('Mot de passe oublié (e-mail, lien de l’administrateur)');
+  const H = { 'Content-Type': 'application/json', Cookie: `${cookie.name}=${cookie.value}` };
+  const appel = async (m, url, b, h = H) => { const r = await fetch(BASE + url, { method: m, headers: h, body: b ? JSON.stringify(b) : undefined }); return { statut: r.status, j: await r.json().catch(() => ({})), cookie: r.headers.get('set-cookie') }; };
+  const SANS = { 'Content-Type': 'application/json' };
+  const a1 = (await appel('POST', '/api/comptes', { identifiant: 'oubli-mail', motDePasse: 'Ancien-mdp-2026', email: 'oubli@exemple.fr' })).j;
+  const a2 = (await appel('POST', '/api/comptes', { identifiant: 'oubli-admin', motDePasse: 'Ancien-mdp-2026' })).j;
+  // Par e-mail : lien écrit dans courriels-essai (SMTP_HOTE=fichier), même réponse pour un compte inconnu
+  const dossier = path.join(donnees, 'courriels-essai');
+  const etat = (await appel('GET', '/api/mot-de-passe/oubli', null, SANS)).j;
+  const r1 = await appel('POST', '/api/mot-de-passe/oubli', { identifiant: 'oubli@exemple.fr' }, SANS);
+  const inconnu = await appel('POST', '/api/mot-de-passe/oubli', { identifiant: 'personne-de-ce-nom' }, SANS);
+  const mails = fs.existsSync(dossier) ? fs.readdirSync(dossier) : [];
+  const mail = mails.length ? JSON.parse(fs.readFileSync(path.join(dossier, mails[mails.length - 1]), 'utf8')) : {};
+  const jeton = (/https:\/\/carte\.essai\/\?reinit=([\w-]+)/.exec(mail.text || '') || [])[1];
+  if (etat.courriel && r1.statut === 200 && JSON.stringify(r1.j) === JSON.stringify(inconnu.j) && mails.length === 1 && mail.to && mail.to[0].address === 'oubli@exemple.fr' && jeton) ok('mot de passe oublié : lien envoyé par e-mail, même réponse pour un compte inconnu'); else ko('oubli par e-mail : ' + JSON.stringify({ etat, r1: r1.j, inconnu: inconnu.j, mails: mails.length, to: mail.to }));
+  const court = await appel('POST', '/api/mot-de-passe/reinitialiser', { jeton, nouveau: 'court' }, SANS);
+  const bon = await appel('POST', '/api/mot-de-passe/reinitialiser', { jeton, nouveau: 'Nouveau-mdp-2026' }, SANS);
+  const encore = await appel('POST', '/api/mot-de-passe/reinitialiser', { jeton, nouveau: 'Autre-mdp-2026!' }, SANS);
+  const ancien = await appel('POST', '/api/connexion', { identifiant: 'oubli-mail', motDePasse: 'Ancien-mdp-2026' }, SANS);
+  const nouveau = await appel('POST', '/api/connexion', { identifiant: 'oubli-mail', motDePasse: 'Nouveau-mdp-2026' }, SANS);
+  if (court.statut === 400 && bon.statut === 200 && bon.j.connecte && /gaulix_session=/.test(bon.cookie || '') && encore.statut === 400 && ancien.statut === 401 && nouveau.statut === 200) ok('mot de passe oublié : nouveau mot de passe par le lien, lien à usage unique, ancien refusé'); else ko('réinitialisation : ' + JSON.stringify({ court: court.statut, bon: bon.j, encore: encore.statut, ancien: ancien.statut, nouveau: nouveau.statut }));
+  // Sans e-mail : demande signalée aux administrateurs, qui créent le lien
+  await appel('POST', '/api/mot-de-passe/oubli', { identifiant: 'oubli-admin' }, SANS);
+  const liste = (await appel('GET', '/api/comptes')).j;
+  const vu = liste.find((c) => c.id === a2.id) || {};
+  const lien = (await appel('POST', '/api/comptes/' + a2.id, { lienReinit: true })).j;
+  const parAdmin = await appel('POST', '/api/mot-de-passe/reinitialiser', { jeton: lien.jeton, nouveau: 'Admin-donne-2026' }, SANS);
+  const apres = ((await appel('GET', '/api/comptes')).j.find((c) => c.id === a2.id) || {});
+  if (vu.reinitDemande && lien.jeton && parAdmin.statut === 200 && !apres.reinitDemande && fs.readdirSync(dossier).length === 1) ok('mot de passe oublié sans e-mail : demande visible des administrateurs, lien créé par l’administrateur'); else ko('oubli sans e-mail : ' + JSON.stringify({ demande: vu.reinitDemande, lien: !!lien.jeton, parAdmin: parAdmin.j, apres: apres.reinitDemande }));
+  // Interface : lien « Mot de passe oublié ? » et page du lien reçu
+  const ctx = await navig.newContext({ viewport: { width: 1200, height: 850 }, locale: 'fr-FR' });
+  await ctx.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const { page } = await ouvrir(ctx, '/?compte=connexion');
+  await page.waitForTimeout(1200);
+  await page.click('#btn-oubli');
+  await page.waitForTimeout(500);
+  await page.fill('#form-oubli input[name=identifiant]', 'oubli-admin');
+  await page.click('#form-oubli button[type=submit]');
+  await page.waitForTimeout(800);
+  const note = await page.textContent('#note-oubli');
+  const l2 = (await appel('POST', '/api/comptes/' + a2.id, { lienReinit: true })).j;
+  await page.goto(BASE + '/?reinit=' + l2.jeton);
+  await page.waitForTimeout(1800);
+  const visible = await page.evaluate(() => !document.querySelector('#form-reinit').hidden && document.querySelector('#dlg-compte').open && !/reinit=/.test(location.search));
+  await page.fill('#form-reinit input[name=nouveau]', 'Via-la-page-2026');
+  await page.fill('#form-reinit input[name=confirmation]', 'Via-la-page-2026');
+  await Promise.all([page.waitForNavigation({ timeout: 8000 }).catch(() => {}), page.click('#form-reinit button[type=submit]')]);
+  await page.waitForTimeout(1500);
+  const connecte = await page.evaluate(async () => (await (await fetch('/api/compte')).json() || {}).identifiant);
+  if (/Demande envoyée/.test(note) && visible && connecte === 'oubli-admin') ok('page : « Mot de passe oublié ? », lien reçu, nouveau mot de passe et connexion'); else ko('page mot de passe oublié : ' + JSON.stringify({ note, visible, connecte }));
+  await ctx.close();
+  for (const id of [a1.id, a2.id]) await appel('DELETE', '/api/comptes/' + id);
+}
+
 async function essaiAgentDirect(cookie) {
   console.log('Agent zéro question (simulé)');
   const net = require('net');
@@ -820,6 +875,7 @@ async function essaiPagesPubliques(navig) {
     await essaiVue3D(navigateur);
     await essaiProfil3D(navigateur);
     await essaiAdrasec(navigateur, cookie);
+    await essaiMotDePasseOublie(navigateur, cookie);
     await essaiAdministrationALaDemande(navigateur, cookie);
     await essaiAgentDirect(cookie);
     await essaiUsbAuto(navigateur, cookie);
