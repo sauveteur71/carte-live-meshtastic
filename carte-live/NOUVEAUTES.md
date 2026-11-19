@@ -2,6 +2,19 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.28.11
+
+### 🔑 Comptes
+- **Mot de passe oublié** : lien « Mot de passe oublié ? » sous la connexion. Avec un serveur d'envoi réglé (*Réglages › Réglages avancés › E-mail*), un lien valable 1 h arrive par e-mail ; sinon la demande s'affiche dans *Gérer › Comptes*, où le bouton **🔑 Lien** crée un lien à usage unique (24 h) à transmettre.
+- **E-mail** modifiable dans *Mon compte*.
+- **Identifiant « NOM Prénom »** accepté (espaces, accents, apostrophe).
+- **Fiche d'un compte modifiable par l'administrateur** (✏️) : identifiant, indicatif, e-mail.
+
+### 🛰️ ADRASEC
+- **Gestion** : plusieurs comptes cochés et intégrés d'un coup (filtre, tout cocher).
+- **Équipes** : **＋ Membres** pour composer chaque équipe en cochant les membres, ✕ pour en sortir ; couleur de chaque équipe au choix.
+- **Nouveau relevé** : **équipe qui donne le relevé** (saisie au PC des relevés reçus par radio), position par le **nœud de l'équipe** ; équipe d'un relevé déjà enregistré corrigeable, le trait prend sa couleur.
+
 ## 2.28.10
 
 ### 🛰️ ADRASEC par département
