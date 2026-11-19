@@ -507,7 +507,10 @@
       <input type="search" id="ge-filtre" placeholder="🔎 Chercher un membre (nom, indicatif)">
       <div id="ge-fiches">${membres.map((c) => ficheMembre(c, E.membres.find((x) => x.compte === c.id))).join('') || '<p class="note">Aucun membre pour l’instant.</p>'}</div>
       <h2>Intégrer un compte de la carte</h2>
-      ${autres.length ? `<div class="ligne-champs"><label>Compte <select id="ge-ajout"><option value="">— choisir —</option>${autres.map((c) => `<option value="${c.id}" ${c.autre ? 'disabled' : ''}>${esc(c.identifiant)}${c.indicatif ? ' · ' + esc(c.indicatif) : ''}${c.autre ? ' (membre de l’ADRASEC ' + esc(c.autre) + ')' : ''}</option>`).join('')}</select></label><button id="ge-ajouter">Intégrer</button></div>` : '<p class="note">Tous les comptes de la carte sont déjà membres. Les nouveaux membres créent d’abord leur compte avec le lien ci-dessus.</p>'}
+      ${autres.length ? `<p class="note">Cochez un ou plusieurs comptes. Ceux qui ont un indicatif sont intégrés comme radioamateurs licenciés, les autres comme bénévoles : corrigez ensuite leur fiche si besoin (SWL, équipe, nœud).</p>
+        <div class="ligne-champs"><input type="search" id="ge-ajout-filtre" placeholder="🔎 Filtrer les comptes"><label class="case"><input type="checkbox" id="ge-ajout-tout"> Tout cocher</label></div>
+        <div class="liste-ajout" id="ge-ajout-liste">${autres.map((c) => `<label class="case${c.autre ? ' indispo' : ''}" data-texte="${esc((c.identifiant + ' ' + (c.indicatif || '')).toLowerCase())}"><input type="checkbox" value="${c.id}" ${c.autre ? 'disabled' : ''}> <b>${esc(c.identifiant)}</b>${c.indicatif ? ` <span class="mono">${esc(c.indicatif)}</span>` : ''}${c.autre ? ` <small>(membre de l’ADRASEC ${esc(c.autre)})</small>` : ''}</label>`).join('')}</div>
+        <div class="ligne-champs"><button id="ge-ajouter" class="principal" disabled>Intégrer la sélection</button><span class="note" id="ge-ajout-retour"></span></div>` : '<p class="note">Tous les comptes de la carte sont déjà membres. Les nouveaux membres créent d’abord leur compte avec le lien ci-dessus.</p>'}
       <h2>Réglages de ${esc(E.nom)}</h2>
       <div class="ligne-champs"><label>Nom affiché <input id="ge-nom" value="${esc(E.nom)}" placeholder="ADRASEC 43"></label><label>Conservation (jours) <input id="ge-cons" type="number" min="7" max="3650" value="${E.conservationJours}"></label><button id="ge-ok">Enregistrer</button></div>
       <p class="note">Main courante et relevés plus anciens que la durée choisie sont effacés (données personnelles : indicatifs, positions).</p>
@@ -518,7 +521,28 @@
     $('#ge-ok').onclick = async () => { try { await api('/api/adrasec/reglages', { method: 'PUT', body: { nom: $('#ge-nom').value, conservationJours: $('#ge-cons').value } }); await charger(); } catch (e) { err(e.message); } };
     if ($('#ge-actif')) { $('#ge-actif').onchange = async () => { try { await api('/api/adrasec/reglages', { method: 'PUT', body: { actif: $('#ge-actif').checked } }); await charger(); } catch (e) { err(e.message); } }; brancherGroupes(err); }
     $('#ge-filtre').oninput = () => { const q = $('#ge-filtre').value.trim().toLowerCase(); for (const f of v.querySelectorAll('#ge-fiches .fiche-membre')) f.hidden = !!q && !f.textContent.toLowerCase().includes(q) && !$('.ge-ind', f).value.toLowerCase().includes(q); };
-    if ($('#ge-ajouter')) $('#ge-ajouter').onclick = () => { const id = Number($('#ge-ajout').value); if (!id) return; ajoutes.add(id); rendreGestion(); const f = v.querySelector(`.fiche-membre[data-compte="${id}"]`); if (f) { f.scrollIntoView({ block: 'center' }); $('.ge-qual', f).focus(); } };
+    // Intégration de plusieurs comptes d'un coup
+    if ($('#ge-ajouter')) {
+      const cases = () => [...v.querySelectorAll('#ge-ajout-liste input:not([disabled])')];
+      const choisis = () => cases().filter((x) => x.checked);
+      const maj = () => { const n = choisis().length; $('#ge-ajouter').disabled = !n; $('#ge-ajouter').textContent = n ? `Intégrer la sélection (${n})` : 'Intégrer la sélection'; };
+      v.querySelector('#ge-ajout-liste').onchange = maj;
+      $('#ge-ajout-filtre').oninput = () => { const q = $('#ge-ajout-filtre').value.trim().toLowerCase(); for (const l of v.querySelectorAll('#ge-ajout-liste label')) l.hidden = !!q && !l.dataset.texte.includes(q); };
+      $('#ge-ajout-tout').onchange = () => { for (const x of cases()) if (!x.closest('label').hidden) x.checked = $('#ge-ajout-tout').checked; maj(); };
+      $('#ge-ajouter').onclick = async () => {
+        const ids = choisis().map((x) => Number(x.value));
+        $('#ge-ajouter').disabled = true;
+        let faits = 0; const erreurs = [];
+        for (const id of ids) {
+          const c = E.comptes.find((x) => x.id === id) || {};
+          try { await api('/api/adrasec/membres/' + id, { method: 'PUT', body: { membre: true, qualite: c.indicatif ? 'radioamateur' : '', indicatif: c.indicatif || '' } }); faits++; $('#ge-ajout-retour').textContent = `${faits} / ${ids.length}…`; }
+          catch (e) { erreurs.push(`${c.identifiant} : ${e.message}`); }
+        }
+        await charger();
+        if (erreurs.length) err(erreurs.join(' · '));
+        const r = $('#ge-ajout-retour'); if (r) r.textContent = `✔ ${faits} membre${faits > 1 ? 's' : ''} intégré${faits > 1 ? 's' : ''}`;
+      };
+    }
     for (const f of v.querySelectorAll('.fiche-membre[data-demande]')) {
       const cid = f.dataset.demande, x = E.demandes.find((y) => String(y.compte) === cid);
       $('.ge-accepter', f).onclick = async () => { try { await api('/api/adrasec/membres/' + cid, { method: 'PUT', body: { membre: true, qualite: x.qualite || '', indicatif: x.indicatif || x.indicatifCompte || '', numeroSwl: x.numeroSwl || '' } }); await charger(); } catch (e) { err(e.message); } };
@@ -552,6 +576,6 @@
   montrer(ongletActif);
   cadrerGonio();
   // Rafraîchissement : toutes les 15 s, sans perdre la saisie en cours
-  setInterval(() => { const a = document.activeElement; if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return; if (document.querySelector('.choix-mission, #g-form-nouvelle:not([hidden])')) return; charger(); }, 15000);
+  setInterval(() => { const a = document.activeElement; if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return; if (document.querySelector('.choix-mission, #g-form-nouvelle:not([hidden]), #ge-ajout-liste input:checked, .fiche-membre.nouvelle')) return; charger(); }, 15000);
   window.adrasecEtat = () => E; // essais
 })();

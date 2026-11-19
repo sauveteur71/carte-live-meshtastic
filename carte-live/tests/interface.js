@@ -644,6 +644,15 @@ async function essaiAdrasec(navig, cookie) {
   await page.waitForTimeout(1200);
   const g = await page.evaluate(() => { const f = document.querySelector('.fiche-membre'); const v = document.querySelector('#vue-gestion'); const n = f && f.querySelector('.ge-noeud'); return { fiche: !!f, deborde: v.scrollWidth > v.clientWidth + 2, aide: n ? (n.closest('label').title || '').length : 0, liste: document.querySelectorAll('#ge-noeuds option').length }; });
   const g2 = await page.evaluate(() => ({ resp: !!document.querySelector('.ge-resp:not([disabled])'), lien: /\/adrasec/.test(document.querySelector('#vue-gestion').textContent), qual: !!document.querySelector('.ge-qual'), groupes: document.querySelectorAll('.ligne-groupe').length, choix: document.querySelectorAll('#choix-groupe option').length }));
+  // Intégration de plusieurs comptes cochés d'un coup
+  await page.evaluate(async () => { for (const n of ['multi-un', 'multi-deux']) await fetch('/api/comptes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifiant: n, motDePasse: 'Multi-compte-2026' }) }); });
+  await page.reload(); await page.waitForTimeout(1500);
+  await page.click('#onglets [data-vue="gestion"]'); await page.waitForTimeout(800);
+  const nb0 = await page.evaluate(() => document.querySelectorAll('#ge-fiches .fiche-membre').length);
+  const multi = await page.evaluate(() => { const l = [...document.querySelectorAll('#ge-ajout-liste input:not([disabled])')]; l.slice(0, 2).forEach((x) => { x.checked = true; }); document.querySelector('#ge-ajout-liste').dispatchEvent(new Event('change', { bubbles: true })); return { n: l.length, bouton: document.querySelector('#ge-ajouter').textContent }; });
+  if (multi.n >= 2) { await page.click('#ge-ajouter'); await page.waitForTimeout(1500); }
+  const nb1 = await page.evaluate(() => document.querySelectorAll('#ge-fiches .fiche-membre').length);
+  if (multi.n >= 2 && /\(2\)/.test(multi.bouton) && nb1 === nb0 + 2) ok('page ADRASEC : plusieurs comptes cochés intégrés d’un coup'); else ko('ADRASEC intégration multiple : ' + JSON.stringify({ multi, nb0, nb1 }));
   if (g.fiche && !g.deborde && g.aide > 50 && g2.resp && g2.lien && g2.qual && g2.groupes === 2 && g2.choix === 2) ok('page ADRASEC : ADRASEC hébergées, fiches (qualité, président), lien d’adhésion, sans débordement'); else ko('page ADRASEC gestion : ' + JSON.stringify({ ...g, ...g2 }));
   await capture(page, 'adrasec-gestion');
   bilanErreurs(erreurs, 'section ADRASEC');
