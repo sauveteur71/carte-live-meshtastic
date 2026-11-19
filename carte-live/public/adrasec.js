@@ -325,15 +325,17 @@
   }
 
   // ---- Équipes ------------------------------------------------------------------------------------------------
+  // Membre dans une équipe : petite étiquette, ✕ pour le sortir de l'équipe (président)
+  const puceMembre = (m, sansEquipe) => `<span class="puce-membre" style="--c:${couleurEquipe(m.equipe)}"><b>${esc(m.indicatif || m.numeroSwl || m.nom)}</b>${m.indicatif || m.numeroSwl ? ` <small>${esc(m.nom)}</small>` : ''}${m.fonction ? ` <small>· ${esc(m.fonction)}</small>` : ''}${m.position ? ' 📍' : ''}${E.moi.responsable && !sansEquipe ? `<button class="retirer-eq" data-sortir="${m.compte}" title="Sortir de l’équipe">✕</button>` : ''}</span>`;
   function rendreEquipes() {
     const v = $('#vue-equipes');
     couchesEquipes.clearLayers();
     const parEq = new Map([[null, []], ...E.equipes.map((e) => [e.id, []])]);
     for (const m of E.membres) (parEq.get(m.equipe) || parEq.get(null)).push(m);
     v.innerHTML = `<h2>Équipes</h2>${E.moi.responsable ? '<div class="ligne-champs"><label>Nouvelle équipe <input id="eq-nom" placeholder="ex. Gonio 1"></label><button id="eq-creer">Créer</button></div>' : ''}
-      ${E.equipes.map((e) => `<div class="entree"><div class="tete"><b><i class="equipe-pastille" style="background:${e.couleur}"></i>${esc(e.nom)}</b>${e.mission ? `<span class="type">🎯 ${esc(e.mission)}</span>` : ''}${E.moi.responsable ? ` <button class="mini" data-mission="${e.id}">Mission</button> <button class="mini danger" data-suppr-eq="${e.id}">Supprimer</button>` : ''}</div>
-        <div class="corps">${parEq.get(e.id).map((m) => `${esc(m.indicatif || m.nom)}${m.fonction ? ' (' + esc(m.fonction) + ')' : ''}${m.position ? ' 📍' : ''}`).join(', ') || '<span class="note">Aucun membre</span>'}</div></div>`).join('') || '<div class="vide">Aucune équipe : un administrateur les crée ici.</div>'}
-      ${parEq.get(null).length ? `<h3>Sans équipe</h3><div class="corps">${parEq.get(null).map((m) => esc(m.indicatif || m.nom)).join(', ')}</div>` : ''}
+      ${E.equipes.map((e) => `<div class="entree"><div class="tete"><b><i class="equipe-pastille" style="background:${e.couleur}"></i>${esc(e.nom)}</b>${e.mission ? `<span class="type">🎯 ${esc(e.mission)}</span>` : ''}${E.moi.responsable ? ` <button class="mini principal" data-ajout-eq="${e.id}">＋ Membres</button> <button class="mini" data-mission="${e.id}">Mission</button> <button class="mini danger" data-suppr-eq="${e.id}">Supprimer</button>` : ''}</div>
+        <div class="corps puces-membres">${parEq.get(e.id).map(puceMembre).join('') || '<span class="note">Aucun membre : « ＋ Membres » pour en ajouter</span>'}</div></div>`).join('') || '<div class="vide">Aucune équipe : le président les crée ici.</div>'}
+      ${parEq.get(null).length ? `<h3>Sans équipe</h3><div class="corps puces-membres">${parEq.get(null).map((m) => puceMembre(m, true)).join('')}</div>` : ''}
       <p class="note">📍 : position en direct du nœud Meshtastic associé au membre (Gestion). Elle s'affiche sur la carte et sert de position par défaut pour ses relevés.</p>`;
     for (const m of E.membres) {
       if (!m.position) continue;
@@ -366,6 +368,32 @@
       annuler.onclick = () => z.remove();
       ok.onclick = async () => { const t = sel.value === '__autre' ? champ.value.trim() : sel.value; await api('/api/adrasec/equipes/' + e.id, { method: 'PATCH', body: { mission: t } }).catch((x) => alert(x.message)); charger(); };
     };
+    // Composer une équipe : cocher les membres (ceux d'une autre équipe y sont déplacés)
+    for (const b of v.querySelectorAll('[data-ajout-eq]')) b.onclick = () => {
+      const e = equipe(b.dataset.ajoutEq), boite = b.closest('.entree');
+      if (boite.querySelector('.choix-membres')) return;
+      const dispo = E.membres.filter((m) => m.equipe !== e.id).sort((a, x) => (a.equipe ? 1 : 0) - (x.equipe ? 1 : 0) || String(a.indicatif || a.nom).localeCompare(String(x.indicatif || x.nom)));
+      const z = document.createElement('div');
+      z.className = 'choix-membres';
+      z.innerHTML = dispo.length ? `<p class="note">Cochez les membres de ${esc(e.nom)}. Un membre déjà dans une autre équipe y sera déplacé.</p>
+        <input type="search" placeholder="🔎 Filtrer (nom, indicatif)">
+        <div class="liste-ajout">${dispo.map((m) => `<label class="case" data-texte="${esc(`${m.nom} ${m.indicatif || ''} ${m.numeroSwl || ''}`.toLowerCase())}"><input type="checkbox" value="${m.compte}"> <b>${esc(m.indicatif || m.numeroSwl || m.nom)}</b>${m.indicatif || m.numeroSwl ? ` <small>${esc(m.nom)}</small>` : ''}${m.equipe ? ` <small class="note">(${esc(nomEquipe(m.equipe))})</small>` : ''}</label>`).join('')}</div>
+        <div class="ligne-champs"><button class="principal mini" disabled>Ajouter à l’équipe</button><button class="mini">Annuler</button></div>`
+        : `<p class="note">Tous les membres sont déjà dans cette équipe. Ajoutez des membres à l’ADRASEC dans l’onglet Gestion.</p><button class="mini">Fermer</button>`;
+      boite.appendChild(z);
+      const boutons = z.querySelectorAll('button'), ok = dispo.length ? boutons[0] : null, annuler = boutons[boutons.length - 1];
+      annuler.onclick = () => z.remove();
+      if (!ok) return;
+      const cases = () => [...z.querySelectorAll('.liste-ajout input:checked')];
+      z.querySelector('.liste-ajout').onchange = () => { const n = cases().length; ok.disabled = !n; ok.textContent = n ? `Ajouter à l’équipe (${n})` : 'Ajouter à l’équipe'; };
+      z.querySelector('input[type=search]').oninput = (ev) => { const q = ev.target.value.trim().toLowerCase(); for (const l of z.querySelectorAll('.liste-ajout label')) l.hidden = !!q && !l.dataset.texte.includes(q); };
+      ok.onclick = async () => {
+        ok.disabled = true;
+        for (const c of cases()) await api('/api/adrasec/membres/' + c.value, { method: 'PUT', body: { membre: true, equipe: e.id } }).catch((x) => alert(x.message));
+        charger();
+      };
+    };
+    for (const b of v.querySelectorAll('[data-sortir]')) b.onclick = async () => { await api('/api/adrasec/membres/' + b.dataset.sortir, { method: 'PUT', body: { membre: true, equipe: null } }).catch((x) => alert(x.message)); charger(); };
     for (const b of v.querySelectorAll('[data-suppr-eq]')) b.onclick = async () => { if (!confirm('Supprimer cette équipe ? Ses membres restent dans la section, sans équipe.')) return; await api('/api/adrasec/equipes/' + b.dataset.supprEq, { method: 'PATCH', body: { supprimer: true } }).catch((x) => alert(x.message)); charger(); };
   }
 
@@ -576,6 +604,6 @@
   montrer(ongletActif);
   cadrerGonio();
   // Rafraîchissement : toutes les 15 s, sans perdre la saisie en cours
-  setInterval(() => { const a = document.activeElement; if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return; if (document.querySelector('.choix-mission, #g-form-nouvelle:not([hidden]), #ge-ajout-liste input:checked, .fiche-membre.nouvelle')) return; charger(); }, 15000);
+  setInterval(() => { const a = document.activeElement; if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return; if (document.querySelector('.choix-mission, .choix-membres, #g-form-nouvelle:not([hidden]), #ge-ajout-liste input:checked, .fiche-membre.nouvelle')) return; charger(); }, 15000);
   window.adrasecEtat = () => E; // essais
 })();

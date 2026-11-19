@@ -653,6 +653,17 @@ async function essaiAdrasec(navig, cookie) {
   if (multi.n >= 2) { await page.click('#ge-ajouter'); await page.waitForTimeout(1500); }
   const nb1 = await page.evaluate(() => document.querySelectorAll('#ge-fiches .fiche-membre').length);
   if (multi.n >= 2 && /\(2\)/.test(multi.bouton) && nb1 === nb0 + 2) ok('page ADRASEC : plusieurs comptes cochés intégrés d’un coup'); else ko('ADRASEC intégration multiple : ' + JSON.stringify({ multi, nb0, nb1 }));
+  // Équipes : « ＋ Membres », cocher, ajouter ; ✕ sort de l'équipe
+  await page.click('#onglets [data-vue="equipes"]'); await page.waitForTimeout(500);
+  const eqAvant = await page.evaluate(() => document.querySelectorAll('#vue-equipes .entree')[0].querySelectorAll('.puce-membre').length);
+  await page.click('#vue-equipes [data-ajout-eq]');
+  await page.evaluate(() => { const l = [...document.querySelectorAll('.choix-membres .liste-ajout input')].slice(0, 2); l.forEach((x) => { x.checked = true; }); document.querySelector('.choix-membres .liste-ajout').dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.click('.choix-membres button.principal'); await page.waitForTimeout(1500);
+  const eqApres = await page.evaluate(() => document.querySelectorAll('#vue-equipes .entree')[0].querySelectorAll('.puce-membre').length);
+  await page.click('#vue-equipes .entree [data-sortir]'); await page.waitForTimeout(1200);
+  const eqSorti = await page.evaluate(() => document.querySelectorAll('#vue-equipes .entree')[0].querySelectorAll('.puce-membre').length);
+  if (eqApres === eqAvant + 2 && eqSorti === eqApres - 1) ok('page ADRASEC : membres cochés ajoutés à une équipe, ✕ pour en sortir'); else ko('ADRASEC composition d’équipe : ' + JSON.stringify({ eqAvant, eqApres, eqSorti }));
+  await page.click('#onglets [data-vue="gestion"]'); await page.waitForTimeout(500);
   if (g.fiche && !g.deborde && g.aide > 50 && g2.resp && g2.lien && g2.qual && g2.groupes === 2 && g2.choix === 2) ok('page ADRASEC : ADRASEC hébergées, fiches (qualité, président), lien d’adhésion, sans débordement'); else ko('page ADRASEC gestion : ' + JSON.stringify({ ...g, ...g2 }));
   await capture(page, 'adrasec-gestion');
   bilanErreurs(erreurs, 'section ADRASEC');
