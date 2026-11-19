@@ -1716,3 +1716,13 @@ label.bouton-fichier { cursor: pointer; display: inline-flex; align-items: cente
 .lien-mdp .ligne-lien input { flex: 1; min-width: 0; }
 #pan-comptes td input.fiche-ident, #pan-comptes td input.fiche-email, #pan-comptes td input.fiche-ind { display: block; width: 100%; min-width: 130px; margin: 2px 0; }
 #pan-comptes .actions-fiche { display: flex; gap: 4px; margin-top: 4px; }
+
+/* Gestion des comptes : boîte plus large, cellules compactes, boutons qui passent à la ligne au lieu de déborder */
+dialog.large:has(#pan-comptes:not([hidden])) { width: min(1240px, 97vw); }
+#pan-comptes table { width: 100%; }
+#pan-comptes td { vertical-align: middle; }
+#pan-comptes .col-adrasec { min-width: 150px; }
+#pan-comptes .adrasec-compte { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; }
+#pan-comptes .adrasec-compte select { min-height: 28px; padding: 2px 6px; font-size: 12.5px; }
+#pan-comptes .actions-ligne { flex-wrap: wrap; justify-content: flex-start; max-width: 260px; }
+#pan-comptes td > b + button[data-fiche] { padding: 2px 6px !important; min-height: 0; vertical-align: middle; }

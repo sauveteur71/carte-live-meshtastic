@@ -182,7 +182,8 @@ function chargerAdministration() {
   if (!chargementAdministration) {
     chargementAdministration = new Promise((ok, ko) => {
       const s = document.createElement('script');
-      s.src = '/administration.js';
+      const v = (/[?&]v=([\w.-]+)/.exec((document.querySelector('script[src*="/app.js"]') || {}).src || '') || [])[1];
+      s.src = '/administration.js' + (v ? '?v=' + v : '?t=' + Date.now()); // versionné : jamais l'ancien après une mise à jour
       s.onload = ok;
       s.onerror = () => { chargementAdministration = null; ko(new Error('Écran indisponible : vérifiez la connexion à la carte')); };
       document.head.appendChild(s);

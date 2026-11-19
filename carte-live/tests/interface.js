@@ -756,6 +756,16 @@ async function essaiMotDePasseOublie(navig, cookie) {
   const connecte = await page.evaluate(async () => (await (await fetch('/api/compte')).json() || {}).identifiant);
   if (/Demande envoyée/.test(note) && visible && connecte === 'oubli-admin') ok('page : « Mot de passe oublié ? », lien reçu, nouveau mot de passe et connexion'); else ko('page mot de passe oublié : ' + JSON.stringify({ note, visible, connecte }));
   await ctx.close();
+  // Tableau des comptes (avec ADRASEC) : ✏️ et 🔑 visibles, pas de défilement horizontal sur un écran de portable
+  const ctxA = await navig.newContext({ viewport: { width: 1366, height: 768 }, locale: 'fr-FR' });
+  await ctxA.addCookies([cookie]);
+  await ctxA.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const pa = (await ouvrir(ctxA, '/')).page;
+  await pa.waitForTimeout(1000);
+  const tab = await pa.evaluate(async () => { await ouvrirDlg('comptes'); await new Promise((r) => setTimeout(r, 1200)); const d = document.querySelector('#dlg-gestion'); return { crayon: document.querySelectorAll('#pan-comptes [data-fiche]').length, lien: document.querySelectorAll('#pan-comptes [data-lien-mdp]').length, adrasec: document.querySelectorAll('#pan-comptes [data-adrasec]').length, deborde: d.scrollWidth - d.clientWidth }; });
+  await capture(pa, 'gestion-comptes');
+  if (tab.crayon && tab.lien && tab.adrasec && tab.deborde <= 2) ok('gestion › comptes : ✏️, 🔑 et case ADRASEC visibles, sans défilement horizontal'); else ko('tableau des comptes : ' + JSON.stringify(tab));
+  await ctxA.close();
   // Identifiant « NOM Prénom » et fiche modifiée par l'administrateur
   const f1 = await appel('POST', '/api/comptes', { identifiant: '  DELAGE   Fabrice ', indicatif: 'f1ukz', motDePasse: 'Provisoire-2026' });
   const ren = await appel('POST', '/api/comptes/' + f1.j.id, { identifiant: 'Fabrice D\u2019Elage', indicatif: 'F1UKZ', email: 'fabrice@exemple.fr' });
