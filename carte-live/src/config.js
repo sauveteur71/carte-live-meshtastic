@@ -1,4 +1,8 @@
 'use strict';
+// Sujet racine MQTT : la carte ajoute elle-même « /# » ; une racine saisie avec « /# » (ou « / ») au bout est corrigée
+// (sinon l'abonnement « …/#/# » est refusé par le broker et plus aucun paquet n'arrive)
+const nettoyerRacine = (r) => String(r || '').trim().replace(/\/+(#)?$/, '').replace(/\/+$/, '');
+
 // Lecture de la configuration (variables d'environnement, voir fichier .env)
 
 function nombre(nom, defaut) {
@@ -48,12 +52,12 @@ const config = {
     tlsNonVerifie: texte('MQTT_TLS_NON_VERIFIE', 'non') === 'oui',
     utilisateur: texte('MQTT_UTILISATEUR'),
     motDePasse: texte('MQTT_MOT_DE_PASSE'),
-    racine: texte('MQTT_RACINE', 'msh/EU_868').replace(/\/+$/, ''),
+    racine: nettoyerRacine(texte('MQTT_RACINE', 'msh/EU_868')),
     // Sujets supplémentaires, séparés par des virgules (ex. flux déjà déchiffré d'un autre serveur)
     sujetsSupplementaires: texte('MQTT_SUJETS_SUPPLEMENTAIRES').split(',').map((s) => s.trim()).filter(Boolean),
     // Brokers supplémentaires écoutés en même temps (bulle régionale + broker voisin…) : « url » ou « url|racine »,
     // séparés par des virgules ; identifiant et mot de passe dans l'adresse (mqtts://nom:motdepasse@hote:8883)
-    brokers: texte('MQTT_BROKERS_SUPPLEMENTAIRES').split(',').map((x) => x.trim()).filter(Boolean).map((x) => { const [url, racine] = x.split('|'); return { url: url.trim(), racine: (racine || '').trim().replace(/\/+$/, '') }; }).filter((b) => /^(mqtts?|wss?):\/\//.test(b.url)).slice(0, 5),
+    brokers: texte('MQTT_BROKERS_SUPPLEMENTAIRES').split(',').map((x) => x.trim()).filter(Boolean).map((x) => { const [url, racine] = x.split('|'); return { url: url.trim(), racine: nettoyerRacine((racine || '').trim()) }; }).filter((b) => /^(mqtts?|wss?):\/\//.test(b.url)).slice(0, 5),
   },
   canaux: lireCanaux(texte('CANAUX', 'LongFast=AQ==')),
   // Canaux dont les messages texte sont conservés (admin uniquement). Vide = tous les canaux déchiffrés.
@@ -199,8 +203,8 @@ function appliquerReglages(r) {
     for (const k of ['url', 'utilisateur', 'motDePasse', 'racine']) if (typeof r.mqtt[k] === 'string' && r.mqtt[k] !== '') config.mqtt[k] = r.mqtt[k];
     if (Array.isArray(r.mqtt.sujetsSupplementaires)) config.mqtt.sujetsSupplementaires = r.mqtt.sujetsSupplementaires;
     // Brokers supplémentaires réglés dans la page d'administration (remplacent MQTT_BROKERS_SUPPLEMENTAIRES)
-    if (Array.isArray(r.mqtt.brokers)) config.mqtt.brokers = r.mqtt.brokers.filter((b) => b && /^(mqtts?|wss?):\/\//.test(String(b.url || ''))).map((b) => ({ url: String(b.url).trim(), racine: String(b.racine || '').trim().replace(/\/+$/, '') })).slice(0, 5);
-    config.mqtt.racine = config.mqtt.racine.replace(/\/+$/, '');
+    if (Array.isArray(r.mqtt.brokers)) config.mqtt.brokers = r.mqtt.brokers.filter((b) => b && /^(mqtts?|wss?):\/\//.test(String(b.url || ''))).map((b) => ({ url: String(b.url).trim(), racine: nettoyerRacine(String(b.racine || '').trim()) })).slice(0, 5);
+    config.mqtt.racine = nettoyerRacine(config.mqtt.racine);
   }
   if (typeof r.canaux === 'string' && r.canaux.trim()) config.canaux = lireCanaux(r.canaux);
   if (['fermees', 'validation', 'ouvertes'].includes(r.inscriptions)) config.inscriptions = r.inscriptions;

@@ -614,3 +614,12 @@ test('Profil de relief hors de France : l’IGN sans altitude → repli mondial,
     assert.ok(appels.some((u) => /geopf/.test(u)) && appels.some((u) => /open-meteo/.test(u)));
   } finally { global.fetch = fetchAvant; if (freqAvant === undefined) delete process.env.RADIO_FREQ_MHZ; else process.env.RADIO_FREQ_MHZ = freqAvant; }
 });
+
+test('Sujet racine MQTT saisi avec « /# » : corrigé (sinon abonnement …/#/# refusé, plus aucun paquet)', () => {
+  const { execFileSync } = require('child_process');
+  const lire = (racine) => execFileSync(process.execPath, ['-e', "const c=require('./src/config.js');console.log((c.config||c).mqtt.racine)"], { cwd: path.join(__dirname, '..'), env: { ...process.env, MQTT_RACINE: racine } }).toString().trim();
+  assert.equal(lire('msh/US/#'), 'msh/US');
+  assert.equal(lire('msh/+/2/e/LongFast/#'), 'msh/+/2/e/LongFast');
+  assert.equal(lire('msh/EU_868/'), 'msh/EU_868');
+  assert.equal(lire('msh/US'), 'msh/US');
+});
