@@ -1963,7 +1963,8 @@ app.post('/api/mot-de-passe/oubli', async (req, res) => {
     try {
       const { jeton } = comptes.creerReinit(c.id, 3600000, 'e-mail');
       const lien = `${courriel.adresseCarte()}/?reinit=${jeton}`;
-      await courriel.envoyer({ a: c.email, sujet: 'Carte live : nouveau mot de passe', texte: [`Bonjour ${c.identifiant},`, '', `Une demande de nouveau mot de passe a été faite pour votre compte sur la carte ${courriel.adresseCarte()}.`, '', 'Pour choisir un nouveau mot de passe, ouvrez ce lien (valable 1 heure, une seule fois) :', lien, '', 'Si vous n’avez rien demandé, ignorez ce message : votre mot de passe actuel reste valable.'].join('\n') });
+      const trMail = (x) => (LANGUE_SERVEUR === 'en' ? require('./traduction').traduire(x) : x); // e-mail dans la langue du serveur
+      await courriel.envoyer({ a: c.email, sujet: trMail('Carte live : nouveau mot de passe'), texte: [`Bonjour ${c.identifiant},`, '', `Une demande de nouveau mot de passe a été faite pour votre compte sur la carte ${courriel.adresseCarte()}.`, '', 'Pour choisir un nouveau mot de passe, ouvrez ce lien (valable 1 heure, une seule fois) :', lien, '', 'Si vous n’avez rien demandé, ignorez ce message : votre mot de passe actuel reste valable.'].map(trMail).join('\n') });
       audit.noter(nomCompte(c), req.ip, 'mot de passe oublié', 'lien envoyé par e-mail', true);
       journal(`Mot de passe oublié : lien envoyé par e-mail à ${c.identifiant}`);
       return res.json(reponse);
