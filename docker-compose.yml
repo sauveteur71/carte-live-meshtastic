@@ -95,11 +95,22 @@ services:
   # ouverte seulement sur cette machine à http://127.0.0.1:8081/ui/config (tunnel SSH depuis un autre poste).
   # La carte ne lit jamais ce mot de passe. VARA HF/FM (logiciel propriétaire, Windows) reste sur le PC radio :
   # dans Pat, « varahf » → adresse du PC, port 8300.
+  # Pat tourne sous le compte 65534 (nobody) : son dossier de données lui est donné avant le démarrage
+  pat-droits:
+    image: alpine:3.20
+    profiles: ["winlink"]
+    command: ["chown", "-R", "65534:65534", "/app/pat"]
+    volumes:
+      - pat:/app/pat
+    restart: "no"
   pat:
     image: la5nta/pat:1.0.1
     container_name: carte-live-pat
     profiles: ["winlink"]
     restart: unless-stopped
+    depends_on:
+      pat-droits:
+        condition: service_completed_successfully
     volumes:
       - pat:/app/pat
     ports:

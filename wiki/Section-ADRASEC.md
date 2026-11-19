@@ -69,7 +69,13 @@ La carte s'appuie sur **[Pat](https://getpat.io)**, client Winlink libre (licenc
 
 1. Dans le fichier `.env` de la carte : `PAT_URL=http://pat:8080` et, pour l'afficher, `PAT_INDICATIF=F4ABC` (indicatif de la station).
 2. `docker compose --profile winlink up -d` (service **pat** du `docker-compose.yml`).
-3. Régler la station dans Pat : sa page de réglages est ouverte **seulement sur la machine de la carte**, à `http://127.0.0.1:8081/ui/config` (depuis un autre poste : tunnel SSH). Y saisir indicatif, mot de passe Winlink et locator.
+3. Régler la station dans Pat : sa page de réglages est ouverte **seulement sur la machine de la carte**, à `http://127.0.0.1:8081/ui/config`. Depuis un autre poste, ouvrir d'abord un tunnel SSH : `ssh -L 8081:127.0.0.1:8081 compte@adresse-du-serveur`, puis `http://localhost:8081/ui/config`. Y saisir indicatif, mot de passe Winlink et locator, puis **Save**.
+4. Dans la carte : **Réglages › 🎚️ Fonctions de la carte › Winlink**, adresse `http://pat:8080` et indicatif, puis **Activer Winlink** (remplace l'étape du fichier `.env`).
+5. Test : **Section ADRASEC › ✉️ Winlink**, cible `telnet` (Internet), **Lancer la session**.
+
+> **Docker-compose personnalisé ou ancien** (sans service `pat`) : ajouter le service `pat` (image `la5nta/pat:1.0.1`, volume `pat:/app/pat`, port `127.0.0.1:8081:8080`). Pat tourne sous le compte 65534 : si son journal affiche `config.json: permission denied`, donner le volume à ce compte : `docker run --rm -v <projet>_pat:/d alpine:3.20 chown -R 65534:65534 /d`, puis `docker restart carte-live-pat`. Le `docker-compose.yml` fourni le fait tout seul (service `pat-droits`).
+>
+> **Un indicatif par carte** : un message Winlink n'est livré qu'une fois, à la première station qui se connecte. Deux cartes avec le même indicatif se « volent » le courrier.
 
 **La carte ne lit jamais le mot de passe Winlink** : il reste dans la configuration de Pat.
 
