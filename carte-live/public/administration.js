@@ -890,6 +890,18 @@ async function rendreComptes() {
     ${ad ? '<p class="note">ADRASEC : la case ouvre la section ADRASEC au compte. Président : il gère son ADRASEC et en intègre les membres.</p>' : ''}`;
   const retour = (t) => ($('#retour-comptes').textContent = t);
   const action = async (fn) => { try { await fn(); rendreComptes(); } catch (e) { retour(e.message); } };
+  // Enregistre toutes les fiches ouvertes d'un coup (plusieurs noms changés avant de cliquer : aucun n'est perdu)
+  async function enregistrerFiches() {
+    const erreurs = [];
+    for (const tr of z.querySelectorAll('tr[data-id]')) {
+      const ident = tr.querySelector('.fiche-ident');
+      if (!ident) continue;
+      try { await postJson(`/api/comptes/${tr.dataset.id}`, { identifiant: ident.value, email: tr.querySelector('.fiche-email').value, indicatif: tr.querySelector('.fiche-ind').value }); }
+      catch (e) { erreurs.push(`${ident.value} : ${e.message}`); }
+    }
+    await rendreComptes();
+    if (erreurs.length) retour(erreurs.join(' · '));
+  }
   z.querySelectorAll('tr[data-id]').forEach((tr) => {
     const id = tr.dataset.id;
     tr.querySelector('[data-role]').onchange = (e) => action(() => postJson(`/api/comptes/${id}`, { role: e.target.value }));
@@ -904,10 +916,12 @@ async function rendreComptes() {
       const c = liste.find((x) => String(x.id) === String(id)) || {};
       const td = tr.querySelector('td'), td2 = td.nextElementSibling;
       td.innerHTML = `<input class="fiche-ident" value="${esc(c.identifiant)}" maxlength="32" title="Identifiant de connexion : pseudo ou NOM Prénom"><input class="fiche-email" type="email" value="${esc(c.email || '')}" placeholder="e-mail" maxlength="120">`;
-      td2.innerHTML = `<input class="fiche-ind" value="${esc(c.indicatif || '')}" placeholder="F4ABC" maxlength="16"><div class="actions-fiche"><button class="mini principal" data-ok>OK</button><button class="mini" data-annuler>Annuler</button></div>`;
+      td2.innerHTML = `<input class="fiche-ind" value="${esc(c.indicatif || '')}" placeholder="F4ABC" maxlength="16"><div class="actions-fiche"><button class="mini bouton-enregistrer" data-ok>✔ Enregistrer</button><button class="mini" data-annuler>Annuler</button></div>`;
       td.querySelector('.fiche-ident').focus();
       td2.querySelector('[data-annuler]').onclick = () => rendreComptes();
-      td2.querySelector('[data-ok]').onclick = () => action(() => postJson(`/api/comptes/${id}`, { identifiant: td.querySelector('.fiche-ident').value, email: td.querySelector('.fiche-email').value, indicatif: td2.querySelector('.fiche-ind').value }));
+      td2.querySelector('[data-ok]').onclick = enregistrerFiches;
+      // Entrée enregistre, Échap annule
+      for (const ch of tr.querySelectorAll('.fiche-ident, .fiche-email, .fiche-ind')) ch.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); enregistrerFiches(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); rendreComptes(); } };
     };
     // Mot de passe oublié : lien à usage unique (24 h), que l'administrateur transmet lui-même
     tr.querySelector('[data-lien-mdp]').onclick = async () => {

@@ -767,11 +767,23 @@ async function essaiMotDePasseOublie(navig, cookie) {
   const tab = await pa.evaluate(async () => { await ouvrirDlg('comptes'); await new Promise((r) => setTimeout(r, 1200)); const d = document.querySelector('#dlg-gestion'); return { crayon: document.querySelectorAll('#pan-comptes [data-fiche]').length, lien: document.querySelectorAll('#pan-comptes [data-lien-mdp]').length, adrasec: document.querySelectorAll('#pan-comptes [data-adrasec]').length, deborde: d.scrollWidth - d.clientWidth }; });
   await capture(pa, 'gestion-comptes');
   if (tab.crayon && tab.lien && tab.adrasec && tab.deborde <= 2) ok('gestion › comptes : ✏️, 🔑 et case ADRASEC visibles, sans défilement horizontal'); else ko('tableau des comptes : ' + JSON.stringify(tab));
+  // Deux fiches modifiées, Entrée dans l'une : les deux sont enregistrées
+  const deux = await pa.evaluate(async (ids) => {
+    for (const id of ids) document.querySelector(`#pan-comptes tr[data-id="${id}"] [data-fiche]`).click();
+    document.querySelector(`#pan-comptes tr[data-id="${ids[0]}"] .fiche-ident`).value = 'OUBLI Admin';
+    document.querySelector(`#pan-comptes tr[data-id="${ids[1]}"] .fiche-ident`).value = 'OUBLI Mail';
+    const bouton = getComputedStyle(document.querySelector('#pan-comptes .bouton-enregistrer')).backgroundColor;
+    document.querySelector(`#pan-comptes tr[data-id="${ids[1]}"] .fiche-ident`).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await new Promise((r) => setTimeout(r, 1500));
+    const l = await (await fetch('/api/comptes')).json();
+    return { bouton, noms: ids.map((i) => (l.find((c) => c.id === i) || {}).identifiant) };
+  }, [a2.id, a1.id]);
+  if (deux.noms[0] === 'OUBLI Admin' && deux.noms[1] === 'OUBLI Mail' && !/rgba\(0, 0, 0, 0\)/.test(deux.bouton)) ok('gestion › comptes : plusieurs noms modifiés enregistrés d’un coup (Entrée), bouton Enregistrer visible'); else ko('renommage multiple : ' + JSON.stringify(deux));
   await ctxA.close();
   // Identifiant « NOM Prénom » et fiche modifiée par l'administrateur
   const f1 = await appel('POST', '/api/comptes', { identifiant: '  DELAGE   Fabrice ', indicatif: 'f1ukz', motDePasse: 'Provisoire-2026' });
   const ren = await appel('POST', '/api/comptes/' + f1.j.id, { identifiant: 'Fabrice D\u2019Elage', indicatif: 'F1UKZ', email: 'fabrice@exemple.fr' });
-  const pris = await appel('POST', '/api/comptes/' + f1.j.id, { identifiant: 'oubli-mail' });
+  const pris = await appel('POST', '/api/comptes/' + f1.j.id, { identifiant: 'oubli mail' }); // « OUBLI Mail » existe (casse indifférente)
   const fiche = ((await appel('GET', '/api/comptes')).j.find((c) => c.id === f1.j.id) || {});
   const cx = await appel('POST', '/api/connexion', { identifiant: 'fabrice d\u2019elage', motDePasse: 'Provisoire-2026' }, SANS);
   if (f1.statut === 200 && f1.j.identifiant === 'DELAGE Fabrice' && ren.statut === 200 && pris.statut === 400 && fiche.identifiant === 'Fabrice D\u2019Elage' && fiche.email === 'fabrice@exemple.fr' && cx.statut === 200) ok('comptes : identifiant « NOM Prénom », renommé par l’administrateur (doublon refusé), connexion avec le nouveau nom'); else ko('identifiant NOM Prénom : ' + JSON.stringify({ f1: f1.j, ren: ren.j, pris: pris.statut, fiche, cx: cx.statut }));

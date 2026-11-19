@@ -1726,3 +1726,4 @@ dialog.large:has(#pan-comptes:not([hidden])) { width: min(1240px, 97vw); }
 #pan-comptes .adrasec-compte select { min-height: 28px; padding: 2px 6px; font-size: 12.5px; }
 #pan-comptes .actions-ligne { flex-wrap: wrap; justify-content: flex-start; max-width: 260px; }
 #pan-comptes td > b + button[data-fiche] { padding: 2px 6px !important; min-height: 0; vertical-align: middle; }
+#pan-comptes .bouton-enregistrer { background: var(--accent) !important; color: #062019 !important; border-color: var(--accent) !important; font-weight: 700; }
