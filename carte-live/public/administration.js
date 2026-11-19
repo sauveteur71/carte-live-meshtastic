@@ -868,7 +868,7 @@ async function rendreComptes() {
   z.innerHTML = `
     <table class="voisins comptes"><thead><tr><th>Identifiant</th><th>Indicatif</th><th>Rôle</th>${ad ? '<th>ADRASEC</th>' : ''}<th>Statut</th><th>Dernière connexion</th><th></th></tr></thead><tbody>
     ${liste.map((c) => `<tr data-id="${c.id}">
-      <td><b>${esc(c.identifiant)}</b>${c.email ? `<br><small>${esc(c.email)}</small>` : ''}</td><td>${esc(c.indicatif || '–')}</td>
+      <td><b>${esc(c.identifiant)}</b> <button class="mini" data-fiche title="Modifier l’identifiant, l’indicatif ou l’e-mail de ce compte">✏️</button>${c.email ? `<br><small>${esc(c.email)}</small>` : ''}</td><td>${esc(c.indicatif || '–')}</td>
       <td><select data-role>${['membre', 'gestionnaire', 'admin'].map((r) => `<option value="${r}" ${c.role === r ? 'selected' : ''}>${ROLES_COMPTE[r]}</option>`).join('')}</select>${c.role === 'gestionnaire' ? `<br><button class="mini" data-secteur>Secteur : ${(c.noeuds || []).length} nœud(s)…</button>` : ''}</td>
       ${ad ? caseAdrasec(c) : ''}
       <td><span class="badge ${c.statut === 'actif' ? 'actif' : c.statut === 'en_attente' ? 'attente' : 'inactif'}">${STATUTS[c.statut] || c.statut}</span>${c.deuxFacteurs ? ' <span class="badge actif" title="Double authentification activée">2FA</span>' : ''}${c.reinitDemande ? `<br><span class="badge attente" title="Demande faite le ${new Date(c.reinitDemande).toLocaleString()}">🔑 mot de passe oublié</span>` : ''}</td>
@@ -878,7 +878,7 @@ async function rendreComptes() {
     </tbody></table>
     <h3>Ajouter un compte</h3>
     <form id="form-ajout-compte" class="parametres compact">
-      <label>Identifiant <input name="identifiant" required minlength="3"></label>
+      <label>Identifiant <input name="identifiant" required minlength="3" maxlength="32" placeholder="pseudo ou NOM Prénom"></label>
       <label>Indicatif <input name="indicatif"></label>
       <label>Mot de passe provisoire <input name="motDePasse" type="password" required minlength="8" autocomplete="new-password"></label>
       <label>Rôle <select name="role"><option value="membre">Membre</option><option value="gestionnaire">Gestionnaire de secteur</option><option value="admin">Administrateur</option></select></label>
@@ -899,6 +899,16 @@ async function rendreComptes() {
     const b2f = tr.querySelector('[data-retirer-2fa]');
     if (b2f) b2f.onclick = async () => { if ((await confirmer('Retirer la double authentification de ce compte ?'))) action(() => postJson(`/api/comptes/${id}`, { retirerDeuxFacteurs: true })); };
     tr.querySelector('[data-deco]').onclick = () => action(() => postJson(`/api/comptes/${id}`, { deconnecter: true }));
+    // Fiche du compte : identifiant (ex. « DELAGE Fabrice »), indicatif, e-mail
+    tr.querySelector('[data-fiche]').onclick = () => {
+      const c = liste.find((x) => String(x.id) === String(id)) || {};
+      const td = tr.querySelector('td'), td2 = td.nextElementSibling;
+      td.innerHTML = `<input class="fiche-ident" value="${esc(c.identifiant)}" maxlength="32" title="Identifiant de connexion : pseudo ou NOM Prénom"><input class="fiche-email" type="email" value="${esc(c.email || '')}" placeholder="e-mail" maxlength="120">`;
+      td2.innerHTML = `<input class="fiche-ind" value="${esc(c.indicatif || '')}" placeholder="F4ABC" maxlength="16"><div class="actions-fiche"><button class="mini principal" data-ok>OK</button><button class="mini" data-annuler>Annuler</button></div>`;
+      td.querySelector('.fiche-ident').focus();
+      td2.querySelector('[data-annuler]').onclick = () => rendreComptes();
+      td2.querySelector('[data-ok]').onclick = () => action(() => postJson(`/api/comptes/${id}`, { identifiant: td.querySelector('.fiche-ident').value, email: td.querySelector('.fiche-email').value, indicatif: td2.querySelector('.fiche-ind').value }));
+    };
     // Mot de passe oublié : lien à usage unique (24 h), que l'administrateur transmet lui-même
     tr.querySelector('[data-lien-mdp]').onclick = async () => {
       try {

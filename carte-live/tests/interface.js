@@ -725,7 +725,14 @@ async function essaiMotDePasseOublie(navig, cookie) {
   const connecte = await page.evaluate(async () => (await (await fetch('/api/compte')).json() || {}).identifiant);
   if (/Demande envoyée/.test(note) && visible && connecte === 'oubli-admin') ok('page : « Mot de passe oublié ? », lien reçu, nouveau mot de passe et connexion'); else ko('page mot de passe oublié : ' + JSON.stringify({ note, visible, connecte }));
   await ctx.close();
-  for (const id of [a1.id, a2.id]) await appel('DELETE', '/api/comptes/' + id);
+  // Identifiant « NOM Prénom » et fiche modifiée par l'administrateur
+  const f1 = await appel('POST', '/api/comptes', { identifiant: '  DELAGE   Fabrice ', indicatif: 'f1ukz', motDePasse: 'Provisoire-2026' });
+  const ren = await appel('POST', '/api/comptes/' + f1.j.id, { identifiant: 'Fabrice D\u2019Elage', indicatif: 'F1UKZ', email: 'fabrice@exemple.fr' });
+  const pris = await appel('POST', '/api/comptes/' + f1.j.id, { identifiant: 'oubli-mail' });
+  const fiche = ((await appel('GET', '/api/comptes')).j.find((c) => c.id === f1.j.id) || {});
+  const cx = await appel('POST', '/api/connexion', { identifiant: 'fabrice d\u2019elage', motDePasse: 'Provisoire-2026' }, SANS);
+  if (f1.statut === 200 && f1.j.identifiant === 'DELAGE Fabrice' && ren.statut === 200 && pris.statut === 400 && fiche.identifiant === 'Fabrice D\u2019Elage' && fiche.email === 'fabrice@exemple.fr' && cx.statut === 200) ok('comptes : identifiant « NOM Prénom », renommé par l’administrateur (doublon refusé), connexion avec le nouveau nom'); else ko('identifiant NOM Prénom : ' + JSON.stringify({ f1: f1.j, ren: ren.j, pris: pris.statut, fiche, cx: cx.statut }));
+  for (const id of [a1.id, a2.id, f1.j.id]) await appel('DELETE', '/api/comptes/' + id);
 }
 
 async function essaiAgentDirect(cookie) {

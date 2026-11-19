@@ -1714,3 +1714,5 @@ label.bouton-fichier { cursor: pointer; display: inline-flex; align-items: cente
 .lien-mdp { margin-bottom: 10px; }
 .lien-mdp .ligne-lien { display: flex; gap: 8px; margin-top: 6px; }
 .lien-mdp .ligne-lien input { flex: 1; min-width: 0; }
+#pan-comptes td input.fiche-ident, #pan-comptes td input.fiche-email, #pan-comptes td input.fiche-ind { display: block; width: 100%; min-width: 130px; margin: 2px 0; }
+#pan-comptes .actions-fiche { display: flex; gap: 4px; margin-top: 4px; }

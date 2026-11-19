@@ -2069,6 +2069,12 @@ app.post('/api/comptes/:id', (req, res) => {
     if (b.noeuds !== undefined) comptes.changerNoeuds(id, b.noeuds);
     if (b.retirerDeuxFacteurs) comptes.retirerDeuxFacteurs(id, null, true);
     if (b.deconnecter) comptes.deconnecterPartout(id);
+    if (b.identifiant !== undefined || b.indicatif !== undefined || b.email !== undefined) {
+      const avant = comptes.lister().find((c) => c.id === id);
+      const c = comptes.modifierFiche(id, { identifiant: b.identifiant, indicatif: b.indicatif, email: b.email });
+      if (avant && avant.identifiant !== c.identifiant) journal(`Compte renommé : ${avant.identifiant} → ${c.identifiant}`);
+      audit.noter(nomCompte(utilisateur(req)), req.ip, 'fiche de compte', `${c.identifiant} modifiée`, true);
+    }
     // Lien de nouveau mot de passe (24 h, usage unique), que l'administrateur transmet lui-même
     if (b.lienReinit) {
       const r = comptes.creerReinit(id, 24 * 3600000, 'administrateur');

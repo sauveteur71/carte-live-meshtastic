@@ -84,6 +84,8 @@ function creerComptes(db, config) {
     tous: db.prepare('SELECT id, identifiant, indicatif, email, role, statut, cree, derniere, noeuds, reinit_demande AS reinitDemande, totp IS NOT NULL AS deuxFacteurs FROM comptes ORDER BY statut DESC, identifiant'),
     parEmail: db.prepare('SELECT * FROM comptes WHERE email = ? COLLATE NOCASE LIMIT 2'),
     email: db.prepare('UPDATE comptes SET email = ? WHERE id = ?'),
+    identifiant: db.prepare('UPDATE comptes SET identifiant = ? WHERE id = ?'),
+    indicatif: db.prepare('UPDATE comptes SET indicatif = ? WHERE id = ?'),
     demandeReinit: db.prepare('UPDATE comptes SET reinit_demande = ? WHERE id = ?'),
     reinitAjouter: db.prepare('INSERT INTO reinitialisations (empreinte, compte, expire, cree, origine) VALUES (?, ?, ?, ?, ?)'),
     reinitParEmpreinte: db.prepare('SELECT * FROM reinitialisations WHERE empreinte = ?'),
@@ -125,13 +127,22 @@ function creerComptes(db, config) {
     if (!c) return null;
     return { id: c.id, identifiant: c.identifiant, indicatif: c.indicatif, email: c.email, role: c.role, statut: c.statut, cree: c.cree, derniere: c.derniere, noeuds: lireNoeuds(c.noeuds), deuxFacteurs: !!c.totp };
   }
+  // Identifiant : un pseudo ou « NOM Prénom » (espaces, accents, apostrophe) ; espaces multiples ramenés à un seul
+  function normaliserIdentifiant(t) {
+    const id = String(t || '').normalize('NFC').replace(/\s+/g, ' ').trim();
+    if (!/^[\p{L}\p{N}][\p{L}\p{N} ._'’-]{1,30}[\p{L}\p{N}.]$/u.test(id)) throw new Error('Identifiant : 3 à 32 caractères (lettres, chiffres, espace, point, tiret, apostrophe)');
+    return id;
+  }
+  function validerIndicatif(t) {
+    const ind = t ? String(t).trim().toUpperCase().slice(0, 16) : null;
+    if (ind && !/^[A-Z0-9/]{3,16}$/.test(ind)) throw new Error('Indicatif invalide');
+    return ind;
+  }
   function valider({ identifiant, motDePasse, indicatif, email }) {
-    identifiant = String(identifiant || '').trim();
-    if (!/^[\p{L}\p{N}._-]{3,32}$/u.test(identifiant)) throw new Error('Identifiant : 3 à 32 caractères (lettres, chiffres, point, tiret)');
+    identifiant = normaliserIdentifiant(identifiant);
     if (String(motDePasse || '').length < 8) throw new Error('Mot de passe : 8 caractères minimum');
     if (String(motDePasse).length > 200) throw new Error('Mot de passe trop long');
-    indicatif = indicatif ? String(indicatif).trim().toUpperCase().slice(0, 16) : null;
-    if (indicatif && !/^[A-Z0-9/]{3,16}$/.test(indicatif)) throw new Error('Indicatif invalide');
+    indicatif = validerIndicatif(indicatif);
     email = email ? String(email).trim().slice(0, 120) : null;
     if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Adresse e-mail invalide');
     return { identifiant, motDePasse: String(motDePasse), indicatif, email };
@@ -271,6 +282,20 @@ function creerComptes(db, config) {
       q.mdp.run(hacher(String(nouveau)), c.id); // déconnecte aussi les autres sessions (version + 1)
       q.reinitRetirerCompte.run(c.id);
       q.demandeReinit.run(null, c.id);
+      return nettoyer(q.parId.get(c.id));
+    },
+    // Fiche modifiée par un administrateur : identifiant, indicatif, e-mail (la session reste ouverte : elle suit l'id)
+    modifierFiche(id, b) {
+      const c = q.parId.get(id);
+      if (!c) throw new Error('Compte inconnu');
+      if (b.identifiant !== undefined) {
+        const nouvel = normaliserIdentifiant(b.identifiant);
+        const autre = q.parIdentifiant.get(nouvel);
+        if (autre && autre.id !== c.id) throw new Error('Cet identifiant est déjà pris');
+        q.identifiant.run(nouvel, c.id);
+      }
+      if (b.indicatif !== undefined) q.indicatif.run(validerIndicatif(b.indicatif), c.id);
+      if (b.email !== undefined) this.changerEmail(c.id, b.email);
       return nettoyer(q.parId.get(c.id));
     },
     changerEmail(id, email) {
