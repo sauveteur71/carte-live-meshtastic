@@ -3490,7 +3490,7 @@ app.put('/api/adrasec/groupes/:code', (req, res) => { const u = utilisateur(req)
 // Case ADRASEC de la gestion des comptes de la carte (administrateur)
 app.get('/api/adrasec/roles', (req, res) => { const u = utilisateur(req); if (!u || u.role !== 'admin') return res.status(403).json({ erreur: 'Réservé aux administrateurs de la carte' }); res.set('Cache-Control', 'no-store').json(adrasec.rolesComptes()); });
 app.put('/api/adrasec/roles/:compte', (req, res) => { const u = utilisateur(req); if (!u || u.role !== 'admin') return res.status(403).json({ erreur: 'Réservé aux administrateurs de la carte' }); try { res.json(adrasec.roleCompte(req.params.compte, req.body || {}, nomCompte(u))); } catch (e) { res.status(400).json({ erreur: e.message }); } });
-app.get('/api/adrasec', routeAdrasec((req, b, u, G) => ({ ...adrasec.vue(u, comptes.lister(), G), winlink: { configure: winlink.actif() } })));
+app.get('/api/adrasec', routeAdrasec((req, b, u, G) => ({ ...adrasec.vue(u, comptes.lister(), G), winlink: { configure: winlink.actif(), autorise: winlinkAutorise(u, G), adrasec: adrasec.nomGroupe(adrasecWinlink()) } })));
 // Réglages : activation de la section sur la carte (administrateur) ; nom et conservation de l'ADRASEC (président)
 app.put('/api/adrasec/reglages', (req, res, next) => {
   const u = utilisateur(req), b = req.body || {};
@@ -3527,20 +3527,25 @@ app.get('/api/terrain/:jeton', (req, res) => {
   if (!v) return res.status(404).json({ erreur: 'Lien terrain expiré ou recherche terminée' });
   res.set('Cache-Control', 'no-store').set('Referrer-Policy', 'no-referrer').json(v);
 });
-app.get('/api/adrasec/winlink/etat', routeAdrasec(() => winlink.etat()));
-app.get('/api/adrasec/winlink/boite/:nom', routeAdrasec((req) => winlink.boite(req.params.nom)));
-app.get('/api/adrasec/winlink/boite/:nom/:mid', routeAdrasec((req) => winlink.message(req.params.nom, req.params.mid)));
-app.get('/api/adrasec/winlink/passerelles', routeAdrasec((req) => winlink.passerelles({ mode: String(req.query.mode || '').slice(0, 20), bande: String(req.query.bande || '').slice(0, 10) })));
-app.post('/api/adrasec/winlink/envoyer', routeAdrasec(async (req, b, u, G) => {
+// Boîte Winlink : réservée à l'ADRASEC qui utilise la station (PAT_ADRASEC, sinon département de la carte) et aux
+// administrateurs de la carte ; rédaction et sessions : radioamateurs licenciés de cette ADRASEC
+const adrasecWinlink = () => String(process.env.PAT_ADRASEC || (config.departement || {}).code || '').trim().toUpperCase();
+const winlinkAutorise = (u, G) => u.role === 'admin' || G.g.code === adrasecWinlink();
+const gardeWinlink = (f) => (req, b, u, G) => { if (!winlinkAutorise(u, G)) throw new Error(`La station Winlink de cette carte est réservée à ${adrasec.nomGroupe(adrasecWinlink())}`); return f(req, b, u, G); };
+app.get('/api/adrasec/winlink/etat', routeAdrasec(gardeWinlink(() => winlink.etat())));
+app.get('/api/adrasec/winlink/boite/:nom', routeAdrasec(gardeWinlink((req) => winlink.boite(req.params.nom))));
+app.get('/api/adrasec/winlink/boite/:nom/:mid', routeAdrasec(gardeWinlink((req) => winlink.message(req.params.nom, req.params.mid))));
+app.get('/api/adrasec/winlink/passerelles', routeAdrasec(gardeWinlink((req) => winlink.passerelles({ mode: String(req.query.mode || '').slice(0, 20), bande: String(req.query.bande || '').slice(0, 10) }))));
+app.post('/api/adrasec/winlink/envoyer', routeAdrasec(gardeWinlink(async (req, b, u, G) => {
   const r = await winlink.envoyer({ ...b, signature: `${G.signature(u)} · ${G.g.nom}` });
   G.ajouterMc(u, { texte: `Winlink : message « ${String(b.sujet || '').slice(0, 80)} » déposé pour ${String(b.a || '').slice(0, 80)}`, type: 'message-emis' });
   return r;
-}, { licencie: true }));
-app.post('/api/adrasec/winlink/session', routeAdrasec(async (req, b, u, G) => {
+}), { licencie: true }));
+app.post('/api/adrasec/winlink/session', routeAdrasec(gardeWinlink(async (req, b, u, G) => {
   const r = await winlink.session(b.cible, G.signature(u));
   G.ajouterMc(u, { texte: `Winlink : session ${String(b.cible).split('?')[0]} terminée${r.recus != null ? `, ${r.recus} message(s) reçu(s)` : ''}`, type: 'information' });
   return r;
-}, { licencie: true }));
+}), { licencie: true }));
 // Demande de position à un ou plusieurs nœuds (gestionnaire) : le nœud répond avec sa position
 app.post('/api/demander-position', async (req, res) => {
   const u = utilisateur(req);

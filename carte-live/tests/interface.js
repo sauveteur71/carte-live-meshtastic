@@ -575,6 +575,8 @@ async function essaiAdrasec(navig, cookie) {
   const nomme = await appelB('PUT', '/api/adrasec/membres/' + b1.id, { membre: true, qualite: 'swl', responsable: false });
   const winB = await appelB('POST', '/api/adrasec/winlink/envoyer', { a: 'X', sujet: 'x', corps: 'x' });
   const double = await appel('PUT', '/api/adrasec/membres/' + b1.id + '?g=43', { membre: true }).then(() => 'accepté', (e) => e.message);
+  const wlAutre = await appelB('GET', '/api/adrasec/winlink/boite/in');
+  if (wlAutre.statut === 400 && /réservée à ADRASEC 43/.test(wlAutre.j.erreur) && apres.j.winlink && apres.j.winlink.autorise === false) ok('Winlink : boîte réservée à l’ADRASEC de la station (refusée à une autre ADRASEC)'); else ko('Winlink réservé : ' + JSON.stringify({ wl: wlAutre, w: apres.j.winlink }));
   if (apres.statut === 200 && apres.j.code === '42' && apres.j.moi.responsable && apres.j.moi.qualite === 'swl' && !apres.j.mainCourante.length && eqB.statut === 200 && nomme.statut === 400 && /administrateur de la carte/.test(nomme.j.erreur) && winB.statut === 403 && /déjà membre de ADRASEC 42/.test(double)) ok('ADRASEC : président de son département (équipes, membres), ADRASEC séparées, SWL sans Winlink, un seul département par membre'); else ko('ADRASEC président : ' + JSON.stringify({ apres: apres.statut, code: apres.j.code, resp: apres.j.moi && apres.j.moi.responsable, mc: apres.j.mainCourante && apres.j.mainCourante.length, eqB: eqB.statut, nomme, win: winB.statut, double }));
   // Case ADRASEC de la gestion des comptes : cocher intègre le compte à l'ADRASEC du département de la carte
   const b2 = await appel('POST', '/api/comptes', { identifiant: 'bruno43', motDePasse: 'Essai-bruno-2026!!' });

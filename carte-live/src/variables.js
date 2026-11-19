@@ -87,6 +87,7 @@ const CATALOGUE = [
   { nom: 'POSTGRES_URL', groupe: 'Services', libelle: 'Archive PostgreSQL', type: 'secret', aide: 'postgres://utilisateur:motdepasse@serveur:5432/base' },
   { nom: 'METEOALARM_URL', groupe: 'Services', libelle: 'Flux de vigilance MeteoAlarm', type: 'texte', aide: 'Flux des vigilances météo affichées dans les alertes. Vide = flux MeteoAlarm de la France.' },
   { nom: 'PAT_URL', groupe: 'Services', libelle: 'Winlink : adresse de Pat', type: 'texte', aide: 'Section ADRASEC : http://pat:8080 avec le service « pat » du docker-compose (docker compose --profile winlink up -d). Vide = Winlink désactivé.' },
+  { nom: 'PAT_ADRASEC', groupe: 'Services', libelle: 'Winlink : ADRASEC qui utilise la station', type: 'texte', aide: 'Numéro du département (ex. 43). Seuls les membres de cette ADRASEC (et les administrateurs de la carte) voient la boîte Winlink ; les licenciés seuls rédigent et lancent les sessions. Vide = département de la carte.' },
   { nom: 'PAT_INDICATIF', groupe: 'Services', libelle: 'Winlink : indicatif de la station', type: 'texte', aide: 'Affiché dans la section ADRASEC. Le mot de passe Winlink reste dans la configuration de Pat, jamais dans la carte.' },
   { nom: 'RELIEF_FRANCE_URL', groupe: 'Services', libelle: 'Adresse du paquet « relief France »', type: 'texte', aide: 'Adresse de téléchargement du relief de toute la France (calcul de couverture hors ligne). Vide = adresse fournie par le projet.' },
   // E-mail : récupération du mot de passe oublié

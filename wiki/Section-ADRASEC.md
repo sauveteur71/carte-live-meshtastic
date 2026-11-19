@@ -34,7 +34,7 @@ Une même carte peut héberger les ADRASEC de **plusieurs départements**. Chacu
 
 Si la carte valide les nouveaux comptes (**inscriptions sur validation**), l'administrateur de la carte doit d'abord valider le compte dans **Gérer › Comptes** ; la page Gestion de l'ADRASEC le signale.
 
-> **Winlink** : le client Pat est unique sur la carte (un seul indicatif Winlink). Si plusieurs ADRASEC sont hébergées, leurs membres licenciés partagent la même boîte ; chaque message est signé de l'indicatif du membre et du nom de son ADRASEC.
+> **Winlink** : le client Pat est unique sur la carte (une station, un indicatif). Sa boîte est réservée à **une** ADRASEC (`PAT_ADRASEC`, par défaut celle du département de la carte) : les membres des autres ADRASEC hébergées ne la voient pas. Chaque message est signé de l'indicatif du membre et du nom de son ADRASEC.
 
 ## Main courante
 
@@ -65,24 +65,54 @@ Dans l'onglet **📡 Radiogoniométrie**, bloc **Diffusion aux équipes** (reche
 
 La carte s'appuie sur **[Pat](https://getpat.io)**, client Winlink libre (licence MIT), lancé à côté d'elle.
 
-### Installation
+### Installation pas à pas (Winlink par Internet)
 
-1. Dans le fichier `.env` de la carte : `PAT_URL=http://pat:8080` et, pour l'afficher, `PAT_INDICATIF=F4ABC` (indicatif de la station).
-2. `docker compose --profile winlink up -d` (service **pat** du `docker-compose.yml`).
-3. Régler la station dans Pat : sa page de réglages est ouverte **seulement sur la machine de la carte**, à `http://127.0.0.1:8081/ui/config`. Depuis un autre poste, ouvrir d'abord un tunnel SSH : `ssh -L 8081:127.0.0.1:8081 compte@adresse-du-serveur`, puis `http://localhost:8081/ui/config`. Y saisir indicatif, mot de passe Winlink et locator, puis **Save**.
-4. Dans la carte : **Réglages › 🎚️ Fonctions de la carte › Winlink**, adresse `http://pat:8080` et indicatif, puis **Activer Winlink** (remplace l'étape du fichier `.env`).
-5. Test : **Section ADRASEC › ✉️ Winlink**, cible `telnet` (Internet), **Lancer la session**.
+Pas besoin de radio ni de VARA pour commencer : Pat se relie aux serveurs Winlink par Internet (session `telnet`). Il faut un compte Winlink (créé sur winlink.org ou au premier lancement d'un client Winlink) : indicatif et mot de passe.
 
-> **Docker-compose personnalisé ou ancien** (sans service `pat`) : ajouter le service `pat` (image `la5nta/pat:1.0.1`, volume `pat:/app/pat`, port `127.0.0.1:8081:8080`). Pat tourne sous le compte 65534 : si son journal affiche `config.json: permission denied`, donner le volume à ce compte : `docker run --rm -v <projet>_pat:/d alpine:3.20 chown -R 65534:65534 /d`, puis `docker restart carte-live-pat`. Le `docker-compose.yml` fourni le fait tout seul (service `pat-droits`).
+**1. Lancer Pat** (en SSH sur le serveur, dans le dossier de la carte, celui qui contient `docker-compose.yml`) :
+```
+docker compose --profile winlink up -d
+```
+Pour retrouver ce dossier : `docker ps --format "{{.Names}}  {{.Label \"com.docker.compose.project.working_dir\"}}"`. Sur un NAS Synology, préfixer les commandes par `sudo`.
+
+**2. Régler la station dans Pat.** Sa page de réglages n'est ouverte **que sur le serveur lui-même** (`127.0.0.1:8081`), jamais sur le réseau. Deux façons de l'atteindre depuis un autre poste :
+- **Tunnel SSH** : `ssh -L 8081:127.0.0.1:8081 compte@adresse-du-serveur`, puis ouvrir `http://localhost:8081/ui/config`.
+- **NAS Synology** (son SSH refuse les tunnels : « administratively prohibited ») : passerelle **temporaire** sur le réseau local, à refermer aussitôt après :
+  ```
+  sudo docker run --rm -it --network <projet>_default -p 8082:8080 alpine/socat tcp-listen:8080,fork,reuseaddr tcp-connect:carte-live-pat:8080
+  ```
+  (`<projet>_default` : voir `sudo docker network ls`). Ouvrir `http://adresse-du-NAS:8082/ui/config`, régler, puis **Ctrl+C** pour fermer la passerelle.
+
+Dans la page de Pat : **Callsign** (indicatif), **Password** (mot de passe Winlink), **Locator**, puis **Save**. Pat se recharge tout seul ; son journal (`docker logs --tail 5 carte-live-pat`) ne doit plus afficher « Missing mycall ».
+
+**3. Activer Winlink dans la carte** : **Réglages › 🎚️ Fonctions de la carte › Winlink**, adresse `http://pat:8080` (ou `http://127.0.0.1:8081` si la carte tourne en `network_mode: host`) et indicatif de la station, puis **Activer Winlink**. La carte redémarre en quelques secondes.
+
+**4. Tester** : **Section ADRASEC › ✉️ Winlink** affiche « Pat joignable · station F4ABC ». Cible `telnet`, **Lancer la session** : les messages « À envoyer » partent, les messages en attente arrivent dans « Reçus ». Pour un premier essai, écrire à sa propre adresse e-mail, relancer une session et vérifier sa boîte mail.
+
+> **Docker-compose personnalisé ou ancien** (sans service `pat`) : ajouter le service `pat` (image `la5nta/pat:1.0.1`, volume `pat:/app/pat`, port `127.0.0.1:8081:8080`) et le volume `pat:` à la section `volumes:`, en gardant une copie du fichier. Pat tourne sous le compte 65534 : si son journal affiche `config.json: permission denied` (Pat redémarre en boucle), donner le volume à ce compte : `docker run --rm -v <projet>_pat:/d alpine:3.20 chown -R 65534:65534 /d`, puis `docker restart carte-live-pat`. Le `docker-compose.yml` fourni le fait tout seul (service `pat-droits`).
 >
-> **Un indicatif par carte** : un message Winlink n'est livré qu'une fois, à la première station qui se connecte. Deux cartes avec le même indicatif se « volent » le courrier.
+> **Un indicatif par carte** : un message Winlink n'est livré qu'une fois, à la première station qui se connecte. Deux cartes avec le même indicatif se « volent » le courrier : sur une seconde carte, utiliser l'indicatif de son opérateur ou une **adresse tactique** (créée sur winlink.org).
+
+### Qui a accès à quoi (sécurité)
+
+| | Visiteur, membre de la carte | Membre d'une autre ADRASEC | Membre de l'ADRASEC de la station (SWL compris) | Radioamateur licencié de cette ADRASEC | Administrateur de la carte |
+|---|---|---|---|---|---|
+| Voir les boîtes (reçus, envoyés…) | ✗ | ✗ | ✔ | ✔ | ✔ |
+| Rédiger, lancer une session | ✗ | ✗ | ✗ | ✔ | ✔ si licencié |
+
+- L'**ADRASEC de la station** est réglée par `PAT_ADRASEC` (Réglages avancés › Services) ; par défaut, celle du département de la carte.
+- Le **mot de passe Winlink** reste dans Pat : la carte ne le lit jamais, il ne transite pas par le navigateur des membres.
+- **Pat n'est jamais ouvert sur le réseau** : son port n'écoute que sur le serveur (`127.0.0.1`), seule la carte lui parle. Ne pas publier ce port, ni le port 8082 de la passerelle temporaire.
+- Chaque message déposé et chaque session sont **inscrits en main courante** (indicatif de l'auteur, heure).
+- Les messages Winlink circulent **en clair** sur les ondes : c'est la règle radioamateur (pas de chiffrement). Ne rien y écrire de confidentiel (données personnelles de victimes, codes d'accès).
+- Pour protéger la boîte : comptes de la carte avec mots de passe solides, **double authentification** pour les administrateurs et présidents (Mon compte), adresse en **https** si la carte est publiée sur Internet.
 
 **La carte ne lit jamais le mot de passe Winlink** : il reste dans la configuration de Pat.
 
 ### Utilisation
 
-- **Tous les membres** lisent les boîtes (reçus, à envoyer, envoyés, archives).
-- **Les licenciés seulement** rédigent (le message est signé de leur indicatif et du nom de la section) et lancent une **session** :
+- **Les membres de l'ADRASEC de la station** lisent les boîtes (reçus, à envoyer, envoyés, archives).
+- **Les licenciés seulement** rédigent (le message est signé de leur indicatif et du nom de l'ADRASEC) et lancent une **session** :
   - `telnet` : par Internet ;
   - par radio : `varahf:///F1ABC-10?freq=7101`, `varafm:///…`, `ardop:///…` ou `ax25:///…`, selon ce que Pat sait joindre.
 - **Passerelles RMS** : affichées sur la carte autour de la vue, filtrables par mode (VARA HF, VARA FM, ARDOP, packet, PACTOR).

@@ -423,9 +423,13 @@
   async function rendreWinlink() {
     const v = $('#vue-winlink');
     if (!E) return;
+    if (E.winlink.configure && E.winlink.autorise === false) {
+      v.innerHTML = `<h2>Winlink</h2><div class="bandeau">La station Winlink de cette carte est réservée à <b>${esc(E.winlink.adrasec)}</b>. Sa boîte de messages n’est visible que de ses membres.</div>`;
+      return;
+    }
     if (!E.winlink.configure) {
       v.innerHTML = `<h2>Winlink</h2><div class="bandeau">Winlink n’est pas encore installé sur ce serveur.</div>
-        <p class="note">La carte s’appuie sur <b>Pat</b>, client Winlink libre. Pour l’ajouter : dans le dossier de la carte, renseignez <span class="mono">PAT_URL=http://pat:8080</span> dans le fichier .env, lancez <span class="mono">docker compose --profile winlink up -d</span>, puis réglez l’indicatif et le mot de passe Winlink de la station dans Pat (voir le wiki, page « Section ADRASEC »). La carte ne voit jamais ce mot de passe.</p>
+        <p class="note">La carte s’appuie sur <b>Pat</b>, client Winlink libre. Pour l’ajouter : lancez <span class="mono">docker compose --profile winlink up -d</span> dans le dossier de la carte, réglez l’indicatif, le mot de passe Winlink et le locator de la station dans Pat, puis activez Winlink dans <b>Réglages › Fonctions de la carte</b>. Marche à suivre détaillée (dont NAS Synology) : wiki, page « Section ADRASEC ». La carte ne voit jamais ce mot de passe.</p>
         <p class="note">VARA HF / FM tourne sur le PC Windows relié au poste radio : Pat s’y relie par le réseau (ports 8300 et 8301 par défaut).</p>`;
       return;
     }
