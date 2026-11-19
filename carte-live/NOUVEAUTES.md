@@ -2,6 +2,12 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.28.14
+
+### 🔧 Corrections
+- **Liaison entre deux points** : les fiches du départ et de l'arrivée affichaient « antenne undefined m » ; elles montrent maintenant la hauteur d'antenne saisie.
+- **Profil de relief et bilan de liaison** : la fréquence du calcul suit le réglage `RADIO_FREQ_MHZ` (869,525 MHz par défaut) au lieu d'être figée ; hors de France, si l'IGN ne donne pas d'altitude, la carte bascule sur le service mondial au lieu d'afficher une erreur.
+
 ## 2.28.13
 
 ### 📡 Passerelle des membres
