@@ -2,6 +2,17 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.28.12
+
+### ✉️ Winlink (section ADRASEC)
+- **Boîte réservée à l'ADRASEC de la station** (réglage `PAT_ADRASEC`, par défaut le département de la carte) : les membres des autres ADRASEC hébergées ne la voient plus. Rédaction et sessions : radioamateurs licenciés seulement.
+- **Pat démarre du premier coup** : son dossier de données est donné à son compte avant le lancement (il redémarrait en boucle avec « permission denied »).
+- **Wiki** : installation pas à pas par Internet, cas du NAS Synology (sans tunnel SSH), docker-compose personnalisé, tableau « qui a accès à quoi ».
+
+### 🛠️ Corrections
+- **Gérer › Comptes** : boîte plus large, case ADRASEC compacte, boutons qui passent à la ligne au lieu d'être coupés.
+- **Écrans d'administration toujours à jour** après une mise à jour (l'ancienne version restait en cache : boutons ✏️ et 🔑 absents).
+
 ## 2.28.11
 
 ### 🔑 Comptes
