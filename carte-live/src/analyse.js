@@ -222,6 +222,8 @@ function creerAnalyse(stockage, config, reseau, presetCourant) {
       if (!r.ok) throw new Error('IGN ' + r.status);
       const j = await r.json();
       points = (j.elevations || []).map((e) => ({ lat: e.lat, lon: e.lon, z: e.z > -1000 ? e.z : null }));
+      // Hors de France, l'IGN répond sans altitude (−99999) : on passe au repli mondial
+      if (points.filter((x) => x.z != null).length < points.length / 2) throw new Error('IGN : pas d’altitude ici');
       source = 'IGN RGE ALTI';
     } catch (e) {
       // Repli : Open-Meteo (Copernicus DEM 90 m)
@@ -234,7 +236,9 @@ function creerAnalyse(stockage, config, reseau, presetCourant) {
       source = 'Copernicus DEM 90 m (Open-Meteo)';
     }
     // Comble les trous éventuels
-    for (let i = 0; i < points.length; i++) if (points[i].z == null) points[i].z = (points[i - 1] || points[i + 1] || { z: 0 }).z;
+    for (let i = 1; i < points.length; i++) if (points[i].z == null) points[i].z = points[i - 1].z;
+    for (let i = points.length - 2; i >= 0; i--) if (points[i].z == null) points[i].z = points[i + 1].z;
+    if (!points.length || points.some((x) => x.z == null)) throw new Error('Altitudes indisponibles pour ce trajet');
     const res = { points, source };
     cacheAlti.set(cle, res);
     if (cacheAlti.size > 300) cacheAlti.delete(cacheAlti.keys().next().value);
@@ -254,7 +258,7 @@ function creerAnalyse(stockage, config, reseau, presetCourant) {
     if (!A || !B || A.lat == null || B.lat == null) throw new Error('Les deux extrémités doivent avoir une position');
     const pr = PRESETS[opts.preset] ? opts.preset : preset();
     const p = PRESETS[pr];
-    const f = 869.525e6; // fréquence par défaut EU_868 (slot 1)
+    const f = (Number(process.env.RADIO_FREQ_MHZ) || 869.525) * 1e6; // RADIO_FREQ_MHZ (906,875 aux États-Unis), sinon EU_868 (slot 1)
     const lambda = 299792458 / f;
     const k = 4 / 3;
     const D = distanceM(A, B);

@@ -593,3 +593,24 @@ test('Jeux de canaux : placement sur la radio (ajout, déjà présent, place à 
   assert.ok(r.ops.every((o) => o.index >= 1 && o.index <= 7));
   assert.deepEqual(r.final.map((c) => c.nom), ['C1', 'C3', 'C4', 'C6', 'C7', 'ADRASEC43', 'Alerte']);
 });
+
+test('Profil de relief hors de France : l’IGN sans altitude → repli mondial, fréquence de la zone', async () => {
+  const { creerAnalyse } = require('../src/analyse');
+  const fetchAvant = global.fetch, freqAvant = process.env.RADIO_FREQ_MHZ;
+  const appels = [];
+  global.fetch = async (url) => {
+    appels.push(String(url));
+    if (/geopf/.test(url)) return { ok: true, json: async () => ({ elevations: Array.from({ length: 60 }, () => ({ lat: 40.6, lon: -74.5, z: -99999 })) }) };
+    const n = String(url).match(/latitude=([^&]+)/)[1].split(',').length;
+    return { ok: true, json: async () => ({ elevation: Array.from({ length: n }, (_, i) => 20 + i) }) };
+  };
+  process.env.RADIO_FREQ_MHZ = '906.875';
+  try {
+    const a = creerAnalyse({ db: { prepare: () => ({ all: () => [], get: () => null, run: () => ({}) }) }, noeud: new Map(), liens: { all: () => [] } }, { retentionJours: 7 }, { vueNoeud: (n) => n }, () => 'LONG_FAST');
+    const r = await a.profil({ a: NaN, b: NaN, aLat: 40.6275, aLon: -74.464, bLat: 40.6181, bLon: -74.5271, ha: 3, hb: 3, preset: 'LONG_FAST', membre: true });
+    assert.match(r.sourceAltitude, /Open-Meteo/);
+    assert.equal(r.serie[0].sol, 20);
+    assert.equal(r.parametres.frequenceMHz, 906.875);
+    assert.ok(appels.some((u) => /geopf/.test(u)) && appels.some((u) => /open-meteo/.test(u)));
+  } finally { global.fetch = fetchAvant; if (freqAvant === undefined) delete process.env.RADIO_FREQ_MHZ; else process.env.RADIO_FREQ_MHZ = freqAvant; }
+});
