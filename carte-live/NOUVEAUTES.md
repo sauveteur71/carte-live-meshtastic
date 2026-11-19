@@ -2,6 +2,25 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.28.13
+
+### 📡 Passerelle des membres
+- **Outils › 📡 Devenir passerelle** : un membre connecté (pas seulement l'administrateur) relie **sa radio** Meshtastic ou MeshCore depuis son navigateur, en USB ou Bluetooth, sans rien installer. Elle ajoute ce qu'elle entend à la carte, **en écoute seulement** : elle n'émet rien et ne remplace jamais le module principal.
+- Nom à l'identifiant du membre, **deux radios par compte**, débit limité ; l'administrateur voit chaque passerelle dans *Modules radio* et peut la **couper** (refusée ensuite 12 h). Réglage *Module radio › Passerelles des membres*.
+- USB et Bluetooth demandent la carte en **HTTPS**.
+
+### 🎚️ Jeux de canaux (carte et ADRASEC)
+- L'administrateur règle les canaux de la carte, le président ceux de son ADRASEC (*page ADRASEC › Gestion › Canaux*).
+- Le membre qui a relié sa radio voit ses 8 emplacements, coche les canaux et clique **Écrire sur la radio** : écriture puis relecture de contrôle. Place insuffisante : il choisit les canaux à libérer ; le canal 0 n'est jamais touché ; avertissement pour les canaux en clair.
+- **Les clés ne quittent jamais le serveur** (chiffrées, empreinte courte pour qui règle le jeu).
+
+### 📊 Fréquentation (Gérer › Fréquentation)
+- Visiteurs en ligne, visiteurs et pages par jour, **pays** (base libre DB-IP consultée sur le serveur), pages vues, **provenance** (Facebook, rtl-sdr.com…), membres ou simples visiteurs.
+- **Aucune adresse IP gardée, aucun cookie**, robots ignorés ; réglages `STATS_FREQUENTATION` et `STATS_PAYS`.
+
+### 🛠️ Corrections
+- *Gérer › Comptes* : bouton **✔ Enregistrer** bien visible, Entrée enregistre, toutes les fiches ouvertes enregistrées d'un coup (les noms modifiés n'étaient pas gardés) ; crayon ✏️ affiché sans vider le cache.
+
 ## 2.28.12
 
 ### ✉️ Winlink (section ADRASEC)
