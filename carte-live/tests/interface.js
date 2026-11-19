@@ -633,6 +633,11 @@ async function essaiAdrasec(navig, cookie) {
   await page.click('#g-envoyer'); await page.waitForTimeout(1500);
   const der = await page.evaluate(async () => { const v = await (await fetch('/api/adrasec')).json(); const r = v.recherches.find((x) => x.statut === 'en-cours'); const x = v.releves ? null : null; return { eqChoisie: document.querySelector('#g-equipe') && document.querySelector('#g-equipe').value, dernier: r && r.releves && r.releves[r.releves.length - 1] }; });
   if (eqs.length && der.dernier && der.dernier.equipe === eqs[eqs.length - 1] && der.eqChoisie === eqs[eqs.length - 1]) ok('page ADRASEC : équipe qui donne le relevé choisie à la saisie (gardée pour le suivant)'); else ko('relevé d’une équipe : ' + JSON.stringify({ eqs, der }));
+  // Corriger l'équipe d'un relevé enregistré : la couleur de son trait suit
+  const rid = await page.evaluate(() => { const s = document.querySelector('[data-releve-equipe]'); return s && s.dataset.releveEquipe; });
+  if (rid && eqs.length) { await page.selectOption(`[data-releve-equipe="${rid}"]`, eqs[0]); await page.waitForTimeout(1500); }
+  const corr = await page.evaluate(async (id) => { const v = await (await fetch('/api/adrasec')).json(); const r = v.recherches.find((x) => x.statut === 'en-cours'); const x = r.releves.find((y) => y.id === id); const e = v.equipes.find((q) => q.id === (x && x.equipe)); return { equipe: x && x.equipe, couleur: e && e.couleur, trait: [...document.querySelectorAll('#carte path')].some((p) => (p.getAttribute('stroke') || '').toLowerCase() === (e && e.couleur || '').toLowerCase()) }; }, rid);
+  if (rid && corr.equipe === eqs[0] && corr.trait) ok('page ADRASEC : équipe d’un relevé corrigée, trait à la couleur de l’équipe'); else ko('correction d’équipe d’un relevé : ' + JSON.stringify({ rid, corr }));
   await capture(page, 'adrasec-gonio');
   await page.click('[data-vue="winlink"]');
   await page.waitForTimeout(1500);

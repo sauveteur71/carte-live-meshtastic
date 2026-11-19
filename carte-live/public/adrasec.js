@@ -172,16 +172,17 @@
     const zl = $('#g-loc-zone');
     if (zl && !zl.hidden && $('#g-loc').value.trim()) { const q = Gonio.depuisLocator($('#g-loc').value.trim()); p = q ? { ...q, source: 'locator' } : null; }
     if (!p) return;
+    const ca = equipeChoisie() ? couleurEquipe(equipeChoisie()) : '#3ee6c4'; // couleur de l'équipe qui donne le relevé
     const gis = $('#g-gis') ? Number(String($('#g-gis').value).replace(',', '.')) : NaN;
     if ($('#g-gis') && $('#g-gis').value !== '' && gis >= 0 && gis <= 360) {
       const inc = Number(String(($('#g-inc') || {}).value || '5').replace(',', '.')) || 5;
       const r = { lat: p.lat, lon: p.lon, gisement: gis, incertitude: inc };
-      L.polygon(Gonio.cone(r, 30000), { color: '#3ee6c4', weight: 1.5, dashArray: '6 6', fillColor: '#3ee6c4', fillOpacity: 0.12, interactive: false }).addTo(couchesApercu);
+      L.polygon(Gonio.cone(r, 30000), { color: ca, weight: 1.5, dashArray: '6 6', fillColor: ca, fillOpacity: 0.12, interactive: false }).addTo(couchesApercu);
       const bout = Gonio.destination(p.lat, p.lon, gis, 30000);
       L.polyline([[p.lat, p.lon], [bout.lat, bout.lon]], { color: '#0b1117', weight: 8, opacity: 0.5, interactive: false }).addTo(couchesApercu);
-      L.polyline([[p.lat, p.lon], [bout.lat, bout.lon]], { color: '#3ee6c4', weight: 4, dashArray: '12 8', interactive: false }).addTo(couchesApercu);
+      L.polyline([[p.lat, p.lon], [bout.lat, bout.lon]], { color: ca, weight: 4, dashArray: '12 8', interactive: false }).addTo(couchesApercu);
     }
-    L.circleMarker([p.lat, p.lon], { radius: 10, color: '#ffffff', weight: 3, fillColor: '#3ee6c4', fillOpacity: 1, interactive: false })
+    L.circleMarker([p.lat, p.lon], { radius: 10, color: '#ffffff', weight: 3, fillColor: ca, fillOpacity: 1, interactive: false })
       .bindTooltip(`${equipeChoisie() ? esc(nomEquipe(equipeChoisie())) + ' · ' : ''}position du relevé (pas encore envoyé)`, { permanent: true, direction: 'top', offset: [0, -10], className: 'etq-equipe' }).addTo(couchesApercu);
   }
   function rendreGonio() {
@@ -228,7 +229,7 @@
       <h3>Relevés (${r.releves.length})</h3>
       ${r.releves.length ? r.releves.slice().reverse().map((x) => { const rs = c && c.residus[x.id]; const ecarte = c && c.ecartes.includes(x.id); return `<div class="entree ${x.retire ? 'retire' : ''}"><div class="tete"><b>${heure(x.heure)}</b><span>${esc(x.auteur)}</span>${x.equipe ? `<span><i class="equipe-pastille" style="background:${couleurEquipe(x.equipe)}"></i>${esc(nomEquipe(x.equipe))}</span>` : ''}${x.origine === 'radio' ? '<span class="type">radio</span>' : ''}</div>
         <div class="corps"><b>${fmt(x.gisement, 1)}°</b> ±${fmt(x.incertitude, 1)}° depuis <span class="mono">${Gonio.versLocator(x.lat, x.lon, 8)}</span> (${esc(x.source)})${x.force ? ' · ' + esc(x.force) : ''}${rs && !x.retire ? ` · écart ${fmt(rs.ecartDeg, 1)}° à ${fmt(rs.distanceM / 1000, 1)} km` : ''}${ecarte ? ' · <b class="erreur">écarté (tourne le dos aux autres)</b>' : ''}${x.note ? '<br><span class="note">' + esc(x.note) + '</span>' : ''}
-        ${!x.retire && enCours ? ` <button class="mini" data-retirer="${x.id}">Retirer du calcul</button>` : ''}</div></div>`; }).join('') : '<div class="vide">Aucun relevé.</div>'}` : '<p class="note">Ouvrez une recherche pour saisir les relevés des équipes.</p>'}`;
+        ${!x.retire && enCours ? `<div class="ligne-champs"><label class="mini-champ" title="Corriger l’équipe qui a fait ce relevé (couleur du trait)">Équipe <select data-releve-equipe="${x.id}"><option value="">— aucune —</option>${E.equipes.map((e) => `<option value="${e.id}" ${e.id === x.equipe ? 'selected' : ''}>● ${esc(e.nom)}</option>`).join('')}</select></label><button class="mini" data-retirer="${x.id}">Retirer du calcul</button></div>` : ''}</div></div>`; }).join('') : '<div class="vide">Aucun relevé.</div>'}` : '<p class="note">Ouvrez une recherche pour saisir les relevés des équipes.</p>'}`;
     if ($('#g-gis')) { $('#g-gis').value = gardes.gis; $('#g-inc').value = gardes.inc; $('#g-force').value = gardes.force; $('#g-note').value = gardes.note; $('#g-loc').value = gardes.loc; }
     $('#g-recherche').onchange = () => { rechercheChoisie = $('#g-recherche').value; memo('recherche', rechercheChoisie); rendreGonio(); cadrerGonio(); };
     $('#g-nouvelle').onclick = () => { $('#g-form-nouvelle').hidden = false; $('#gn-nom').focus(); };
@@ -240,6 +241,7 @@
     const cl = $('#g-cloturer');
     if (cl) cl.onclick = async () => { const res = prompt('Clôturer la recherche. Résultat (ex. « balise trouvée sur le planeur au lieu-dit… ») :', ''); if (res === null) return; await api('/api/adrasec/recherches/' + r.id, { method: 'PATCH', body: { cloturer: true, resultat: res } }).catch((e) => alert(e.message)); charger(); };
     for (const b of v.querySelectorAll('[data-copier]')) b.onclick = () => navigator.clipboard && navigator.clipboard.writeText(b.dataset.copier).then(() => { b.textContent = 'Copié ✓'; });
+    for (const s of v.querySelectorAll('[data-releve-equipe]')) s.onchange = async () => { await api('/api/adrasec/releves/' + s.dataset.releveEquipe, { method: 'PATCH', body: { equipe: s.value || null } }).catch((e) => alert(e.message)); charger(); };
     for (const b of v.querySelectorAll('[data-retirer]')) b.onclick = async () => { await api('/api/adrasec/releves/' + b.dataset.retirer, { method: 'DELETE' }).catch((e) => alert(e.message)); charger(); };
     for (const b of v.querySelectorAll('[data-pos]')) b.onclick = () => choisirPosition(b.dataset.pos);
     const se = $('#g-equipe');
@@ -351,7 +353,7 @@
     const parEq = new Map([[null, []], ...E.equipes.map((e) => [e.id, []])]);
     for (const m of E.membres) (parEq.get(m.equipe) || parEq.get(null)).push(m);
     v.innerHTML = `<h2>Équipes</h2>${E.moi.responsable ? '<div class="ligne-champs"><label>Nouvelle équipe <input id="eq-nom" placeholder="ex. Gonio 1"></label><button id="eq-creer">Créer</button></div>' : ''}
-      ${E.equipes.map((e) => `<div class="entree"><div class="tete"><b><i class="equipe-pastille" style="background:${e.couleur}"></i>${esc(e.nom)}</b>${e.mission ? `<span class="type">🎯 ${esc(e.mission)}</span>` : ''}${E.moi.responsable ? ` <button class="mini principal" data-ajout-eq="${e.id}">＋ Membres</button> <button class="mini" data-mission="${e.id}">Mission</button> <button class="mini danger" data-suppr-eq="${e.id}">Supprimer</button>` : ''}</div>
+      ${E.equipes.map((e) => `<div class="entree"><div class="tete"><b>${E.moi.responsable ? `<input type="color" class="couleur-eq" data-couleur-eq="${e.id}" value="${e.couleur}" title="Couleur de l’équipe (traits des relevés, points sur la carte)">` : `<i class="equipe-pastille" style="background:${e.couleur}"></i>`}${esc(e.nom)}</b>${e.mission ? `<span class="type">🎯 ${esc(e.mission)}</span>` : ''}${E.moi.responsable ? ` <button class="mini principal" data-ajout-eq="${e.id}">＋ Membres</button> <button class="mini" data-mission="${e.id}">Mission</button> <button class="mini danger" data-suppr-eq="${e.id}">Supprimer</button>` : ''}</div>
         <div class="corps puces-membres">${parEq.get(e.id).map(puceMembre).join('') || '<span class="note">Aucun membre : « ＋ Membres » pour en ajouter</span>'}</div></div>`).join('') || '<div class="vide">Aucune équipe : le président les crée ici.</div>'}
       ${parEq.get(null).length ? `<h3>Sans équipe</h3><div class="corps puces-membres">${parEq.get(null).map((m) => puceMembre(m, true)).join('')}</div>` : ''}
       <p class="note">📍 : position en direct du nœud Meshtastic associé au membre (Gestion). Elle s'affiche sur la carte et sert de position par défaut pour ses relevés.</p>`;
@@ -386,6 +388,7 @@
       annuler.onclick = () => z.remove();
       ok.onclick = async () => { const t = sel.value === '__autre' ? champ.value.trim() : sel.value; await api('/api/adrasec/equipes/' + e.id, { method: 'PATCH', body: { mission: t } }).catch((x) => alert(x.message)); charger(); };
     };
+    for (const c of v.querySelectorAll('[data-couleur-eq]')) c.onchange = async () => { await api('/api/adrasec/equipes/' + c.dataset.couleurEq, { method: 'PATCH', body: { couleur: c.value } }).catch((x) => alert(x.message)); charger(); };
     // Composer une équipe : cocher les membres (ceux d'une autre équipe y sont déplacés)
     for (const b of v.querySelectorAll('[data-ajout-eq]')) b.onclick = () => {
       const e = equipe(b.dataset.ajoutEq), boite = b.closest('.entree');

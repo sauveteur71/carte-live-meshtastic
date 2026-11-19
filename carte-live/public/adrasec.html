@@ -62,6 +62,10 @@
     td input[type=text] { width: 100%; min-width: 70px; }
     .equipe-pastille { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 4px; vertical-align: middle; border: 1.5px solid #0b1117; }
     .fiche-membre { border: 1px solid var(--bord); border-radius: 10px; padding: 10px 12px; margin: 10px 0; background: var(--surface-2); }
+    input.couleur-eq { width: 26px; height: 26px; padding: 0; border: 2px solid #fff; border-radius: 50%; vertical-align: middle; margin-right: 6px; cursor: pointer; background: none; }
+    input.couleur-eq::-webkit-color-swatch-wrapper { padding: 0; } input.couleur-eq::-webkit-color-swatch { border: 0; border-radius: 50%; }
+    .mini-champ { flex-direction: row !important; align-items: center; gap: 6px; font-size: 13px; }
+    .mini-champ select { min-height: 30px; padding: 2px 6px; }
     .puces-membres { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
     .puce-membre { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px 4px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--bord); border-left: 4px solid var(--c, var(--accent)); font-size: 13.5px; }
     .puce-membre small { color: var(--doux); }

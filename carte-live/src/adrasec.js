@@ -332,6 +332,22 @@ function creerGroupe(g, ctx) {
     setTimeout(() => diffusionAuto(r.id), 0);
     return x;
   }
+  // Corriger l'équipe d'un relevé déjà enregistré (auteur ou responsable) ; noté en main courante
+  function majReleve(compte, rid, b) {
+    const x = g.releves.find((y) => y.id === rid);
+    if (!x) throw new Error('Relevé inconnu');
+    if (!estResponsable(compte) && x.auteur !== signature(compte)) throw new Error('Seul l’auteur ou un responsable peut modifier ce relevé');
+    if (b.equipe !== undefined) {
+      const eq = b.equipe && g.equipes.some((e) => e.id === b.equipe) ? b.equipe : null;
+      if (eq !== x.equipe) {
+        x.equipe = eq;
+        ajouterMc(compte, { texte: `Relevé ${x.gisement}° de ${x.auteur} attribué à ${eq ? (g.equipes.find((e) => e.id === eq) || {}).nom : 'aucune équipe'}`, type: 'information', equipe: eq });
+      }
+    }
+    sauver();
+    diffuser({ genre: 'adrasec', quoi: 'releves', recherche: x.recherche });
+    return { ok: true };
+  }
   function retirerReleve(compte, rid) {
     const x = g.releves.find((y) => y.id === rid);
     if (!x) throw new Error('Relevé inconnu');
@@ -470,7 +486,7 @@ function creerGroupe(g, ctx) {
 
   return {
     g, purger, membre, estMembre, estResponsable, estLicencie, signature, demander, refuserDemande, demandeDe,
-    reglages, majMembre, majEquipe, ajouterMc, csvMc, majRecherche, ajouterReleve, retirerReleve, localiser, texteRecu, vue,
+    reglages, majMembre, majEquipe, ajouterMc, csvMc, majRecherche, ajouterReleve, majReleve, retirerReleve, localiser, texteRecu, vue,
     diffuserBalise, creerLien, couperLien, vueTerrain,
   };
 }

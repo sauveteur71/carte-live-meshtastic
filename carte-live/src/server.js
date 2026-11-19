@@ -3514,6 +3514,7 @@ app.post('/api/adrasec/recherches', routeAdrasec((req, b, u, G) => G.majRecherch
 app.patch('/api/adrasec/recherches/:id', routeAdrasec((req, b, u, G) => G.majRecherche(req.params.id, b, u)));
 app.post('/api/adrasec/releves', routeAdrasec((req, b, u, G) => G.ajouterReleve(u, b)));
 app.delete('/api/adrasec/releves/:id', routeAdrasec((req, b, u, G) => G.retirerReleve(u, req.params.id)));
+app.patch('/api/adrasec/releves/:id', routeAdrasec((req, b, u, G) => G.majReleve(u, req.params.id, b)));
 app.get('/api/adrasec/canaux', routeAdrasec(() => { try { return signalements.canaux().mt; } catch { return { connecte: false, canaux: [] }; } }));
 app.post('/api/adrasec/recherches/:id/diffuser', routeAdrasec((req, b, u, G) => G.diffuserBalise(req.params.id, b, u)));
 app.get('/api/adrasec/qr', routeAdrasec(async (req) => ({ qr: await require('qrcode').toDataURL(String(req.query.u || '').slice(0, 300), { margin: 1, width: 240 }) })));
