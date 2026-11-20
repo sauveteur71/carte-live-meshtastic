@@ -945,6 +945,7 @@ details.maint .ligne .titre, details.maint .ligne .titre small { white-space: no
 .cx-ip label { display: grid; gap: 6px; }
 .cx-ip .ligne-ip { display: flex; gap: 6px; }
 .cx-ip .ligne-ip input { flex: 1; min-width: 0; font-size: 1.05em; padding: 6px 8px; }
+.cx-ip .ligne-ip button { background: var(--accent); color: #062019; border: 1px solid var(--accent); border-radius: 7px; padding: 6px 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .cx-ip small { opacity: .8; }
 .cx-retour { margin: 12px 0; line-height: 1.45; }
 .cx-retour.ok { color: var(--ok); }
