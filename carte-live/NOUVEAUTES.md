@@ -2,6 +2,13 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.28.15
+
+### 🛠️ Corrections
+- **Mise à jour en un clic** : si le moteur Docker met trop de temps à répondre à l'arrêt, la mise à jour suit l'état réel du conteneur au lieu d'abandonner, et **remet l'ancienne version en route** en cas d'échec à n'importe quelle étape (la carte ne reste plus éteinte). Si le service de mise à jour est lui-même interrompu en plein milieu, il relance la carte à son démarrage.
+- **Racine MQTT** : une racine saisie avec `/#` à la fin est corrigée (la carte ajoute `/#` elle-même ; `…/#/#` était refusé par le courtier et plus aucun paquet n'arrivait).
+- *Gérer › Sauvegardes* : chaque sauvegarde affiche sa **date et son heure en toutes lettres** (le nom était tronqué en « 2.. »).
+
 ## 2.28.14
 
 ### 🔧 Corrections
