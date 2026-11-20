@@ -3,7 +3,9 @@
 //
 // Il a accès au moteur Docker (socket monté) et ne sait faire qu'une chose : télécharger la nouvelle image de la
 // carte puis recréer son conteneur avec exactement les mêmes réglages (volumes, ports, variables, réseaux,
-// étiquettes Compose). En cas d'échec au démarrage du nouveau conteneur, l'ancien est remis en route.
+// étiquettes Compose). En cas d'échec (arrêt de l'ancien, création ou démarrage du nouveau, moteur Docker qui ne
+// répond plus), l'ancien est remis en route ; un témoin « maj-en-cours » permet aussi de le relancer au prochain
+// démarrage de ce service si l'opération a été interrompue en plein milieu.
 //
 // - Joignable seulement sur le réseau interne du docker-compose (aucun port publié), port 4405.
 // - Protégé par un jeton partagé avec la carte : fichier maj-jeton.txt du dossier de données (créé ici au
@@ -92,6 +94,24 @@ function configSansImage(cfg, img) {
   return c;
 }
 
+const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
+const temoin = path.join(DOSSIER, 'maj-en-cours.json');
+const poserTemoin = (o) => { try { fs.writeFileSync(temoin, JSON.stringify({ ...o, heure: Date.now() })); } catch { /* dossier en lecture seule */ } };
+const retirerTemoin = () => { try { fs.unlinkSync(temoin); } catch { /* absent */ } };
+
+// Remet en route un conteneur arrêté, en insistant : juste après un blocage le moteur peut mettre des minutes à répondre.
+async function relancer(id, tentatives = 12) {
+  for (let i = 0; i < tentatives; i++) {
+    try {
+      const v = await docker('GET', `/containers/${id}/json`, null, { delai: 30000 });
+      if (v.State && v.State.Running) return true;
+      await docker('POST', `/containers/${id}/start`, null, { delai: 60000 }).catch((e) => { if (!/304/.test(e.message)) throw e; });
+      return true;
+    } catch (e) { journal(`relance de l’ancienne version : tentative ${i + 1}/${tentatives} : ${e.message}`); await attendre(10000); }
+  }
+  return false;
+}
+
 let enCours = null;
 const etat = { phase: 'repos', message: '', heure: null, ancienne: null, nouvelle: null };
 const noter = (phase, message) => { Object.assign(etat, { phase, message, heure: Date.now() }); journal(message); };
@@ -116,30 +136,59 @@ async function mettreAJour() {
 
   noter('remplacement', 'arrêt de l’ancienne version');
   const nomAncien = `${nom}-ancien-${Date.now().toString(36)}`;
-  await docker('POST', `/containers/${ancien.Id}/stop?t=20`, null, { delai: 60000 }).catch((e) => { if (!/304/.test(e.message)) throw e; });
-  await docker('POST', `/containers/${ancien.Id}/rename?name=${enc(nomAncien)}`);
-  let nouveau = null;
+  poserTemoin({ ancien: ancien.Id, nom });
+  let nouveau = null, renomme = false;
   try {
-    nouveau = await docker('POST', `/containers/create?name=${enc(nom)}`, config);
+    // L'appel d'arrêt peut ne jamais revenir alors que le conteneur est bien éteint (constaté : le moteur attend
+    // 20 s de plus après la sortie du conteneur, ou se bloque) : on lance l'arrêt sans l'attendre et on suit l'état réel.
+    docker('POST', `/containers/${ancien.Id}/stop?t=20`, null, { delai: 180000 }).catch((e) => { if (!/304/.test(e.message)) journal('arrêt : ' + e.message); });
+    for (let i = 0; ; i++) {
+      const v = await docker('GET', `/containers/${ancien.Id}/json`, null, { delai: 30000 }).catch(() => null);
+      if (v && !v.State.Running) break;
+      if (i >= 60) throw new Error('l’ancienne version ne s’arrête pas');
+      await attendre(2000);
+    }
+    await docker('POST', `/containers/${ancien.Id}/rename?name=${enc(nomAncien)}`, null, { delai: 60000 });
+    renomme = true;
+    nouveau = await docker('POST', `/containers/create?name=${enc(nom)}`, config, { delai: 180000 });
     for (const r of reseaux.slice(1)) await docker('POST', `/networks/${enc(r[0])}/connect`, { Container: nouveau.Id, EndpointConfig: endpoint(r) });
     noter('demarrage', 'démarrage de la nouvelle version');
-    await docker('POST', `/containers/${nouveau.Id}/start`);
+    await docker('POST', `/containers/${nouveau.Id}/start`, null, { delai: 180000 });
     // La nouvelle version doit tenir 20 s (sinon : retour à l'ancienne)
-    await new Promise((r) => setTimeout(r, 20000));
+    await attendre(20000);
     const v = await docker('GET', `/containers/${nouveau.Id}/json`);
     if (!v.State.Running) throw new Error(`la nouvelle version s’est arrêtée (code ${v.State.ExitCode})`);
   } catch (e) {
     noter('retour', 'échec, retour à l’ancienne version : ' + e.message);
-    if (nouveau) { await docker('DELETE', `/containers/${nouveau.Id}?force=1`).catch(() => {}); }
-    await docker('POST', `/containers/${ancien.Id}/rename?name=${enc(nom)}`).catch(() => {});
-    await docker('POST', `/containers/${ancien.Id}/start`).catch(() => {});
+    if (nouveau) { await docker('DELETE', `/containers/${nouveau.Id}?force=1`, null, { delai: 120000 }).catch(() => {}); }
+    if (renomme) await docker('POST', `/containers/${ancien.Id}/rename?name=${enc(nom)}`, null, { delai: 60000 }).catch(() => {});
+    const repart = await relancer(ancien.Id);
+    if (repart) retirerTemoin(); else journal('l’ancienne version n’a pas pu être relancée : le témoin est gardé, nouvel essai au prochain démarrage du service de mise à jour');
     throw e;
   }
+  retirerTemoin();
   await docker('DELETE', `/containers/${ancien.Id}`).catch((e) => journal('ancien conteneur non supprimé :', e.message));
   // Ménage : l'ancienne image si plus rien ne l'utilise
   if (ancienneImg) await docker('DELETE', `/images/${enc(ancienneImg.Id)}`).catch(() => {});
   noter('termine', 'mise à jour terminée');
   return { aJour: false };
+}
+
+// Reprise : si le service a été interrompu (ou redémarré) en pleine mise à jour, l'ancienne version reste éteinte.
+// Le témoin dit qu'on l'avait arrêtée nous-mêmes : on la relance.
+async function reprise() {
+  let t = null;
+  try { t = JSON.parse(fs.readFileSync(temoin, 'utf8')); } catch { return; }
+  if (!t || !t.ancien) return retirerTemoin();
+  for (let i = 0; i < 30; i++) {
+    try {
+      const cible = await trouverCible().catch(() => null);
+      const id = cible ? cible.Id : t.ancien;
+      journal('reprise : une mise à jour a été interrompue, relance de la carte');
+      if (await relancer(id, 3)) { retirerTemoin(); journal('reprise : carte relancée'); return; }
+    } catch (e) { journal('reprise : ' + e.message); }
+    await attendre(10000);
+  }
 }
 
 const JETON = lireJeton();
@@ -155,4 +204,4 @@ http.createServer((req, res) => {
     return repondre(202, { lance: true });
   }
   repondre(404, { erreur: 'inconnu' });
-}).listen(PORT, () => journal(`prêt sur le port ${PORT} (service à mettre à jour : ${SERVICE})`));
+}).listen(PORT, () => { journal(`prêt sur le port ${PORT} (service à mettre à jour : ${SERVICE})`); reprise().catch(() => {}); });
