@@ -42,6 +42,19 @@
 
   let el = null, minuterie = null, observateur = null;
   const MARGE = 8;
+  // Placement regroupé : plusieurs demandes (mutation de style, minuterie, redimensionnement) donnent un seul
+  // placer() par image, et jamais deux à moins de 300 ms d'écart — sans place libre, la recherche (lecture de
+  // toutes les boîtes) ne tourne pas en boucle à chaque changement de style de la page.
+  const DELAI_MIN = 300;
+  let demande = false, dernier = 0, report = null;
+  function demanderPlacement() {
+    if (!el || demande) return;
+    demande = true;
+    const lancer = () => { demande = false; report = null; dernier = Date.now(); placer(); };
+    const reste = DELAI_MIN - (Date.now() - dernier);
+    if (reste > 0) report = setTimeout(() => requestAnimationFrame(lancer), reste);
+    else requestAnimationFrame(lancer);
+  }
 
   // Éléments à ne pas recouvrir : enfants fixes de la page (barre, outils, panneau, légende, recherche…)
   // et contrôles de la carte (zoom, couches, attribution)
@@ -118,8 +131,9 @@
     if (el) el.remove();
     el = null;
     clearInterval(minuterie);
+    clearTimeout(report);
     if (observateur) observateur.disconnect();
-    window.removeEventListener('resize', placer);
+    window.removeEventListener('resize', demanderPlacement);
   }
 
   function afficher(url, zoneNom) {
@@ -138,7 +152,8 @@
     const phrase = document.createElement('span');
     phrase.textContent = zoneNom ? `This map only covers ${zoneNom}, France. See Meshtastic and MeshCore networks worldwide.` : 'This map only covers one area of France. See Meshtastic and MeshCore networks worldwide.';
     texte.append(titre, phrase);
-    const lien = document.createElement('a'); lien.className = 'bm-ouvrir'; lien.href = url; lien.rel = 'noopener';
+    // Nouvel onglet : le visiteur garde cette carte ouverte ; rel="noopener" : la page ouverte n'a pas la main sur celle-ci
+    const lien = document.createElement('a'); lien.className = 'bm-ouvrir'; lien.href = url; lien.target = '_blank'; lien.rel = 'noopener';
     // Adresse par défaut (dépôt GitHub) : le bouton dit honnêtement où il mène
     lien.textContent = /^https?:\/\/(www\.)?github\.com\//i.test(url) ? 'See the world edition' : 'Open the world map';
     const croix = document.createElement('button'); croix.type = 'button'; croix.className = 'bm-fermer'; croix.textContent = '✕';
@@ -146,14 +161,15 @@
     croix.addEventListener('click', fermer);
     el.append(texte, lien, croix);
     document.body.appendChild(el);
+    dernier = Date.now();
     placer();
-    window.addEventListener('resize', placer);
+    window.addEventListener('resize', demanderPlacement);
     // Panneau replié, tiroir déplacé, fiche ouverte… : vérification légère et régulière de la place
-    minuterie = setInterval(placer, 1500);
+    minuterie = setInterval(demanderPlacement, 1500);
     // La barre du haut change de hauteur (--bas-barre, --bas-haut… posés sur <html>) : la recherche et le panneau
     // descendent aussitôt, le bandeau se replace dans la foulée au lieu d'attendre la vérification suivante
     if (window.MutationObserver) {
-      observateur = new MutationObserver(() => requestAnimationFrame(placer));
+      observateur = new MutationObserver(demanderPlacement);
       observateur.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] });
       observateur.observe(document.body, { attributes: true, attributeFilter: ['class'] });
     }

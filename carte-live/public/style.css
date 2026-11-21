@@ -1534,11 +1534,19 @@ body.consultation #outil-connecter, body.consultation #outil-companion-mc { disp
 .lien-github { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; padding: 2px 9px; border-radius: 99px; background: #24292f; color: #fff !important; border: 1px solid #57606a; font-weight: 700; font-size: 11px; text-decoration: none; vertical-align: middle; }
 .lien-github:hover, .lien-github:focus-visible { background: #3d444d; outline: 2px solid #fff; outline-offset: 1px; }
 body.consultation #btn-admin, body.consultation .lien-inscription, body.consultation #hub-compte { display: none !important; }
-/* Mur des donateurs : bandeau discret en haut de carte, textes défilants, fermeture mémorisée dans ce navigateur */
-.bandeau-donateurs { position: fixed; left: 50%; top: 8px; transform: translateX(-50%); z-index: 1150; background: var(--surface-2); color: var(--texte); border: 1px solid #a855f7; border-radius: 99px; padding: 5px 14px; font-size: 13px; max-width: calc(100vw - 32px); text-align: center; box-shadow: 0 4px 14px #0007; }
-.bandeau-donateurs a { color: #a855f7; margin: 0 2px; }
+/* Mur des donateurs : bandeau discret en bas de carte (au-dessus de la ligne d'attribution, sans toucher la barre du
+   haut, la recherche, le panneau ni la légende à droite), textes défilants, fermeture mémorisée dans ce navigateur.
+   Sur téléphone : juste sous la recherche de lieu, à gauche des boutons de zoom. Caché en mode urgence. */
+.bandeau-donateurs { position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%); z-index: 998; background: var(--surface-2); color: var(--texte); border: 1px solid #a855f7; border-radius: 99px; padding: 5px 14px; font-size: 13px; max-width: min(560px, calc(100vw - 2 * var(--l-panneau, 360px) - 72px)); box-sizing: border-box; text-align: center; box-shadow: 0 4px 14px #0007; }
+.bandeau-donateurs a { color: #c084fc; margin: 0 2px; }
 .bandeau-donateurs .fermer-bandeau { background: none; border: 0; color: var(--doux); cursor: pointer; font-size: 14px; margin-left: 8px; padding: 0 2px; }
-@media (max-width: 700px) { .bandeau-donateurs { border-radius: 12px; width: calc(100vw - 24px); max-width: none; font-size: 12px; padding: 6px 10px; top: 4px; } .bandeau-donateurs a { display: none; } }
+body.mode-urgence .bandeau-donateurs { display: none; }
+.champ-secret { display: flex; gap: 6px; align-items: center; } .champ-secret input { flex: 1; min-width: 0; }
+@media (max-width: 700px) { .bandeau-donateurs { border-radius: 12px; left: 6px; right: 52px; bottom: auto; top: calc(var(--bas-barre, 50px) + 50px); transform: none; max-width: none; font-size: 12px; padding: 6px 10px; } .bandeau-donateurs .don-liens { display: none; } }
+/* Tablette (barre d'outils en bas, bouton rond à droite) : entre le panneau et le bouton, au-dessus des outils */
+@media (min-width: 701px) and (max-width: 1100px), (pointer: coarse) and (min-width: 701px) and (max-width: 1366px) {
+  .bandeau-donateurs { left: calc(var(--l-panneau, 360px) + 24px); right: 84px; transform: none; max-width: none; bottom: calc(var(--h-outils, 54px) + 30px); }
+}
 
 .tache-maj { margin: 8px 0 0; padding: 6px 8px; border-left: 2px solid var(--bord); font-size: 13px; }
 #maj-detail { margin-left: 6px; }

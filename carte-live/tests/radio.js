@@ -1089,7 +1089,7 @@ test('Cache du relief : espace occupé, purge par ancienneté, zone verrouillée
 
 // Recherche dans les messages : index plein texte rempli depuis l'historique, accents et majuscules ignorés,
 // nom ACTUEL de l'expéditeur, identifiant, MeshCore, droits de la démonstration, purge
-test('Recherche dans les messages : texte, accents, nom actuel de l’expéditeur, identifiant, démonstration, purge', () => {
+test('Recherche dans les messages : texte, accents, nom actuel de l’expéditeur, identifiant, démonstration, purge', async () => {
   const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'recherche-'));
   process.env.FICHIER_BASE = path.join(dossier, 'x.db');
   const config = require('../src/config');
@@ -1109,7 +1109,7 @@ test('Recherche dans les messages : texte, accents, nom actuel de l’expéditeu
   message(0x5a1e0001, 'position', { port: 'position' });
   const rech = creerRechercheMessages(st.db);
   assert.equal(rech.fts(), true, 'FTS5 disponible');
-  const cles = (o) => rech.chercher(o).resultats.map((x) => x.cle);
+  const cles = (o) => rech.chercher(o).resultats.map((x) => x.ref);
   assert.deepEqual(cles({ q: 'chapeau' }), ['mt' + ancien], 'historique indexé à la migration');
   // Nouveaux messages : indexés au fil de l'eau (déclencheurs), du plus récent au plus ancien
   nommer(0x5a1e0002, 'Olivier F4GLD', 'GLD');
@@ -1121,7 +1121,7 @@ test('Recherche dans les messages : texte, accents, nom actuel de l’expéditeu
   assert.deepEqual(cles({ q: 'ETE' }), ['mt' + prive]);
   assert.deepEqual(cles({ q: 'chap' }), ['mt' + prive, 'mt' + ancien], 'début de mot');
   const gld = rech.chercher({ q: 'F4GLD' }).resultats;
-  assert.deepEqual(gld.map((x) => x.cle), ['mt' + cite, 'mt' + versGld, 'mt' + deGld], 'texte + expéditeur + destinataire d’un direct');
+  assert.deepEqual(gld.map((x) => x.ref), ['mt' + cite, 'mt' + versGld, 'mt' + deGld], 'texte + expéditeur + destinataire d’un direct');
   assert.deepEqual(gld.map((x) => x.trouve), [['texte'], ['destinataire'], ['expediteur']]);
   assert.equal(gld[2].nomDe, 'Olivier F4GLD');
   assert.deepEqual(cles({ q: 'gld' }), ['mt' + versGld, 'mt' + deGld], 'nom court');
@@ -1130,6 +1130,11 @@ test('Recherche dans les messages : texte, accents, nom actuel de l’expéditeu
   // Nœud renommé : retrouvé sous son nom actuel, plus sous l'ancien (hors texte)
   nommer(0x5a1e0002, 'Relais Mégal', 'MGL');
   assert.deepEqual(cles({ q: 'megal' }), ['mt' + versGld, 'mt' + deGld], 'nom actuel');
+  assert.equal(rech.noms(), true, 'index trigram des noms disponible');
+  assert.deepEqual(cles({ q: 'égal' }), ['mt' + versGld, 'mt' + deGld], 'partie de nom, accents ignorés (index trigram)');
+  nommer(0x5a1e0003, 'Troisième', 'T3');
+  assert.deepEqual(cles({ q: 't3' }), ['mt' + prive, 'mt' + versGld], 'deux caractères : nom court exact seulement');
+  assert.deepEqual(cles({ q: 'ga' }), [], 'deux caractères : pas de partie de nom');
   assert.deepEqual(cles({ q: 'f4gld' }), ['mt' + cite], 'ancien nom : seulement le texte');
   // MeshCore : texte, nom porté par le message, nom actuel du nœud par sa clé
   const cleMc = 'AB'.repeat(32);
@@ -1142,27 +1147,38 @@ test('Recherche dans les messages : texte, accents, nom actuel de l’expéditeu
   assert.deepEqual(cles({ q: 'bob' }), ['mc' + mcCanal], 'MeshCore : nom porté par le message');
   assert.deepEqual(cles({ q: 'abab' }), ['mc' + mcDirect], 'MeshCore : début de clé');
   // Démonstration : canaux publics seulement (LongFast, Public, « # »), jamais de message direct
-  const demo = (q) => rech.chercher({ q, demo: true, publics: ['LongFast'] }).resultats.map((x) => x.cle);
+  const demo = (q) => rech.chercher({ q, demo: true, publics: ['LongFast'] }).resultats.map((x) => x.ref);
   assert.deepEqual(demo('chapeau'), ['mc' + mcCanal, 'mt' + ancien], 'canaux privés exclus');
   assert.deepEqual(demo('megal'), ['mt' + deGld], 'message direct exclu');
   assert.deepEqual(demo('lizieux'), [], 'message direct MeshCore exclu');
+  // Japonais / chinois / coréen / thaï : pas d'espace entre les mots, le terme est trouvé au milieu d'une suite
+  const jp = message(0x5a1e0005, '今日は天気がいいですね');
+  const ko = r.noterMessage({ sens: 'recu', genre: 'canal', canal: 'Public', texte: '안녕하세요반갑습니다', nomDe: '山田太郎' });
+  assert.deepEqual(cles({ q: '天気' }), ['mt' + jp], 'japonais : au milieu de la phrase');
+  assert.deepEqual(cles({ q: '반갑' }), ['mc' + ko], 'coréen : au milieu de la phrase');
+  assert.deepEqual(cles({ q: '田太郎' }), ['mc' + ko], 'nom japonais porté par le message (index trigram, 3 caractères au moins)');
+  assert.deepEqual(cles({ q: '天気 いい' }), ['mt' + jp], 'deux termes, tous obligatoires');
+  assert.deepEqual(cles({ q: '天気 bonjour' }), [], 'terme absent : rien');
   // Recherches vides ou trop courtes, caractères spéciaux de FTS5 et de LIKE sans erreur
   assert.equal(rech.chercher({ q: 'a' }).resultats.length, 0);
   for (const q of ['"', 'chapeau" OR "x', '%', '_*', 'NEAR(a b)', 'é-è', '😀😀']) assert.doesNotThrow(() => rech.chercher({ q }), q);
   // Pagination : la suite reprend juste avant le dernier résultat
   const p1 = rech.chercher({ q: 'chapeau', limite: 2 });
   assert.equal(p1.resultats.length, 2); assert.ok(p1.suite);
-  assert.deepEqual(rech.chercher({ q: 'chapeau', limite: 2, avant: p1.suite }).resultats.map((x) => x.cle), ['mt' + prive, 'mt' + ancien]);
+  assert.deepEqual(rech.chercher({ q: 'chapeau', limite: 2, avant: p1.suite }).resultats.map((x) => x.ref), ['mt' + prive, 'mt' + ancien]);
   // Purge (rétention) : les messages supprimés disparaissent aussi de l'index
   st.db.prepare('UPDATE paquets SET heure = 1 WHERE rowid = ?').run(ancien);
   st.db.prepare('UPDATE mc_messages SET heure = 1 WHERE id = ?').run(mcPrive);
-  st.purger(1, 1); r.purger(1);
+  await st.purger(1, 1); r.purger(1);
   assert.deepEqual(cles({ q: 'chapeau' }), ['mc' + mcCanal, 'mt' + prive], 'purgés : plus trouvés');
-  st.db.exec("INSERT INTO recherche_mt(recherche_mt) VALUES ('integrity-check')");
+  // Index partiel : pas de vérification du contenu sur recherche_mt (voir l'en-tête de src/recherche-messages.js)
+  st.db.exec("INSERT INTO recherche_mt(recherche_mt, rank) VALUES ('integrity-check', 0)");
   st.db.exec("INSERT INTO recherche_mc(recherche_mc) VALUES ('integrity-check')");
+  st.db.exec("INSERT INTO recherche_noms_mt(recherche_noms_mt) VALUES ('integrity-check')");
+  st.db.exec("INSERT INTO recherche_mc_noms(recherche_mc_noms) VALUES ('integrity-check')");
   // Redémarrage : l'index existant est repris tel quel (pas de doublon)
   const rech2 = creerRechercheMessages(st.db);
-  assert.deepEqual(rech2.chercher({ q: 'chapeau' }).resultats.map((x) => x.cle), ['mc' + mcCanal, 'mt' + prive]);
+  assert.deepEqual(rech2.chercher({ q: 'chapeau' }).resultats.map((x) => x.ref), ['mc' + mcCanal, 'mt' + prive]);
   st.db.close();
   fs.rmSync(dossier, { recursive: true, force: true });
 });
@@ -1597,11 +1613,105 @@ test('Mode urgence : message de détresse — motif élargi, mots entiers, pas d
   fs.rmSync(dossier, { recursive: true, force: true });
 });
 
-test('Mur des donateurs : anonymisation du nom (jamais le nom complet)', () => {
+test('Mur des donateurs : anonymisation du nom (jamais le nom complet, au plus la moitié)', () => {
   assert.equal(anonymiser(''), 'Un donateur');
   assert.notEqual(anonymiser('Jean Dupont'), 'Jean Dupont');
   assert.ok(anonymiser('Jean Dupont').endsWith('***'));
   assert.ok(anonymiser('Jean Dupont').length < 'Jean Dupont'.length);
+  assert.equal(anonymiser('42BARBE'), '42B***', 'au plus la moitié des caractères');
+  assert.equal(anonymiser('Jo'), 'J***', 'nom court : un seul caractère visible');
+  assert.equal(anonymiser('Bob'), 'B***');
+  assert.equal(anonymiser('F4GLD'), 'F4***');
+  assert.equal(anonymiser('Un nom vraiment très long'), 'Un nom***', 'six caractères au plus');
+  assert.equal(anonymiser('😀😀'), '😀***', 'émoji jamais coupé en deux');
+  assert.equal(anonymiser('🇫🇷🇫🇷🇫🇷🇫🇷🇫🇷🇫🇷'), '🇫🇷🇫🇷🇫🇷***', 'drapeaux (2 points de code chacun) jamais coupés');
+});
+
+test('Mur des donateurs : fichier en 600, seul ce qui est saisi dans la page est enregistré, effacement, plafond, pays, liens', async () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'don-'));
+  const fichier = path.join(dossier, 'donateurs.json');
+  fs.writeFileSync(fichier, JSON.stringify({ reglages: {}, manuel: [] }), { mode: 0o644 });
+  const cfg = configDonateurs(dossier, { helloasso: { actif: true, clientId: 'id-env', clientSecret: 'secret-env', organisation: 'radioclub-du-velay', formulaire: '2', type: 'Donation' }, githubSponsors: { actif: false, jeton: 'jeton-env', compte: 'sauveteur71' } });
+  const urls = [];
+  const fauxFetch = async (url, opt = {}) => {
+    urls.push(String(url));
+    if (/oauth2\/token/.test(url)) return { ok: true, status: 200, json: async () => ({ access_token: 'jeton-oauth', expires_in: 1800 }) };
+    if (/\/v5\/organizations\/radioclub-du-velay\/forms\?formTypes=Donation/.test(url)) return { ok: true, status: 200, json: async () => ({ data: [{ formSlug: '2', formType: 'Donation' }] }) };
+    throw new Error('URL inattendue : ' + url);
+  };
+  const don = creerDonateurs({ config: cfg, journal: () => {}, fetch: fauxFetch });
+  if (process.platform !== 'win32') assert.equal(fs.statSync(fichier).mode & 0o777, 0o600, 'fichier existant resserré en 600 au démarrage');
+  // Vérification HelloAsso : jeton puis liste des formulaires, jamais la page des paiements
+  await don.rafraichir();
+  assert.equal(don.etat().erreurs.helloasso, null);
+  assert.ok(urls.some((u) => /\/forms\?formTypes=Donation/.test(u)) && !urls.some((u) => /payments/.test(u)), 'vérification sans lire de paiement');
+  assert.match(don.urlPaiementsHelloAsso(), /\/forms\/Donation\/2\/payments$/, 'adresse des paiements : type de formulaire réglable');
+  // Réglage depuis la page : seul ce qui est saisi va sur disque, jamais les secrets du .env
+  don.regler({ montantVisible: true, helloasso: { formulaire: '3', clientId: 'id-page' } });
+  const disque = JSON.parse(fs.readFileSync(fichier, 'utf8'));
+  assert.deepEqual(disque.reglages.helloasso, { formulaire: '3', clientId: 'id-page' });
+  assert.ok(!JSON.stringify(disque).includes('secret-env') && !JSON.stringify(disque).includes('jeton-env'), 'secrets du .env jamais recopiés');
+  if (process.platform !== 'win32') assert.equal(fs.statSync(fichier).mode & 0o777, 0o600, 'écrit en 600');
+  let e = don.etat().reglages.helloasso;
+  assert.equal(e.clientIdSaisi, true); assert.equal(e.clientSecretSaisi, false); assert.equal(e.clientSecretDefini, true);
+  // Effacer un secret saisi : le .env reprend la main
+  don.regler({ helloasso: { clientIdEffacer: true } });
+  e = don.etat().reglages.helloasso;
+  assert.equal(e.clientIdSaisi, false); assert.equal(e.clientIdDefini, true, 'le .env reprend la main');
+  assert.throws(() => don.regler({ helloasso: { type: 'Pirate' } }), /type de formulaire/);
+  assert.throws(() => don.regler({ helloasso: { organisation: '../x' } }), /slug/);
+  // Liens « Faire un don » : tirés des réglages, absents quand la source est désactivée
+  assert.deepEqual(don.liens(), { helloasso: 'https://www.helloasso.com/associations/radioclub-du-velay/formulaires/3', github: null });
+  don.regler({ helloasso: { actif: false }, githubSponsors: { actif: true, compte: 'f4xyz' } });
+  assert.deepEqual(don.liens(), { helloasso: null, github: 'https://github.com/sponsors/f4xyz' });
+  // Pays : code à 2 lettres ou rien ; pas de date dans la liste publique
+  assert.throws(() => don.manuelAjouter({ nom: 'X', pays: 'France', accord: true }), /Pays/);
+  assert.throws(() => don.manuelAjouter({ nom: 'X', pays: 'f1', accord: true }), /Pays/);
+  don.manuelAjouter({ nom: 'Jo', pays: 'fr', montant: '12.5', accord: true });
+  assert.deepEqual(Object.keys(don.liste()[0]).sort(), ['devise', 'montant', 'nom', 'pays', 'source']);
+  assert.equal(don.liste()[0].montant, 12.5);
+  // Plafond : refus explicite au-delà, jamais de suppression silencieuse
+  for (let k = don.etat().manuel.length; k < 200; k++) don.manuelAjouter({ nom: 'D' + k, accord: true });
+  assert.throws(() => don.manuelAjouter({ nom: 'Trop', accord: true }), /Liste pleine/);
+  assert.equal(don.etat().manuel.length, 200);
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('Mur des donateurs : GitHub paginé, parrainages publics seulement, données extérieures vérifiées', async () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'don-'));
+  const corps = [];
+  const fauxFetch = async (url, opt = {}) => {
+    const b = JSON.parse(opt.body); corps.push(b);
+    assert.match(b.query, /includePrivate:false/);
+    const page2 = b.variables.apres === 'curseur-1';
+    return { ok: true, json: async () => ({ data: { user: { sponsorshipsAsMaintainer: {
+      pageInfo: { hasNextPage: !page2, endCursor: page2 ? null : 'curseur-1' },
+      nodes: page2 ? [
+        { privacyLevel: 'PUBLIC', createdAt: 'pas une date', sponsorEntity: { login: 'sansdate', name: 42 }, tier: { monthlyPriceInDollars: 'abc', isOneTime: false } },
+        { privacyLevel: 'PUBLIC', createdAt: '2026-01-02T00:00:00Z', sponsorEntity: null },
+        'n’importe quoi', null,
+      ] : [
+        { privacyLevel: 'PUBLIC', createdAt: '2026-01-03T00:00:00Z', sponsorEntity: { login: 'public1', name: 'Public Un' }, tier: { monthlyPriceInDollars: 3, isOneTime: false } },
+        { privacyLevel: 'PRIVATE', createdAt: '2026-01-04T00:00:00Z', sponsorEntity: { login: 'prive1', name: 'Jamais Montré' }, tier: { monthlyPriceInDollars: 100, isOneTime: false } },
+      ],
+    } } } }) };
+  };
+  const don = creerDonateurs({ config: configDonateurs(dossier, { githubSponsors: { actif: true, jeton: 'jeton-test', compte: 'sauveteur71' } }), journal: () => {}, fetch: fauxFetch });
+  don.regler({ montantVisible: true });
+  await don.rafraichir();
+  assert.ok(corps.length >= 2 && corps[1].variables.apres === 'curseur-1', 'deux pages lues');
+  const l = don.liste();
+  assert.deepEqual(l.map((x) => [x.nom, x.montant]), [['Publ***', 3], ['sans***', null]], 'nom de repli (login), montant non numérique → null, entrée sans sponsor ignorée');
+  assert.ok(!JSON.stringify(l).includes('Jamais'), 'sponsor privé jamais affiché');
+  // Réglage pendant une actualisation : une autre est relancée juste après (pas de réglage ignoré)
+  let bloque; const attente = new Promise((r) => { bloque = r; });
+  const donLent = creerDonateurs({ config: configDonateurs(dossier, { githubSponsors: { actif: true, jeton: 'jeton-test', compte: 'sauveteur71' } }), journal: () => {}, fetch: async (url, opt) => { await attente; return fauxFetch(url, opt); } });
+  const p = donLent.rafraichir();
+  donLent.regler({ githubSponsors: { actif: false } });
+  bloque(); await p;
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(donLent.liste(), [], 'la source désactivée pendant l’actualisation ne laisse rien sur le mur');
+  fs.rmSync(dossier, { recursive: true, force: true });
 });
 
 function configDonateurs(dossier, extra = {}) {

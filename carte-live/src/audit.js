@@ -19,11 +19,12 @@ function creerAudit(db) {
   if (minuterie.unref) minuterie.unref();
 
   // Résumé d'un corps de requête sans aucune valeur sensible
-  function resumer(b) {
+  // masques : champs à cacher en plus pour cette requête (ex. le nom d'un donateur), par nom exact
+  function resumer(b, masques = []) {
     if (!b || typeof b !== 'object') return '';
     const parties = [];
     for (const [k, v] of Object.entries(b)) {
-      if (SENSIBLES.test(k)) { parties.push(`${k}=…`); continue; }
+      if (SENSIBLES.test(k) || masques.includes(k)) { parties.push(`${k}=…`); continue; }
       if (v == null) continue;
       let t = typeof v === 'object' ? (Array.isArray(v) ? `[${v.slice(0, 8).map((x) => (typeof x === 'object' ? '…' : String(x))).join(',')}${v.length > 8 ? ',…' : ''}]` : `{${Object.keys(v).filter((x) => !SENSIBLES.test(x)).slice(0, 8).join(',')}}`) : String(v);
       if (t.length > 60) t = t.slice(0, 57) + '…';

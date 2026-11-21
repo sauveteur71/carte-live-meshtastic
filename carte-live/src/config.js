@@ -196,6 +196,7 @@ const config = {
       clientSecret: texte('HELLOASSO_CLIENT_SECRET'),
       organisation: texte('HELLOASSO_ORGANISATION', 'radioclub-du-velay'),
       formulaire: texte('HELLOASSO_FORMULAIRE', '2'),
+      type: texte('HELLOASSO_TYPE', 'Donation'), // type du formulaire : Donation, CrowdFunding, Membership, Event, PaymentForm, Checkout, Shop
     },
     githubSponsors: {
       actif: texte('GITHUB_SPONSORS_ACTIF', 'non') === 'oui',

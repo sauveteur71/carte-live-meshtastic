@@ -2547,7 +2547,7 @@ function rendreRechercheMessages() {
       const nom = (cle, n) => `<button type="button" class="auteur-msg" data-mc-auteur="${esc(cle || '')}" data-mc-nom="${esc(n || '')}" title="Fiche, message direct, position">${S(n || '?')}</button>`;
       qui = nom(r.de, r.nomDe) + (r.nomActuelDe ? ` <small class="id-recherche"><span>nom actuel :</span> ${S(r.nomActuelDe)}</small>` : '') + (r.direct ? ' → ' + nom(r.vers, r.nomVers) : '');
     }
-    return `<div class="message resultat-recherche cliquable" data-cle="${esc(r.cle)}" tabindex="0" role="button" title="Ouvrir le message dans son canal">
+    return `<div class="message resultat-recherche cliquable" data-ref="${esc(r.ref)}" tabindex="0" role="button" title="Ouvrir le message dans son canal">
       <div class="entete">${esc(date)} · ${lieu} · <span class="tag reseau-${r.reseau}">${r.reseau === 'mc' ? 'MeshCore' : 'Meshtastic'}</span> · ${qui}</div>
       <div class="texte" translate="no">${S(r.texte)}</div>
       <div class="trouve-recherche">${r.trouve.map((k) => `<span>${TROUVE[k]}</span>`).join('')}</div></div>`;
@@ -2556,7 +2556,7 @@ function rendreRechercheMessages() {
     : `<div class="note">Messages trouvés : ${l.length + (rechMsg.suite ? '+' : '')} · du plus récent au plus ancien</div>${l.map(ligne).join('')}${rechMsg.suite ? '<button type="button" class="mini" id="suite-recherche">Plus anciens…</button>' : ''}`;
   const suite = $('#suite-recherche'); if (suite) suite.onclick = () => lancerRechercheMessages(true);
   z.querySelectorAll('.resultat-recherche').forEach((el) => {
-    const r = l.find((x) => x.cle === el.dataset.cle);
+    const r = l.find((x) => x.ref === el.dataset.ref); // « ref », pas « cle » : un champ « cle » serait masqué en démonstration
     const ouvrir = (e) => { if (e.target.closest('[data-auteur], [data-mc-auteur], [data-epingle]')) return; ouvrirResultatRecherche(r); };
     el.onclick = ouvrir;
     el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ouvrir(e); } };
@@ -4058,7 +4058,7 @@ function fichePartager() {
     <form id="f-federation" class="parametres compact"><label>Adresse de la carte voisine <input name="url" placeholder="https://carte-42.exemple.fr" required></label><label>Nom (facultatif) <input name="nom" placeholder="Loire"></label><button type="submit" class="principal">Ajouter</button></form>
     <p class="erreur" id="federation-retour"></p>
     <h3>Mur des donateurs</h3>
-    <p class="note">Affiche sur la carte ceux qui ont soutenu le projet : dons à l’association Radio-club du Velay (HelloAsso) et parrainages GitHub Sponsors. Deux sources indépendantes, chacune activable séparément. HelloAsso ne dit pas si un donateur a accepté d’être montré publiquement : un don HelloAsso n’apparaît donc que si vous ajoutez vous-même l’entrée ci-dessous, après son accord.</p>
+    <p class="note">Affiche sur la carte ceux qui ont soutenu le projet : dons à une association (HelloAsso) et parrainages GitHub Sponsors. Deux sources indépendantes, chacune activable séparément ; les liens « Faire un don » affichés viennent de ces réglages. HelloAsso ne dit pas si un donateur a accepté d’être montré publiquement : un don HelloAsso n’apparaît donc que si vous ajoutez vous-même l’entrée ci-dessous, après son accord.</p>
     <div id="donateurs-reglages"><div class="vide">Chargement…</div></div>` : ''}
     <p class="note">Ces exports suivent les mêmes règles de confidentialité que la carte publique. Pour les protéger, définissez <span class="mono">EXPORT_JETON</span> dans le fichier .env : il faut alors ajouter <span class="mono">?jeton=…</span> aux adresses (ou l’en-tête « Authorization: Bearer … »).</p>`;
   if (etat.admin) {
@@ -4081,35 +4081,41 @@ async function rendreDonateursAdmin() {
   try { r = await api('/api/donateurs/reglages'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
   const h = r.helloasso, g = r.githubSponsors;
   const erreur = (s, msg) => (msg ? `<p class="erreur">⚠ ${esc(s)} : ${esc(msg)}</p>` : '');
+  // Secret : champ vide = inchangé ; « Effacer » retire ce qui a été saisi ici (le .env reprend la main, s'il en a un)
+  const secret = (id, libelle, defini, saisi, type = 'password') => `<label>${libelle} <span class="champ-secret"><input id="${id}" type="${type}" placeholder="${defini ? '•••••• (inchangé)' : ''}" autocomplete="${type === 'password' ? 'new-password' : 'off'}">${saisi ? `<button type="button" class="mini" data-effacer="${id}" title="Effacer le secret saisi dans cette page (le fichier .env reprend la main)">Effacer</button>` : ''}</span></label>`;
+  const types = (r.types || ['Donation']).map((t) => `<option value="${esc(t)}" ${t === h.type ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  const plein = (r.manuel || []).length >= (r.maxManuel || 200);
   z.innerHTML = `<div class="parametres compact">
       <label class="case ligne-entiere"><input type="checkbox" id="don-montant" ${r.montantVisible ? 'checked' : ''}> Montant des dons affiché (décoché : seul le nom et le pays apparaissent)</label>
     </div>
-    <h4>HelloAsso (association Radio-club du Velay)</h4>
+    <h4>HelloAsso (dons à l’association)</h4>
     <div class="parametres compact">
-      <label class="case ligne-entiere"><input type="checkbox" id="don-ha-actif" ${h.actif ? 'checked' : ''}> Activer (vérifie l’accès à l’API, pour le diagnostic — n’affiche rien d’automatique sur le mur, voir ci-dessous)</label>
-      <label>Organisation (slug) <input id="don-ha-org" value="${esc(h.organisation || '')}" placeholder="radioclub-du-velay"></label>
-      <label>Formulaire (identifiant) <input id="don-ha-form" value="${esc(h.formulaire || '')}" placeholder="2"></label>
-      <label>Identifiant client (API) <input id="don-ha-id" placeholder="${h.clientIdDefini ? '•••••• (inchangé)' : ''}" autocomplete="off"></label>
-      <label>Clé secrète (API) <input id="don-ha-secret" type="password" placeholder="${h.clientSecretDefini ? '•••••• (inchangée)' : ''}" autocomplete="new-password"></label>
+      <label class="case ligne-entiere"><input type="checkbox" id="don-ha-actif" ${h.actif ? 'checked' : ''}> Activer (vérifie l’accès à l’API et affiche le lien « Faire un don » — n’affiche rien d’automatique sur le mur, voir ci-dessous)</label>
+      <label>Organisation (slug dans l’adresse HelloAsso) <input id="don-ha-org" value="${esc(h.organisation || '')}" placeholder="mon-association"></label>
+      <label>Formulaire (slug, à la fin de son adresse) <input id="don-ha-form" value="${esc(h.formulaire || '')}" placeholder="2"></label>
+      <label>Type du formulaire <select id="don-ha-type">${types}</select></label>
+      ${secret('don-ha-id', 'Identifiant client (API)', h.clientIdDefini, h.clientIdSaisi, 'text')}
+      ${secret('don-ha-secret', 'Clé secrète (API)', h.clientSecretDefini, h.clientSecretSaisi)}
     </div>
     ${erreur('HelloAsso', r.erreurs.helloasso)}
-    <p class="note">HelloAsso ne dit pas si un donateur a accepté d’être montré publiquement : ajoutez chaque don à la main, après son accord.</p>
-    <div id="don-ha-liste">${(r.manuel || []).map((m) => `<div class="ligne"><span class="titre">${esc(m.nom)}${m.pays ? ' · ' + esc(m.pays) : ''}${m.montant != null ? ' · ' + m.montant + ' €' : ''}<small>ajouté ${ilYa(new Date(m.date).getTime())}</small></span><span class="meta"><button class="mini" data-don-retirer="${esc(m.id)}">✕</button></span></div>`).join('') || '<div class="vide">Aucun don saisi.</div>'}</div>
+    <p class="note">HelloAsso ne dit pas si un donateur a accepté d’être montré publiquement : ajoutez chaque don à la main, après son accord. Le nom est toujours abrégé sur la carte (au plus la moitié des caractères : « 42BARBE » devient « 42B*** »).</p>
+    <div id="don-ha-liste">${(r.manuel || []).map((m) => `<div class="ligne"><span class="titre">${esc(m.nom)}${m.pays ? ' · ' + esc(m.pays) : ''}${m.montant != null ? ' · ' + esc(String(m.montant)) + ' €' : ''}<small>ajouté ${ilYa(new Date(m.date).getTime())}</small></span><span class="meta"><button class="mini" data-don-retirer="${esc(m.id)}">✕</button></span></div>`).join('') || '<div class="vide">Aucun don saisi.</div>'}</div>
+    ${plein ? `<p class="erreur">Liste pleine (${r.maxManuel || 200} dons) : retirez d’anciennes entrées avant d’en ajouter.</p>` : ''}
     <form id="f-don-manuel" class="parametres compact">
       <label>Nom ou pseudonyme affiché <input name="nom" maxlength="60" required placeholder="ex. 42BARBE"></label>
-      <label>Pays (code à 2 lettres, facultatif) <input name="pays" maxlength="2" placeholder="FR"></label>
+      <label>Pays (code à 2 lettres, facultatif) <input name="pays" maxlength="2" pattern="[A-Za-z]{2}" placeholder="FR"></label>
       <label>Montant en euros (facultatif) <input name="montant" type="number" min="0" step="0.01" placeholder="20"></label>
       <label class="case ligne-entiere"><input type="checkbox" name="accord" required> Le donateur a accepté d’être affiché sur la carte (obligatoire)</label>
-      <button type="submit" class="principal">Ajouter ce don</button>
+      <button type="submit" class="principal" ${plein ? 'disabled' : ''}>Ajouter ce don</button>
     </form>
-    <h4>GitHub Sponsors (parrainages personnels, compte sauveteur71)</h4>
+    <h4>GitHub Sponsors (parrainages du compte GitHub)</h4>
     <div class="parametres compact">
-      <label class="case ligne-entiere"><input type="checkbox" id="don-gh-actif" ${g.actif ? 'checked' : ''}> Activer (affiche les sponsors que GitHub marque publics ; les sponsors privés ne sont jamais montrés)</label>
-      <label>Compte GitHub <input id="don-gh-compte" value="${esc(g.compte || '')}" placeholder="sauveteur71"></label>
-      <label>Jeton d’accès (lecture seule) <input id="don-gh-jeton" type="password" placeholder="${g.jetonDefini ? '•••••• (inchangé)' : ''}" autocomplete="new-password"></label>
+      <label class="case ligne-entiere"><input type="checkbox" id="don-gh-actif" ${g.actif ? 'checked' : ''}> Activer (affiche les parrainages que GitHub marque publics, et le lien « GitHub Sponsors » ; les parrainages privés ne sont jamais lus)</label>
+      <label>Compte GitHub <input id="don-gh-compte" value="${esc(g.compte || '')}" placeholder="mon-compte"></label>
+      ${secret('don-gh-jeton', 'Jeton d’accès (lecture seule)', g.jetonDefini, g.jetonSaisi)}
     </div>
     ${erreur('GitHub Sponsors', r.erreurs.githubSponsors)}
-    <p class="note">Ces versements vont sur le compte GitHub personnel d’Olivier (revenus à déclarer), affichés ici à côté des dons HelloAsso.</p>
+    <p class="note">Ces versements vont sur le compte GitHub personnel du titulaire (revenus à déclarer), affichés ici à côté des dons HelloAsso.</p>
     <div class="actions-prop"><button type="button" class="mini principal" id="don-reglages-ok">Enregistrer</button></div>
     <p class="note">Dernière vérification : ${r.maj ? ilYa(r.maj) : 'jamais'}.</p>
     <p class="erreur" id="don-retour"></p>`;
@@ -4118,13 +4124,19 @@ async function rendreDonateursAdmin() {
     try {
       await postJson('/api/donateurs/reglages', {
         montantVisible: $('#don-montant').checked,
-        helloasso: { actif: $('#don-ha-actif').checked, organisation: champ('don-ha-org'), formulaire: champ('don-ha-form'), clientId: champ('don-ha-id'), clientSecret: champ('don-ha-secret') },
+        helloasso: { actif: $('#don-ha-actif').checked, organisation: champ('don-ha-org'), formulaire: champ('don-ha-form'), type: $('#don-ha-type').value, clientId: champ('don-ha-id'), clientSecret: champ('don-ha-secret') },
         githubSponsors: { actif: $('#don-gh-actif').checked, compte: champ('don-gh-compte'), jeton: champ('don-gh-jeton') },
       });
       rendreDonateursAdmin();
+      chargerDonateurs();
       annonce('✔ Réglages du mur des donateurs enregistrés.', 'info');
     } catch (e) { $('#don-retour').textContent = e.message; }
   };
+  z.querySelectorAll('[data-effacer]').forEach((b) => (b.onclick = async () => {
+    if (!(await confirmer('Effacer ce secret saisi dans la page ? Le fichier .env reprend la main, s’il en contient un.'))) return;
+    const cle = { 'don-ha-id': ['helloasso', 'clientIdEffacer'], 'don-ha-secret': ['helloasso', 'clientSecretEffacer'], 'don-gh-jeton': ['githubSponsors', 'jetonEffacer'] }[b.dataset.effacer];
+    try { await postJson('/api/donateurs/reglages', { [cle[0]]: { [cle[1]]: true } }); rendreDonateursAdmin(); } catch (e) { $('#don-retour').textContent = e.message; }
+  }));
   $('#f-don-manuel').onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target;
@@ -8020,19 +8032,21 @@ setTimeout(chargerAlertesOff, 2500);
 setInterval(chargerAlertesOff, 5 * 60000);
 
 // ---- Mur des donateurs : HelloAsso (association) + GitHub Sponsors, bandeau discret et désactivable --------
-const don = { liste: [], index: 0 };
+// Liens « Faire un don » : tirés des réglages du serveur (/api/donateurs → liens), jamais codés ici
+const don = { liste: [], liens: {}, index: 0 };
 async function chargerDonateurs() {
-  try { const r = await api('/api/donateurs'); don.liste = r.liste || []; } catch { return; }
+  try { const r = await api('/api/donateurs'); don.liste = Array.isArray(r.liste) ? r.liste : []; don.liens = r.liens || {}; } catch { return; }
   rendreBandeauDonateurs();
 }
 // Drapeau à partir d'un code pays ISO à 2 lettres (émoji « indicateur régional »)
 function paysDrapeau(code) {
-  if (!code || code.length !== 2) return '';
+  if (typeof code !== 'string' || !/^[A-Z]{2}$/i.test(code)) return '';
   const base = 0x1f1e6;
   return [...code.toUpperCase()].map((c) => String.fromCodePoint(base + c.charCodeAt(0) - 65)).join('');
 }
 function texteDon(x) {
-  const montant = x.montant != null ? ` ${x.montant} ${x.devise === 'USD' ? '$' : '€'}` : '';
+  // Données venues du serveur, mais échappées quand même (montant compris)
+  const montant = Number.isFinite(Number(x.montant)) && x.montant != null ? ` ${esc(String(x.montant))} ${x.devise === 'USD' ? '$' : '€'}` : '';
   return `${esc(x.nom)}${x.pays ? ' ' + paysDrapeau(x.pays) : ''} a ${x.source === 'github' ? 'parrainé' : 'donné'}${montant} pour soutenir le projet`;
 }
 let minuterieDon = null;
@@ -8040,15 +8054,22 @@ function rendreBandeauDonateurs() {
   let b = document.getElementById('bandeau-donateurs');
   try { if (localStorage.getItem('gaulix_donateurs_masque') === '1') { if (b) b.remove(); clearInterval(minuterieDon); return; } } catch { /* stockage indisponible : bandeau affiché quand même */ }
   if (!don.liste.length) { if (b) b.remove(); clearInterval(minuterieDon); return; }
-  const afficher = () => { const x = don.liste[don.index % don.liste.length]; const t = b.querySelector('span'); if (t) t.innerHTML = texteDon(x); };
+  const afficher = () => { const x = don.liste[don.index % don.liste.length]; const t = b.querySelector('.don-texte'); if (t) t.innerHTML = texteDon(x); };
+  const liens = [don.liens.helloasso ? `<a href="${esc(don.liens.helloasso)}" target="_blank" rel="noopener">Faire un don</a>` : '',
+    don.liens.github ? `<a href="${esc(don.liens.github)}" target="_blank" rel="noopener">GitHub Sponsors</a>` : ''].filter(Boolean).map((l) => ' · ' + l).join('');
+  const blocLiens = liens ? `<span class="don-liens">${liens}</span>` : '';
   if (!b) {
     b = document.createElement('div');
     b.id = 'bandeau-donateurs';
     b.className = 'bandeau-donateurs';
-    b.innerHTML = `💜 <span></span> · <a href="https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2" target="_blank" rel="noopener">Faire un don</a> · <a href="https://github.com/sponsors/sauveteur71" target="_blank" rel="noopener">GitHub Sponsors</a><button type="button" class="fermer-bandeau" title="Masquer le mur des donateurs" aria-label="Masquer le mur des donateurs">✕</button>`;
-    b.querySelector('.fermer-bandeau').onclick = () => { try { localStorage.setItem('gaulix_donateurs_masque', '1'); } catch { /* ignoré */ } b.remove(); clearInterval(minuterieDon); };
+    b.setAttribute('role', 'status');
     document.body.appendChild(b);
     minuterieDon = setInterval(() => { don.index = (don.index + 1) % don.liste.length; afficher(); }, 8000);
+  }
+  if (b.dataset.liens !== liens) {
+    b.dataset.liens = liens;
+    b.innerHTML = `💜 <span class="don-texte"></span>${blocLiens}<button type="button" class="fermer-bandeau" title="Masquer le mur des donateurs" aria-label="Masquer le mur des donateurs">✕</button>`;
+    b.querySelector('.fermer-bandeau').onclick = () => { try { localStorage.setItem('gaulix_donateurs_masque', '1'); } catch { /* ignoré */ } b.remove(); clearInterval(minuterieDon); };
   }
   afficher();
 }
