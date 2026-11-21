@@ -88,3 +88,23 @@ Une fois par an environ (nouvelles routes, sommets, pylônes dans OpenStreetMap)
 2. sur GitHub, *Releases › relief-france › Edit* : supprimer l'ancien `relief-france.tar.gz`, joindre le nouveau dans le cadre **« Attach binaries »** (la zone de texte refuse plus de 25 Mo), laisser la case *pre-release* cochée.
 
 Sources : relief IGN RGE ALTI (Licence Ouverte Etalab 2.0) ; points hauts, voies d'accès et sites © contributeurs OpenStreetMap (ODbL).
+
+## Relief approximatif pendant les chargements
+Le premier calcul dans une zone télécharge son relief précis (250 m) : quelques minutes. Pour ne pas laisser l'écran vide, la carte peut garder un **relief grossier du monde entier** (NOAA ETOPO1, domaine public, une altitude tous les 5′ ≈ 9 km, 19 Mo sur le disque, téléchargé une seule fois en arrière-plan) :
+
+- pendant le téléchargement, la **couverture d'un point, d'un site, de plusieurs sites, du réseau**, la simulation « et si… » et « relier deux lieux » s'affichent déjà, avec la mention **« ⏳ Relief approximatif (≈ 9 km) : le relief précis se charge »** ;
+- dès que le relief précis est là, il remplace le grossier et le résultat est **recalculé tout seul** (environ toutes les 30 s) ; un résultat approximatif n'est jamais gardé en mémoire comme s'il était précis ;
+- le classement des sites, les plans et « couvrir un point » attendent le relief précis (ils ont besoin des points hauts).
+
+À 9 km, les vallées étroites et les crêtes fines disparaissent : la couverture approximative est optimiste dans les vallées encaissées et pessimiste derrière un sommet isolé. Elle sert à se faire une idée, pas à choisir un emplacement.
+
+Réglage : *Outils › 🗺️ Toute la France › 💾 Relief téléchargé sur ce serveur › Relief approximatif du monde entier* (**désactivé par défaut** dans l’édition France : le paquet « relief France » et l’IGN suffisent le plus souvent). Dans le `.env` : `RELIEF_MONDE=oui|non` (valeur par défaut), `RELIEF_MONDE_MINUTES=3` (≈ 5,5 km, 52 Mo), `RELIEF_MONDE_ERDDAP=` (miroirs ERDDAP). Source : service ERDDAP de la NOAA (`coastwatch.pfeg.noaa.gov`, jeu `etopo180`), lu en 19 bandes de 10° ; une coupure reprend à la bande suivante, un échec est retenté toutes les heures.
+
+## Place prise par le relief : purge
+*Outils › 🗺️ Toute la France › 💾 Relief téléchargé sur ce serveur* (administrateurs) affiche l'espace occupé (zones téléchargées, zone de la carte, relief mondial) et, dans « Détail », chaque zone avec sa taille et sa date de dernière utilisation.
+
+- **🗑 Supprimer** une zone, **🧹 Purger** les zones inutilisées depuis N jours, ou **🗑 Tout purger** : une confirmation est demandée. Une zone supprimée se retélécharge toute seule au prochain calcul.
+- Jamais supprimés : la zone de la carte, une zone en cours de chargement ou de préparation, une zone utilisée il y a moins de 10 minutes, et le relief mondial (bouton à part).
+- **Garder au plus (Go)** : au-delà, les zones les moins récemment utilisées sont supprimées d'elles-mêmes (vérifié toutes les heures et après chaque téléchargement). 0 = sans limite (par défaut).
+
+Chaque purge est écrite dans le journal (qui, combien de zones, place libérée).

@@ -88,3 +88,23 @@ About once a year (new roads, summits, pylons in OpenStreetMap):
 2. on GitHub, *Releases › relief-france › Edit*: delete the old `relief-france.tar.gz`, attach the new one in the **“Attach binaries”** box (the text area refuses more than 25 MB), keep the *pre-release* box ticked.
 
 Sources: IGN RGE ALTI terrain (Licence Ouverte Etalab 2.0); high points, access roads and sites © OpenStreetMap contributors (ODbL).
+
+## Approximate terrain while loading
+The first calculation in an area downloads its detailed terrain (250 m): a few minutes. So the screen is not left empty, the map can keep a **coarse terrain of the whole world** (NOAA ETOPO1, public domain, one elevation every 5′ ≈ 9 km, 19 MB on disk, downloaded once in the background):
+
+- during the download, **coverage of a point, a site, several sites, the network**, the “what if…” simulation and “link two places” already show, marked **“⏳ Approximate terrain (≈ 9 km): the detailed terrain is loading”**;
+- as soon as the detailed terrain is there, it replaces the coarse one and the result is **recalculated automatically** (about every 30 s); an approximate result is never cached as if it were detailed;
+- site ranking, plans and “cover a point” wait for the detailed terrain (they need the high points).
+
+At 9 km, narrow valleys and thin ridges disappear: approximate coverage is optimistic in deep valleys and pessimistic behind an isolated summit. It gives an idea, not a site choice.
+
+Setting: *Tools › 🗺️ Whole of France › 💾 Terrain downloaded on this server › Approximate worldwide terrain while loading* (**off by default** in the French edition). In the `.env`: `RELIEF_MONDE=yes|no` (default), `RELIEF_MONDE_MINUTES=3` (≈ 5.5 km, 52 MB), `RELIEF_MONDE_ERDDAP=` (ERDDAP mirrors). Source: NOAA ERDDAP service (`coastwatch.pfeg.noaa.gov`, dataset `etopo180`), read in 19 bands of 10°; an interruption resumes at the next band, a failure is retried every hour.
+
+## Disk space used by terrain: purge
+*Tools › 🗺️ Whole of France › 💾 Terrain downloaded on this server* (administrators) shows the space used (downloaded zones, map zone, world terrain) and, under “Details”, each zone with its size and last use.
+
+- **🗑 Delete** one zone, **🧹 Purge** zones unused for N days, or **🗑 Purge all**: confirmation is asked. A deleted zone downloads again by itself at the next calculation.
+- Never deleted: the map's own zone, a zone being loaded or prepared, a zone used less than 10 minutes ago, and the world terrain (separate button).
+- **Keep at most (GB)**: beyond it, the least recently used zones are deleted automatically (checked every hour and after each download). 0 = no limit (default).
+
+Each purge is written to the log (who, how many zones, space freed).

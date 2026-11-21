@@ -481,11 +481,15 @@ test('Passerelle : positions et signalements relayés une fois, sans écho', asy
   const { creerPasserelle } = require('../src/passerelle');
   const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'passerelle-'));
   const envois = [];
-  const p = creerPasserelle({
+  // Minuteries de la passerelle relevées pour être arrêtées à la fin (avant : process.exit, qui coupait les essais suivants)
+  const vraiSetInterval = global.setInterval, minuteries = [];
+  global.setInterval = (...x) => { const m = vraiSetInterval(...x); minuteries.push(m); return m; };
+  let p;
+  try { p = creerPasserelle({
     config: { fichierBase: path.join(dossier, 'x.db'), passerelle: { actif: true }, canaux: [], meshcore: {} }, journal: () => {}, audit: {}, nomMt: () => 'F4XYZ',
     envoyerMt: async (c, t) => envois.push(['MT', t]), envoyerMc: async (c, t) => envois.push(['MC', t]),
     etatMt: () => ({ connecte: true, noeudLocal: 1, canaux: [{ index: 1, nom: 'Crise' }] }), etatMc: () => ({ pret: true, nom: 'BASE', canaux: [{ index: 2, nom: '#crise' }] }),
-  });
+  }); } finally { global.setInterval = vraiSetInterval; }
   p.regler({ ecartEnvoiS: 2 });
   p.ajouterRegle({ mt: 1, mc: 2, sens: 'bi', positions: true, signalements: true }, 'essai');
   p.recevoirPosition({ reseau: 'mt', canal: 'Crise', de: 0x1234, nom: 'F4XYZ', lat: 45.0451, lon: 3.8852 });
@@ -500,6 +504,7 @@ test('Passerelle : positions et signalements relayés une fois, sans écho', asy
   assert.ok(textes.every((t) => /DFCI [A-HK-N]{2}/.test(t)), textes.join(' | '));
   assert.ok(!textes.some((t) => t.includes('BASE')));
   fs.rmSync(dossier, { recursive: true, force: true });
+  minuteries.forEach(clearInterval);
   // la passerelle garde des minuteries actives : le processus est arrêté après le dernier test (test.after)
 });
 
@@ -854,4 +859,195 @@ test('Réseau : relais retrouvé par son dernier octet sans relire toute la tabl
   assert.equal(reseau.nettoyer().liens, 1);
   st.db.close();
   fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+// ---------- Relief grossier mondial et cache du relief ----------
+// Faux service ERDDAP (format ESRI ASCII, lignes du nord vers le sud) : altitude synthétique connue en chaque point
+const http = require('http');
+const altSynth = (lat, lon) => Math.round(lat * 20 + lon * 3); // négatif = mer → 0 dans la grille
+function fauxErddap({ echecs = new Set(), delai = 0 } = {}) {
+  const appels = [];
+  const srv = http.createServer((req, res) => {
+    const q = decodeURIComponent(req.url.split('?')[1] || '');
+    const m = /altitude\[\(([-\d.]+)\):(\d+):\(([-\d.]+)\)\]\[\(([-\d.]+)\):(\d+):\(([-\d.]+)\)\]/.exec(q);
+    if (!m) { res.statusCode = 400; return res.end('requête invalide'); }
+    const [lat0, pas, lat1, lon0, , lon1] = [Number(m[1]), Number(m[2]) / 60, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6])];
+    appels.push(lat0);
+    if (echecs.has(lat0)) { echecs.delete(lat0); res.statusCode = 503; return res.end('saturé'); }
+    const nr = Math.round((lat1 - lat0) / pas) + 1, nc = Math.round((lon1 - lon0) / pas) + 1;
+    let t = `ncols ${nc}\nnrows ${nr}\nxllcenter ${lon0}\nyllcenter ${lat0}\ncellsize ${pas}\nnodata_value -9999999\n`;
+    for (let r = nr - 1; r >= 0; r--) { const l = []; for (let c = 0; c < nc; c++) l.push(altSynth(lat0 + r * pas, lon0 + c * pas)); t += l.join(' ') + '\n'; }
+    setTimeout(() => { res.setHeader('Content-Type', 'text/plain'); res.end(t); }, delai);
+  });
+  return new Promise((ok) => srv.listen(0, '127.0.0.1', () => ok({ srv, url: `http://127.0.0.1:${srv.address().port}/erddap`, appels })));
+}
+
+test('Relief grossier : téléchargement par bandes, reprise après une panne, lecture interpolée, océans à 0', async () => {
+  const { creerReliefGrossier } = require('../src/relief-grossier');
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'grossier-'));
+  // Grille de 1° (181 × 360), bandes de 30° ; la bande partant de 30° N échoue sur les deux « miroirs » → erreur
+  const f = await fauxErddap({ echecs: new Set([30]) });
+  const panne = await fauxErddap({ echecs: new Set([30]) });
+  try {
+    let g = creerReliefGrossier({ dossier, minutes: 60, degreParBande: 30, serveurs: [f.url, panne.url] });
+    assert.equal(g.etat().statut, 'absent');
+    assert.equal(g.grille({ sud: 0, ouest: 0, pasLat: 1, pasLon: 1, nLat: 1, nLon: 1 }), null);
+    // 1er essai : f échoue sur 30, panne aussi → 2e tour : f répond ; reprise donc dans le même téléchargement
+    await g.telecharger();
+    assert.equal(g.etat().statut, 'pret', g.etat().erreur);
+    assert.equal(fs.statSync(path.join(dossier, 'relief-monde-60m.bin')).size, 181 * 360 * 2);
+    assert.ok(!fs.existsSync(path.join(dossier, 'relief-monde-60m.bin.part')));
+    // Reprise d'un téléchargement coupé : les bandes déjà écrites ne sont pas redemandées
+    fs.renameSync(path.join(dossier, 'relief-monde-60m.bin'), path.join(dossier, 'relief-monde-60m.bin.part'));
+    fs.unlinkSync(path.join(dossier, 'relief-monde-60m.json'));
+    fs.writeFileSync(path.join(dossier, 'relief-monde-60m.reprise.json'), JSON.stringify({ minutes: 60, bandes: [0, 1, 2, 3, 4] }));
+    const avant = f.appels.length;
+    g = creerReliefGrossier({ dossier, minutes: 60, degreParBande: 30, serveurs: [f.url] });
+    await g.telecharger();
+    assert.equal(g.etat().statut, 'pret');
+    assert.deepEqual(f.appels.slice(avant), [60, 90].map((x) => x)); // bandes 5 (60° N) et 6 (90° N) seulement
+    // Valeurs : points de la grille exacts, interpolation bilinéaire entre eux, mer à 0, passage du méridien 180
+    const z = (lat, lon) => g.grille({ sud: lat, ouest: lon, pasLat: 0.1, pasLon: 0.1, nLat: 1, nLon: 1 })[0];
+    assert.equal(z(45, 3), altSynth(45, 3));
+    assert.ok(Math.abs(z(45.5, 3.5) - (altSynth(45, 3) + altSynth(46, 3) + altSynth(45, 4) + altSynth(46, 4)) / 4) < 1e-3);
+    assert.equal(z(-40, 10), 0); // altitude synthétique négative = océan
+    assert.ok(Math.abs(z(60, 179.5) - (altSynth(60, 179) + altSynth(60, -180)) / 2) < 1e-3); // 180° E = 180° O
+    const grande = g.grille({ sud: 44.6, ouest: 2.6, pasLat: 0.01, pasLon: 0.01, nLat: 180, nLon: 180 });
+    assert.equal(grande.length, 180 * 180);
+    assert.ok(grande.every(Number.isFinite));
+    // Suppression : fichiers effacés, état « absent »
+    await g.supprimer();
+    assert.equal(g.etat().statut, 'absent');
+    assert.deepEqual(g.fichiers(), []);
+  } finally { f.srv.close(); panne.srv.close(); }
+});
+
+test('Relief grossier : réponse inattendue (mauvaise grille) refusée, aucun fichier « prêt » laissé', async () => {
+  const { creerReliefGrossier } = require('../src/relief-grossier');
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'grossier-'));
+  const srv = http.createServer((req, res) => res.end('ncols 3\nnrows 2\nxllcenter -180\nyllcenter -90\ncellsize 1\nnodata_value -9\n1 2 3\n4 5 6\n'));
+  await new Promise((ok) => srv.listen(0, '127.0.0.1', ok));
+  try {
+    const g = creerReliefGrossier({ dossier, minutes: 60, degreParBande: 30, serveurs: [`http://127.0.0.1:${srv.address().port}/erddap`] });
+    const t = Date.now();
+    await g.telecharger();
+    assert.equal(g.etat().statut, 'erreur');
+    assert.match(g.etat().erreur, /inattendue/);
+    assert.ok(!fs.existsSync(path.join(dossier, 'relief-monde-60m.bin')));
+    assert.ok(Date.now() - t < 40000);
+  } finally { srv.close(); }
+});
+
+test('Relief : relief grossier pendant le téléchargement du précis, calculs marqués approximatifs, puis bascule', async () => {
+  const { creerRelief } = require('../src/relief');
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'relief-'));
+  // Points hauts déjà en cache : aucun appel à OpenStreetMap pendant l'essai
+  fs.writeFileSync(path.join(dossier, 'sommets-osm-43.json'), JSON.stringify({ date: Date.now(), liste: [] }));
+  // Faux service altimétrique IGN : altitude 0 partout ; la réponse est retenue tant que l'essai ne la libère pas
+  let liberer;
+  const retenue = new Promise((ok) => { liberer = ok; });
+  const fetchAvant = global.fetch;
+  global.fetch = async (url, o = {}) => {
+    if (/geopf/i.test(String(url))) { await retenue; const n = JSON.parse(o.body).lon.split('|').length; return { ok: true, status: 200, json: async () => ({ elevations: new Array(n).fill(0) }) }; }
+    throw new Error('hors ligne (essai)');
+  };
+  // Relief grossier factice : un dôme de 1500 m centré sur 45,1° N 3,9° E (Haute-Loire)
+  const grossier = {
+    pret: () => true, quandPret: () => () => {}, etat: () => ({ resolutionKm: 9.3, source: 'essai' }),
+    grille: ({ sud, ouest, pasLat, pasLon, nLat, nLon }) => {
+      const z = new Float32Array(nLat * nLon);
+      for (let i = 0; i < nLat; i++) for (let j = 0; j < nLon; j++) { const d = Math.hypot(sud + i * pasLat - 45.1, ouest + j * pasLon - 3.9); z[i * nLon + j] = Math.max(0, 1500 - d * 1500); }
+      return z;
+    },
+  };
+  let R;
+  const fournisseurs = { presetCourant: () => 'LONG_FAST', noeudsReseau: () => [], liensMesures: () => [], envDefaut: () => 10, reliefGrossier: () => grossier, apresTelechargement: () => R.arreter() };
+  try {
+    R = creerRelief({ fichierBase: path.join(dossier, 'carte-live.db'), departement: { code: '07' }, zone: [44.2, 3.8, 45.4, 4.9] }, () => {}, fournisseurs, { code: '43' });
+    for (let k = 0; k < 100 && !R.utilisable(); k++) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(R.pret(), false);
+    assert.equal(R.utilisable(), true);
+    assert.equal(R.approximatif(), true);
+    assert.equal(R.etat().mnt, 'chargement');
+    assert.equal(R.etat().approx.resolutionKm, 9.3);
+    const a = await R.couverturePng({ lat: 45.1, lon: 3.9 }, { hs: 10 });
+    assert.equal(a.approximatif, true);
+    assert.equal(a.reliefApprox.resolutionKm, 9.3);
+    assert.ok(a.sol > 1450, 'altitude du dôme grossier');
+    assert.ok(a.image.subarray(1, 4).toString() === 'PNG');
+    // Calculs qui demandent les points hauts : toujours refusés tant que le relief précis manque
+    assert.throws(() => R.couvrirPoint({ lat: 45.1, lon: 3.9 }), /en cours de chargement/);
+    // Relief précis arrivé (mer partout : 0 m) : il remplace le grossier, plus de mention approximative
+    liberer();
+    for (let k = 0; k < 200 && !R.pret(); k++) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(R.pret(), true);
+    assert.equal(R.approximatif(), false);
+    assert.equal(R.etat().approx, null);
+    const b = await R.couverturePng({ lat: 45.1, lon: 3.9 }, { hs: 10 });
+    assert.equal(b.approximatif, undefined);
+    assert.equal(b.sol, 0);
+    assert.ok(fs.existsSync(path.join(dossier, 'mnt-43.bin')));
+  } finally { liberer(); global.fetch = fetchAvant; if (R) R.arreter(); }
+});
+
+test('Cache du relief : espace occupé, purge par ancienneté, zone verrouillée ou récente gardée, plafond LRU', async () => {
+  const { creerCacheRelief } = require('../src/relief-cache');
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-relief-'));
+  const ecrire = (f, n) => fs.writeFileSync(path.join(dossier, f), Buffer.alloc(n));
+  const jour = 86400000, maintenant = Date.now();
+  ecrire('mnt.bin', 5000); ecrire('mnt.json', 100); // zone de la carte : jamais purgée
+  ecrire('mnt-07.bin', 3000); ecrire('mnt-07.json', 100); ecrire('sommets-osm-07.json', 50); ecrire('mnt-07.json.bak', 100);
+  ecrire('mnt-MN45E003.bin', 2000); ecrire('mnt-MN45E003.json', 100);
+  ecrire('mnt-MN46E003.bin', 4000); ecrire('mnt-MN46E003.json', 100);
+  ecrire('mnt-15.bin', 1000); ecrire('mnt-15.json', 100);
+  ecrire('autre.bin', 999); ecrire('mnt-..-x.bin', 10); // fichiers étrangers : ignorés
+  fs.writeFileSync(path.join(dossier, 'relief-utilisation.json'), JSON.stringify({ '07': maintenant - 40 * jour, MN45E003: maintenant - 2 * jour, MN46E003: maintenant - 60 * jour, 15: maintenant - 1000 }));
+  const verrous = new Set(['MN46E003']); // en cours de préparation
+  const ouvertes = new Map([['15', { etat: () => ({ mnt: 'pret' }) }]]); // ouverte et utilisée à l'instant
+  const liberees = [], journalLignes = [];
+  let grossierSupprime = false;
+  const grossier = { etat: () => ({ statut: 'pret', octetsDisque: grossierSupprime ? 0 : 18e6, resolutionKm: 9.3 }), supprimer: async () => { grossierSupprime = true; } };
+  const c = creerCacheRelief({ dossier, journal: (...l) => journalLignes.push(l.join(' ')), verrous: () => verrous, enMemoire: () => ouvertes, liberer: (x) => { liberees.push(x); ouvertes.delete(x); }, grossier });
+  try {
+    let inv = c.inventaire(0);
+    assert.deepEqual(inv.zones.map((z) => z.code).sort(), ['07', '15', 'MN45E003', 'MN46E003']);
+    assert.equal(inv.zones.find((z) => z.code === '07').octets, 3250);
+    assert.equal(inv.zonesOctets, 3250 + 2100 + 4100 + 1100);
+    assert.equal(inv.principale.octets, 5100);
+    assert.equal(inv.totalOctets, 3250 + 2100 + 4100 + 1100 + 5100 + 18e6);
+    assert.equal(inv.zones.find((z) => z.code === 'MN46E003').verrou, true);
+    assert.equal(inv.zones.find((z) => z.code === '15').recente, true);
+    // Inutilisées depuis 30 jours : 07 supprimée, MN46E003 gardée (en préparation)
+    let r = await c.purger({ joursInactifs: 30 }, 'essai');
+    assert.deepEqual(r.supprimees, ['07']);
+    assert.deepEqual(r.refusees.map((x) => x.code), ['MN46E003']);
+    assert.equal(r.octetsLiberes, 3250);
+    assert.ok(!fs.existsSync(path.join(dossier, 'mnt-07.bin')) && !fs.existsSync(path.join(dossier, 'mnt-07.json.bak')));
+    assert.ok(fs.existsSync(path.join(dossier, 'mnt.bin')) && fs.existsSync(path.join(dossier, 'autre.bin')));
+    assert.ok(journalLignes.some((l) => /purge du relief par essai/.test(l)));
+    // Tout purger : la zone ouverte à l'instant et la zone en préparation restent, le relief mondial aussi
+    r = await c.purger({ tout: true }, 'essai');
+    assert.deepEqual(r.supprimees, ['MN45E003']);
+    assert.deepEqual(r.refusees.map((x) => x.code).sort(), ['15', 'MN46E003']);
+    assert.equal(grossierSupprime, false);
+    // Plafond : fin de la préparation, zone 15 plus récente ; LRU supprime d'abord la plus ancienne (MN46E003)
+    verrous.clear();
+    ecrire('mnt-MN45E003.bin', 2000);
+    c.noterUtilisation('MN45E003');
+    r = c.appliquerPlafond(3500 / 1e9); // 3,5 ko
+    assert.deepEqual(r.supprimees, ['MN46E003']);
+    assert.ok(fs.existsSync(path.join(dossier, 'mnt-MN45E003.bin')));
+    // Zone ouverte mais plus utilisée depuis longtemps : fermée puis supprimée sur demande
+    const u = JSON.parse(fs.readFileSync(path.join(dossier, 'relief-utilisation.json'), 'utf8'));
+    assert.ok(u.MN45E003 > maintenant - 5000, 'date de dernière utilisation enregistrée');
+    ouvertes.set('MN45E003', { etat: () => ({ mnt: 'pret' }) });
+    c.noterUtilisation('MN45E003');
+    r = await c.purger({ codes: ['mn45e003'] }, 'essai');
+    assert.deepEqual(r.refusees.map((x) => x.code), ['MN45E003']); // utilisée il y a moins de 10 min
+    // Relief mondial : seulement sur demande explicite
+    r = await c.purger({ grossier: true }, 'essai');
+    assert.equal(grossierSupprime, true);
+    assert.ok(r.supprimees.includes('monde'));
+    assert.equal(liberees.length, 0);
+  } finally { c.arreter(); }
 });

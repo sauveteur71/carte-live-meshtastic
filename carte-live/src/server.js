@@ -65,7 +65,9 @@ const { creerReseau } = require('./reseau');
 const { creerSourceMeshMonitor } = require('./meshmonitor');
 const { creerSourceRadio } = require('./radio');
 const { creerAnalyse } = require('./analyse');
-const { creerRelief, contourDepartement } = require('./relief');
+const { creerRelief, contourDepartement, nomDepartement } = require('./relief');
+const { creerReliefGrossier } = require('./relief-grossier');
+const { creerCacheRelief } = require('./relief-cache');
 const { creerComptes } = require('./comptes');
 const { creerAdministration } = require('./administration');
 const { creerAgents } = require('./agents');
@@ -435,6 +437,27 @@ let reliefPublic = { couverture: 'departement' };
 try { reliefPublic = { ...reliefPublic, ...lireJson(fReliefPublic) }; } catch { /* défaut */ }
 const franceOuverte = () => reliefPublic.couverture === 'france';
 const precharge = { enCours: false, arret: false, total: 0, faits: 0, deja: 0, erreurs: [], courant: null, etape: null, aCompleter: [], instance: null, debut: null, fin: null };
+// ---- Relief grossier mondial (≈ 9 km, NOAA ETOPO1) : affiché le temps que le relief IGN d'un département se télécharge.
+// Désactivé par défaut dans l'édition France (le paquet « relief France » et le relief IGN suffisent le plus souvent) :
+// à cocher dans Outils › Toute la France, ou RELIEF_MONDE=oui dans le .env.
+const GROSSIER_DEFAUT = process.env.RELIEF_MONDE ? /^(oui|1|true|yes|on)$/i.test(process.env.RELIEF_MONDE) : false;
+const grossierActif = () => (reliefPublic.grossier === undefined ? GROSSIER_DEFAUT : !!reliefPublic.grossier);
+const reliefGrossier = creerReliefGrossier({ dossier: path.dirname(config.fichierBase), journal, minutes: Number(process.env.RELIEF_MONDE_MINUTES) || 5 });
+// Téléchargé une fois, en arrière-plan, peu après le démarrage ; nouvel essai toutes les heures en cas d'échec
+function lancerReliefGrossier() { if (grossierActif() && !reliefGrossier.pret()) reliefGrossier.telecharger().catch(() => { /* erreur gardée dans l'état */ }); }
+setTimeout(lancerReliefGrossier, 20000).unref();
+setInterval(lancerReliefGrossier, 3600000).unref();
+// Cache du relief sur le disque : espace occupé, purge, plafond (zones les moins récemment utilisées d'abord)
+const cacheRelief = creerCacheRelief({
+  dossier: path.dirname(config.fichierBase), journal, grossier: reliefGrossier,
+  verrous: () => new Set(precharge.enCours && precharge.courant ? [String(precharge.courant).toUpperCase()] : []),
+  enMemoire: () => reliefsEtude,
+  liberer: (code) => { const v = reliefsEtude.get(code); if (v) { try { v.arreter(); } catch { /* déjà */ } reliefsEtude.delete(code); } },
+  nomZone: (code) => nomDepartement(code),
+});
+const plafondRelief = () => Math.max(0, Number(reliefPublic.plafondGo) || 0);
+const appliquerPlafondRelief = () => { try { cacheRelief.appliquerPlafond(plafondRelief()); } catch (e) { journal('[Relief] plafond :', e.message); } };
+setInterval(appliquerPlafondRelief, 3600000).unref();
 const reliefSurDisque = (code) => ['mnt-' + code + '.bin', 'sommets-osm-' + code + '.json'].every((f) => fs.existsSync(path.join(path.dirname(config.fichierBase), f)));
 // Paquet « relief France » : relief IGN, points hauts, accès, sites et communes de chaque département, en un fichier
 // tar.gz. Fabriqué depuis une carte qui a tout préparé (Gestion › Réglages), publié sur GitHub, installé par les autres.
@@ -597,12 +620,14 @@ function Rdep(req, depForce) {
     journal(`[Relief] étude du département ${dep} : chargement du relief IGN et des points hauts`);
     reliefsEtude.set(dep, creerRelief(config, journal, { ...fournisseursRelief, envDefaut: () => { const c = relief.calibration(); return c && c.perteEnvironnementDb != null ? c.perteEnvironnementDb : null; } }, { code: dep }));
   } else { const v = reliefsEtude.get(dep); reliefsEtude.delete(dep); reliefsEtude.set(dep, v); }
+  cacheRelief.noterUtilisation(dep);
   return reliefsEtude.get(dep);
 }
 
 // Relief d'un département déjà préparé sur le disque : il s'ouvre en une à deux secondes. On attend qu'il soit prêt
 // plutôt que de répondre « en cours de chargement » (le navigateur ne réessayait que 20 s plus tard).
-async function reliefPret(RR, ms = 12000) {
+// approx : le relief grossier (en attendant le précis) suffit pour ce calcul
+async function reliefPret(RR, ms = 12000, approx = false) {
   const fin = Date.now() + ms;
   // Relief prêt et, pour un département préparé, ses points hauts aussi (sinon « 0 point haut évalué »)
   const fini = () => RR.pret() && (!RR.code || !reliefSurDisque(RR.code) || (RR.etat().sommets || 0) > 0);
@@ -611,7 +636,7 @@ async function reliefPret(RR, ms = 12000) {
     if (e.mnt === 'erreur' || (RR.code && !reliefSurDisque(RR.code))) break; // téléchargement IGN : plusieurs minutes, inutile d'attendre ici
     await new Promise((ok) => setTimeout(ok, 200));
   }
-  return RR.pret();
+  return RR.pret() || (approx && !!RR.utilisable && RR.utilisable());
 }
 const messageChargement = (RR) => (RR.code && reliefSurDisque(RR.code)
   ? `Relief du département ${RR.code} : ouverture en cours, quelques secondes`
@@ -641,6 +666,56 @@ app.post('/api/relief/france', (req, res) => {
   }
   if (b.precharger === false && precharge.enCours) precharge.arret = true;
   res.json({ ok: true, couverture: reliefPublic.couverture });
+});
+// ---- Cache du relief (administrateur) : espace occupé, purge, plafond, relief grossier mondial -------------------
+function etatCacheRelief() {
+  const inv = cacheRelief.inventaire(plafondRelief());
+  const g = reliefGrossier.etat();
+  return { ...inv, principale: { ...inv.principale, code: String(config.departement.code).toUpperCase(), nom: config.zoneNom || null },
+    grossier: { ...inv.grossier, actif: grossierActif(), defaut: GROSSIER_DEFAUT, source: g.source, minutes: g.minutes } };
+}
+app.get('/api/relief/cache', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.set('Cache-Control', 'no-store').json(etatCacheRelief());
+});
+// { grossier: true|false } active ou coupe le relief grossier ; { plafondGo: N } (0 = sans plafond) ;
+// { telechargerGrossier: true } relance son téléchargement ; { purger: { codes | tout | joursInactifs, grossier } }
+app.post('/api/relief/cache', async (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const b = req.body || {}, qui = utilisateur(req).identifiant;
+  let modifie = false;
+  if (b.grossier !== undefined) {
+    if (typeof b.grossier !== 'boolean') return res.status(400).json({ erreur: 'choix invalide' });
+    reliefPublic.grossier = b.grossier; modifie = true;
+    journal(`[Relief] relief grossier mondial ${b.grossier ? 'activé' : 'désactivé'} (${qui})`);
+    if (b.grossier) lancerReliefGrossier(); else reliefGrossier.arreter();
+  }
+  if (b.plafondGo !== undefined) {
+    const n = Number(b.plafondGo);
+    if (!Number.isFinite(n) || n < 0 || n > 10000) return res.status(400).json({ erreur: 'Plafond invalide (0 à 10 000 Go, 0 = sans plafond)' });
+    reliefPublic.plafondGo = Math.round(n * 10) / 10; modifie = true;
+    journal(`[Relief] plafond du cache du relief : ${reliefPublic.plafondGo ? reliefPublic.plafondGo + ' Go' : 'aucun'} (${qui})`);
+  }
+  if (modifie) { try { ecrireSur(fReliefPublic, JSON.stringify(reliefPublic)); } catch (e) { return res.status(500).json({ erreur: e.message }); } }
+  if (modifie && reliefPublic.plafondGo) appliquerPlafondRelief();
+  if (b.telechargerGrossier === true) {
+    if (!grossierActif()) return res.status(409).json({ erreur: 'Relief grossier désactivé : activez-le d’abord' });
+    lancerReliefGrossier();
+  }
+  let purge = null;
+  if (b.purger && typeof b.purger === 'object') {
+    const p = b.purger;
+    const o = {
+      tout: p.tout === true,
+      codes: Array.isArray(p.codes) ? p.codes.slice(0, 500).map(String).filter((c) => /^((\d{2}|2A|2B)|M[NS]\d{2}[EW]\d{3})$/i.test(c)) : null,
+      joursInactifs: p.joursInactifs !== undefined && Number.isFinite(Number(p.joursInactifs)) ? Math.min(3650, Math.max(0, Number(p.joursInactifs))) : null,
+      grossier: p.grossier === true,
+    };
+    if (!o.tout && !o.codes && o.joursInactifs == null && !o.grossier) return res.status(400).json({ erreur: 'Rien à purger' });
+    try { purge = await cacheRelief.purger(o, qui); } catch (e) { return res.status(500).json({ erreur: e.message }); }
+    cacheTerrain.clear();
+  }
+  res.json({ ok: true, purge, ...etatCacheRelief() });
 });
 app.get('/api/relief/etat', (req, res) => res.json({ ...R(req).etat(), emprise: R(req).emprise() }));
 app.get('/api/relief/sommets', (req, res) => {
@@ -683,7 +758,7 @@ app.get('/api/relief/relier', async (req, res) => {
   if (q.hA) o.hauteurA = Math.min(Math.max(Number(q.hA) || 2, 0.5), 60);
   if (q.hB) o.hauteurB = Math.min(Math.max(Number(q.hB) || 2, 0.5), 60);
   if (q.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
-  const RR = R(req, a, b); await reliefPret(RR);
+  const RR = R(req, a, b); await reliefPret(RR, 12000, true);
   try { res.json(RR.relierPoints(a, b, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
 });
 const cacheCouverture = new Map();
@@ -704,20 +779,20 @@ app.get('/api/relief/couverture', async (req, res) => {
     return res.status(400).json({ erreur: horsFrance ? 'Cette carte calcule la couverture en France seulement (relief IGN). Pour le reste du monde, installez l’édition monde (relief Copernicus partout) : https://github.com/sauveteur71/live-mesh-map-world'
       : estMembre(req) ? 'Point hors de France métropolitaine : pas de relief disponible' : 'Point hors de la zone couverte par le modèle de relief (département et ses abords)' });
   }
-  if (!(await reliefPret(RR))) return res.status(503).json({ erreur: messageChargement(RR) });
+  if (!(await reliefPret(RR, 12000, true))) return res.status(503).json({ erreur: messageChargement(RR) });
   const o = optsRelief(req.query);
   const cle = JSON.stringify([RR.code, lat.toFixed(4), lon.toFixed(4), o, (RR.calibration() || {}).date]);
-  let r = cacheCouverture.get(cle);
+  let r = RR.pret() ? cacheCouverture.get(cle) : null;
   if (!r) {
     // Visiteurs non connectés (carte publique) : 20 nouveaux calculs par quart d'heure au plus
     if (!estMembre(req) && limiterCalcul(req.ip)) return res.status(429).json({ erreur: 'Trop de calculs de couverture : réessayez dans quelques minutes' });
-    r = RR.couverturePng({ lat, lon }, o);
+    try { r = await RR.couverturePng({ lat, lon }, o); } catch (e) { return res.status(503).json({ erreur: e.message }); }
     r.id = crypto.randomBytes(6).toString('hex');
-    cacheCouverture.set(cle, r);
+    if (!r.approximatif) cacheCouverture.set(cle, r); // relief grossier : jamais gardé comme un résultat précis
     cacheCouverture.set(r.id, r);
     if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
   }
-  res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), departement: RR.etat().departement, surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sol: r.sol, env: r.env, rayonKm: r.rayonKm });
+  res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), departement: RR.etat().departement, surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sol: r.sol, env: r.env, rayonKm: r.rayonKm, approximatif: !!r.approximatif, reliefApprox: r.reliefApprox || null });
 });
 // Couverture cumulée : ?pts=lat,lon[,hauteur];lat,lon[,hauteur];… (2 à 10 sites)
 app.get('/api/relief/couverture-multi', async (req, res) => {
@@ -725,41 +800,43 @@ app.get('/api/relief/couverture-multi', async (req, res) => {
     .map(([lat, lon, h]) => ({ lat, lon, h: Number.isFinite(h) ? Math.min(Math.max(h, 0.5), 100) : undefined }));
   if (!sites.length) return res.status(400).json({ erreur: 'Aucun site' });
   const RR = R(req, ...sites);
-  if (!(await reliefPret(RR))) return res.status(503).json({ erreur: messageChargement(RR) });
+  if (!(await reliefPret(RR, 12000, true))) return res.status(503).json({ erreur: messageChargement(RR) });
   const o = optsRelief(req.query);
   const cle = JSON.stringify(['multi', RR.code, sites, o, (RR.calibration() || {}).date]);
-  let r = cacheCouverture.get(cle);
+  let r = RR.pret() ? cacheCouverture.get(cle) : null;
   if (!r) {
-    r = RR.couverturePngMulti(sites, o);
+    try { r = await RR.couverturePngMulti(sites, o); } catch (e) { return res.status(503).json({ erreur: e.message }); }
     r.id = crypto.randomBytes(6).toString('hex');
-    cacheCouverture.set(cle, r); cacheCouverture.set(r.id, r);
+    if (!r.approximatif) cacheCouverture.set(cle, r);
+    cacheCouverture.set(r.id, r);
     if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
   }
-  res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), departement: RR.etat().departement, surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sites: r.sites, env: r.env, rayonKm: r.rayonKm });
+  res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), departement: RR.etat().departement, surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sites: r.sites, env: r.env, rayonKm: r.rayonKm, approximatif: !!r.approximatif, reliefApprox: r.reliefApprox || null });
 });
 // Couverture actuelle du réseau (relais et passerelles détectés) : ?reseau=meshcore pour les répéteurs MeshCore
-function couvertureReseauCachee(RR, o, reseauCle) {
+async function couvertureReseauCachee(RR, o, reseauCle) {
   const versionFiches = Object.values(installations.toutes()).reduce((m, f) => Math.max(m, f.maj || 0), 0);
   const cle = JSON.stringify(['reseau', RR.code, reseauCle, o.hn || 6, Math.floor(Date.now() / 600000), (RR.calibration() || {}).date, versionFiches]);
-  let r = cacheCouverture.get(cle);
+  let r = RR.pret() ? cacheCouverture.get(cle) : null;
   if (!r) {
-    r = RR.couvertureReseau(o);
+    r = await RR.couvertureReseau(o);
     if (r.vide) return r;
     r.id = crypto.randomBytes(6).toString('hex');
-    cacheCouverture.set(cle, r); cacheCouverture.set(r.id, r);
+    if (!r.approximatif) cacheCouverture.set(cle, r);
+    cacheCouverture.set(r.id, r);
     if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
   }
   return r;
 }
 app.get('/api/relief/couverture-reseau', async (req, res) => {
   const RR = R(req);
-  if (!(await reliefPret(RR))) return res.status(503).json({ erreur: messageChargement(RR) });
+  if (!(await reliefPret(RR, 12000, true))) return res.status(503).json({ erreur: messageChargement(RR) });
   const o = optsRelief(req.query);
   if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
   if (req.query.hn) o.hn = Math.min(Math.max(Number(req.query.hn) || 6, 0.5), 60);
   // La calibration (pertes d'environnement) fait partie de la clé : un calcul fait avant elle serait trop optimiste
   let r;
-  try { r = couvertureReseauCachee(RR, o, req.query.reseau || 'mt'); } catch (e) { return res.status(503).json({ erreur: e.message }); }
+  try { r = await couvertureReseauCachee(RR, o, req.query.reseau || 'mt'); } catch (e) { return res.status(503).json({ erreur: e.message }); }
   if (r.vide) return res.json({ noeuds: [], vide: true });
   const { image, ...reste } = r;
   res.json({ ...reste, image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise() });
@@ -840,7 +917,7 @@ app.get('/api/relief/budget', async (req, res) => {
 // Simulation « et si… » : { retirer: [num…], ajouter: [{ lat, lon, h, nom }…] }
 app.post('/api/relief/simulation', async (req, res) => {
   const RR = R(req);
-  if (!(await reliefPret(RR))) return res.status(503).json({ erreur: messageChargement(RR) });
+  if (!(await reliefPret(RR, 12000, true))) return res.status(503).json({ erreur: messageChargement(RR) });
   const b = req.body || {};
   const o = optsRelief(req.query);
   if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
@@ -848,7 +925,7 @@ app.post('/api/relief/simulation', async (req, res) => {
   let villes = [];
   try { villes = await villesDepartement(RR.code); } catch (e) { journal('[Simulation] villes :', e.message); }
   try {
-    const r = RR.simuler({ retirer: Array.isArray(b.retirer) ? b.retirer.slice(0, 50) : [], ajouter: Array.isArray(b.ajouter) ? b.ajouter.slice(0, 10).map((a) => ({ lat: Number(a.lat), lon: Number(a.lon), h: a.h != null ? Math.min(Math.max(Number(a.h) || 6, 0.5), 60) : undefined, nom: a.nom ? String(a.nom).slice(0, 60) : undefined })) : [], villes }, o);
+    const r = await RR.simuler({ retirer: Array.isArray(b.retirer) ? b.retirer.slice(0, 50) : [], ajouter: Array.isArray(b.ajouter) ? b.ajouter.slice(0, 10).map((a) => ({ lat: Number(a.lat), lon: Number(a.lon), h: a.h != null ? Math.min(Math.max(Number(a.h) || 6, 0.5), 60) : undefined, nom: a.nom ? String(a.nom).slice(0, 60) : undefined })) : [], villes }, o);
     const id = crypto.randomBytes(6).toString('hex');
     cacheCouverture.set(id, { image: r.image });
     if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
@@ -4323,6 +4400,9 @@ function presetReseau() {
 }
 const fournisseursRelief = {
   presetCourant: presetReseau,
+  // Relief grossier mondial en attendant le relief précis (null si désactivé ou pas encore téléchargé)
+  reliefGrossier: () => (grossierActif() ? reliefGrossier : null),
+  apresTelechargement: () => setTimeout(appliquerPlafondRelief, 5000).unref(),
   // Relais / passerelles positionnés et entendus dans les dernières 24 h (un relais muet ne couvre plus rien)
   noeudsReseau: () => {
     const limite = Date.now() - 24 * 3600000;
@@ -4348,7 +4428,7 @@ const relief = creerRelief(config, journal, fournisseursRelief);
 
 // ---- Maintenance : charge radio, autonomie, firmwares, rôles -------------------------------------
 const maintenance = creerMaintenance({ stockage, config, reseau, installations, journal });
-app.get('/api/maintenance/:quoi', (req, res) => {
+app.get('/api/maintenance/:quoi', async (req, res) => {
   if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
   const q = req.params.quoi;
   try {
@@ -4357,7 +4437,7 @@ app.get('/api/maintenance/:quoi', (req, res) => {
     if (q === 'firmwares') return res.json(maintenance.firmwares());
     if (q === 'roles') {
       let couv = null;
-      try { if (relief.pret()) couv = couvertureReseauCachee(relief, optsRelief({}), 'mt'); } catch { /* relief pas prêt */ }
+      try { if (relief.pret()) couv = await couvertureReseauCachee(relief, optsRelief({}), 'mt'); } catch { /* relief pas prêt */ }
       return res.json({ ...maintenance.roles(couv && !couv.vide ? couv : null, relief.sommets()), relief: !!couv });
     }
     res.status(404).json({ erreur: 'Inconnu' });
