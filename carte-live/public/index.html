@@ -277,6 +277,11 @@
     </section>
 
     <section data-vue="messages" class="vue">
+      <div class="recherche recherche-messages" role="search">
+        <input type="search" id="recherche-messages" placeholder="Chercher un mot, un nom ou un indicatif…" aria-label="Chercher dans les messages (Meshtastic et MeshCore)" title="Cherche dans le texte des messages et dans le nom ou l’identifiant de l’expéditeur, sans tenir compte des majuscules ni des accents" autocomplete="off" enterkeyhint="search" maxlength="80">
+        <button type="button" class="mini" id="effacer-recherche-messages" title="Effacer la recherche" aria-label="Effacer la recherche" hidden>✕</button>
+      </div>
+      <div id="resultats-recherche" class="flux" aria-live="polite" hidden></div>
       <div id="filtre-messages" class="filtre-messages"></div>
       <form id="form-envoi" class="envoi" hidden>
         <div class="envoi-ligne">

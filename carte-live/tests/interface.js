@@ -1050,6 +1050,70 @@ async function essaiTelephone(navig) {
   await contexte.close();
 }
 
+// Recherche dans les messages : droits (visiteur, démonstration, administrateur), champ, surlignage, clic = message
+// affiché à sa place dans son canal ; téléphone : résultats lisibles
+async function essaiRechercheMessages(navig, cookie) {
+  console.log('Recherche dans les messages');
+  // Messages écrits directement dans la base de la carte : les déclencheurs SQLite tiennent l'index à jour
+  const Database = require('better-sqlite3');
+  const db = new Database(path.join(donnees, 'carte-live.db'));
+  db.pragma('busy_timeout = 5000');
+  const h = Date.now() - 600000;
+  db.prepare('INSERT OR REPLACE INTO noeuds (num, id, nom_long, nom_court, premier_vu, dernier_vu) VALUES (?, ?, ?, ?, ?, ?)').run(0x5a1e0042, '!5a1e0042', 'Olivier F4GLD', 'GLD', h, h);
+  const ins = db.prepare("INSERT INTO paquets (id_paquet, de, vers, canal, port, heure, texte) VALUES (?, ?, ?, ?, 'texte', ?, ?)");
+  ins.run(900001, 0x5a1e0042, 0xffffffff, 'LongFast', h, 'Bonjour depuis le Mézenc');
+  ins.run(900002, 0x5a1e0043, 0xffffffff, 'LongFast', h + 1000, 'Qui a vu mon CHAPEAU ?');
+  ins.run(900003, 0x5a1e0043, 0xffffffff, 'Equipe', h + 2000, 'Chapeau rangé au local');
+  ins.run(900004, 0x5a1e0043, 0x5a1e0042, 'LongFast', h + 3000, 'Message direct pour Olivier');
+  db.close();
+  const appel = async (url, entetes = {}) => { const r = await fetch(BASE + url, { headers: entetes }); return { statut: r.status, j: await r.json().catch(() => ({})) }; };
+  const anonyme = await appel('/api/messages/recherche?q=chapeau');
+  const demo = await appel('/api/messages/recherche?q=chapeau', { 'X-Demo': '1' });
+  const demoNom = await appel('/api/messages/recherche?q=f4gld', { 'X-Demo': '1' });
+  const admin = await appel('/api/messages/recherche?q=chap%C3%A9au', { Cookie: `${cookie.name}=${cookie.value}` });
+  const adminNom = await appel('/api/messages/recherche?q=F4GLD', { Cookie: `${cookie.name}=${cookie.value}` });
+  const textes = (x) => (x.j.resultats || []).map((m) => m.texte);
+  if (anonyme.statut === 401) ok('recherche : refusée à un visiteur non connecté'); else ko('recherche visiteur : ' + anonyme.statut);
+  if (demo.statut === 200 && JSON.stringify(textes(demo)) === JSON.stringify(['Qui a vu mon CHAPEAU ?']) && JSON.stringify(textes(demoNom)) === JSON.stringify(['Bonjour depuis le Mézenc'])) ok('recherche (démonstration) : canaux publics seulement, jamais les messages directs');
+  else ko('recherche démonstration : ' + JSON.stringify([demo.statut, textes(demo), textes(demoNom)]));
+  if (JSON.stringify(textes(admin)) === JSON.stringify(['Chapeau rangé au local', 'Qui a vu mon CHAPEAU ?']) && JSON.stringify(textes(adminNom)) === JSON.stringify(['Message direct pour Olivier', 'Bonjour depuis le Mézenc'])) ok('recherche (administrateur) : accents ignorés, tous canaux, expéditeur et destinataire par leur nom');
+  else ko('recherche administrateur : ' + JSON.stringify([textes(admin), textes(adminNom)]));
+  // Dans la page : champ, résultats surlignés, clic = message repéré dans son canal
+  for (const [nom, vue] of [['ordinateur', { width: 1400, height: 900 }], ['téléphone', { width: 390, height: 844 }]]) {
+    const contexte = await navig.newContext({ viewport: vue, locale: 'fr-FR', hasTouch: nom === 'téléphone', isMobile: nom === 'téléphone' });
+    await contexte.addCookies([cookie]);
+    await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); localStorage.removeItem('filtreMessages'); } catch { /* */ } });
+    const { page, erreurs } = await ouvrir(contexte, '/');
+    await page.evaluate(() => allerGroupe('messages'));
+    await page.waitForTimeout(500);
+    await page.fill('#recherche-messages', 'chapeau');
+    await page.waitForSelector('#resultats-recherche .resultat-recherche', { timeout: 5000 }).catch(() => {});
+    const r = await page.evaluate(() => ({
+      n: document.querySelectorAll('#resultats-recherche .resultat-recherche').length,
+      marques: [...document.querySelectorAll('#resultats-recherche mark')].map((m) => m.textContent),
+      listeCachee: getComputedStyle(document.querySelector('#messages')).display === 'none',
+      large: document.documentElement.scrollWidth <= innerWidth + 1,
+    }));
+    if (r.n === 2 && r.marques.includes('CHAPEAU') && r.marques.includes('Chapeau') && r.listeCachee && r.large) ok(`recherche (${nom}) : 2 résultats, terme surligné, liste remplacée`); else ko(`recherche (${nom}) : ` + JSON.stringify(r));
+    await capture(page, 'recherche-messages-' + (nom === 'téléphone' ? 'telephone' : 'ordinateur'));
+    if (nom === 'ordinateur') {
+      await page.click('#resultats-recherche .resultat-recherche:nth-child(3) .texte'); // 2e résultat : LongFast
+      await page.waitForSelector('#messages .message.repere', { timeout: 5000 }).catch(() => {});
+      const c = await page.evaluate(() => ({ filtre: filtreMessages, repere: (document.querySelector('#messages .message.repere .texte') || {}).textContent, visible: getComputedStyle(document.querySelector('#messages')).display !== 'none' }));
+      if (c.filtre === 'c:LongFast' && c.repere === 'Qui a vu mon CHAPEAU ?' && c.visible) ok('recherche : clic = message repéré dans son canal'); else ko('recherche clic : ' + JSON.stringify(c));
+      // Le nom de l'expéditeur suffit ; Échap efface et rend la liste
+      await page.fill('#recherche-messages', 'gld');
+      await page.waitForFunction(() => [...document.querySelectorAll('#resultats-recherche mark')].some((m) => m.textContent === 'GLD'), null, { timeout: 5000 }).catch(() => {});
+      const parNom = await page.evaluate(() => [...document.querySelectorAll('#resultats-recherche .resultat-recherche .texte')].map((x) => x.textContent));
+      await page.press('#recherche-messages', 'Escape');
+      const apres = await page.evaluate(() => ({ champ: $('#recherche-messages').value, cache: $('#resultats-recherche').hidden }));
+      if (JSON.stringify(parNom) === JSON.stringify(['Message direct pour Olivier', 'Bonjour depuis le Mézenc']) && apres.champ === '' && apres.cache) ok('recherche : par nom court de l’expéditeur, Échap efface'); else ko('recherche par nom : ' + JSON.stringify({ parNom, apres }));
+    }
+    bilanErreurs(erreurs, 'recherche (' + nom + ')');
+    await contexte.close();
+  }
+}
+
 async function essaiPagesPubliques(navig) {
   for (const [url, nom, attendu] of [['/publique.html', 'carte publique', '#carte .leaflet-pane, .leaflet-pane'], ['/topologie.html', 'graphe des liens', 'svg, canvas']]) {
     console.log(nom[0].toUpperCase() + nom.slice(1) + ' (visiteur)');
@@ -1094,6 +1158,7 @@ async function essaiPagesPubliques(navig) {
     await essaiUsbAuto(navigateur, cookie);
     await essaiEcran150(navigateur);
     await essaiTelephone(navigateur);
+    await essaiRechercheMessages(navigateur, cookie);
     await essaiPagesPubliques(navigateur);
     code = echecs ? 1 : 0;
     console.log(echecs ? `\n${echecs} problème(s) : captures et journal dans tests/resultats/` : '\nTout est bon ✓');
