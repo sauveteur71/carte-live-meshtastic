@@ -2,6 +2,21 @@
 
 Il faut une machine allumée en permanence avec **Docker** : NAS Synology (Container Manager), Unraid, Raspberry Pi 4/5, serveur Linux, machine virtuelle Proxmox…
 
+### Matériel minimum
+
+| | Minimum | Conseillé |
+|---|---|---|
+| Processeur | 64 bits (x86-64 ou ARM64), 2 cœurs | 4 cœurs |
+| Mémoire | 2 Go | 4 Go et plus (archive PostgreSQL, gros réseau) |
+| Disque | 8 Go libres | SSD, 20 Go (relief et couverture en cache, historique) |
+| Système | Linux 64 bits avec Docker (Raspberry Pi OS **64 bits**, Debian, Ubuntu, DSM 7…) | |
+
+- **Raspberry Pi** : **Pi 4 ou Pi 5 avec 2 Go ou plus**, sous Raspberry Pi OS **64 bits** (`uname -m` doit répondre `aarch64`). Préférez un SSD en USB 3 à la carte SD, qui s'use vite avec la base de données. Une alimentation officielle évite les coupures quand un module LoRa est branché en USB. Pi 3, Pi Zero 2 ou Pi en 32 bits : **non pris en charge** (1 Go de mémoire, pas d'image 32 bits).
+- **NAS Synology** : modèle à processeur Intel/AMD ou ARM64 (série « + » conseillée), DSM 7.2 avec Container Manager, 2 Go de mémoire.
+- La carte se limite à 512 Mo de mémoire ; le service de mise à jour, le client et le flasheur Meshtastic prennent 64 Mo chacun ; l'archive PostgreSQL (facultative) 256 Mo.
+- Les calculs de relief et de couverture sont les plus gourmands : ils tournent quand même sur un Pi 4, juste plus lentement.
+- **Module LoRa en USB sur le serveur** : voir [[Connecter un module]]. Le Bluetooth passe par le navigateur (Chrome ou Edge, carte en HTTPS), pas par le Bluetooth du serveur.
+
 ## 1. Récupérer et lancer
 
 ### En une commande (Linux : Debian, Ubuntu, Raspberry Pi OS, VM Proxmox…)

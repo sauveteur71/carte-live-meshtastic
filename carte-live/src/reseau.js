@@ -2,6 +2,7 @@
 // Logique réseau : intégration des paquets, déduction des liens RF, état des nœuds et alertes
 
 const { idNoeud } = require('./decodeur');
+const signature = require('./signature');
 
 const ROLES_INFRA = new Set(['ROUTER', 'ROUTER_LATE', 'REPEATER', 'ROUTER_CLIENT', 'CLIENT_BASE']);
 const NOEUD_INCONNU = 0xffffffff;
@@ -90,6 +91,19 @@ function creerReseau(stockage, config) {
     const heure = maintenant;
     let sortie = null;
 
+    // Signature XEdDSA (2.8) : vérifiée avec la clé de l'expéditeur. Une fiche NodeInfo signée porte sa propre clé,
+    // acceptée seulement si le numéro en découle (CRC32, règle du firmware) ; sinon la clé connue de la carte.
+    if (evt.aVerifier) {
+      const v = evt.aVerifier;
+      if (v.malformee) evt.signature = -1;
+      else {
+        let cle = null;
+        if (evt.utilisateur && evt.utilisateur.cle && signature.numDeCle(evt.utilisateur.cle) === (evt.de >>> 0)) cle = evt.utilisateur.cle;
+        if (!cle) { const n = q.noeud.get(evt.de); cle = n && n.cle_publique; }
+        evt.signature = cle ? (signature.verifier(cle, v.msg, v.sig) ? 2 : -1) : 1;
+      }
+    }
+
     stockage.transaction(() => {
       stockage.assurerNoeud(evt.de, heure);
       q.vu.run({ num: evt.de, heure, sauts: evt.sauts, snr: evt.sauts === 0 ? evt.snr : null, rssi: evt.sauts === 0 ? evt.rssi : null });
@@ -122,6 +136,7 @@ function creerReseau(stockage, config) {
         contenu: evt.contenu ? JSON.stringify(evt.contenu) : null,
         pki: evt.pki ? 1 : 0,
         signe: evt.signe ? 1 : 0,
+        signature: evt.signature ?? null,
       });
       const premiereReception = r.nb_receptions === 1;
 
@@ -260,6 +275,7 @@ function creerReseau(stockage, config) {
       lat: arrondir(n.lat, dec),
       lon: arrondir(n.lon, dec),
       alt: n.alt,
+      precision: n.precision_bits || null, // bits de précision annoncés (32 = exacte, 10 à 19 = position volontairement floutée)
       heurePosition: n.heure_position,
       premierVu: n.premier_vu,
       dernierVu: n.dernier_vu,

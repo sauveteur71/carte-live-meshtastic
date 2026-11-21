@@ -4,6 +4,7 @@
 const path = require('path');
 const crypto = require('crypto');
 const protobuf = require('protobufjs');
+const { extraire: extraireSignature } = require('./signature');
 
 const racine = new protobuf.Root();
 // PROTOBUFS_DIR : protobufs d'essai (la veille hebdomadaire y met la dernière version officielle pour tester le décodage)
@@ -393,6 +394,10 @@ function decoderMessage(topic, message, canaux) {
   evt.taille = p.encrypted && p.encrypted.length ? p.encrypted.length : data ? Data.encode(data).finish().length : null;
 
   if (data) {
+    // Signature XEdDSA (firmware 2.8) : vérifiée ensuite avec la clé de l'expéditeur connue de la carte.
+    // Propriété non énumérable : jamais envoyée aux navigateurs ni écrite en base.
+    const sig = extraireSignature(de, evt.idPaquet, vers, data);
+    if (sig) Object.defineProperty(evt, 'aVerifier', { value: sig, enumerable: false });
     evt.portnum = data.portnum;
     const info = infoPort(data.portnum);
     evt.port = info.cle;

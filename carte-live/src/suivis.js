@@ -55,7 +55,22 @@ function creerSuivis(config, { autoAdministres }) {
     return lire(u);
   }
 
-  return { lire, regler, normaliser };
+  // Nœud renuméroté (firmware 2.8) : favoris et nœuds administrés de chaque compte suivent le nouveau numéro
+  function renumeroter(ancien, nouveau) {
+    const a = String(ancien >>> 0), n = String(nouveau >>> 0);
+    let nb = 0;
+    for (const m of Object.values(memo)) {
+      for (const k of ['favoris', 'administres', 'exclus']) {
+        const l = m[k] || [];
+        if (!l.includes(a)) continue;
+        m[k] = [...new Set(l.map((x) => (x === a ? n : x)))];
+        nb++;
+      }
+    }
+    if (nb) sauver();
+    return nb;
+  }
+  return { lire, regler, normaliser, renumeroter };
 }
 
 module.exports = { creerSuivis };

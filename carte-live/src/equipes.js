@@ -285,7 +285,16 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
     for (const e of liste.map(vue)) for (const m of e.membres) if (m.sansNouvelle) l.push({ cle: `equipe:${e.id}:${m.num}`, type: 'equipe', niveau: 'attention', noeud: m.num, depuis: m.position ? m.position.heure : Date.now(), message: `Équipe ${e.nom} : ${nomDe(m.num) || '!' + m.num.toString(16)} sans position depuis ${m.position ? Math.round((Date.now() - m.position.heure) / 60000) + ' min' : 'le début du suivi'}` });
     return l;
   }
+  // Nœud renuméroté (firmware 2.8) : il reste membre de ses équipes sous son nouveau numéro
+  function renumeroter(ancien, nouveau) {
+    const a = ancien >>> 0, n = nouveau >>> 0;
+    let nb = 0;
+    for (const e of liste) if (e.membres && e.membres[a] && !e.membres[n]) { e.membres[n] = e.membres[a]; delete e.membres[a]; nb++; }
+    if (nb) sauver(true);
+    return nb;
+  }
   return {
+    renumeroter,
     // Même clé maîtresse pour les jeux de canaux des groupes (jeux-canaux.js)
     chiffreur: { chiffrer, dechiffrer, empreinte },
     alertes,

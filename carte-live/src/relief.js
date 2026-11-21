@@ -22,7 +22,7 @@ const PARAMS_LORA = {
   // MeshCore, réglage du réseau français (869,618 MHz)
   MESHCORE_FR: { sf: 8, bw: 62.5 },
 };
-const SNR_LIMITE = { 7: -7.5, 8: -10, 9: -12.5, 10: -15, 11: -17.5, 12: -20 };
+const SNR_LIMITE = { 5: -2.5, 6: -5, 7: -7.5, 8: -10, 9: -12.5, 10: -15, 11: -17.5, 12: -20 };
 
 // Perte de diffraction lame de couteau (ITU-R P.526)
 const diffraction = (v) => (v > -0.78 ? 6.9 + 20 * Math.log10(Math.sqrt((v - 0.1) ** 2 + 1) + v - 0.1) : 0);

@@ -1370,7 +1370,7 @@ app.post('/api/admin-noeuds/conformite-auto', (req, res) => {
 let favorisPlan = null, modeles = null, renumerotation = null;
 const obtenirFavoris = () => favorisPlan || (favorisPlan = require('./favoris').creerFavoris({ stockage, config, administration }));
 const obtenirModeles = () => modeles || (modeles = require('./modeles').creerModeles(path.dirname(config.fichierBase), { ROLES: administration.ROLES, REDIFFUSIONS: administration.REDIFFUSIONS }));
-const obtenirRenumerotation = () => renumerotation || (renumerotation = require('./renumerotation').creerRenumerotation({ stockage, config, installations, comptes, administration, journal }));
+const obtenirRenumerotation = () => renumerotation || (renumerotation = require('./renumerotation').creerRenumerotation({ stockage, config, installations, comptes, administration, journal, autres: () => ({ equipes, suivis, responsables }) }));
 app.get('/api/admin-noeuds/favoris', (req, res) => {
   if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const p = obtenirFavoris().plan({ jours: Math.min(30, Math.max(1, Number(req.query.jours) || 7)) });
@@ -1437,7 +1437,20 @@ app.get('/api/admin-noeuds/v28', (req, res) => {
 app.post('/api/admin-noeuds/fusion', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const u = utilisateur(req), b = req.body || {};
-  try { res.json(obtenirRenumerotation().fusionner(Number(b.ancien), Number(b.nouveau), u.identifiant)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+  try {
+    const h = obtenirRenumerotation().fusionner(Number(b.ancien), Number(b.nouveau), u.identifiant, { force: b.force === true });
+    audit.noter(nomCompte(u), req.ip, 'fusion de nœuds (2.8)', `${h.idAncien} → ${h.idNouveau}${h.force ? ' (forcée)' : ''}`, true);
+    res.json(h);
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/admin-noeuds/fusion/annuler', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const u = utilisateur(req), b = req.body || {};
+  try {
+    const h = obtenirRenumerotation().annuler(Number(b.heure), Number(b.ancien), Number(b.nouveau), u.identifiant);
+    audit.noter(nomCompte(u), req.ip, 'annulation de fusion (2.8)', `${h.idAncien} ← ${h.idNouveau}`, true);
+    res.json(h);
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 
 // Rapport hebdomadaire (membres) : page imprimable des 7 derniers jours, archives du lundi
@@ -1535,7 +1548,7 @@ function preparerTrame(p, membre) {
   p = reseau.vueTrame(p, membre);
   return {
     rowid: p.rowid, idPaquet: p.id_paquet, de: p.de, vers: p.vers, canal: p.canal, port: p.port, nomPort: p.nom_port, portnum: p.portnum,
-    heure: p.heure, hopDepart: p.hop_depart, sauts: p.sauts, dechiffre: !!p.dechiffre, pki: !!p.pki, signe: !!p.signe, viaMqtt: !!p.via_mqtt, taille: p.taille,
+    heure: p.heure, hopDepart: p.hop_depart, sauts: p.sauts, dechiffre: !!p.dechiffre, pki: !!p.pki, signe: !!p.signe, signature: p.signature ?? null, viaMqtt: !!p.via_mqtt, taille: p.taille,
     resume: p.resume, texte: membre ? p.texte : undefined, nbReceptions: p.nb_receptions,
     contenu: p.contenu ? JSON.parse(p.contenu) : null,
     receptions: JSON.parse(p.receptions || '[]').sort((a, b) => a.heure - b.heure),

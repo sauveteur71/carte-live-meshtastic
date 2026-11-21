@@ -623,3 +623,91 @@ test('Sujet racine MQTT saisi avec « /# » : corrigé (sinon abonnement …/#/#
   assert.equal(lire('msh/EU_868/'), 'msh/EU_868');
   assert.equal(lire('msh/US'), 'msh/US');
 });
+
+test('Meshtastic 2.8 : signature XEdDSA d’un paquet vérifiée par la carte (clé Curve25519 du nœud)', () => {
+  const sig = require('../src/signature');
+  const P = 2n ** 255n - 19n;
+  const mp = (b, e) => { let r = 1n; b %= P; while (e > 0n) { if (e & 1n) r = (r * b) % P; b = (b * b) % P; e >>= 1n; } return r; };
+  const big = (b) => { let x = 0n; for (let i = b.length - 1; i >= 0; i--) x = (x << 8n) | BigInt(b[i]); return x; };
+  const oct = (x) => { const b = Buffer.alloc(32); for (let i = 0; i < 32; i++) { b[i] = Number(x & 255n); x >>= 8n; } return b; };
+  // Paire Ed25519 au bit de signe nul (forme XEdDSA) et clé Curve25519 correspondante (u = (1+y)/(1-y))
+  let kp, ed;
+  do { kp = crypto.generateKeyPairSync('ed25519'); ed = Buffer.from(kp.publicKey.export({ format: 'jwk' }).x, 'base64url'); } while (ed[31] & 0x80);
+  const y = big(ed);
+  const curve = oct(((1n + y) * mp((1n - y + P) % P, P - 2n)) % P).toString('base64');
+  const de = sig.numDeCle(curve); // numéro 2.8 = CRC32 de la clé
+  const idPaquet = 0x1234abcd, cle = cleDe('LongFast');
+  const data = { portnum: PORT.TEXTE, payload: Buffer.from('signé par F4GLD'), bitfield: 1 };
+  data.xeddsaSignature = crypto.sign(null, sig.messageSigne(de, idPaquet, 0xffffffff, data), kp.privateKey);
+  const chiffre = mt.dechiffrer(cle, idPaquet, de, Buffer.from(mt.types.Data.encode(data).finish()));
+  const paquet = { from: de, to: 0xffffffff, id: idPaquet, channel: mt.hachageCanal('LongFast', cle), encrypted: chiffre, hopStart: 3, hopLimit: 2 };
+  const env = Buffer.from(mt.types.ServiceEnvelope.encode({ packet: paquet, channelId: 'LongFast', gatewayId: '!5a1e0001' }).finish());
+  const evt = mt.decoderMessage('msh/EU_868/2/e/LongFast/!5a1e0001', env, CANAUX);
+  assert.ok(evt.aVerifier && evt.aVerifier.sig.length === 64, 'signature extraite');
+  assert.ok(!Object.keys(evt).includes('aVerifier'), 'jamais sérialisée');
+  assert.equal(sig.verifier(curve, evt.aVerifier.msg, evt.aVerifier.sig), true);
+  // Autre clé, ou charge modifiée : refusée
+  const autre = crypto.randomBytes(32).toString('base64');
+  assert.equal(sig.verifier(autre, evt.aVerifier.msg, evt.aVerifier.sig), false);
+  const m2 = Buffer.from(evt.aVerifier.msg); m2[m2.length - 1] ^= 1;
+  assert.equal(sig.verifier(curve, m2, evt.aVerifier.sig), false);
+});
+
+test('Firmware 2.8 : fusion d’un nœud renuméroté puis annulation (historique rendu à l’ancien numéro)', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'renum-'));
+  const { creerStockage } = require('../src/base');
+  const { creerRenumerotation } = require('../src/renumerotation');
+  const sig = require('../src/signature');
+  const st = creerStockage(path.join(dossier, 'x.db'));
+  const db = st.db;
+  const cle = crypto.randomBytes(32).toString('base64');
+  const ancien = 0x0a0b0c0d, nouveau = sig.numDeCle(cle), voisin = 0x11111111;
+  const t0 = Date.now() - 86400000;
+  db.prepare('INSERT INTO noeuds (num, nom_long, nom_court, materiel, cle_publique, premier_vu, dernier_vu, lat, lon) VALUES (?,?,?,?,?,?,?,?,?)').run(ancien, 'Relais Mézenc', 'MZC', 'HELTEC_V3', cle, t0, t0 + 3600000, 44.91, 4.19);
+  db.prepare('INSERT INTO noeuds (num, cle_publique, premier_vu, dernier_vu) VALUES (?,?,?,?)').run(nouveau, cle, t0 + 4000000, Date.now());
+  db.prepare('INSERT INTO noeuds (num, premier_vu, dernier_vu) VALUES (?,?,?)').run(voisin, t0, Date.now());
+  for (let i = 0; i < 5; i++) db.prepare('INSERT INTO positions (num, heure, lat, lon) VALUES (?,?,?,?)').run(ancien, t0 + i, 44.91, 4.19);
+  db.prepare('INSERT INTO telemetrie (num, heure, batterie) VALUES (?,?,?)').run(ancien, t0, 87);
+  db.prepare("INSERT INTO paquets (id_paquet, de, vers, heure, port) VALUES (1, ?, 4294967295, ?, 'texte')").run(ancien, t0);
+  db.prepare("INSERT INTO paquets (id_paquet, de, vers, heure, port) VALUES (2, ?, ?, ?, 'texte')").run(voisin, ancien, t0);
+  db.prepare("INSERT INTO liens (a, b, source, snr, premier_vu, dernier_vu) VALUES (?, ?, 'rf', 5, ?, ?)").run(ancien, voisin, t0, t0);
+  db.prepare("INSERT INTO liens (a, b, source, snr, premier_vu, dernier_vu) VALUES (?, ?, 'rf', 2, ?, ?)").run(nouveau, voisin, t0, t0); // conflit : supprimé puis rendu
+  const appels = [];
+  const espion = (nom) => (a, b) => { appels.push(`${nom} ${a}>${b}`); return 1; };
+  const r = creerRenumerotation({
+    stockage: st, config: { fichierBase: path.join(dossier, 'x.db') }, journal: () => {},
+    installations: { deplacer: espion('fiche') }, comptes: { remplacerNoeud: espion('secteurs') }, administration: { renumeroter: espion('admin') },
+    autres: () => ({ equipes: { renumeroter: espion('equipes') }, suivis: { renumeroter: espion('suivis') }, responsables: { remplacerNoeud: espion('resp') } }),
+  });
+  const d = r.detecter();
+  assert.equal(d.renumerotations.length, 1);
+  assert.equal(d.renumerotations[0].certain, true, 'numéro dérivé de la clé : certain');
+  const h = r.fusionner(ancien, nouveau, 'essai');
+  assert.equal(h.lignes.positions, 5);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM noeuds WHERE num = ?').get(ancien).n, 0);
+  assert.equal(db.prepare('SELECT nom_long FROM noeuds WHERE num = ?').get(nouveau).nom_long, 'Relais Mézenc');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM paquets WHERE vers = ?').get(nouveau).n, 1);
+  assert.ok(appels.includes(`equipes ${ancien}>${nouveau}`) && appels.includes(`suivis ${ancien}>${nouveau}`) && appels.includes(`resp ${ancien}>${nouveau}`));
+  assert.equal(r.detecter().historique[0].annulable, true);
+  // Après la fusion, le nouveau numéro reçoit encore des positions : elles lui restent après l'annulation
+  db.prepare('INSERT INTO positions (num, heure, lat, lon) VALUES (?,?,?,?)').run(nouveau, Date.now(), 44.9, 4.2);
+  const a = r.annuler(h.heure, ancien, nouveau, 'essai');
+  assert.ok(a.annule);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM positions WHERE num = ?').get(ancien).n, 5);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM positions WHERE num = ?').get(nouveau).n, 1);
+  assert.equal(db.prepare('SELECT nom_long FROM noeuds WHERE num = ?').get(ancien).nom_long, 'Relais Mézenc');
+  assert.equal(db.prepare('SELECT nom_long FROM noeuds WHERE num = ?').get(nouveau).nom_long, null, 'le nom recopié par la fusion est retiré');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM liens WHERE a = ?').get(ancien).n, 1, 'liaison en conflit rendue');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM paquets WHERE vers = ?').get(ancien).n, 1);
+  assert.ok(appels.includes(`fiche ${nouveau}>${ancien}`) && appels.includes(`equipes ${nouveau}>${ancien}`));
+  assert.throws(() => r.annuler(h.heure, ancien, nouveau, 'essai'), /déjà annulée/);
+  // Clés différentes : refus, sauf fusion forcée avec même nom et même matériel
+  const vieux = 0x0e0e0e0e, cle2 = crypto.randomBytes(32).toString('base64'), n2 = sig.numDeCle(cle2);
+  db.prepare('INSERT INTO noeuds (num, nom_long, materiel, cle_publique, premier_vu, dernier_vu) VALUES (?,?,?,?,?,?)').run(vieux, 'Relais du Pic', 'RAK4631', crypto.randomBytes(32).toString('base64'), t0, t0 + 1000);
+  db.prepare('INSERT INTO noeuds (num, nom_long, materiel, cle_publique, premier_vu, dernier_vu) VALUES (?,?,?,?,?,?)').run(n2, 'Relais du Pic', 'RAK4631', cle2, Date.now(), Date.now());
+  assert.ok(r.detecter().probables.some((p) => p.ancien.num === vieux && p.nouveau.num === n2), 'réinitialisé : proposé');
+  assert.throws(() => r.fusionner(vieux, n2, 'essai'), /même clé/);
+  assert.equal(r.fusionner(vieux, n2, 'essai', { force: true }).force, true);
+  db.close();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});

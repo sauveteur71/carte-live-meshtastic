@@ -2,6 +2,21 @@
 
 You need a machine that is always on, with **Docker**: Synology NAS (Container Manager), Unraid, Raspberry Pi 4/5, Linux server, Proxmox virtual machine…
 
+### Minimum hardware
+
+| | Minimum | Recommended |
+|---|---|---|
+| CPU | 64-bit (x86-64 or ARM64), 2 cores | 4 cores |
+| Memory | 2 GB | 4 GB or more (PostgreSQL archive, large network) |
+| Disk | 8 GB free | SSD, 20 GB (terrain and coverage cache, history) |
+| System | 64-bit Linux with Docker (Raspberry Pi OS **64-bit**, Debian, Ubuntu, DSM 7…) | |
+
+- **Raspberry Pi**: **Pi 4 or Pi 5 with 2 GB or more**, running Raspberry Pi OS **64-bit** (`uname -m` must answer `aarch64`). Prefer a USB 3 SSD to the SD card, which wears out quickly with the database. An official power supply avoids brownouts when a LoRa node is plugged in over USB. Pi 3, Pi Zero 2 or 32-bit Pi: **not supported** (1 GB of memory, no 32-bit image).
+- **Synology NAS**: Intel/AMD or ARM64 model ("+" series recommended), DSM 7.2 with Container Manager, 2 GB of memory.
+- The map is capped at 512 MB of memory; the update service, the Meshtastic client and the flasher take 64 MB each; the optional PostgreSQL archive 256 MB.
+- Terrain and coverage calculations are the heaviest: they still run on a Pi 4, just more slowly.
+- **LoRa node over USB on the server**: see [[Connect a node|Connecter un module]]. Bluetooth goes through the browser (Chrome or Edge, map over HTTPS), not the server's Bluetooth.
+
 > The interface is available in French and English (*Settings › Display › 🌐 Language*; by default it follows the browser's language). Terrain-based coverage computations use the French IGN terrain model and only work in France; everything else (live map, messages, administration, MeshCore, reports, teams) works anywhere.
 
 ## 1. Get it and start it

@@ -2664,6 +2664,10 @@ async function ouvrirFiche(num) {
   if (etat.selection !== num) return;
   const n = d.noeud;
   const s = etat.config.seuils;
+  // Position floutée par le nœud lui-même (firmware 2.7/2.8) : on montre la zone où il se trouve réellement
+  if (etat.cerclePrec) { etat.cerclePrec.remove(); etat.cerclePrec = null; }
+  const flou = n.precision > 0 && n.precision < 32 && n.lat != null ? 23300 / 2 ** (n.precision - 10) : 0;
+  if (flou) etat.cerclePrec = L.circle([n.lat, n.lon], { radius: flou, color: '#a78bfa', weight: 1.5, dashArray: '4 4', fillColor: '#a78bfa', fillOpacity: 0.08, interactive: false }).addTo(carte);
   const mesures = [
     ['Dernier entendu', ilYa(n.dernierVu)],
     ['Sauts', n.sautsDernier == null ? '–' : n.sautsDernier === 0 ? 'Direct' : n.sautsDernier],
@@ -2697,12 +2701,14 @@ async function ouvrirFiche(num) {
     <h2>${esc(n.nomLong || n.id)}</h2>
     <div class="ident">${esc(n.nomCourt || '')} · ${esc(n.id)} · ${n.num} ${boutonsSuivi(n.num)}</div>
     ${blocCoords(n.lat, n.lon, { alt: n.alt, approx: !etat.membre && !n.infrastructure && etat.config.precisionPublique >= 0 })}
+    ${n.lat == null ? '<div class="note">📍 Aucune position reçue : ce nœud n’est pas perdu, il ne partage pas sa position. Depuis le firmware 2.8, la diffusion de la position est coupée par défaut et la position exacte n’est jamais envoyée sur un canal public. Son propriétaire peut l’activer dans l’appli Meshtastic (Position), sur un canal privé pour une position exacte.</div>' : flou ? `<div class="note">📍 Position volontairement floutée par le nœud (${precisionTexte(n.precision)}) : il se trouve quelque part dans le cercle pointillé, pas forcément sur le point.</div>` : ''}
     <div class="badges">
       <span class="badge ${n.statut}">${{ actif: 'Actif', recent: 'Récent', inactif: 'Inactif' }[n.statut]}</span>
       <span class="badge ${n.infrastructure ? 'infra' : ''}">${esc(n.roleFr)}</span>
       ${n.passerelle ? `<span class="badge passerelle">Passerelle MQTT · ${n.etatPasserelle === 'offline' ? 'hors ligne' : 'en ligne'}</span>` : ''}
       ${n.preset ? `<span class="badge ${etat.autresPresets && etat.autresPresets.nums.has(n.num) ? 'autre-preset' : ''}" ${etat.autresPresets && etat.autresPresets.nums.has(n.num) ? `title="Autre preset que le réseau (${esc(nomPreset(etat.autresPresets.preset))}) : voir Outils › Nœuds à inviter"` : ''}>${esc(n.preset)}</span>` : ''}
       ${[...new Set(d.paquets.map((p) => p.canal).filter(Boolean))].slice(0, 4).map((c) => `<span class="badge canal">${esc(c)}</span>`).join('')}
+      ${d.paquets.some((p) => p.signature === -1 && !p.signe) ? '<span class="badge refus" title="Au moins un paquet récent porte une signature fausse : usurpation possible de ce nœud, ou clé publique changée (nœud réinitialisé)">⚠ signature invalide</span>' : d.paquets.some((p) => p.signe || p.signature === 2) ? '<span class="badge" title="Ce nœud signe ses paquets (firmware 2.8) : la carte a vérifié qu’ils viennent bien de lui">✍ signe ses paquets</span>' : ''}
       ${n.materiel ? `<span class="badge">${esc(n.materiel)}</span>` : ''}
       ${n.licencie ? `<span class="badge licencie" title="Mode licencié (radioamateur) : messages non chiffrés, identifié par son indicatif. Ce nœud ne lit pas les canaux chiffrés du réseau.">📻 Radioamateur${n.nomLong ? ' · <span translate="no">' + esc(n.nomLong) + '</span>' : ''}</span>` : ''}
     </div>
@@ -4960,7 +4966,7 @@ async function ouvrirTrames(num, filtre) {
         <td class="nowrap">${new Date(t.heure).toLocaleDateString('fr-FR')}<br>${heure(t.heure)}</td>
         <td class="nowrap">${lignesRx(t)}</td>
         <td>${t.receptions.map((x) => `<div class="rx mono petit">${esc(x.sujet || '')}</div>`).join('') || esc(t.canal || '')}</td>
-        <td><b><i class="pt" style="background:${portInfo(t.port).couleur}"></i>${esc(t.nomPort || t.port)}</b>${t.pki ? ' <span class="badge">PKI</span>' : ''}${t.signe ? ' <span class="badge" title="Signature de l’expéditeur vérifiée (firmware 2.8)">✍ signé</span>' : ''}
+        <td><b><i class="pt" style="background:${portInfo(t.port).couleur}"></i>${esc(t.nomPort || t.port)}</b>${t.pki ? ' <span class="badge">PKI</span>' : ''}${badgeSignature(t)}
           <div class="petit">${esc(t.texte ? '💬 ' + t.texte : t.resume || '')}${t.reprises ? ' · <span class="pastille">reprise après redémarrage</span>' : ''}</div>
           ${t.contenu ? `<details><summary>JSON</summary><pre class="json">${jsonJoli(t.contenu)}</pre></details>` : ''}</td>
       </tr>`).join('') || '<tr><td colspan="8" class="vide">Aucune trame pour ce filtre.</td></tr>'}</tbody>
@@ -4994,7 +5000,7 @@ async function ouvrirTrame(rowid) {
     <h2>Trame ${t.idPaquet} <small>${esc(t.nomPort || t.port)}</small></h2>
     <div class="grille">
       ${lig('Expéditeur', lienNoeud(t.de))}${lig('Destinataire', lienNoeud(t.vers))}${lig('Date', new Date(t.heure).toLocaleString('fr-FR'))}
-      ${lig('Canal', esc(t.canal || '–'))}${lig('Sauts au départ', t.hopDepart || '–')}${t.signe ? lig('Signature', '✍ vérifiée par la passerelle (firmware 2.8)') : ''}${lig('Chiffrement', t.pki ? 'PKI (message direct)' : t.dechiffre ? 'clé de canal, déchiffrée' : 'non déchiffrée')}
+      ${lig('Canal', esc(t.canal || '–'))}${lig('Sauts au départ', t.hopDepart || '–')}${t.signe || t.signature ? lig('Signature', t.signature === -1 ? '⚠ invalide : le paquet ne vient pas de ce nœud, ou a été modifié en route' : t.signature === 2 ? '✍ vérifiée par la carte avec la clé publique du nœud (firmware 2.8)' : t.signe ? '✍ vérifiée par la passerelle (firmware 2.8)' : 'présente, mais la carte ne connaît pas encore la clé publique du nœud (fiche NodeInfo)') : ''}${lig('Chiffrement', t.pki ? 'PKI (message direct)' : t.dechiffre ? 'clé de canal, déchiffrée' : 'non déchiffrée')}
       ${lig('Taille', t.taille != null ? t.taille + ' octets' : '–')}${lig('Réceptions', t.receptions.length)}${lig('Via MQTT', t.viaMqtt ? 'oui' : 'non')}
     </div>
     ${t.texte ? `<div class="encadre-texte">💬 ${esc(t.texte)}</div>` : `<p>${esc(t.resume || '')}</p>`}
@@ -5961,7 +5967,7 @@ function brancherInterface() {
   $('#replier').onclick = () => { $('#panneau').classList.add('replie'); $('#deplier').hidden = false; document.body.classList.add('panneau-replie'); };
   $('#deplier').onclick = () => { $('#panneau').classList.remove('replie'); $('#deplier').hidden = true; document.body.classList.remove('panneau-replie'); };
   installerDetachement();
-  $('#fermer-fiche').onclick = () => { $('#fiche').hidden = true; etat.selection = null; if (etat.trajet) { etat.trajet.remove(); etat.trajet = null; } };
+  $('#fermer-fiche').onclick = () => { $('#fiche').hidden = true; etat.selection = null; if (etat.trajet) { etat.trajet.remove(); etat.trajet = null; } if (etat.cerclePrec) { etat.cerclePrec.remove(); etat.cerclePrec = null; } };
   document.body.addEventListener('click', (e) => {
     const el = e.target.closest('.ligne[data-num], .alerte[data-num], .paquet[data-num]');
     if (!el || el.closest('#fiche')) return;
@@ -6637,6 +6643,14 @@ demarrer().catch((e) => {
 });
 
 // ---- QR code des réglages d'un nœud (ChannelSet meshtastic.org/e/#…) -------------------------
+// Signature XEdDSA d'un paquet (firmware 2.8) : signe = vérifiée par la passerelle ; signature = vérification de la carte
+// (2 valide, 1 clé de l'expéditeur inconnue, -1 invalide)
+function badgeSignature(t) {
+  if (t.signature === -1 && !t.signe) return ' <span class="badge refus" title="Signature invalide : le paquet ne vient pas de ce nœud, ou a été modifié en route">⚠ signature</span>';
+  if (t.signe || t.signature === 2) return ' <span class="badge" title="Signature de l’expéditeur vérifiée (firmware 2.8)">✍ signé</span>';
+  if (t.signature === 1) return ' <span class="badge" title="Paquet signé, mais la carte ne connaît pas encore la clé publique de l’expéditeur">✍ ?</span>';
+  return '';
+}
 const precisionTexte = (bits) => {
   if (!bits) return 'pas de position';
   if (bits >= 32) return 'exacte';
@@ -7999,7 +8013,7 @@ async function dessinerRadar() {
 // Ils n'entendent pas le réseau, et le réseau ne les entend pas. La carte les connaît par MQTT (rapport de carte, ou
 // canal au nom par défaut d'un preset) ou par un module « sentinelle » en écoute réglé sur leur preset, qui peut aussi
 // leur envoyer un message direct d'invitation.
-const NOMS_PRESETS = { LONG_FAST: 'LongFast', LONG_MODERATE: 'LongModerate', LONG_SLOW: 'LongSlow', VERY_LONG_SLOW: 'VeryLongSlow', MEDIUM_FAST: 'MediumFast', MEDIUM_SLOW: 'MediumSlow', SHORT_FAST: 'ShortFast', SHORT_SLOW: 'ShortSlow', SHORT_TURBO: 'ShortTurbo', LONG_TURBO: 'LongTurbo', MEDIUM_TURBO: 'MediumTurbo' };
+const NOMS_PRESETS = { LONG_FAST: 'LongFast', LONG_MODERATE: 'LongModerate', LONG_SLOW: 'LongSlow', VERY_LONG_SLOW: 'VeryLongSlow', MEDIUM_FAST: 'MediumFast', MEDIUM_SLOW: 'MediumSlow', SHORT_FAST: 'ShortFast', SHORT_SLOW: 'ShortSlow', SHORT_TURBO: 'ShortTurbo', LONG_TURBO: 'LongTurbo', MEDIUM_TURBO: 'MediumTurbo', LITE_FAST: 'LiteFast', LITE_SLOW: 'LiteSlow', NARROW_FAST: 'NarrowFast', NARROW_SLOW: 'NarrowSlow', TINY_FAST: 'TinyFast', TINY_SLOW: 'TinySlow' };
 const nomPreset = (p) => NOMS_PRESETS[p] || p || '?';
 etat.autresPresets = null; // { preset, nums: Set, noeuds, sentinelles }
 async function chargerAutresPresets() {

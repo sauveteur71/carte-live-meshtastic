@@ -213,19 +213,33 @@ async function ficheV28() {
     ${r.noeuds.length ? `<h3>Relais déjà en 2.8</h3>${r.noeuds.map((x) => `<div class="proposition"><div class="entete-prop"><b>${esc(x.nom)}</b><span class="marge">${esc(x.firmware || '')}</span></div>${x.problemes.length ? x.problemes.map((p) => `<div class="meta-longue" style="color:var(--${p.niveau === 'critique' ? 'critique' : 'attention'})">⚠ ${esc(p.texte)}</div>`).join('') : '<div class="note">✔ rien à signaler</div>'}<div class="actions-prop"><button class="mini" data-editer="${x.num}">✏️ Modifier ses réglages</button></div></div>`).join('')}` : ''}
     <h3>Nœuds renumérotés</h3>
     ${r.renumerotations.length ? r.renumerotations.map((x) => `<div class="proposition"><div>${ligneN(x.ancien)} → ${ligneN(x.nouveau)}</div>
-      <div class="note">Même clé publique. Ancien numéro vu pour la dernière fois ${ilYa(x.ancien.dernierVu)} ; nouveau apparu ${ilYa(x.nouveau.premierVu)}${x.nouveau.firmware ? ' (' + esc(x.nouveau.firmware) + ')' : ''}.</div>
+      <div class="note">Même clé publique${x.certain ? ' ; le nouveau numéro découle de cette clé (règle 2.8) : renumérotation certaine' : ''}. Ancien numéro vu pour la dernière fois ${ilYa(x.ancien.dernierVu)} ; nouveau apparu ${ilYa(x.nouveau.premierVu)}${x.nouveau.firmware ? ' (' + esc(x.nouveau.firmware) + ')' : ''}.</div>
       ${etat.admin ? `<div class="actions-prop"><button class="mini principal" data-fusion="${x.ancien.num}:${x.nouveau.num}">Fusionner l’historique</button></div>` : ''}</div>`).join('') : '<div class="vide">Aucun : la carte repère un nœud renuméroté grâce à sa clé publique (fiche NodeInfo) dès qu’elle a reçu la fiche de l’ancien et du nouveau numéro.</div>'}
-    <p class="note">La fusion rattache au nouveau numéro l’historique de l’ancien (positions, télémétrie, paquets, liaisons, traceroutes), sa fiche d’installation, son état d’administration, ses favoris et les secteurs des gestionnaires. L’ancien numéro disparaît de la carte.</p>
+    ${(r.probables || []).length ? `<h3>Nœuds probablement réinitialisés</h3>${r.probables.map((x) => `<div class="proposition"><div>${ligneN(x.ancien)} → ${ligneN(x.nouveau)}</div>
+      <div class="note">${esc(x.raison)}${x.nouveau.materiel ? ' · ' + esc(x.nouveau.materiel) : ''}. Ancien vu pour la dernière fois ${ilYa(x.ancien.dernierVu)} ; nouveau apparu ${ilYa(x.nouveau.premierVu)}. Les clés diffèrent : vérifiez que c’est bien le même appareil avant de fusionner.</div>
+      ${etat.admin ? `<div class="actions-prop"><button class="mini" data-fusion="${x.ancien.num}:${x.nouveau.num}" data-force="1">Fusionner quand même</button></div>` : ''}</div>`).join('')}` : ''}
+    <p class="note">La fusion rattache au nouveau numéro l’historique de l’ancien (positions, télémétrie, paquets, liaisons, traceroutes), sa fiche d’installation, son état d’administration, ses favoris, ses équipes, son responsable et les secteurs des gestionnaires. L’ancien numéro disparaît de la carte. Les 20 dernières fusions peuvent être annulées.</p>
     ${r.doublons.length ? `<h3>Clés publiques en double</h3>${r.doublons.map((x) => `<div class="proposition"><div>${ligneN(x.ancien)} et ${ligneN(x.nouveau)}</div><div class="meta-longue" style="color:var(--attention)">Les deux sont actifs avec la même clé (configuration clonée, ${x.chevauchementH} h en même temps) : les messages directs et l’administration à distance peuvent partir vers le mauvais. Régénérez la clé de l’un des deux (appli › Sécurité › Régénérer la clé privée), puis remettez la clé d’administration.</div></div>`).join('')}` : ''}
-    ${r.historique.length ? `<h3>Fusions faites</h3>${r.historique.map((h) => `<div class="note">${new Date(h.heure).toLocaleString('fr-FR')} · ${esc(h.nom || '')} ${esc(h.idAncien)} → ${esc(h.idNouveau)} par ${esc(h.par || '?')}</div>`).join('')}` : ''}
+    ${r.historique.length ? `<h3>Fusions faites</h3>${r.historique.map((h) => `<div class="note">${new Date(h.heure).toLocaleString('fr-FR')} · ${esc(h.nom || '')} ${esc(h.idAncien)} → ${esc(h.idNouveau)} par ${esc(h.par || '?')}${h.force ? ' · forcée' : ''}${h.annule ? ` · <b>annulée</b> le ${new Date(h.annule.heure).toLocaleString('fr-FR')}` : ''}${h.annulable && etat.admin ? ` <button class="mini" data-annuler="${h.heure}:${h.ancien}:${h.nouveau}">↩ Annuler</button>` : ''}</div>`).join('')}` : ''}
     <p class="erreur" id="v28-retour"></p>`;
   z.querySelectorAll('[data-editer]').forEach((b) => (b.onclick = () => editeurReglages(Number(b.dataset.editer))));
   z.querySelectorAll('[data-fusion]').forEach((b) => (b.onclick = async () => {
     const [a, n] = b.dataset.fusion.split(':').map(Number);
-    if (!(await confirmer(`Fusionner ${nomNoeud(a)} dans ${nomNoeud(n)} ? L’historique de l’ancien numéro passe au nouveau ; c’est définitif.`))) return;
+    const force = b.dataset.force === '1';
+    if (!(await confirmer(`Fusionner ${nomNoeud(a)} dans ${nomNoeud(n)} ? L’historique de l’ancien numéro passe au nouveau${force ? ' alors que leurs clés diffèrent' : ''}. Vous pourrez annuler la fusion tant que l’ancien numéro n’est pas réentendu.`))) return;
     try {
-      const h = await postJson('/api/admin-noeuds/fusion', { ancien: a, nouveau: n });
+      const h = await postJson('/api/admin-noeuds/fusion', { ancien: a, nouveau: n, force });
       $('#v28-retour').textContent = `Fusionné : ${Object.entries(h.lignes).map(([k, v]) => `${v} ${k}`).join(', ')}.`;
+      setTimeout(ficheV28, 1500);
+      chargerNoeuds().catch(() => {});
+    } catch (e) { $('#v28-retour').textContent = e.message; }
+  }));
+  z.querySelectorAll('[data-annuler]').forEach((b) => (b.onclick = async () => {
+    const [heure, a, n] = b.dataset.annuler.split(':').map(Number);
+    if (!(await confirmer('Annuler cette fusion ? L’ancien numéro revient sur la carte avec l’historique qu’il avait au moment de la fusion.'))) return;
+    try {
+      const h = await postJson('/api/admin-noeuds/fusion/annuler', { heure, ancien: a, nouveau: n });
+      $('#v28-retour').textContent = `Fusion annulée : ${h.annule.lignes} lignes rendues à ${h.idAncien}.`;
       setTimeout(ficheV28, 1500);
       chargerNoeuds().catch(() => {});
     } catch (e) { $('#v28-retour').textContent = e.message; }

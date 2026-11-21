@@ -62,6 +62,7 @@ function ouvrirBase(fichier) {
   const colonnes = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   const ajouter = (table, col, type) => { if (!colonnes(table).includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`); };
   ajouter('paquets', 'signe', 'INTEGER'); // firmware 2.8 : signature de l'expéditeur vérifiée
+  ajouter('paquets', 'signature', 'INTEGER'); // vérification par la carte : 2 valide, 1 clé de l'expéditeur inconnue, -1 invalide
   ajouter('paquets', 'taille', 'INTEGER');
   ajouter('paquets', 'via_mqtt', 'INTEGER');
   ajouter('receptions', 'relais_num', 'INTEGER');
@@ -104,9 +105,10 @@ function creerStockage(fichier) {
         VALUES (@num, @heure, @batterie, @tension, @canal, @emission, @temperature, @humidite, @pression, @uptime)`),
     passerelle: db.prepare('UPDATE noeuds SET est_passerelle = 1, dernier_vu_passerelle = MAX(COALESCE(dernier_vu_passerelle,0), ?) WHERE num = ?'),
     etatPasserelle: db.prepare('UPDATE noeuds SET est_passerelle = 1, etat_passerelle = ?, heure_etat_passerelle = ? WHERE num = ?'),
-    insererPaquet: db.prepare(`INSERT INTO paquets (id_paquet, de, vers, canal, port, nom_port, portnum, heure, hop_depart, hop_restant, sauts, dechiffre, resume, texte, taille, via_mqtt, contenu, pki, signe)
-        VALUES (@idPaquet, @de, @vers, @canal, @port, @nomPort, @portnum, @heure, @hopDepart, @hopRestant, @sauts, @dechiffre, @resume, @texte, @taille, @viaMqtt, @contenu, @pki, @signe)
+    insererPaquet: db.prepare(`INSERT INTO paquets (id_paquet, de, vers, canal, port, nom_port, portnum, heure, hop_depart, hop_restant, sauts, dechiffre, resume, texte, taille, via_mqtt, contenu, pki, signe, signature)
+        VALUES (@idPaquet, @de, @vers, @canal, @port, @nomPort, @portnum, @heure, @hopDepart, @hopRestant, @sauts, @dechiffre, @resume, @texte, @taille, @viaMqtt, @contenu, @pki, @signe, @signature)
         ON CONFLICT(de, id_paquet) DO UPDATE SET nb_receptions = nb_receptions + 1, signe = MAX(COALESCE(paquets.signe, 0), COALESCE(excluded.signe, 0)),
+          signature = CASE WHEN paquets.signature IS NULL OR (paquets.signature = 1 AND excluded.signature IS NOT NULL) THEN excluded.signature ELSE paquets.signature END,
           sauts = CASE WHEN excluded.sauts IS NOT NULL AND (paquets.sauts IS NULL OR excluded.sauts < paquets.sauts) THEN excluded.sauts ELSE paquets.sauts END
         RETURNING rowid, nb_receptions`),
     reception: db.prepare(`INSERT OR REPLACE INTO receptions (paquet, passerelle, heure, snr, rssi, sauts, relais, relais_num, sujet) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),

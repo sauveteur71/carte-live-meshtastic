@@ -4,7 +4,7 @@
   const page = document.getElementById('page');
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const lignes = (t) => String(t || '').split(/\n+/).map((l) => l.trim()).filter(Boolean);
-  const PRESETS = { LONG_FAST: 'LongFast', LONG_MODERATE: 'LongModerate', LONG_SLOW: 'LongSlow', VERY_LONG_SLOW: 'VeryLongSlow', MEDIUM_FAST: 'MediumFast', MEDIUM_SLOW: 'MediumSlow', MEDIUM_TURBO: 'MediumTurbo', SHORT_FAST: 'ShortFast', SHORT_SLOW: 'ShortSlow', SHORT_TURBO: 'ShortTurbo', LONG_TURBO: 'LongTurbo' };
+  const PRESETS = { LONG_FAST: 'LongFast', LONG_MODERATE: 'LongModerate', LONG_SLOW: 'LongSlow', VERY_LONG_SLOW: 'VeryLongSlow', MEDIUM_FAST: 'MediumFast', MEDIUM_SLOW: 'MediumSlow', MEDIUM_TURBO: 'MediumTurbo', SHORT_FAST: 'ShortFast', SHORT_SLOW: 'ShortSlow', SHORT_TURBO: 'ShortTurbo', LONG_TURBO: 'LongTurbo', LITE_FAST: 'LiteFast', LITE_SLOW: 'LiteSlow', NARROW_FAST: 'NarrowFast', NARROW_SLOW: 'NarrowSlow', TINY_FAST: 'TinyFast', TINY_SLOW: 'TinySlow' };
   let d;
   try {
     const r = await fetch('/api/rejoindre');
