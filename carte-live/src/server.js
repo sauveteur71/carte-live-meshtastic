@@ -1596,7 +1596,8 @@ function obtenirRapport() {
 }
 app.get('/rapport', (req, res) => {
   if (!estMembre(req)) return res.status(401).send('Connexion requise : connectez-vous sur la carte puis rouvrez cette page.');
-  try { res.set('Cache-Control', 'no-store').type('html').send(obtenirRapport().construire()); } catch (e) { res.status(500).send('Rapport indisponible : ' + e.message); }
+  // Démonstration (visiteur sans compte) : sans les alertes réservées aux membres (équipes, secteurs, urgence…)
+  try { res.set('Cache-Control', 'no-store').type('html').send(obtenirRapport().construire({ alertes: req.demoLecture ? alertesPubliques(dernieresAlertes) : null })); } catch (e) { res.status(500).send('Rapport indisponible : ' + e.message); }
 });
 app.get('/api/rapports', (req, res) => {
   if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
@@ -1994,7 +1995,7 @@ app.get('/api/paquets', (req, res) => {
 });
 
 app.get('/api/etat', (req, res) => {
-  res.json({ stats: reseau.statistiques(), alertes: estAdmin(req) ? dernieresAlertes : alertesPubliques(dernieresAlertes), meshmonitor: sourceMM ? sourceMM.etat() : null, radio: sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
+  res.json({ stats: reseau.statistiques(), alertes: estMembre(req) ? dernieresAlertes : alertesPubliques(dernieresAlertes), meshmonitor: sourceMM ? sourceMM.etat() : null, radio: sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
 });
 
 // Canaux Meshtastic publics (clé par défaut) : les seuls lisibles en démonstration (messages, recherche)
@@ -3176,6 +3177,7 @@ function brancherCompanionFlux(flux, nom, source, role, compte = null) {
 }
 wss.on('connection', (ws, req) => {
   ws.admin = estMembre(req);
+  ws.gestion = estGestion(req); // alertes des secteurs et journal de crise : gestionnaires et administrateurs seulement
   ws.vivant = true;
   ws.on('pong', () => (ws.vivant = true));
   ws.send(JSON.stringify({ genre: 'bienvenue', admin: ws.admin, mqtt: !!(clientMqtt && clientMqtt.connected) }));
@@ -3237,15 +3239,43 @@ function diffuser(message) {
 // Message réservé aux comptes connectés (positions des intervenants, demandes d'aide, mode urgence) : rien vers le public
 function diffuserMembres(message) {
   const t = JSON.stringify(message);
-  for (const ws of wss.clients) if (ws.readyState === 1 && ws.admin) ws.send(t);
+  const gestion = message.genre === 'secteur-alerte' || message.genre === 'urgence-evt';
+  for (const ws of wss.clients) if (ws.readyState === 1 && ws.admin && (!gestion || ws.gestion)) ws.send(t);
 }
 // Secteurs d'alerte et mode urgence : positions reçues (un paquet vu par plusieurs passerelles compte une fois)
 // et messages de détresse pendant une crise
-function crisePaquet(evt) {
+let dernierPaquetCrise = 0, modulesCrisePrets = false; // dernier paquet Meshtastic reçu (toutes sources) ; secteurs et urgence créés
+const sosVus = new Map(); // nœud -> heure du dernier message de détresse noté (un par nœud par 5 min)
+// Nœud de la carte elle-même ou d'un module en écoute : ses messages (alertes envoyées par la carte) ne sont pas des détresses
+function noeudDeLaCarte(num) {
+  try { if (sourceRadio.infos().noeudLocal === num) return true; } catch { /* pas de module */ }
+  try { return resumeEcoutes().some((x) => x.noeud === num); } catch { return false; }
+}
+// Nœud concerné par la carte : surveillé, dans la zone, ou membre d'une équipe → détresse « critique » ; sinon « attention »
+function noeudConcerne(num) {
+  try { if (equipes.estMembre(num)) return true; } catch { /* pas encore prêt */ }
   try {
-    if (evt.port === 'position' && evt.position && evt.position.lat != null && evt.de != null) secteursAlerte.position('mt:' + (evt.de >>> 0), { lat: evt.position.lat, lon: evt.position.lon, precision: evt.position.precision, id: evt.idPaquet });
-    if (evt.port === 'texte' && evt.texte && urgence.actif() && RE_SOS.test(evt.texte)) urgence.noter({ cle: `msg:${evt.de >>> 0}:${evt.idPaquet}`, type: 'message', niveau: 'critique', texte: `Message de détresse de ${nomNoeudServeur(evt.de)}${evt.canal ? ` (canal ${evt.canal})` : ''} : ${String(evt.texte).replace(/\u0007/g, '🔔').slice(0, 200)}`, noeud: evt.de >>> 0 });
-  } catch (e) { if (!(e instanceof ReferenceError)) journal('[Secteurs]', e.message); } // pas encore créés au démarrage
+    const n = stockage.q.noeud.get(num >>> 0);
+    if (!n) return false;
+    if (reseau.estSurveille(n)) return true;
+    const z = config.zone;
+    return !!(z && n.lat != null && n.lat >= z[0] && n.lat <= z[2] && n.lon >= z[1] && n.lon <= z[3]);
+  } catch { return false; }
+}
+function crisePaquet(evt) {
+  dernierPaquetCrise = Date.now();
+  try {
+    if (evt.port === 'position' && evt.position && evt.position.lat != null && evt.de != null) secteursAlerte.position('mt:' + (evt.de >>> 0), { lat: evt.position.lat, lon: evt.position.lon, precision: evt.position.precision, heureFix: evt.position.heureFix || null, id: evt.idPaquet });
+    if (evt.port === 'texte' && evt.texte && evt.de != null && urgence.actif() && RE_SOS.test(evt.texte)) {
+      const de = evt.de >>> 0, t = Date.now();
+      if (noeudDeLaCarte(de) || t - (sosVus.get(de) || 0) < 300000) return;
+      sosVus.set(de, t);
+      if (sosVus.size > 2000) for (const [k, v] of sosVus) { if (t - v > 300000) sosVus.delete(k); }
+      const concerne = noeudConcerne(de);
+      const qui = `${nomNoeudServeur(de)}${evt.canal ? ` (canal ${evt.canal})` : ''}`, txt = String(evt.texte).replace(/\u0007/g, '🔔').slice(0, 200);
+      urgence.noter({ cle: `msg:${de}:${evt.idPaquet}`, type: 'message', niveau: concerne ? 'critique' : 'attention', texte: concerne ? `Message de détresse de ${qui} : ${txt}` : `Message de détresse possible de ${qui} (nœud hors zone, expéditeur non vérifiable) : ${txt}`, noeud: de });
+    }
+  } catch (e) { if (modulesCrisePrets || !(e instanceof ReferenceError)) journal('[Secteurs]', e.message); } // pas encore créés au démarrage
 }
 
 // ---- MQTT -----------------------------------------------------------------
@@ -3382,7 +3412,7 @@ function traiterEnveloppeMt(topic, message) {
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
     versPasserelleRadio(evt);
     if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
-    if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuserMembres({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
     if (sortie) { compteur.decodes++; diffuser(sortie); }
@@ -3711,7 +3741,7 @@ const sourceRadio = creerSourceRadio(stockage, config, canaux, {
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
     versPasserelleRadio(evt);
     if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
-    if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuserMembres({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
     if (sortie) { compteur.decodes++; diffuser({ ...sortie, viaRadio: true }); }
@@ -3731,7 +3761,7 @@ const ecoutes = creerEcoutes({
       if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
     versPasserelleRadio(evt);
     if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
-    if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuserMembres({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
       if (sortie) { compteur.decodes++; diffuser({ ...sortie, viaRadio: true }); }
@@ -3753,12 +3783,15 @@ const equipes = require('./equipes').creerEquipes({ config, administration, jour
   },
   surZone: (id, zone, auteur) => secteursAlerte.zoneEquipe(id, zone, auteur),
   secteursDe: (id) => secteursAlerte.resumeEquipe(id),
+  surSuppression: (id) => { const n = secteursAlerte.equipeSupprimee(id); if (n) { journal(`[Secteurs] ${n} secteur(s) désactivé(s) : équipe supprimée`); planifierRafraichir(); } },
   nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); }, positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
 const routeEquipe = (f) => (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   try { res.set('Cache-Control', 'no-store').json(f(req, req.body || {}, nomCompte(utilisateur(req)))); } catch (e) { res.status(400).json({ erreur: e.message }); }
 };
-app.get('/api/equipes', routeEquipe(() => ({ equipes: equipes.liste(), sourceCle: equipes.sourceCle(), module: administration.infos() })));
+// Démonstration (visiteur sans compte) : ni demandes d'aide, ni positions des intervenants, ni secteurs, ni zones
+const equipeDemo = (e) => ({ ...e, sos: [], secteurs: [], zone: null, recherche: null, membres: e.membres.map((m) => ({ ...m, position: null, horsZone: false })) });
+app.get('/api/equipes', routeEquipe((req) => ({ equipes: req.demoLecture ? equipes.liste().map(equipeDemo) : equipes.liste(), sourceCle: equipes.sourceCle(), module: administration.infos() })));
 app.post('/api/equipes', routeEquipe((req, b, a) => equipes.creer(b, a)));
 app.patch('/api/equipes/:id', routeEquipe((req, b, a) => equipes.modifier(req.params.id, b, a)));
 app.post('/api/equipes/:id/membres', routeEquipe((req, b, a) => equipes.membres(req.params.id, b, a)));
@@ -3790,9 +3823,15 @@ const secteursAlerte = require('./secteurs').creerSecteurs({
   positionDe: (num) => { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; },
   // Option d'un secteur : alerte courte sur un canal LoRa (module de la carte), au plus une toutes les 30 s
   envoyerLora: (texte, canal) => administration.envoyerTexte({ texte, canal }, 'secteurs'),
+  suiviMinDe: (id) => equipes.suiviDe(id),
+  // Dernière réception d'un paquet, toutes sources (MQTT, module radio, agents, UDP) : sans rien depuis 10 min, la
+  // surveillance des pertes de contact est suspendue (c'est la carte qui n'entend plus, pas les intervenants)
+  derniereReception: () => Math.max(statsMqtt.dernierMessage || 0, dernierPaquetCrise),
+  // Au premier signe de sortie, position fraîche demandée au nœud (une fois par 10 min) : l'alerte n'attend pas le prochain suivi
+  demanderPosition: (num, motif) => administration.demanderPosition(num, motif),
   surEvenement: (e) => {
-    if (['sortie', 'entree', 'silence'].includes(e.type) && e.alerte !== false) planifierRafraichir();
-    if (['creation', 'modification', 'suppression', 'imprecise'].includes(e.type) && !urgence.actif()) return;
+    if ((['sortie', 'entree', 'silence'].includes(e.type) && e.alerte !== false) || ['imprecise', 'perimee', 'flux', 'flux-retour', 'desactivation'].includes(e.type)) planifierRafraichir();
+    if (['creation', 'modification', 'suppression', 'imprecise', 'perimee', 'desactivation'].includes(e.type) && !urgence.actif()) return;
     const genre = e.type === 'sortie' ? 'dehors' : e.type === 'entree' ? 'dedans' : e.type;
     const noeud = e.noeud && e.noeud.startsWith('mt:') ? Number(e.noeud.slice(3)) : e.noeud ? e.noeud.slice(3) : null;
     urgence.noter({ cle: `secteur:${e.secteur}:${e.noeud}:${genre}:${e.heure}`, type: 'secteur', niveau: e.niveau, texte: e.message, noeud, lat: e.lat ?? null, lon: e.lon ?? null, auteur: e.auteur || null });
@@ -3806,17 +3845,21 @@ reseauMc.ecouterPositions((p) => secteursAlerte.position('mc:' + p.cle, { lat: p
   for (const z of m.liste) {
     try { secteursAlerte.zoneEquipe(z.id, z.zone, 'reprise automatique'); journal(`[Secteurs] zone de sécurité de l’équipe « ${z.nom} » reprise en secteur d’alerte`); } catch (e) { ok = false; journal('[Secteurs] zone de sécurité non reprise :', e.message); }
   }
-  if (m.liste.length && ok) m.valider();
+  if (m.liste.length && ok && !m.valider()) journal('[Secteurs] zones de sécurité reprises, mais le fichier des équipes n’a pas pu être mis à jour : elles seront reprises de nouveau au prochain démarrage (secteur existant mis à jour, pas dupliqué)');
 }
 // ---- Mode urgence : configuration de crise de la carte, voir urgence.js ----------------------------------------
 const urgence = require('./urgence').creerUrgence({ config, journal, diffuser: diffuserMembres });
+modulesCrisePrets = true; // à partir d'ici, une ReferenceError dans crisePaquet est un vrai bug, journalisé
 // Pendant une crise, l'état du réseau (alertes, compteurs) part toutes les 10 s au lieu de 30 s
 setInterval(() => { try { if (urgence.actif()) rafraichirEtat(); } catch (e) { journal('[Urgence]', e.message); } }, 10000).unref();
 const OUTILS_CRISE = ['signalements', 'main-courante']; // remis en service pendant une crise s'ils étaient masqués
 // Alertes critiques nouvelles notées au journal de la crise (chacune une seule fois)
+// Sur un gros flux (carte monde), les centaines d'alertes « muet » de nœuds lointains restent hors du journal de crise :
+// seules celles des nœuds concernés (surveillés, dans la zone, membres d'équipe), des secteurs et des équipes y entrent
 function noterAlertesCrise(l) {
   for (const a of l) {
     if (a.niveau !== 'critique' || a.type === 'urgence') continue;
+    if (a.type !== 'secteur' && a.type !== 'equipe' && a.type !== 'service' && a.noeud != null && typeof a.noeud === 'number' && !noeudConcerne(a.noeud)) continue;
     urgence.noter({ cle: a.cle || `${a.type}:${a.noeud ?? a.num ?? a.nom}:${a.depuis || ''}`, type: a.type === 'secteur' ? 'secteur' : 'alerte', niveau: 'critique', texte: a.message, noeud: a.noeud ?? null });
   }
 }

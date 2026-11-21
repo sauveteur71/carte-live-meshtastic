@@ -1149,6 +1149,22 @@ async function essaiUrgenceEtSecteurs(navig, cookie) {
   if (await page.locator('.leaflet-secteurs-pane path').count()) ok('secteur tracé sur la carte'); else ko('secteur absent de la carte');
   const pub = await appel('GET', '/api/secteurs', null, {});
   if (pub.statut === 401) ok('secteurs refusés au public'); else ko('secteurs lisibles sans compte : ' + pub.statut);
+  // Fuites vers les visiteurs (I4) : équipe avec une position de membre et un secteur ; anonyme → 401 ; démonstration → vidé
+  const eq = await appel('POST', '/api/equipes', { nom: 'EssaiEq', positions: true });
+  if (eq.statut === 200) {
+    await appel('POST', '/api/equipes/' + eq.j.id + '/membres', { ajouter: [0x5a1e0042], insister: false }).catch(() => {});
+    const anonEq = await appel('GET', '/api/equipes', null, {});
+    const demoEq = await appel('GET', '/api/equipes', null, { 'X-Demo': '1' });
+    const adminEq = await appel('GET', '/api/equipes');
+    const e1 = (demoEq.j.equipes || []).find((x) => x.nom === 'EssaiEq') || {};
+    const vide = e1 && (e1.sos || []).length === 0 && (e1.secteurs || []).length === 0 && !e1.zone && (e1.membres || []).every((m) => m.position == null);
+    if (anonEq.statut === 401 && demoEq.statut === 200 && vide && adminEq.statut === 200) ok('équipes : 401 pour un anonyme ; en démonstration, ni demandes d’aide, ni positions, ni secteurs'); else ko('fuite équipes : ' + JSON.stringify({ anon: anonEq.statut, demo: demoEq.statut, e1 }).slice(0, 300));
+    await appel('DELETE', '/api/equipes/' + eq.j.id, { retirerDesNoeuds: false });
+  } else ko('création d’équipe pour l’essai : ' + JSON.stringify(eq.j));
+  const rapAnon = await fetch(BASE + '/rapport');
+  const rapDemo = await fetch(BASE + '/rapport', { headers: { 'X-Demo': '1' } });
+  const rapDemoTexte = await rapDemo.text();
+  if (rapAnon.status === 401 && rapDemo.status === 200 && !/Secteur essai/.test(rapDemoTexte)) ok('rapport : 401 pour un anonyme, sans alerte de secteur en démonstration'); else ko('rapport : ' + JSON.stringify({ anon: rapAnon.status, demo: rapDemo.status, secteur: /Secteur essai/.test(rapDemoTexte) }));
   // Mode urgence : activé (bandeau, carte en crise, tableau), puis terminé
   const a = await appel('POST', '/api/urgence', { actif: true, motif: 'Essai automatique' });
   await page.waitForTimeout(1500);

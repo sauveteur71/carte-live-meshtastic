@@ -82,7 +82,7 @@ function alerteSecteur(m) {
   if (!m.notifier) return;
   const centrer = m.lat != null ? () => carte.setView([m.lat, m.lon], Math.max(carte.getZoom(), 15)) : null;
   annonce(m.message, m.niveau === 'critique' ? 'erreur' : 'info', centrer, 'Cliquer pour centrer la carte', 20000);
-  try { if (window.Notification && Notification.permission === 'granted') new Notification(m.type === 'silence' ? '📵 Perte de contact' : '⛔ Secteur d’alerte', { body: m.message, tag: 'secteur-' + m.secteur + '-' + m.noeud }); } catch { /* pas de notification */ }
+  try { if (window.Notification && Notification.permission === 'granted') new Notification(m.type === 'silence' ? '📵 Perte de contact' : m.type === 'flux' || m.type === 'flux-retour' ? '📡 Flux de paquets' : '⛔ Secteur d’alerte', { body: m.message, tag: 'secteur-' + m.secteur + '-' + m.noeud }); } catch { /* pas de notification */ }
   try { bip(m.niveau === 'critique' ? [988, 740, 988, 740] : [660, 880], 0.18); } catch { /* pas de son */ }
   if (m.lat != null && (m.type === 'sortie' || m.type === 'entree')) L.popup().setLatLng([m.lat, m.lon]).setContent(`<b>${m.type === 'sortie' ? '⛔' : '⚠'} ${esc(m.nom || '')}</b><br>${esc(m.message)}`).openOn(carte);
 }
@@ -104,10 +104,10 @@ function champsSecteur(s = {}) {
       <label title="Une position à moins de cette distance de la limite ne compte pas : elle évite les fausses alertes en bordure">Marge (m) <input data-c="marge" type="number" min="0" max="2000" step="10" value="${s.marge ?? 30}"></label>
       <label title="Nombre de positions de suite du même côté avant de changer d’état">Positions pour confirmer <select data-c="confirmations">${[1, 2, 3, 4, 5].map((n) => opt(n, n, s.confirmations ?? 2)).join('')}</select></label>
       <label title="Pas deux alertes du même genre pour le même nœud avant ce délai">Délai entre deux alertes <select data-c="delaiMin">${[[1, '1 min'], [5, '5 min'], [10, '10 min'], [15, '15 min'], [30, '30 min'], [60, '1 h']].map(([v, t]) => opt(v, t, s.delaiMin ?? 10)).join('')}</select></label>
-      <label title="Alerte si un membre ne donne plus de position pendant ce temps">Perte de contact <select data-c="silenceMin">${[[0, 'pas d’alerte'], [10, 'après 10 min'], [15, 'après 15 min'], [30, 'après 30 min'], [60, 'après 1 h'], [120, 'après 2 h']].map(([v, t]) => opt(v, t, s.silenceMin ?? 0)).join('')}</select></label>
+      <label title="Alerte si un membre ne donne plus de position pendant ce temps">Perte de contact <select data-c="silenceMin">${[[0, 'pas d’alerte'], [10, 'après 10 min'], [15, 'après 15 min'], [30, 'après 30 min'], [60, 'après 1 h'], [120, 'après 2 h']].map(([v, t]) => opt(v, t, s.silenceMin ?? 30)).join('')}</select></label>
       <label title="Message court envoyé par le module de la carte à chaque alerte (au plus un toutes les 30 s)">Prévenir sur un canal LoRa <select data-c="canalLora">${opt('', 'non', s.canalLora ?? '')}${[0, 1, 2, 3, 4, 5, 6, 7].map((n) => opt(n, 'canal ' + n, s.canalLora ?? '')).join('')}</select></label>
     </div>
-    <small class="note">Une alerte part après <b>${s.confirmations ?? 2} positions de suite</b> au-delà de la marge. Une position floutée plus large que le secteur est ignorée (et notée au journal).</small>`;
+    <small class="note">Une alerte part après <b>${s.confirmations ?? 2} positions de suite</b> au-delà de la marge, soit <b>1 à 2 intervalles de suivi</b> après la sortie réelle (la carte demande aussitôt une position au premier signe de sortie). Une seule position dehors suivie d’un silence devient une « sortie probable » après 10 min ou un intervalle de suivi. Une position floutée plus large que le secteur reste surveillée, mais le nœud est signalé « non surveillable précisément ».</small>`;
 }
 function lireChampsSecteur(bloc) {
   const v = (c) => { const x = bloc.querySelector(`[data-c="${c}"]`); return x ? x.value : undefined; };
@@ -146,7 +146,7 @@ function dessinerPolygone(fini) {
     barre.querySelector('[data-n]').textContent = pts.length ? `${pts.length} sommet(s) posé(s)${pts.length < 3 ? ' : encore ' + (3 - pts.length) + ' au moins' : ''}` : 'Touchez la carte pour poser les sommets du secteur (3 au moins).';
     barre.querySelector('[data-finir]').disabled = pts.length < 3;
   };
-  const clic = (e) => { if (pts.length < 200) { pts.push([Math.round(e.latlng.lat * 1e6) / 1e6, Math.round(e.latlng.lng * 1e6) / 1e6]); maj(); } };
+  const clic = (e) => { const ll = e.latlng.wrap(); if (pts.length < 200) { pts.push([Math.round(ll.lat * 1e6) / 1e6, Math.round(ll.lng * 1e6) / 1e6]); maj(); } };
   const touche = (e) => { if (e.key === 'Escape') terminer(false); };
   function terminer(ok) {
     carte.off('click', clic); document.removeEventListener('keydown', touche);
@@ -159,7 +159,8 @@ function dessinerPolygone(fini) {
   carte.on('click', clic); document.addEventListener('keydown', touche);
 }
 function choisirCercle(fini) {
-  choisirPointPuis('Touchez la carte au centre du secteur.', async (ll) => {
+  choisirPointPuis('Touchez la carte au centre du secteur.', async (ll0) => {
+    const ll = ll0 && ll0.wrap ? ll0.wrap() : ll0; // longitude ramenée dans ±180 (carte défilée au-delà de l’antiméridien)
     const r = await saisir('Rayon du secteur, en mètres (50 à 100 000) :', '1000');
     if (r == null) return fini(null);
     const v = Number(String(r).replace(/\s/g, '').replace(',', '.'));
@@ -182,7 +183,7 @@ async function ficheSecteurs(opts = {}) {
   if (opts.equipe && !crise.brouillon) crise.brouillon = { equipe: opts.equipe };
   const mod = crise.modifiable;
   const ligneMembre = (m, s) => {
-    const [c, t] = m.silence ? ['echec', '📵 sans nouvelle'] : m.imprecise && m.etat === 'inconnu' ? ['attente', '≈ position trop imprécise'] : LIB_ETAT[m.etat] || LIB_ETAT.inconnu;
+    const [c, t] = m.silence ? ['echec', '📵 sans nouvelle'] : m.etat === 'dehors' && m.probable ? ['echec', '⛔ sortie probable'] : m.perimee ? ['attente', '⌛ position périmée'] : m.imprecise ? ['attente', '≈ position floutée'] : LIB_ETAT[m.etat] || LIB_ETAT.inconnu;
     const d = m.derniere;
     return `<div class="membre-eq ${c}"><span class="nom">${esc(m.nom)}</span><span class="etat">${t}</span>
       <small class="detail">${d ? `📍 ${ilYa(d.heure)}${d.precision ? ` · ± ${d.precision} m` : ''}${d.d != null && d.d > 0 && m.etat === 'dehors' ? ` · ${d.d} m au-delà` : ''} <a href="#" data-voir-pos="${d.lat},${d.lon}">voir</a>` : '📍 aucune position reçue depuis la création du secteur'}</small></div>`;
