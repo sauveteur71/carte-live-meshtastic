@@ -40,7 +40,7 @@
 #bandeau-monde.etroit .bm-texte { flex-basis: calc(100% - 44px); }
 #bandeau-monde.etroit .bm-ouvrir { flex: 1; text-align: center; }`;
 
-  let el = null, minuterie = null;
+  let el = null, minuterie = null, observateur = null;
   const MARGE = 8;
 
   // Éléments à ne pas recouvrir : enfants fixes de la page (barre, outils, panneau, légende, recherche…)
@@ -118,6 +118,7 @@
     if (el) el.remove();
     el = null;
     clearInterval(minuterie);
+    if (observateur) observateur.disconnect();
     window.removeEventListener('resize', placer);
   }
 
@@ -149,6 +150,13 @@
     window.addEventListener('resize', placer);
     // Panneau replié, tiroir déplacé, fiche ouverte… : vérification légère et régulière de la place
     minuterie = setInterval(placer, 1500);
+    // La barre du haut change de hauteur (--bas-barre, --bas-haut… posés sur <html>) : la recherche et le panneau
+    // descendent aussitôt, le bandeau se replace dans la foulée au lieu d'attendre la vérification suivante
+    if (window.MutationObserver) {
+      observateur = new MutationObserver(() => requestAnimationFrame(placer));
+      observateur.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] });
+      observateur.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    }
   }
 
   async function demarrer() {
