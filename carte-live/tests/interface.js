@@ -30,7 +30,7 @@ fs.writeFileSync(path.join(donnees, 'feux.json'), JSON.stringify({ maj: Date.now
 ] }));
 function demarrerServeur() {
   serveur = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
-    env: { ...process.env, PORT: String(PORT), FICHIER_BASE: path.join(donnees, 'carte-live.db'), MQTT_URL: 'mqtt://127.0.0.1:1', DEPARTEMENT: '43', MESHCORE: 'oui', ADMIN_MOT_DE_PASSE: '', AGENTS_PORT: String(PORT + 5), PAT_URL: `http://127.0.0.1:${PORT + 7}`, PAT_INDICATIF: 'F4XYZ', SMTP_HOTE: 'fichier', CARTE_ADRESSE: 'https://carte.essai', STATS_PAYS: 'non' },
+    env: { ...process.env, PORT: String(PORT), FICHIER_BASE: path.join(donnees, 'carte-live.db'), MQTT_URL: 'mqtt://127.0.0.1:1', DEPARTEMENT: '43', MESHCORE: 'oui', ADMIN_MOT_DE_PASSE: '', AGENTS_PORT: String(PORT + 5), PAT_URL: `http://127.0.0.1:${PORT + 7}`, PAT_INDICATIF: 'F4XYZ', SMTP_HOTE: 'fichier', CARTE_ADRESSE: 'https://carte.essai', STATS_PAYS: 'non', RELIEF_MONDE_ERDDAP: 'http://127.0.0.1:1/erddap' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const log = fs.createWriteStream(path.join(sorties, 'serveur.log'));
@@ -441,6 +441,18 @@ async function essaiAdministrationALaDemande(navig, cookie) {
     }, f);
     if (!/^ERREUR/.test(t) && t.includes(attendu)) ok(`${f} : écran ouvert`); else ko(`${f} : ${t.slice(0, 140)}`);
   }
+  // Cache du relief : espace occupé, purge, plafond et relief mondial dans l'écran du relief
+  const cacheRel = await page.evaluate(async () => {
+    await ficheFrance();
+    for (let k = 0; k < 30 && !(document.querySelector('#bloc-cache-relief h3')); k++) await new Promise((r) => setTimeout(r, 200));
+    const b = document.querySelector('#bloc-cache-relief');
+    return b ? { titre: b.textContent.includes('Relief téléchargé'), purge: !!b.querySelector('#cr-tout'), plafond: !!b.querySelector('#cr-plafond'), grossier: !!b.querySelector('#cr-grossier') } : null;
+  });
+  if (cacheRel && cacheRel.titre && cacheRel.purge && cacheRel.plafond && cacheRel.grossier) ok('relief : espace occupé, purge, plafond et relief mondial affichés'); else ko('cache du relief : ' + JSON.stringify(cacheRel));
+  const purgeVide = await page.evaluate(async () => { const r = await postJson('/api/relief/cache', { purger: { joursInactifs: 30 } }); return r && r.purge && Array.isArray(r.purge.supprimees) && r.principale && r.principale.code; });
+  if (purgeVide) ok('purge du relief : réponse correcte, zone de la carte gardée'); else ko('purge du relief : réponse inattendue');
+  const refuse = await fetch(BASE + '/api/relief/cache', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ purger: { tout: true } }) });
+  if (refuse.status === 401) ok('purge du relief refusée sans connexion admin'); else ko('purge du relief sans connexion : HTTP ' + refuse.status);
   for (const pan of ['comptes', 'journal', 'sauvegardes', 'reglages', 'frequentation']) {
     const t = await page.evaluate(async (p) => { await ouvrirDlg(p); await new Promise((r) => setTimeout(r, 700)); const x = document.querySelector(`#pan-${p}`); const v = x ? x.textContent.trim().length : 0; document.querySelectorAll('dialog[open]').forEach((d) => d.close()); return v; }, pan);
     if (t > 20) ok(`gestion › ${pan} : rempli`); else ko(`gestion › ${pan} vide`);

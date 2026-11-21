@@ -3356,6 +3356,20 @@ function dessinerSommets() {
   etat.coucheSommets = g;
 }
 
+// Résultat calculé sur le relief grossier mondial (le relief précis de la zone se télécharge encore)
+function texteApprox(r) {
+  const a = r && r.reliefApprox;
+  return a ? `Relief approximatif (≈ ${fmt(a.resolutionKm, 0, ' km')}) : le relief précis se charge (${a.progression || 0} %), le résultat sera recalculé tout seul.` : '';
+}
+function noteApprox(r) { return r && r.approximatif ? `<div class="alerte attention note-approx">⏳ ${esc(texteApprox(r))}</div>` : ''; }
+// Ajoute la mention sous le titre de la fiche, et relance le calcul dans 30 s tant qu'il reste approximatif
+function suivreApprox(r, encoreValable, relancer) {
+  if (!r || !r.approximatif) return;
+  const h = $('#fiche-contenu h2');
+  if (h && !$('#fiche-contenu .note-approx')) h.insertAdjacentHTML('afterend', noteApprox(r));
+  clearTimeout(etat.minuterieApprox);
+  etat.minuterieApprox = setTimeout(() => { if (encoreValable()) relancer(); }, 30000);
+}
 async function voirCouvertureSite(p, titre, hauteur, opts = {}) {
   const hs = hauteur ?? ($('#relief-hs') ? $('#relief-hs').value : 6);
   let r;
@@ -3365,7 +3379,7 @@ async function voirCouvertureSite(p, titre, hauteur, opts = {}) {
   const g = L.layerGroup();
   L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.75, pane: 'couverture', className: 'pixelise' }).addTo(g);
   L.circleMarker([p.lat, p.lon], { radius: 7, color: '#f4c542', weight: 3, fillOpacity: 0.2, pane: 'traces' })
-    .bindTooltip(`<b>${esc(titre || nomSommet(p))}</b><br>Couverture estimée : ${r.surfaceKm2} km² · ${fmt(r.pctZone, 1, ' %')} du département<br><small>antenne à ${hs} m · ≥ 10 dB de marge en turquoise, 0 à 10 dB en jaune, limite en orange</small>`, { className: 'info', permanent: false })
+    .bindTooltip(`<b>${esc(titre || nomSommet(p))}</b><br>Couverture estimée : ${r.surfaceKm2} km² · ${fmt(r.pctZone, 1, ' %')} du département<br><small>antenne à ${hs} m · ≥ 10 dB de marge en turquoise, 0 à 10 dB en jaune, limite en orange</small>${r.approximatif ? `<br><b>${esc(texteApprox(r))}</b>` : ''}`, { className: 'info', permanent: false })
     .addTo(g);
   g.addTo(carte);
   etat.coucheCouverture = g;
@@ -3373,7 +3387,8 @@ async function voirCouvertureSite(p, titre, hauteur, opts = {}) {
   if (!titre) carte.flyTo([p.lat, p.lon], Math.min(carte.getZoom(), 10), { duration: 0.6 });
   if (opts.cadrer) carte.fitBounds(L.latLng(p.lat, p.lon).toBounds(2 * 1000 * (r.rayonKm || 40)), { padding: [30, 30] });
   const info = $('#couverture-info');
-  if (info) info.innerHTML = `<b>${esc(titre || nomSommet(p))}</b> : ${r.surfaceKm2} km² couverts, dont ${fmt(r.pctZone, 1, ' %')} du département.`;
+  if (info) info.innerHTML = `<b>${esc(titre || nomSommet(p))}</b> : ${r.surfaceKm2} km² couverts, dont ${fmt(r.pctZone, 1, ' %')} du département.${noteApprox(r)}`;
+  if (r.approximatif) { clearTimeout(etat.minuterieApproxSite); etat.minuterieApproxSite = setTimeout(() => { if (etat.coucheCouverture === g) voirCouvertureSite(p, titre, hauteur, { ...opts, cadrer: false }); }, 30000); }
   return r;
 }
 
@@ -3489,6 +3504,7 @@ async function couvertureMulti(sites) {
   const ba = $('#ajout-site-multi'); if (ba) ba.onclick = () => basculerMode('couv-plus');
   $('#recalc-multi').onclick = () => { $('#fiche-contenu').querySelectorAll('[data-h]').forEach((el) => { sites[Number(el.dataset.h)].h = Number(el.value) || 6; }); couvertureMulti(sites); };
   $('#fiche-contenu').querySelectorAll('[data-retirer-site]').forEach((b) => (b.onclick = () => couvertureMulti(sites.filter((_, i) => i !== Number(b.dataset.retirerSite)))));
+  suivreApprox(r, () => etat.coucheCouverture === g, () => couvertureMulti(sites));
   $('#gpx-couv-multi').onclick = () => telechargerGpx('couverture-sites.gpx', sites.map((x, i) => ({ lat: x.lat, lon: x.lon, alt: r.sites[i].sol, nom: `${i + 1} - ${x.nom || 'Site'}`, desc: `Antenne ${x.h} m, ${r.sites[i].km2} km²` })));
 }
 function ajouterSiteCouverture(latlng) {
@@ -3531,6 +3547,7 @@ async function couvertureReseau() {
     <p class="note">Turquoise : ≥ 10 dB de marge · jaune : 0 à 10 dB · orange : en limite. Hypothèse : antennes à ${hn} m, nœud desservi à 2 m du sol. ${r.env != null ? `Pertes de végétation et bâti : ${r.env} dB.` : ''}</p>`;
   $('#hn-recalc').onclick = () => { try { localStorage.setItem('gaulix_hn', $('#hn-reseau').value); } catch { /* ignoré */ } couvertureReseau(); };
   $('#couv-vers-plan').onclick = () => allerPlan();
+  suivreApprox(r, () => etat.coucheCouverture === g, () => couvertureReseau());
   $('#fiche-contenu').querySelectorAll('[data-ouvrir-noeud]').forEach((el) => (el.onclick = () => {
     const n = r.noeuds.find((x) => String(x.num) === el.dataset.ouvrirNoeud);
     if (n) carte.flyTo([n.lat, n.lon], 12, { duration: 0.6 });
@@ -3634,6 +3651,7 @@ async function simulation() {
   $('#simu-ajout').onclick = () => basculerMode('simu-ajout');
   $('#simu-lancer').onclick = () => simulation();
   $('#simu-raz').onclick = () => { etat.simu = { retirer: new Set(), ajouter: [] }; simulation(); };
+  suivreApprox(r, () => etat.coucheCouverture === g, () => simulation());
 }
 function ajouterRelaisSimulation(latlng) {
   const lieu = nomLieu(latlng);
@@ -4268,7 +4286,7 @@ async function rendreSites() {
   if (!e) { z.innerHTML = choix + '<div class="vide">Modèle de relief indisponible.</div>'; brancherChoixDepartement(); return; }
   const nomDep = e.departement ? `${e.departement.nom || ''} (${e.departement.code})` : '';
   if (e.mnt !== 'pret') {
-    z.innerHTML = choix + `<div class="vide">${e.mnt === 'erreur' ? 'Erreur : ' + esc(e.erreur) : `Chargement du relief IGN ${esc(nomDep)}… ${e.progression || 0} %`}<br><small>Premier chargement d’un département : quelques minutes (relief IGN, points hauts OpenStreetMap, puis classement des sites). Ensuite il est gardé sur le disque.</small></div>`;
+    z.innerHTML = choix + `<div class="vide">${e.mnt === 'erreur' ? 'Erreur : ' + esc(e.erreur) : `Chargement du relief IGN ${esc(nomDep)}… ${e.progression || 0} %`}<br><small>Premier chargement d’un département : quelques minutes (relief IGN, points hauts OpenStreetMap, puis classement des sites). Ensuite il est gardé sur le disque.</small>${e.approx ? `<br><small>En attendant, un relief approximatif (≈ ${fmt(e.approx.resolutionKm, 0, ' km')}) sert déjà à la couverture d’un site, du réseau et aux liaisons : résultats marqués « approximatifs », recalculés ensuite.</small>` : ''}</div>`;
     brancherChoixDepartement();
     return;
   }
@@ -4515,6 +4533,7 @@ async function relierPoints(a, b, opts = {}) {
   const relancerRelier = () => relierPoints(a, b, { hA: Number($('#relier-ha').value) || 2, hB: Number($('#relier-hb').value) || 2, acces: $('#relier-acces').value });
   $('#relier-recalc').onclick = relancerRelier;
   $('#relier-acces').onchange = relancerRelier;
+  suivreApprox(r, () => etat.coucheCouvrir === g, relancerRelier);
   $('#fiche-contenu').querySelectorAll('.ligne-alt').forEach((el) => (el.onclick = () => carte.flyTo([Number(el.dataset.lat), Number(el.dataset.lon)], 14)));
   // Clic sur une étape « relais à installer » : la carte se centre sur l'emplacement
   $('#fiche-contenu').querySelectorAll('.etape-relier.nouveau .entete-prop').forEach((el) => { el.style.cursor = 'pointer'; el.title = 'Centrer la carte sur cet emplacement'; el.onclick = () => { const d = el.closest('.etape-relier').dataset; carte.flyTo([Number(d.lat), Number(d.lon)], 14); }; });

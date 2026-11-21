@@ -155,6 +155,8 @@ function infoPlan(info) {
     <br><small>Bleu : déjà couvert · turquoise : apporté par les nouveaux sites · rouge : non couvert. Points hauts ${NOM_ACCES[couv.acces]}, hors zones protégées. Cliquez sur un numéro pour voir la couverture de ce site.</small>`;
   document.getElementById('choix-acces').onchange = (ev) => { couv.acces = ev.target.value; couv.mode = null; basculerCouverture('sites'); };
 }
+// Calcul fait sur le relief grossier mondial : mention, puis nouveau calcul automatique 30 s plus tard
+const noteApprox = (r) => (r && r.approximatif && r.reliefApprox ? `<br><b class="note-approx">⏳ Relief approximatif (≈ ${Math.round(r.reliefApprox.resolutionKm)} km) : le relief précis se charge (${r.reliefApprox.progression || 0} %), le résultat sera recalculé tout seul.</b>` : '');
 async function couverturePoint(ll) {
   const info = document.getElementById('info-couv'), g = couv.couche;
   couv.dernierPoint = ll;
@@ -170,8 +172,9 @@ async function couverturePoint(ll) {
   if (r.erreur) { info.innerHTML = ligne('Couverture indisponible : ' + esc(r.erreur).replace(/https:\/\/[^\s<]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`)); brancher(); return; }
   const e = r.emprise;
   L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.65, pane: 'couverture', className: 'pixelise' }).addTo(g);
-  info.innerHTML = ligne(`${ll.lat.toFixed(4)}, ${ll.lng.toFixed(4)}${r.sol != null ? ' · sol à ' + r.sol + ' m' : ''}<br>Zone couverte : <b>${Math.round(r.surfaceKm2).toLocaleString('fr-FR')} km²</b>${r.pctZone != null ? `, soit <b>${pc(r.pctZone)} %</b> ${libZone()}` : ''}<br><small>Turquoise : bonne liaison · jaune : liaison juste · orange pâle : à la limite. Cliquez ailleurs pour un autre point.</small>`);
+  info.innerHTML = ligne(`${ll.lat.toFixed(4)}, ${ll.lng.toFixed(4)}${r.sol != null ? ' · sol à ' + r.sol + ' m' : ''}<br>Zone couverte : <b>${Math.round(r.surfaceKm2).toLocaleString('fr-FR')} km²</b>${r.pctZone != null ? `, soit <b>${pc(r.pctZone)} %</b> ${libZone()}` : ''}${noteApprox(r)}<br><small>Turquoise : bonne liaison · jaune : liaison juste · orange pâle : à la limite. Cliquez ailleurs pour un autre point.</small>`);
   brancher();
+  if (r.approximatif) setTimeout(() => { if (couv.mode === 'point' && couv.dernierPoint === ll) couverturePoint(ll); }, 30000);
 }
 async function couvertureSite(x, g, info) {
   info.innerHTML = '<span class="sablier"></span> Calcul de la couverture de ce site…';
@@ -236,7 +239,8 @@ async function basculerCouverture(mode) {
       if (r.vide) { info.textContent = 'Aucun relais positionné entendu depuis 24 h.'; return; }
       const e = r.emprise;
       L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.6, pane: 'couverture', className: 'pixelise' }).addTo(g);
-      info.innerHTML = `<b>Couverture ${mcSeul ? 'MeshCore' : 'Meshtastic'} estimée</b>${r.pctZone != null ? ` : <b>${String(r.pctZone).replace('.', ',')} %</b> ${libZone()}` : ''} · ${r.noeuds.length} relais et passerelles<br><small>Calcul d’après le relief (IGN) et les antennes connues, corrigé par les mesures réelles du réseau.</small>`;
+      info.innerHTML = `<b>Couverture ${mcSeul ? 'MeshCore' : 'Meshtastic'} estimée</b>${r.pctZone != null ? ` : <b>${String(r.pctZone).replace('.', ',')} %</b> ${libZone()}` : ''} · ${r.noeuds.length} relais et passerelles${noteApprox(r)}<br><small>Calcul d’après le relief (IGN) et les antennes connues, corrigé par les mesures réelles du réseau.</small>`;
+      if (r.approximatif) setTimeout(() => { if (couv.mode === mode) { couv.mode = null; basculerCouverture(mode); } }, 30000);
     } else {
       await afficherPlan(g, info);
       if (couv.mode !== mode) return;

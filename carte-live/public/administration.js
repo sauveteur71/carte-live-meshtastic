@@ -1072,12 +1072,51 @@ async function rendreFrance() {
     <details class="note"><summary>Pour le mainteneur du projet : exporter le paquet « relief France »</summary>
       <p>Inutile pour faire marcher votre carte. Ce bouton rassemble en un seul fichier (tar.gz) le relief de tous les départements déjà prêts sur ce serveur, pour le publier sur GitHub comme paquet « relief-france » : c’est ce paquet que les autres cartes téléchargent avec le bouton ci-dessus.</p>
       <div class="actions-prop"><a class="mini bouton-lien" href="/api/relief/france/paquet" download>📦 Exporter le paquet (tar.gz)</a></div></details>`;
-  z.insertAdjacentHTML('beforeend', '<div id="bloc-fond-hl"></div>');
+  z.insertAdjacentHTML('beforeend', '<div id="bloc-cache-relief"></div><div id="bloc-fond-hl"></div>');
+  rendreCacheRelief();
   rendreFondHorsLigne();
   $('#fr-couv').onchange = async (e) => { try { await postJson('/api/relief/france', { couverture: e.target.value }); } catch (x) { alert(x.message); } rendreFrance(); };
   const go = $('#fr-go'); if (go) go.onclick = async () => { try { await postJson('/api/relief/france', { precharger: true, activer: true }); } catch (x) { alert(x.message); } setTimeout(rendreFrance, 800); };
   const st = $('#fr-stop'); if (st) st.onclick = async () => { try { await postJson('/api/relief/france', { precharger: false }); } catch (x) { alert(x.message); } setTimeout(rendreFrance, 800); };
   if (p.enCours) { clearTimeout(etat.minuterieFrance); etat.minuterieFrance = setTimeout(() => { if ($('#bloc-france')) rendreFrance(); }, 15000); }
+}
+// Relief téléchargé sur le serveur : espace occupé, purge (tout, par zone, par ancienneté), plafond, relief mondial
+const tailleDisque = (o) => (o >= 1e9 ? fmt(o / 1e9, 1, ' Go') : o >= 1e6 ? fmt(o / 1e6, 0, ' Mo') : fmt(o / 1e3, 0, ' ko'));
+async function rendreCacheRelief(message) {
+  const z = $('#bloc-cache-relief');
+  if (!z) return;
+  let r;
+  try { r = await api('/api/relief/cache'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  const g = r.grossier || {};
+  const etatG = g.statut === 'pret' ? `✔ prêt (${tailleDisque(g.octets || 0)})` : g.enCours || g.statut === 'chargement' ? `<span class="sablier"></span> téléchargement ${g.progression || 0} %` : g.statut === 'erreur' ? `échec : ${esc(g.erreur || '?')} (nouvel essai toutes les heures)` : 'pas encore téléchargé';
+  const ligneZone = (x) => `<tr><td><b>${esc(x.code)}</b>${x.nom ? ` <small>${esc(x.nom)}</small>` : ''}</td><td class="num">${tailleDisque(x.octets)}</td><td>${x.derniere ? ilYa(x.derniere) : '–'}</td>
+    <td>${x.verrou ? '<span class="sablier"></span> en chargement' : x.recente ? 'utilisée à l’instant' : x.enMemoire ? 'ouverte' : ''}</td>
+    <td><button class="mini" data-purger-zone="${esc(x.code)}" ${x.verrou || x.recente ? 'disabled' : ''}>🗑 Supprimer</button></td></tr>`;
+  z.innerHTML = `<h3>💾 Relief téléchargé sur ce serveur</h3>
+    <p class="note">Espace occupé : <b>${tailleDisque(r.totalOctets)}</b> · ${r.nbZones} zone(s) téléchargée(s) : ${tailleDisque(r.zonesOctets)} · zone de la carte : ${tailleDisque(r.principale.octets)}${g.octets ? ` · relief mondial : ${tailleDisque(g.octets)}` : ''}. Une zone supprimée se retélécharge toute seule au prochain calcul.</p>
+    ${message ? `<div class="alerte info-lecture">${esc(message)}</div>` : ''}
+    <label class="case"><input type="checkbox" id="cr-grossier" ${g.actif ? 'checked' : ''}> Relief approximatif du monde entier pendant les chargements</label>
+    <p class="note">Un relief grossier de toute la Terre (≈ ${fmt(g.resolutionKm || 9.3, 0, ' km')}, ${esc(g.source || 'NOAA ETOPO1')}, ≈ 19 Mo, téléchargé une seule fois) : pendant que le relief précis d’une zone se télécharge, la couverture s’affiche déjà, marquée « approximative », puis se recalcule sur le relief précis. État : ${etatG}.</p>
+    <div class="actions-prop">${g.actif && g.statut !== 'pret' && !g.enCours ? '<button class="mini" id="cr-dl-grossier">⬇ Télécharger le relief mondial maintenant</button>' : ''}${g.octets ? '<button class="mini" id="cr-suppr-grossier">🗑 Supprimer le relief mondial</button>' : ''}</div>
+    <div class="parametres compact"><label>Garder au plus (Go) <input id="cr-plafond" type="number" min="0" max="10000" step="0.5" value="${r.plafondGo || 0}"></label><button class="mini" id="cr-plafond-ok">Enregistrer</button></div>
+    <p class="note">0 = sans limite. Au-delà, les zones les moins récemment utilisées sont supprimées d’elles-mêmes (jamais la zone de la carte, ni une zone en cours d’utilisation).</p>
+    <div class="actions-prop"><label>Zones inutilisées depuis <input id="cr-jours" type="number" min="1" max="3650" step="1" value="30" class="mini-h"> jours</label><button class="mini" id="cr-vieilles">🧹 Purger</button><button class="mini" id="cr-tout" ${r.nbZones ? '' : 'disabled'}>🗑 Tout purger</button></div>
+    ${r.zones.length ? `<details class="note"><summary>Détail des ${r.zones.length} zone(s)</summary><table class="voisins"><thead><tr><th>Zone</th><th class="num">Taille</th><th>Dernière utilisation</th><th></th><th></th></tr></thead><tbody>${r.zones.map(ligneZone).join('')}</tbody></table></details>` : ''}`;
+  const envoyer = async (corps, question) => {
+    if (question && !confirm(question)) return;
+    let rep;
+    try { rep = await postJson('/api/relief/cache', corps); } catch (e) { alert(e.message); return; }
+    const p = rep.purge;
+    rendreCacheRelief(p ? `${p.supprimees.length} élément(s) supprimé(s), ${tailleDisque(p.octetsLiberes)} libérés${p.refusees.length ? ` · ${p.refusees.length} zone(s) gardée(s) car en cours d’utilisation (${p.refusees.map((x) => x.code).join(', ')})` : ''}.` : 'Réglage enregistré.');
+  };
+  $('#cr-grossier').onchange = (e) => envoyer({ grossier: e.target.checked });
+  const dl = $('#cr-dl-grossier'); if (dl) dl.onclick = () => envoyer({ telechargerGrossier: true });
+  const sg = $('#cr-suppr-grossier'); if (sg) sg.onclick = () => envoyer({ purger: { grossier: true } }, 'Supprimer le relief approximatif du monde entier ? Il sera retéléchargé (≈ 19 Mo) tant que l’option reste cochée.');
+  $('#cr-plafond-ok').onclick = () => envoyer({ plafondGo: Number($('#cr-plafond').value) || 0 });
+  $('#cr-vieilles').onclick = () => { const j = Math.max(1, Number($('#cr-jours').value) || 30); envoyer({ purger: { joursInactifs: j } }, `Supprimer le relief des zones inutilisées depuis ${j} jours ?`); };
+  $('#cr-tout').onclick = () => envoyer({ purger: { tout: true } }, `Supprimer le relief des ${r.nbZones} zone(s) téléchargée(s) (${tailleDisque(r.zonesOctets)}) ? La zone de la carte et le relief mondial sont gardés.`);
+  z.querySelectorAll('[data-purger-zone]').forEach((b) => (b.onclick = () => envoyer({ purger: { codes: [b.dataset.purgerZone] } }, `Supprimer le relief de la zone ${b.dataset.purgerZone} ?`)));
+  if (g.enCours) { clearTimeout(etat.minuterieCacheRelief); etat.minuterieCacheRelief = setTimeout(() => { if ($('#bloc-cache-relief')) rendreCacheRelief(); }, 5000); }
 }
 // Fond de carte hors ligne : carte vectorielle OpenStreetMap du département gardée sur le serveur (Raspberry Pi
 // autonome, coupure d'internet), et relief ombré calculé sur place

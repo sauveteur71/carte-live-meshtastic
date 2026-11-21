@@ -50,7 +50,7 @@ function bloc(type, donnees) {
   const c = Buffer.alloc(4); c.writeUInt32BE(crc32(td));
   return Buffer.concat([l, td, c]);
 }
-function png(largeur, hauteur, rgba) {
+function brutPng(largeur, hauteur, rgba) {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(largeur, 0); ihdr.writeUInt32BE(hauteur, 4);
   ihdr[8] = 8; ihdr[9] = 6; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
@@ -59,7 +59,18 @@ function png(largeur, hauteur, rgba) {
     brut[y * (largeur * 4 + 1)] = 0;
     rgba.copy(brut, y * (largeur * 4 + 1) + 1, y * largeur * 4, (y + 1) * largeur * 4);
   }
-  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), bloc('IHDR', ihdr), bloc('IDAT', zlib.deflateSync(brut, { level: 6 })), bloc('IEND', Buffer.alloc(0))]);
+  return { ihdr, brut };
+}
+const assembler = (ihdr, idat) => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), bloc('IHDR', ihdr), bloc('IDAT', idat), bloc('IEND', Buffer.alloc(0))]);
+function png(largeur, hauteur, rgba) {
+  const { ihdr, brut } = brutPng(largeur, hauteur, rgba);
+  return assembler(ihdr, zlib.deflateSync(brut, { level: 6 }));
+}
+// Même image, compressée hors du fil principal (grandes images de couverture : plusieurs Mo à compresser)
+const deflateAsync = require('util').promisify(zlib.deflate);
+async function pngAsync(largeur, hauteur, rgba) {
+  const { ihdr, brut } = brutPng(largeur, hauteur, rgba);
+  return assembler(ihdr, await deflateAsync(brut, { level: 6 }));
 }
 
 // Contour d'un département : fichier détaillé s'il existe (Haute-Loire), sinon contour simplifié national
@@ -127,6 +138,13 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   const aireCelleKm2 = 0.0625;
 
   const realisme = creerRealisme(dossier, journal, suffixe, emprise);
+  const pause = () => new Promise((r) => setImmediate(r));
+  // Cède la main au reste de la carte toutes les ~40 ms dans les longues boucles (la carte reste réactive)
+  let derniereCession = Date.now();
+  const cederSiLong = async () => { if (Date.now() - derniereCession > 40) { await pause(); derniereCession = Date.now(); } };
+  // Relief utilisable : précis, ou grossier en attendant (calculs marqués approximatifs)
+  const utilisable = () => !!Z && (etat.mnt === 'pret' || !!etat.approx);
+  const marqueApprox = () => (etat.mnt !== 'pret' && etat.approx ? { approximatif: true, reliefApprox: { ...etat.approx, progression: etat.progression || 0 } } : {});
   const etat = { mnt: 'absent', progression: 0, erreur: null, sommets: 0, classement: 'absent', calculEnCours: false, maj: null };
   let Z = null; // Float32Array nLat*nLon, ligne 0 = sud
   let masque = null; // Uint8Array : 1 si la cellule est dans le département
@@ -214,6 +232,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
 
     // Comble les trous (mer, absence de données) par la moyenne des voisins
     for (let passe = 0; passe < 3; passe++) {
+      await pause();
       for (let k = 0; k < total; k++) {
         if (!Number.isNaN(z[k])) continue;
         let s = 0, n = 0;
@@ -227,16 +246,52 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     return z;
   }
 
+  // Relief grossier mondial (≈ 9 km) recopié dans la grille de 250 m, le temps que le relief précis arrive :
+  // les calculs qui l'acceptent répondent tout de suite, marqués « approximatifs ».
+  let desabonner = null;
+  function remplirGrossier() {
+    if (precis || arrete) return false;
+    const g = fournisseurs.reliefGrossier ? fournisseurs.reliefGrossier() : null;
+    if (!g || !g.pret()) return false;
+    try {
+      const z = g.grille({ sud: emprise.sud, ouest: emprise.ouest, pasLat, pasLon, nLat, nLon });
+      if (!z || precis) return false;
+      Z = z;
+      const e = g.etat();
+      etat.approx = { resolutionKm: e.resolutionKm, source: e.source };
+      journal(`[Relief] ${codeDep} : relief approximatif (≈ ${e.resolutionKm} km) en attendant le relief précis`);
+      return true;
+    } catch (e) { journal('[Relief] relief grossier illisible :', e.message); return false; }
+  }
+  let precis = false; // Z contient le relief précis (250 m)
+
   async function chargerMnt() {
     try {
       const info = lireJson(fMntInfo);
       if (info.nLat === nLat && info.nLon === nLon && Math.abs(info.emprise.sud - emprise.sud) < 1e-6 && Math.abs(info.emprise.ouest - emprise.ouest) < 1e-6) {
         const b = fs.readFileSync(fMnt);
         Z = new Float32Array(b.buffer, b.byteOffset, b.length / 4);
+        precis = true;
         journal(`[Relief] MNT chargé depuis le disque (${nLat} × ${nLon})`);
       }
     } catch { /* pas de cache */ }
-    if (!Z) Z = await telechargerMnt();
+    calculerMasque();
+    if (!Z) {
+      etat.mnt = 'chargement';
+      // Relief grossier tout de suite s'il est déjà là, sinon dès qu'il le sera (téléchargement en cours)
+      const g = fournisseurs.reliefGrossier ? fournisseurs.reliefGrossier() : null;
+      if (!remplirGrossier() && g) desabonner = g.quandPret(() => { remplirGrossier(); if (desabonner) { desabonner(); desabonner = null; } });
+      try {
+        const z = await telechargerMnt();
+        Z = z; precis = true; etat.approx = null;
+        if (fournisseurs.apresTelechargement) { try { fournisseurs.apresTelechargement(codeDep); } catch { /* ignoré */ } }
+      } finally { if (desabonner) { desabonner(); desabonner = null; } }
+    }
+    etat.mnt = 'pret';
+    etat.progression = 100;
+    journal(`[Relief] MNT prêt : ${nbZone} cellules dans le département (${Math.round(nbZone * aireCelleKm2)} km²)`);
+  }
+  function calculerMasque() {
     masque = new Uint8Array(nLat * nLon);
     indexZone = new Int32Array(nLat * nLon).fill(-1);
     nbZone = 0;
@@ -254,9 +309,6 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       }
       for (let j = 0; j < nLon; j++) if (masque[i * nLon + j]) indexZone[i * nLon + j] = nbZone++;
     }
-    etat.mnt = 'pret';
-    etat.progression = 100;
-    journal(`[Relief] MNT prêt : ${nbZone} cellules dans le département (${Math.round(nbZone * aireCelleKm2)} km²)`);
   }
 
   // ---- Points hauts ---------------------------------------------------------------
@@ -341,7 +393,9 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     }
     // Bosses dominantes détectées dans le MNT (maximum local sur 1,5 km, au moins 40 m au-dessus des environs à 3 km)
     const R1 = 6;
-    for (let i = R1; i < nLat - R1; i += 2) for (let j = R1; j < nLon - R1; j += 2) {
+    for (let i = R1; i < nLat - R1; i += 2) {
+      await cederSiLong();
+      for (let j = R1; j < nLon - R1; j += 2) {
       const z = Z[i * nLon + j];
       let max = true;
       for (let di = -R1; di <= R1 && max; di++) for (let dj = -R1; dj <= R1; dj++) {
@@ -353,6 +407,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       const lat = latDe(i), lon = lonDe(j);
       if (liste.some((s) => distanceM(s, { lat, lon }) < 700)) continue;
       liste.push({ lat, lon, nom: null, alt: Math.round(z), altMnt: Math.round(z), source: 'mnt', dominance: Math.round(dom) });
+      }
     }
     liste.forEach((s, k) => { s.id = k; s.dansZone = dansDepartement(s.lat, s.lon); });
     sommets = liste;
@@ -415,7 +470,12 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   const fspl = (d) => 20 * Math.log10(d / 1000) + 20 * Math.log10(FREQ / 1e6) + 32.44;
 
   /** Balayage radial depuis un site : appelle rappel(indexCellule, marge dB, distance m) */
-  function balayer(site, P, nbRayons, pas, rappel) {
+  function balayer(site, P, nbRayons, pas, rappel) { balayerRayons(site, P, nbRayons, pas, rappel, 0, nbRayons); }
+  // Même balayage, découpé : la carte reste réactive pendant les gros calculs (couverture précise, réseau entier)
+  async function balayerAsync(site, P, nbRayons, pas, rappel) {
+    for (let r0 = 0; r0 < nbRayons; r0 += 24) { balayerRayons(site, P, nbRayons, pas, rappel, r0, Math.min(nbRayons, r0 + 24)); await cederSiLong(); }
+  }
+  function balayerRayons(site, P, nbRayons, pas, rappel, rDebut, rFin) {
     const zs = alt(site.lat, site.lon);
     if (Number.isNaN(zs)) return;
     const hS = zs + P.hs;
@@ -424,7 +484,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     const nPas = Math.floor(P.rayonMax / pas);
     const precis = !!P.precis; // couverture d'un seul site : diffraction sur l'obstacle le plus pénalisant (plus lent)
     const profTheta = precis ? new Float64Array(nPas) : null;
-    for (let r = 0; r < nbRayons; r++) {
+    for (let r = rDebut; r < rFin; r++) {
       const az = (2 * Math.PI * r) / nbRayons;
       const dLat = Math.cos(az) / M_PAR_DEG, dLon = Math.sin(az) / (M_PAR_DEG * cosLat);
       let thetaMax = -Infinity, dObs = 0;
@@ -512,10 +572,12 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     return { bits, n };
   }
 
-  function couverturePng(site, opts) {
+  async function couverturePng(site, opts) {
+    if (!utilisable()) throw new Error('Le modèle de terrain est en cours de chargement');
+    const approx = marqueApprox();
     const P = { ...parametres(opts), precis: true };
     const marges = new Float32Array(nLat * nLon).fill(-Infinity);
-    balayer(site, P, 1440, 150, (k, m) => { if (k >= 0 && m > marges[k]) marges[k] = m; });
+    await balayerAsync(site, P, 1440, 150, (k, m) => { if (k >= 0 && m > marges[k]) marges[k] = m; });
     const rgba = Buffer.alloc(nLat * nLon * 4);
     let couvert = 0, couvertZone = 0;
     for (let i = 0; i < nLat; i++) for (let j = 0; j < nLon; j++) {
@@ -529,18 +591,18 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       if (c) { rgba[o] = c[0]; rgba[o + 1] = c[1]; rgba[o + 2] = c[2]; rgba[o + 3] = c[3]; }
     }
     return {
-      image: png(nLon, nLat, rgba),
+      image: await pngAsync(nLon, nLat, rgba),
       surfaceKm2: Math.round(couvert * aireCelleKm2),
       surfaceZoneKm2: Math.round(couvertZone * aireCelleKm2),
       pctZone: +((couvertZone / nbZone) * 100).toFixed(1),
       sol: Number.isNaN(alt(site.lat, site.lon)) ? null : Math.round(alt(site.lat, site.lon)),
       env: P.env,
       rayonKm: P.rayonMax / 1000,
+      ...approx,
     };
   }
 
   // ---- Classement des sites ----------------------------------------------------------
-  const pause = () => new Promise((r) => setImmediate(r));
   async function calculerClassement(opts = {}) {
     if (etat.calculEnCours || etat.mnt !== 'pret') return;
     etat.calculEnCours = true;
@@ -845,15 +907,16 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   const cacheSites = new Map();
   function bitsSite(site, P) {
     const Pi = Pinstallation({ ...P, hs: site.h ?? P.hs }, site);
-    const cle = [site.lat.toFixed(5), site.lon.toFixed(5), Pi.hs, Pi.gains, Pi.pertes, Pi.ptx, Pi.env, Pi.preset].join('|');
+    const cle = [precis ? 'p' : 'a', site.lat.toFixed(5), site.lon.toFixed(5), Pi.hs, Pi.gains, Pi.pertes, Pi.ptx, Pi.env, Pi.preset].join('|'); // relief grossier : jamais confondu avec le précis
     if (!cacheSites.has(cle)) {
       if (cacheSites.size > 400) cacheSites.delete(cacheSites.keys().next().value);
       cacheSites.set(cle, couvertureZone(site, Pi, 1440, 150).bits);
     }
     return cacheSites.get(cle);
   }
-  function simuler({ retirer = [], ajouter = [], villes = [] } = {}, opts = {}) {
-    if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
+  async function simuler({ retirer = [], ajouter = [], villes = [] } = {}, opts = {}) {
+    if (!utilisable()) throw new Error('Le modèle de terrain est en cours de chargement');
+    const approx = marqueApprox();
     const P = parametres(opts);
     const hDefaut = opts.hn ?? 6;
     const base = (opts.noeuds || fournisseurs.noeudsReseau()).filter((n) => celle(n.lat, n.lon) >= 0).map((n) => ({ ...n, h: n.h ?? hDefaut }));
@@ -861,8 +924,8 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     const ajout = ajouter.filter((a) => Number.isFinite(a.lat) && Number.isFinite(a.lon) && celle(a.lat, a.lon) >= 0).map((a, i) => ({ num: 'ajout-' + i, nom: a.nom || `Nouveau relais ${i + 1}`, lat: a.lat, lon: a.lon, h: a.h ?? P.hs, nouveau: true }));
     const avant = base, apres = [...base.filter((n) => !ret.has(String(n.num))), ...ajout];
     const W = Math.ceil(nbZone / 32);
-    const union = (sites) => { const u = new Uint32Array(W); for (const s of sites) { const b = bitsSite(s, P); for (let w = 0; w < W; w++) u[w] |= b[w]; } return u; };
-    const uA = union(avant), uB = union(apres);
+    const union = async (sites) => { const u = new Uint32Array(W); for (const s of sites) { const b = bitsSite(s, P); for (let w = 0; w < W; w++) u[w] |= b[w]; await cederSiLong(); } return u; };
+    const uA = await union(avant), uB = await union(apres);
     const nA = compter(uA), nB = compter(uB);
     // Image : perdu (rouge), gagné (vert), inchangé (turquoise pâle)
     const rgba = Buffer.alloc(nLat * nLon * 4);
@@ -922,8 +985,9 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       villes: vs.map((v, i) => ({ nom: v.nom, lat: v.lat, lon: v.lon, population: v.population, couverteAvant: eA[i].length > 0, couverteApres: eB[i].length > 0 })),
       paires,
       reseau: base.map((n) => ({ num: n.num, nom: n.nom, lat: n.lat, lon: n.lon })),
-      image: png(nLon, nLat, rgba),
+      image: await pngAsync(nLon, nLat, rgba),
       parametres: { preset: P.preset, hs: P.hs, ht: P.ht, env: P.env },
+      ...approx,
     };
   }
 
@@ -1038,33 +1102,36 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   }
 
   // Couverture actuelle du réseau : relais et passerelles détectés (entendus depuis 24 h) et positionnés dans la zone
-  function couvertureReseau(opts = {}) {
-    if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
+  async function couvertureReseau(opts = {}) {
+    if (!utilisable()) throw new Error('Le modèle de terrain est en cours de chargement');
     const noeuds = (opts.noeuds || fournisseurs.noeudsReseau()).filter((n) => celle(n.lat, n.lon) >= 0).slice(0, 60);
     if (!noeuds.length) return { noeuds: [], vide: true };
     // Hauteur, gain, câble et puissance : fiche d'installation du relais, sinon la hauteur supposée
-    const r = couverturePngMulti(noeuds.map((n) => ({ lat: n.lat, lon: n.lon, h: n.h ?? opts.hn ?? 6, gain: n.gain, pertes: n.pertes, ptx: n.ptx })), opts);
+    const r = await couverturePngMulti(noeuds.map((n) => ({ lat: n.lat, lon: n.lon, h: n.h ?? opts.hn ?? 6, gain: n.gain, pertes: n.pertes, ptx: n.ptx })), opts);
     return { ...r, noeuds: noeuds.map((n, i) => ({ num: n.num, nom: n.nom, lat: n.lat, lon: n.lon, hauteur: n.h ?? opts.hn ?? 6, fiche: n.h != null || n.gain != null, ...r.sites[i] })), sites: undefined, surfaceDepartementKm2: Math.round(nbZone * aireCelleKm2) };
   }
 
   // Couverture cumulée de plusieurs sites (2 à 10) : image commune (meilleure marge par cellule),
   // surface totale et apport propre de chaque site (ce qu'il est seul à couvrir)
-  function couverturePngMulti(sites, opts) {
+  async function couverturePngMulti(sites, opts) {
+    if (!utilisable()) throw new Error('Le modèle de terrain est en cours de chargement');
+    const approx = marqueApprox();
     const P = parametres(opts);
     const N = nLat * nLon;
     const marges = new Float32Array(N).fill(-Infinity);
     const nbCouvrants = new Uint8Array(N), seulPar = new Int8Array(N).fill(-1);
-    const parSite = sites.map((site, idx) => {
+    const parSite = [];
+    for (const [idx, site] of sites.entries()) parSite.push(await (async () => {
       const m = new Float32Array(N).fill(-Infinity);
       const Ps = Pinstallation(site.h != null ? parametres({ ...opts, hs: site.h }) : P, { ...site, h: site.h });
-      balayer(site, Ps, 1440, 150, (k, v) => { if (k >= 0 && v > m[k]) m[k] = v; });
+      await balayerAsync(site, Ps, 1440, 150, (k, v) => { if (k >= 0 && v > m[k]) m[k] = v; });
       let couvert = 0, zone = 0;
       for (let k = 0; k < N; k++) {
         if (m[k] > marges[k]) marges[k] = m[k];
         if (m[k] >= 0) { couvert++; if (masque[k]) zone++; nbCouvrants[k]++; seulPar[k] = nbCouvrants[k] === 1 ? idx : -1; }
       }
       return { km2: Math.round(couvert * aireCelleKm2), pctZone: +((zone / nbZone) * 100).toFixed(1) };
-    });
+    })());
     const propre = new Array(sites.length).fill(0);
     const rgba = Buffer.alloc(N * 4);
     let couvert = 0, couvertZone = 0;
@@ -1079,7 +1146,8 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       if (c) { rgba[o] = c[0]; rgba[o + 1] = c[1]; rgba[o + 2] = c[2]; rgba[o + 3] = c[3]; }
     }
     return {
-      image: png(nLon, nLat, rgba),
+      ...approx,
+      image: await pngAsync(nLon, nLat, rgba),
       surfaceKm2: Math.round(couvert * aireCelleKm2),
       surfaceZoneKm2: Math.round(couvertZone * aireCelleKm2),
       pctZone: +((couvertZone / nbZone) * 100).toFixed(1),
@@ -1118,14 +1186,15 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   // (chaque nouveau relais coûte cher) ; chaque bond doit avoir une marge >= 0 dB après marge de sécurité
   // et pertes d'environnement. Les liaisons sont calculées à la demande (Dijkstra) et mises en cache.
   function relierPoints(a, b, opts = {}) {
-    if (etat.mnt !== 'pret') throw new Error('Le modèle de terrain est en cours de chargement');
+    if (!utilisable()) throw new Error('Le modèle de terrain est en cours de chargement');
+    const approx = marqueApprox();
     for (const p of [a, b]) if (Number.isNaN(alt(p.lat, p.lon))) throw new Error('Point hors de la zone du modèle de relief (département et ses abords)');
     const P = parametres(opts);
     const ha = opts.hauteurA ?? P.ht, hb = opts.hauteurB ?? P.ht;
     const min = niveauMin(opts.acces);
     const dAB = distanceM(a, b);
     const direct = liaison(a, b, P, ha, hb);
-    const base = { a: { ...a, alt: Math.round(alt(a.lat, a.lon)) }, b: { ...b, alt: Math.round(alt(b.lat, b.lon)) }, distanceKm: +(dAB / 1000).toFixed(1), direct, parametres: { preset: P.preset, hs: P.hs, ht: P.ht, margeSecurite: P.margeSecurite, env: P.env, rayonKm: P.rayonMax / 1000 }, filtreAcces: opts.acces || 'tous' };
+    const base = { ...approx, a: { ...a, alt: Math.round(alt(a.lat, a.lon)) }, b: { ...b, alt: Math.round(alt(b.lat, b.lon)) }, distanceKm: +(dAB / 1000).toFixed(1), direct, parametres: { preset: P.preset, hs: P.hs, ht: P.ht, margeSecurite: P.margeSecurite, env: P.env, rayonKm: P.rayonMax / 1000 }, filtreAcces: opts.acces || 'tous' };
     if (direct && direct.marge >= 0) return { ...base, possible: true, nouveaux: 0, chemin: [{ type: 'depart', ...base.a }, { type: 'arrivee', ...base.b }], bonds: [direct], alternatives: [] };
     // Nœuds du graphe : départ, arrivée, relais existants, points hauts dans un couloir autour de A-B
     const marge = Math.max(15000, Math.min(P.rayonMax, dAB * 0.5));
@@ -1414,6 +1483,8 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     classementAcces,
     etatAcces: () => acces.etat(),
     pret: () => etat.mnt === 'pret',
+    utilisable,
+    approximatif: () => etat.mnt !== 'pret' && !!etat.approx && !!Z,
   };
 }
 

@@ -252,7 +252,7 @@ Les contributions sont bienvenues : ouvrez une *issue* pour proposer une idée o
 - Code sous licence **GNU GPL v3** (voir [LICENSE](LICENSE)), comme le projet Meshtastic.
 - Protobufs : [meshtastic/protobufs](https://github.com/meshtastic/protobufs) (GPL v3).
 - Format des paquets MeshCore : documentation de [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore) (MIT) ; format MQTT de [meshcoretomqtt](https://github.com/Cisien/meshcoretomqtt).
-- Fonds et relief : © IGN Géoplateforme (licence ouverte Etalab) · OpenStreetMap © contributeurs (ODbL) · communes : API Géo de l'État.
+- Fonds et relief : © IGN Géoplateforme (licence ouverte Etalab) · OpenStreetMap © contributeurs (ODbL) · communes : API Géo de l'État · relief approximatif mondial (facultatif) : NOAA NCEI ETOPO1 (domaine public).
 - Meshtastic® est une marque déposée de Meshtastic LLC. Ce projet n'est pas affilié à Meshtastic LLC.
 
 ---
