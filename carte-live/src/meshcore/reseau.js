@@ -193,7 +193,21 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
    * Intègre une observation { brut, snr, rssi, observateur (clé), heure, via ('companion' | 'mqtt'), sujet }.
    * Renvoie l'événement à diffuser aux pages, ou null.
    */
+  // Positions des annonces, remises après l'intégration aux écouteurs (secteurs d'alerte) hors de la transaction
+  const ecouteursPosition = [];
+  let positionsRecues = [];
+  function ecouterPositions(f) { ecouteursPosition.push(f); }
+  function remettrePositions() {
+    const l = positionsRecues; positionsRecues = [];
+    for (const x of l) for (const f of ecouteursPosition) { try { f(x); } catch { /* un écouteur en panne ne bloque pas le reste */ } }
+  }
   function integrer(obs) {
+    let r;
+    try { r = integrerPaquet(obs); } catch (e) { positionsRecues = []; throw e; } // transaction annulée : rien à remettre
+    remettrePositions();
+    return r;
+  }
+  function integrerPaquet(obs) {
     const p = decoderPaquet(obs.brut, canaux);
     if (!p.valide) return null;
     const heure = obs.heure || Date.now();
@@ -210,7 +224,7 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
       if (p.type === 'ADVERT' && c.cle) {
         assurer(c.cle, heure, 'annonce');
         q.annonce.run({ cle: c.cle, nom: c.nom || null, role: c.role || null, heure, horodatage: c.horodatage ?? null });
-        if (c.lat != null) q.position.run({ cle: c.cle, lat: c.lat, lon: c.lon, heure });
+        if (c.lat != null) { q.position.run({ cle: c.cle, lat: c.lat, lon: c.lon, heure }); positionsRecues.push({ cle: c.cle, lat: c.lat, lon: c.lon, heure, id: c.horodatage ?? null }); }
         invalider();
         origine = c.cle;
       } else if (p.type === 'ANON_REQ' && c.cleExpediteur) {
@@ -554,7 +568,7 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
   }
 
   return {
-    supprimerNoeud, annoncesDe,
+    supprimerNoeud, annoncesDe, ecouterPositions,
     positionDe, noterEtat, telemetrie, calculerAlertes, analyse, surveilles, integrer, importerContact, importerContacts, noterObservateur, vueNoeud, liens, statistiques, detailNoeud, paquets, detailPaquet, messages, noterMessage, confirmerAck, statutMessage, lierVoisins, lierMesure, definirCanaux, definirMoi, canaux: () => canaux, purger, q, resoudreChemin };
 }
 

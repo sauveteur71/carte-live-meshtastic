@@ -16,6 +16,7 @@
 **Administrer**
 - [[Programmation à distance]]
 - [[Équipes]]
+- [[Secteurs d’alerte et mode urgence|Secteurs-et-mode-urgence]]
 - [[Signalements]]
 - [[Faire grandir le réseau]]
 - [[MeshCore]]

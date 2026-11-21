@@ -64,6 +64,14 @@ Dans l'onglet **📡 Radiogoniométrie**, bloc **Diffusion aux équipes** (reche
 - **📡 Par radio LoRa (zone blanche)** : la carte envoie, sur le canal choisi (de préférence le canal chiffré des équipes), un **point de passage « 🎯 Balise estimée »** qui s'affiche sur la carte de l'appli Meshtastic de chaque équipier, et un **message texte** (coordonnées, locator, DFCI, taille de la zone). **Automatique** : renvoyé à chaque nouveau relevé si l'estimation bouge de plus de 300 m (au plus une fois par minute). À la clôture, le point est retiré et un message de fin part.
 - **🔗 Lien terrain (réseau mobile)** : un lien secret, à envoyer par SMS ou à faire scanner (QR code), ouvre la carte de la recherche **sans compte et en lecture seule** : relèvements, position estimée, ellipse, équipes. Avec le GPS du téléphone, elle donne **la distance et le cap** jusqu'à la balise, et ouvre l'appli GPS du téléphone. Le lien s'éteint à la clôture de la recherche (48 h au plus) ou d'un clic sur « Désactiver ». La carte doit être joignable depuis le téléphone (adresse en …ts.net avec Tailscale, ou adresse publique).
 
+## Secteurs d'alerte et mode urgence
+
+Sur la carte principale (gestionnaires et administrateurs), deux outils complètent la section pendant une activation :
+- **🗺️ Secteurs d'alerte** : un polygone ou un cercle dessiné sur la carte, rattaché à une équipe ou aux nœuds des membres ; alerte quand un équipier sort du secteur (ou y entre), perte de contact en option, journal exportable.
+- **🚨 Mode urgence** : bandeau rouge pour tous les comptes connectés, carte simplifiée (équipes, demandes d'aide, secteurs devant), tableau de crise et journal horodaté exportable. Aucun réglage radio n'est changé.
+
+Détails : [[Secteurs d’alerte et mode urgence|Secteurs-et-mode-urgence]].
+
 ## Winlink
 
 La carte s'appuie sur **[Pat](https://getpat.io)**, client Winlink libre (licence MIT), lancé à côté d'elle.
