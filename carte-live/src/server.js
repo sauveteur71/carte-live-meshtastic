@@ -30,7 +30,10 @@ const { creerAsymetrie } = require('./asymetrie');
 const { creerCouvertureMesuree } = require('./couverture-mesuree');
 const { creerHistorique } = require('./historique');
 const { creerSauvegardes } = require('./sauvegardes');
-const { creerSanteCarte } = require('./sante-carte');
+const { creerSanteCarte, instrumenterMinuteries, chrono: chronoTache, noter: noterTache } = require('./sante-carte');
+// Toutes les minuteries du serveur sont chronométrées (tableau « tâches les plus lentes » de la santé de la carte)
+instrumenterMinuteries();
+const { performance } = require('perf_hooks');
 const { creerMaintenance } = require('./maintenance');
 const { creerExports } = require('./exports');
 const { creerFederation } = require('./federation');
@@ -68,7 +71,7 @@ const { creerAdministration } = require('./administration');
 const { creerAgents } = require('./agents');
 const { creerReseauMc } = require('./meshcore/reseau');
 const { creerCompanion } = require('./meshcore/companion');
-const { lireMessageMc, creerPublicateurMc } = require('./meshcore/mqtt');
+const { lireMessageMc, creerPublicateurMc, RE_SUJET: RE_SUJET_MC } = require('./meshcore/mqtt');
 const { preparerCanauxMc, decoderPaquet: decoderPaquetMc } = require('./meshcore/paquet');
 const { creerAdministrationMc } = require('./meshcore/administration');
 const fs = require('fs');
@@ -229,6 +232,21 @@ app.get('/api/frequentation', (req, res) => {
 app.get(['/', '/index.html'], envoyerPage('index.html'));
 app.get('/publique.html', envoyerPage('publique.html'));
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '5m', index: false }));
+// Temps bloquant de chaque route : partie synchrone du traitement, et envoi d'une réponse JSON préparée plus tard
+// (après une attente). Noté dans le registre des tâches de la santé de la carte, sous « GET /api/… ». Placé après
+// les fichiers statiques : de là jusqu'à la route, Express enchaîne sans attendre.
+app.use((req, res, next) => {
+  const t0 = performance.now();
+  let retour = false;
+  const nomRoute = () => `${req.method} ${req.route && typeof req.route.path === 'string' ? (req.baseUrl || '') + req.route.path : req.path.startsWith('/api/') ? req.path.replace(/\/[0-9a-f!]{4,}$/i, '/:id') : 'page ou fichier'}`;
+  const json = res.json;
+  res.json = function jsonChronometre(corps) {
+    if (!retour) return json.call(this, corps);
+    const t = performance.now();
+    try { return json.call(this, corps); } finally { noterTache(nomRoute(), performance.now() - t); }
+  };
+  try { next(); } finally { retour = true; noterTache(nomRoute(), performance.now() - t0); }
+});
 
 // Version installée et dernière version publiée sur GitHub (vérifiée toutes les heures, et à l'ouverture de la mise à jour)
 const DEPOT = process.env.DEPOT_GITHUB || 'sauveteur71/carte-live-meshtastic';
@@ -303,10 +321,25 @@ app.get('/api/config', (req, res) => {
   });
 });
 
+// Liste complète des nœuds : des milliers avec le flux msh/EU_868 (plusieurs Mo de JSON). Elle est préparée au plus
+// toutes les 10 s et la même réponse sert tous les navigateurs (une vue membre, une vue publique). ?depuis=heure :
+// seulement les nœuds modifiés depuis (mise à jour incrémentale de la carte, quelques nœuds au lieu de milliers).
+let cacheNoeuds = {};
+function viderCacheNoeuds(ageMs = 0) { for (const k of Object.keys(cacheNoeuds)) if (Date.now() - cacheNoeuds[k].heure >= ageMs) delete cacheNoeuds[k]; }
 app.get('/api/noeuds', (req, res) => {
   const admin = estMembre(req);
   const maintenant = Date.now();
-  res.json(stockage.q.noeuds.all().map((n) => reseau.vueNoeud(n, admin, maintenant)));
+  const depuis = Number(req.query.depuis) || 0;
+  if (depuis > 0) return res.set('Cache-Control', 'no-store').json({ heure: maintenant, noeuds: reseau.noeudsDepuis(Math.min(depuis, maintenant) - 5000, admin) });
+  const k = admin ? 'membre' : 'public';
+  let c = cacheNoeuds[k];
+  if (!c || maintenant - c.heure > 10000) {
+    const corps = Buffer.from(JSON.stringify(stockage.q.noeuds.all().map((n) => reseau.vueNoeud(n, admin, maintenant))));
+    c = cacheNoeuds[k] = { heure: maintenant, corps, etag: `W/"${corps.length.toString(16)}-${crypto.createHash('sha1').update(corps).digest('base64').slice(0, 20)}"` };
+  }
+  res.set('ETag', c.etag).type('json');
+  if (req.fresh) return res.status(304).end();
+  res.send(c.corps);
 });
 
 app.get('/api/noeuds/:num', (req, res) => {
@@ -1348,7 +1381,8 @@ const obtenirNouveaux = () => (nouveaux = nouveaux || creerNouveaux(stockage, co
 app.get('/api/noeuds-nouveaux', (req, res) => {
   obtenirNouveaux();
   const r = nouveaux.lister(Number(req.query.jours) || 7);
-  if (!estMembre(req)) for (const n of r.noeuds) { const v = reseau.vueNoeud(stockage.q.noeud.get(n.num), false); n.lat = v.lat; n.lon = v.lon; }
+  // Résultat partagé (gardé 4 min) : la vue publique en est une copie, positions des particuliers arrondies
+  if (!estMembre(req)) return res.json({ ...r, noeuds: r.noeuds.map((n) => { const f = stockage.q.noeud.get(n.num); const v = f ? reseau.vueNoeud(f, false) : { lat: null, lon: null }; return { ...n, lat: v.lat, lon: v.lon }; }) });
   res.json(r);
 });
 
@@ -1439,6 +1473,7 @@ app.post('/api/admin-noeuds/fusion', (req, res) => {
   const u = utilisateur(req), b = req.body || {};
   try {
     const h = obtenirRenumerotation().fusionner(Number(b.ancien), Number(b.nouveau), u.identifiant, { force: b.force === true });
+    viderCacheNoeuds();
     audit.noter(nomCompte(u), req.ip, 'fusion de nœuds (2.8)', `${h.idAncien} → ${h.idNouveau}${h.force ? ' (forcée)' : ''}`, true);
     res.json(h);
   } catch (e) { res.status(400).json({ erreur: e.message }); }
@@ -1448,6 +1483,7 @@ app.post('/api/admin-noeuds/fusion/annuler', (req, res) => {
   const u = utilisateur(req), b = req.body || {};
   try {
     const h = obtenirRenumerotation().annuler(Number(b.heure), Number(b.ancien), Number(b.nouveau), u.identifiant);
+    viderCacheNoeuds();
     audit.noter(nomCompte(u), req.ip, 'annulation de fusion (2.8)', `${h.idAncien} ← ${h.idNouveau}`, true);
     res.json(h);
   } catch (e) { res.status(400).json({ erreur: e.message }); }
@@ -3077,12 +3113,24 @@ function versPasserelleRadio(evt) {
   } catch (e) { journal('[Passerelle]', e.message); }
 }
 function diffuser(message) {
+  const t0 = performance.now();
+  if (message.genre === 'noeud-supprime') viderCacheNoeuds();
   verPasserelle(message);
-  // Vue publique : sans texte, positions des nœuds de particuliers arrondies
-  const vue = message.genre === 'etat' && message.alertes ? { ...message, alertes: alertesPubliques(message.alertes) } : message;
-  const pub = JSON.stringify(reseau.vueTrame(vue.texte !== undefined ? { ...vue, texte: undefined } : vue, false));
-  const adm = JSON.stringify(message);
-  for (const ws of wss.clients) if (ws.readyState === 1) ws.send(ws.admin ? adm : pub);
+  // Vue publique : sans texte, positions des nœuds de particuliers arrondies. Chaque vue est sérialisée une seule fois
+  // (et seulement si un navigateur de ce genre est connecté), puis la même chaîne part vers tous les navigateurs
+  let pub = null, adm = null;
+  for (const ws of wss.clients) {
+    if (ws.readyState !== 1) continue;
+    if (ws.admin) { if (adm === null) adm = JSON.stringify(message); ws.send(adm); }
+    else {
+      if (pub === null) {
+        const vue = message.genre === 'etat' && message.alertes ? { ...message, alertes: alertesPubliques(message.alertes) } : message;
+        pub = JSON.stringify(reseau.vueTrame(vue.texte !== undefined ? { ...vue, texte: undefined } : vue, false));
+      }
+      ws.send(pub);
+    }
+  }
+  noterTache(message.genre === 'etat' || message.genre === 'mc-etat' ? 'diffusion de l’état aux navigateurs' : 'diffusion d’un paquet aux navigateurs', performance.now() - t0);
 }
 
 // ---- MQTT -----------------------------------------------------------------
@@ -3131,8 +3179,23 @@ function diffuserSortieMc(sortie) {
   diffuser(sortie);
   if (sortie.nouveauMessage && sortie.texte) diffuser({ genre: 'mc-message', id: sortie.nouveauMessage, sens: 'recu', canal: sortie.canal, texte: sortie.texte, nomDe: sortie.expediteur, heure: Date.now(), dejaPasserelle: true });
 }
+// Décision de périmètre par observateur gardée 60 s : le flux national envoie des centaines de milliers de paquets
+// d'observateurs lointains, rejetés d'après le sujet MQTT seul, sans lire le JSON ni chercher leur position à chaque fois
+const perimetreObs = new Map();
+function obsDansPerimetre(cle, iata) {
+  const t = Date.now(), k = cle + '|' + iata, d = perimetreObs.get(k);
+  if (d && t - d.heure < 60000) return d.dans;
+  const dans = dansPerimetreMc(cle, iata);
+  if (perimetreObs.size > 5000) perimetreObs.clear();
+  perimetreObs.set(k, { dans, heure: t });
+  return dans;
+}
 function messageMc(topic, message) {
   compteurMc.recus++;
+  if (config.meshcore.perimetre !== 'national') {
+    const s = RE_SUJET_MC.exec(topic);
+    if (s && s[4] === 'packets' && !obsDansPerimetre(s[3].toUpperCase(), s[2])) { compteurMc.horsPerimetre = (compteurMc.horsPerimetre || 0) + 1; return; }
+  }
   const m = lireMessageMc(topic, message);
   if (!m) return;
   if (m.genre === 'erreur') { compteurMc.erreurs++; return; }
@@ -3140,7 +3203,7 @@ function messageMc(topic, message) {
   if (m.cle === moi) return; // nos propres republications
   if (m.genre === 'statut') { reseauMc.noterObservateur(m.cle, { nom: m.nom, etat: m.etat, details: m.details }); planifierEtatMc(); return; }
   // Filtre à la source : on ne garde que ce qu'ont capté les observateurs du périmètre choisi
-  if (!dansPerimetreMc(m.cle, m.iata)) { compteurMc.horsPerimetre = (compteurMc.horsPerimetre || 0) + 1; return; }
+  if (!obsDansPerimetre(m.cle, m.iata)) { compteurMc.horsPerimetre = (compteurMc.horsPerimetre || 0) + 1; return; }
   if (m.nom) reseauMc.noterObservateur(m.cle, { nom: m.nom, details: { iata: m.iata } });
   const sortie = reseauMc.integrer(m.obs);
   if (sortie) { compteurMc.observations++; diffuserSortieMc(sortie); }
@@ -3176,12 +3239,24 @@ const brokersSup = config.mqtt.brokers.map((b) => {
   c.on('message', (topic, message) => { etatB.messages++; traiterMessageMqtt(topic, message); });
   return { client: c, etat: etatB };
 });
+// Chaque message est chronométré (décodage et écriture en base) : total et maximum par minute dans la santé de la carte
 function traiterMessageMqtt(topic, message) {
-  if ((brokersSup.length || config.mqtt.dedoublonner) && dejaVuMqtt(topic, message)) { compteur.doublons = (compteur.doublons || 0) + 1; return; }
-  compteur.recus++;
-  if (config.meshcore.actif && topic.startsWith(prefixeMc)) { compteurMc.recusMqtt = (compteurMc.recusMqtt || 0) + 1; try { messageMc(topic, message); } catch (e) { compteurMc.erreurs++; journal('Erreur MeshCore :', e.message, topic); } return; }
-  noterMessageMqtt(topic);
-  traiterEnveloppeMt(topic, message);
+  const t0 = performance.now();
+  let nom = 'message MQTT Meshtastic';
+  try {
+    if ((brokersSup.length || config.mqtt.dedoublonner) && dejaVuMqtt(topic, message)) { compteur.doublons = (compteur.doublons || 0) + 1; nom = 'message MQTT en double'; return; }
+    compteur.recus++;
+    if (config.meshcore.actif && topic.startsWith(prefixeMc)) {
+      compteurMc.recusMqtt = (compteurMc.recusMqtt || 0) + 1;
+      const hors = compteurMc.horsPerimetre || 0;
+      nom = 'message MQTT MeshCore';
+      try { messageMc(topic, message); } catch (e) { compteurMc.erreurs++; journal('Erreur MeshCore :', e.message, topic); }
+      if ((compteurMc.horsPerimetre || 0) !== hors) nom = 'message MeshCore hors périmètre';
+      return;
+    }
+    noterMessageMqtt(topic);
+    traiterEnveloppeMt(topic, message);
+  } finally { noterTache(nom, performance.now() - t0); }
 }
 // Enveloppe Meshtastic (MQTT, ou paquet du réseau local remis sous forme d'enveloppe) : décodage puis carte
 function traiterEnveloppeMt(topic, message) {
@@ -3313,25 +3388,26 @@ function alertesServices() {
   return l;
 }
 function rafraichirEtat() {
-  dernieresAlertes = reseau.calculerAlertes();
+  viderCacheNoeuds(60000); // liste des nœuds plus demandée depuis une minute : mémoire rendue
+  dernieresAlertes = chronoTache('alertes Meshtastic', () => reseau.calculerAlertes());
   try { if (typeof equipes !== 'undefined') dernieresAlertes = [...dernieresAlertes, ...equipes.alertes((n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); })]; } catch { /* équipes pas encore prêtes */ }
   if (passerelle) { try { dernieresAlertes = [...dernieresAlertes, ...passerelle.alertes()]; } catch (e) { journal('[Passerelle]', e.message); } }
   try { dernieresAlertes = [...dernieresAlertes, ...alertesServices()]; } catch (e) { journal('alertes des services :', e.message); }
   try { dernieresAlertes = [...dernieresAlertes, ...lorawan.alertes()]; } catch (e) { if (!(e instanceof ReferenceError)) journal('[LoRaWAN]', e.message); }
   try { dernieresAlertes = [...dernieresAlertes, ...rivieres.alertes()]; } catch (e) { if (!(e instanceof ReferenceError)) journal('[Rivières]', e.message); } // pas encore créé au démarrage
   try { if (!fonctionMasquee('feux')) dernieresAlertes = [...dernieresAlertes, ...feux.alertes()]; } catch (e) { if (!(e instanceof ReferenceError)) journal('[Feux]', e.message); } // pas encore créé au démarrage
-  diffuser({ genre: 'etat', stats: reseau.statistiques(), alertes: dernieresAlertes, meshmonitor: typeof sourceMM !== 'undefined' && sourceMM ? sourceMM.etat() : null, radio: typeof sourceRadio !== 'undefined' && sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
+  diffuser({ genre: 'etat', stats: chronoTache('statistiques Meshtastic', () => reseau.statistiques()), alertes: dernieresAlertes, meshmonitor: typeof sourceMM !== 'undefined' && sourceMM ? sourceMM.etat() : null, radio: typeof sourceRadio !== 'undefined' && sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
 }
 setInterval(rafraichirEtat, 30000);
 let minuterieEtatMc = null;
 function diffuserEtatMc() {
   if (!config.meshcore.actif) return;
   const c = companion.etat();
-  alertesMc = reseauMc.calculerAlertes({ administres: adminMc.memorises(), companion: { cible: c.cible || c.navigateur, connecte: c.connecte, nom: c.nom, cle: c.cle, erreur: c.erreur } });
+  alertesMc = chronoTache('alertes MeshCore', () => reseauMc.calculerAlertes({ administres: adminMc.memorises(), companion: { cible: c.cible || c.navigateur, connecte: c.connecte, nom: c.nom, cle: c.cle, erreur: c.erreur } }));
   try { alertesMc = [...alertesMc, ...capteursMc.alertes(nomNoeudMc)]; } catch (e) { journal('alertes des capteurs :', e.message); }
   try { if (typeof maintenanceMc !== 'undefined') alertesMc = [...alertesMc, ...maintenanceMc.alertes()]; } catch (e) { journal('alertes de maintenance :', e.message); }
   try { alertesMc = [...alertesMc, ...adminMc.alertesSupervision()]; } catch (e) { journal('alertes de supervision :', e.message); }
-  diffuser({ genre: 'mc-etat', ...etatMc(false) });
+  diffuser({ genre: 'mc-etat', ...chronoTache('état MeshCore', () => etatMc(false)) });
 }
 function planifierEtatMc() { if (!minuterieEtatMc) minuterieEtatMc = setTimeout(() => { minuterieEtatMc = null; diffuserEtatMc(); }, 15000); } // statuts d'observateurs fréquents : au plus toutes les 15 s
 setInterval(diffuserEtatMc, 30000);
@@ -4410,14 +4486,20 @@ app.post('/api/historique/compacter', (req, res) => {
 { const m = sourceRadio.modules(); journal(m.actif ? `Module radio actif : ${m.actif.hote}:${m.actif.port}` : 'Aucun module radio actif (choix depuis la carte, onglet Réseau)'); }
 setTimeout(rafraichirEtat, 2000);
 
-setInterval(() => {
-  const n = stockage.purger(config.retentionJours, config.messagesRetentionJours) + reseauMc.purger(config.retentionJours, config.meshcore.retentionPaquetsJours);
-  reseau.nettoyer();
+// Purge horaire : la purge Meshtastic avance par lots (la carte reste réactive), puis MeshCore et le nettoyage
+async function purgeHoraire() {
+  const t0 = Date.now();
+  const nMt = await stockage.purger(config.retentionJours, config.messagesRetentionJours);
+  const n = nMt + chronoTache('purge MeshCore', () => reseauMc.purger(config.retentionJours, config.meshcore.retentionPaquetsJours));
+  chronoTache('nettoyage des liens impossibles', () => reseau.nettoyer());
+  return { n, dureeS: Math.round((Date.now() - t0) / 100) / 10 };
+}
+setInterval(() => purgeHoraire().then(({ n, dureeS }) => {
   // Compteurs séparés : un broker peut ne porter que du MeshCore (Meshtastic « 0 traité » est alors normal)
   const mcR = compteurMc.recusMqtt || 0;
-  journal(`Purge : ${n} lignes de plus de ${config.retentionJours} jours supprimées · MQTT Meshtastic : ${compteur.recus - mcR} reçus, ${compteur.decodes} traités, ${compteur.erreurs} erreurs${config.meshcore.actif ? ` · MeshCore : ${mcR} reçus, ${compteurMc.observations} observations gardées, ${compteurMc.horsPerimetre || 0} hors périmètre` : ''} (depuis le démarrage)`);
-}, 3600000);
-stockage.purger(config.retentionJours, config.messagesRetentionJours);
+  journal(`Purge : ${n} lignes de plus de ${config.retentionJours} jours supprimées · MQTT Meshtastic : ${compteur.recus - mcR} reçus, ${compteur.decodes} traités, ${compteur.erreurs} erreurs${config.meshcore.actif ? ` · MeshCore : ${mcR} reçus, ${compteurMc.observations} observations gardées, ${compteurMc.horsPerimetre || 0} hors périmètre` : ''} (depuis le démarrage), purge en ${dureeS} s`);
+}).catch((e) => journal('Purge impossible :', e.message)), 3600000);
+stockage.purger(config.retentionJours, config.messagesRetentionJours).catch((e) => journal('Purge impossible :', e.message));
 setTimeout(() => reseauMc.purger(config.retentionJours, config.meshcore.retentionPaquetsJours), 60000);
 {
   const n = reseau.nettoyer();

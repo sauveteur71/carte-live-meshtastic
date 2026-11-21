@@ -231,7 +231,7 @@ async function ficheV28() {
       const h = await postJson('/api/admin-noeuds/fusion', { ancien: a, nouveau: n, force });
       $('#v28-retour').textContent = `Fusionné : ${Object.entries(h.lignes).map(([k, v]) => `${v} ${k}`).join(', ')}.`;
       setTimeout(ficheV28, 1500);
-      chargerNoeuds().catch(() => {});
+      chargerNoeuds(true).catch(() => {});
     } catch (e) { $('#v28-retour').textContent = e.message; }
   }));
   z.querySelectorAll('[data-annuler]').forEach((b) => (b.onclick = async () => {
@@ -241,7 +241,7 @@ async function ficheV28() {
       const h = await postJson('/api/admin-noeuds/fusion/annuler', { heure, ancien: a, nouveau: n });
       $('#v28-retour').textContent = `Fusion annulée : ${h.annule.lignes} lignes rendues à ${h.idAncien}.`;
       setTimeout(ficheV28, 1500);
-      chargerNoeuds().catch(() => {});
+      chargerNoeuds(true).catch(() => {});
     } catch (e) { $('#v28-retour').textContent = e.message; }
   }));
 }

@@ -4,7 +4,7 @@
 
 [![Dernière version](https://img.shields.io/github/v/release/sauveteur71/carte-live-meshtastic?label=derni%C3%A8re%20version)](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest)
 
-**Version actuelle : 2.28.15** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
+**Version actuelle : 2.28.16** — [nouveautés](https://github.com/sauveteur71/carte-live-meshtastic/releases/latest) · [toutes les versions](https://github.com/sauveteur71/carte-live-meshtastic/releases)
 
 Carte en temps réel, supervision et **administration à distance** d'un réseau [Meshtastic](https://meshtastic.org) — et désormais [MeshCore](https://meshcore.co.uk) — local ou départemental : elle écoute votre broker MQTT et/ou un module radio, décode les paquets, garde l'historique et permet de programmer vos nœuds par LoRa.
 
@@ -40,7 +40,7 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 - **Couverture mesurée** : d'où les nœuds sont réellement reçus (positions + réceptions des passerelles), relevés de terrain avec un module mobile, recalage du modèle de relief
 - **Maintenance** (onglet *Statistiques*) : charge radio des relais (temps d'émission, occupation du canal, tendance et alerte avant la limite de 10 %), autonomie (« tiendrait X jours sans soleil », relais qui ne se recharge plus), firmwares (version de chaque relais face à la dernière version stable), conseils de rôles (routeurs redondants ou mal placés, clients bien placés, rôles obsolètes)
 - **Historique sur plus d'un an** (onglet *Statistiques*) : nœuds actifs, passerelles, trafic, occupation du canal, couverture calculée ; compactage automatique de la base
-- **Santé de la carte** (onglet *Réseau*) : processeur, mémoire, réactivité, disque, base, MQTT, avec alertes
+- **Santé de la carte** (onglet *Réseau*) : processeur, mémoire, réactivité (gels et tâches les plus lentes), disque, base, MQTT, avec alertes
 - **Sauvegarde automatique des réglages** chaque nuit (comptes, fiches, configurations, mots de passe MeshCore), téléchargeable et restaurable (*Connexion › Sauvegardes*)
 - **Fiche d'installation des relais** : antenne, hauteur, gain, câble, puissance, alimentation, site ; utilisée par les calculs de couverture
 - Analyse du trafic, rejeu de l'historique, profils radio entre deux points quelconques

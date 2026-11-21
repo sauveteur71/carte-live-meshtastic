@@ -691,6 +691,7 @@ async function chargerSanteCarte() {
       ${m('Processeur', fmt(e.cpuPct, 0, ' %'), e.cpuPct > 80)}
       ${m('Mémoire', `${e.memMo ?? '–'}${r.limiteMemMo ? ' / ' + r.limiteMemMo : ''} Mo`, r.limiteMemMo && e.memMo > r.limiteMemMo * 0.85)}
       ${m('Réactivité (pire)', e.latenceP99 != null ? e.latenceP99 + ' ms' : '–', e.latenceP99 > 500)}
+      ${m('Gel le plus long (minute)', e.latenceMax != null ? (e.latenceMax >= 1000 ? fmt(e.latenceMax / 1000, 1, ' s') : e.latenceMax + ' ms') : '–', e.latenceMax > 1500)}
       ${m('Messages MQTT', (e.mqttParMinute ?? '–') + ' / min')}
       ${m('Base de données', r.base ? `${r.base.totalMo} Mo` : '–', r.base && r.base.totalMo > 2048)}
       ${m('Disque libre', r.disque ? `${r.disque.libreGo} Go` : '–', r.disque && r.disque.libreGo / r.disque.totalGo < 0.1)}
@@ -698,7 +699,17 @@ async function chargerSanteCarte() {
       ${m('En marche depuis', dureeDepuis(r.demarrage))}
       ${m('Version', esc(r.version))}
     </div>
-    ${courbe(r.historique, 'latenceP99', 'Réactivité (retard maximal par minute)', ' ms', 0, 500) || ''}
+    ${courbe(r.historique, 'latenceP99', 'Réactivité (retard habituel, 99 % des cas)', ' ms', 0, 500) || ''}
+    ${courbe(r.historique.map((x) => ({ heure: x.heure, gel: x.latenceMax != null ? x.latenceMax / 1000 : null })), 'gel', 'Gels (retard maximal par minute)', ' s', 1, 1.5) || ''}
+    ${(r.gels || []).length ? `<h4>Gels récents (plus de 1,5 s sans répondre)</h4>
+      <table class="voisins tableau-taches"><thead><tr><th>Heure</th><th>Durée</th><th>Tâche la plus longue de la minute</th></tr></thead><tbody>
+      ${r.gels.slice(0, 8).map((g) => `<tr><td>${new Date(g.heure).toLocaleTimeString(window.LOCALE || 'fr-FR', { hour: '2-digit', minute: '2-digit' })}</td><td><b>${fmt(g.ms / 1000, 1, ' s')}</b></td><td>${g.tache ? `${esc(tr(g.tache.nom))} · ${g.tache.ms} ms${g.tache.n > 1 ? ` · ${tr(`${g.tache.n} fois`)}` : ''}` : '–'}</td></tr>`).join('')}
+      </tbody></table>` : ''}
+    ${(r.taches || []).length ? `<h4>Tâches les plus lentes (dernière heure)</h4>
+      <table class="voisins tableau-taches"><thead><tr><th>Tâche</th><th>Plus longue</th><th>Moyenne</th><th>Exécutions</th></tr></thead><tbody>
+      ${r.taches.slice(0, 10).map((t) => `<tr><td>${esc(tr(t.nom))}</td><td><b${t.maxMs > 500 ? ' style="color:var(--attention)"' : ''}>${t.maxMs >= 1000 ? fmt(t.maxMs / 1000, 1, ' s') : t.maxMs + ' ms'}</b></td><td>${fmt(t.moyMs, t.moyMs < 10 ? 1 : 0, ' ms')}</td><td>${t.n}</td></tr>`).join('')}
+      </tbody></table>
+      <p class="note">Temps pendant lequel la carte ne peut rien faire d’autre. Une tâche qui dépasse souvent 500 ms fige la carte pour tous les visiteurs.</p>` : ''}
     ${courbe(r.historique, 'cpuPct', 'Processeur', ' %', 0) || ''}
     ${courbe(r.historique, 'memMo', 'Mémoire', ' Mo', 0, r.limiteMemMo ? Math.round(r.limiteMemMo * 0.85) : null) || ''}
     <p class="note">MQTT ${r.mqtt.connecte ? 'connecté' : '<b>déconnecté</b>'}${r.mqtt.reconnexions ? ` · ${r.mqtt.reconnexions} reconnexion(s)` : ''}${r.mqtt.horsPerimetreMc ? ` · ${r.mqtt.horsPerimetreMc} paquets MeshCore hors périmètre ignorés` : ''}${r.base && r.base.walMo ? ` · journal de la base ${r.base.walMo} Mo` : ''}. Courbes : 3 dernières heures, un point par minute.</p>`;
@@ -5779,9 +5790,20 @@ function dessinerChaleur() {
 setInterval(() => { if (carte) dessinerChaleur(); }, 20000);
 
 // ---- Chargement & temps réel -------------------------------------------------------
-async function chargerNoeuds() {
-  const liste = await api('/api/noeuds');
-  etat.noeuds = new Map(liste.map((n) => [n.num, n]));
+// Liste complète au démarrage et toutes les 10 min ; entre-temps, seulement les nœuds modifiés (?depuis=) :
+// avec le flux msh/EU_868, la liste complète pèse plusieurs Mo et était redemandée toutes les 4 s par chaque carte
+async function chargerNoeuds(complet) {
+  if (complet || !etat.heureNoeuds || Date.now() - (etat.completNoeuds || 0) > 600000) {
+    const liste = await api('/api/noeuds');
+    etat.noeuds = new Map(liste.map((n) => [n.num, n]));
+    // Repère pris sur l'horloge du serveur (heures des nœuds), pas sur celle du navigateur
+    etat.heureNoeuds = liste.reduce((m, n) => Math.max(m, n.dernierVu || 0, n.heurePosition || 0, n.heureTelemetrie || 0), 0) || 1;
+    etat.completNoeuds = Date.now();
+  } else {
+    const r = await api('/api/noeuds?depuis=' + etat.heureNoeuds);
+    for (const n of r.noeuds || []) etat.noeuds.set(n.num, n);
+    if (r.heure) etat.heureNoeuds = r.heure;
+  }
   dessinerNoeuds();
   if (etat.config) rendreLegende();
   rendreNoeuds();
@@ -5843,7 +5865,10 @@ function planifierRafraichissement() {
   if (rafraichir) return;
   rafraichir = setTimeout(async () => {
     rafraichir = null;
-    await Promise.all([chargerNoeuds(), chargerLiens()]).catch(() => {});
+    // Liaisons relues au plus toutes les 30 s (des milliers de liaisons avec le flux d'un pays entier)
+    const liens = Date.now() - (etat.heureLiens || 0) > 30000;
+    if (liens) etat.heureLiens = Date.now();
+    await Promise.all([chargerNoeuds(), liens ? chargerLiens() : null]).catch(() => {});
     rendreReseau();
   }, 4000);
 }
