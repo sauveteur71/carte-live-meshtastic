@@ -1084,7 +1084,17 @@ async function essaiUrgenceEtSecteurs(navig, cookie) {
   await capture(page, 'mode-urgence');
   const deux = await appel('POST', '/api/urgence', { actif: true });
   if (deux.statut === 400) ok('double activation refusée'); else ko('double activation : ' + deux.statut);
+  // Gestionnaire : lit le tableau de crise et note au journal, mais n'active ni ne termine le mode urgence
+  await appel('POST', '/api/comptes', { identifiant: 'Gilles gestion', motDePasse: 'Essai-gilles-2026!!', role: 'gestionnaire' });
+  const cx = await fetch(BASE + '/api/connexion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifiant: 'Gilles gestion', motDePasse: 'Essai-gilles-2026!!' }) });
+  const HG = { 'Content-Type': 'application/json', Cookie: (cx.headers.get('set-cookie') || '').split(';')[0] };
+  const finG = await appel('POST', '/api/urgence', { actif: false }, HG);
+  const lectureG = await appel('GET', '/api/urgence', null, HG);
+  const noteG = await appel('POST', '/api/urgence/note', { texte: 'Note du gestionnaire' }, HG);
+  if (finG.statut === 403 && lectureG.statut === 200 && lectureG.j.actif && lectureG.j.tableau && noteG.statut === 200) ok('gestionnaire : 403 pour terminer, tableau lisible, note acceptée'); else ko('gestionnaire : ' + JSON.stringify({ fin: finG.statut, lecture: lectureG.statut, note: noteG.statut }));
   const f = await appel('POST', '/api/urgence', { actif: false });
+  const actG = await appel('POST', '/api/urgence', { actif: true }, HG);
+  if (actG.statut === 403) ok('gestionnaire : 403 pour activer le mode urgence'); else ko('gestionnaire active le mode urgence : ' + actG.statut);
   await page.waitForTimeout(1500);
   const apres = await page.evaluate(() => ({ classe: document.body.classList.contains('mode-urgence'), bandeau: !!document.querySelector('#bandeau-urgence') }));
   if (f.statut === 200 && !apres.classe && !apres.bandeau) ok('mode urgence terminé : affichage habituel'); else ko('fin du mode urgence : ' + JSON.stringify({ f: f.statut, apres }));

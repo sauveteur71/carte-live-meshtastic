@@ -68,7 +68,7 @@ Dans l'onglet **📡 Radiogoniométrie**, bloc **Diffusion aux équipes** (reche
 
 Sur la carte principale (gestionnaires et administrateurs), deux outils complètent la section pendant une activation :
 - **🗺️ Secteurs d'alerte** : un polygone ou un cercle dessiné sur la carte, rattaché à une équipe ou aux nœuds des membres ; alerte quand un équipier sort du secteur (ou y entre), perte de contact en option, journal exportable.
-- **🚨 Mode urgence** : bandeau rouge pour tous les comptes connectés, carte simplifiée (équipes, demandes d'aide, secteurs devant), tableau de crise et journal horodaté exportable. Aucun réglage radio n'est changé.
+- **🚨 Mode urgence** (activé par un administrateur) : bandeau rouge pour tous les comptes connectés, carte simplifiée (équipes, demandes d'aide, secteurs devant), tableau de crise et journal horodaté exportable. Aucun réglage radio n'est changé.
 
 Détails : [[Secteurs d’alerte et mode urgence|Secteurs-et-mode-urgence]].
 

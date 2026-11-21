@@ -39,7 +39,7 @@ Chaque entrée, sortie, perte de contact, retour du contact, position ignorée, 
 Le cercle de sécurité d'une équipe (versions précédentes) est repris **automatiquement** en secteur « Zone de sécurité *équipe* » au premier démarrage, avec une marge de 100 m.
 
 ## Mode urgence
-Inspiré du mode urgence de l'application MeshWave, adapté à une carte de supervision. Un gestionnaire ou un administrateur l'active (*Outils › 🚨 Mode urgence › Activer*, motif facultatif) ; il reste actif après un redémarrage, jusqu'à ce qu'on le termine.
+Inspiré du mode urgence de l'application MeshWave, adapté à une carte de supervision. Un administrateur l'active (*Outils › 🚨 Mode urgence › Activer*, motif facultatif) ; il reste actif après un redémarrage, jusqu'à ce qu'un administrateur le termine. Les gestionnaires voient le tableau de crise et ajoutent des notes au journal.
 
 Pendant la crise :
 - **bandeau rouge « URGENCE »** (durée, motif) dans l'en-tête et cadre rouge autour de l'écran, pour **tous les comptes connectés** ; rien n'est montré au public ;
@@ -51,4 +51,4 @@ Pendant la crise :
 
 Le mode urgence **ne change aucun réglage radio et n'envoie aucun message LoRa** : demandes de position, mode recherche et envois restent à votre main (fiche Équipes).
 
-**⏹ Terminer le mode urgence** remet l'affichage habituel pour tous et propose l'export du journal.
+**⏹ Terminer le mode urgence** (administrateur) remet l'affichage habituel pour tous et propose l'export du journal.

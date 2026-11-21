@@ -12,7 +12,7 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 - L'ancienne « zone de sécurité » (cercle) des équipes devient un secteur automatiquement. Secteurs, alertes et demandes d'aide des équipes ne partent plus vers la vue publique.
 
 ### 🚨 Mode urgence
-- *Outils › 🚨 Mode urgence* (gestionnaire ou administrateur), inspiré du mode urgence de MeshWave : **bandeau rouge** et cadre rouge pour tous les comptes connectés, **carte simplifiée et contrastée** (réseau ordinaire au second plan, intervenants, demandes d'aide et secteurs devant), **tableau de crise** (demandes d'aide, alertes des secteurs, intervenants, alertes critiques), état du réseau toutes les 10 s, signalements et main courante remis en service s'ils étaient masqués.
+- *Outils › 🚨 Mode urgence* (activé et terminé par un administrateur ; les gestionnaires lisent le tableau de crise et ajoutent des notes), inspiré du mode urgence de MeshWave : **bandeau rouge** et cadre rouge pour tous les comptes connectés, **carte simplifiée et contrastée** (réseau ordinaire au second plan, intervenants, demandes d'aide et secteurs devant), **tableau de crise** (demandes d'aide, alertes des secteurs, intervenants, alertes critiques), état du réseau toutes les 10 s, signalements et main courante remis en service s'ils étaient masqués.
 - **Journal horodaté de la crise** : déclenchement, demandes d'aide, messages de détresse entendus sur les canaux (SOS, MAYDAY, 🔔…), événements des secteurs, alertes critiques nouvelles, notes à la main, fin ; **export CSV**, les 10 crises précédentes sont gardées. Résiste à un redémarrage.
 - Le mode urgence ne change aucun réglage radio et n'envoie aucun message LoRa.
 

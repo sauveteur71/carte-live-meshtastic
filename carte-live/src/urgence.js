@@ -1,6 +1,6 @@
 'use strict';
-// Mode urgence : la carte passe en configuration de crise, activée et terminée à la main par un administrateur ou
-// un gestionnaire. Inspiré du « mode urgence » de l'application MeshWave (qui débloque toutes ses fonctions quand
+// Mode urgence : la carte passe en configuration de crise, activée et terminée à la main par un administrateur
+// (les gestionnaires lisent le tableau de crise et ajoutent des notes au journal). Inspiré du « mode urgence » de l'application MeshWave (qui débloque toutes ses fonctions quand
 // une catastrophe survient), adapté à une carte de supervision :
 // - bandeau visible pour tous les comptes connectés, affichage simplifié et contrasté côté navigateur ;
 // - outils de crise remis en service s'ils étaient masqués (signalements, main courante) ;

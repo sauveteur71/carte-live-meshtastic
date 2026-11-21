@@ -39,7 +39,7 @@ Every entry, exit, loss of contact, contact restored, ignored position, creation
 A team's safety circle (previous versions) is **automatically** turned into a “Zone de sécurité *team*” sector at the first start, with a 100 m margin.
 
 ## Emergency mode
-Inspired by the emergency mode of the MeshWave app, adapted to a supervision map. A manager or administrator turns it on (*Tools › 🚨 Emergency mode › Turn on*, optional reason); it stays on after a restart until someone ends it.
+Inspired by the emergency mode of the MeshWave app, adapted to a supervision map. An administrator turns it on (*Tools › 🚨 Emergency mode › Turn on*, optional reason); it stays on after a restart until an administrator ends it. Managers see the crisis board and add notes to the log.
 
 During the crisis:
 - **red “EMERGENCY” banner** (duration, reason) in the header and a red frame around the screen, for **every connected account**; nothing is shown to the public;
@@ -51,4 +51,4 @@ During the crisis:
 
 Emergency mode **changes no radio setting and sends no LoRa message**: position requests, search mode and sending stay in your hands (Teams card).
 
-**⏹ End emergency mode** brings back the usual display for everyone and offers to export the log.
+**⏹ End emergency mode** (administrator) brings back the usual display for everyone and offers to export the log.

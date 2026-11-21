@@ -3683,14 +3683,15 @@ app.get('/api/urgence', (req, res) => {
   const e = urgence.etat();
   res.set('Cache-Control', 'no-store').json(estGestion(req) ? { ...e, tableau: tableauCrise() } : e);
 });
-app.post('/api/urgence', routeGestion((req, b, a) => {
+// Activer ou terminer le mode urgence : administrateur seulement (les gestionnaires lisent le tableau et notent au journal)
+app.post('/api/urgence', (req, res, suite) => { const u = utilisateur(req); if (u && u.role === 'gestionnaire') return res.status(403).json({ erreur: 'Seul un administrateur active ou termine le mode urgence' }); suite(); }, routeAdminSecteur((req, b, a) => {
   const r = b.actif ? urgence.activer({ motif: b.motif }, a) : urgence.desactiver(a);
   audit.noter(a, req.ip, b.actif ? 'mode urgence activé' : 'mode urgence terminé', b.actif ? String(b.motif || '').slice(0, 140) : `${r.derniere.nb} événement(s)`, true);
   if (b.actif) noterAlertesCrise([...dernieresAlertes, ...(config.meshcore.actif ? alertesMc : [])]); // situation au déclenchement
   diffuser({ genre: 'fonctions-masquees', masquees: masqueesEffectives() });
   rafraichirEtat();
   return r;
-}, true));
+}));
 app.post('/api/urgence/note', routeGestion((req, b, a) => urgence.note(b.texte, a), true));
 app.get('/api/urgence/journal.csv', (req, res) => {
   if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });

@@ -370,16 +370,17 @@ async function ficheCrise(garder) {
     z.innerHTML = `<div class="tableau-crise"><h2>🚨 Mode urgence</h2>
       <p class="note">Pour une crise (recherche de personne, crue, panne générale, exercice) : la carte passe en <b>configuration de crise</b> pour tous les comptes connectés. Bandeau rouge, carte simplifiée (le réseau ordinaire passe au second plan, les équipes, demandes d’aide et secteurs d’alerte devant), rafraîchissement plus rapide, signalements et main courante remis en service s’ils étaient masqués, et un <b>journal horodaté</b> de tout ce qui se passe, exportable à la fin.</p>
       <p class="note">Le mode urgence ne change <b>aucun réglage radio</b> et n’envoie <b>aucun message LoRa</b> : demandes de position, mode recherche et envois restent à votre main (fiche Équipes).</p>
-      <div class="actions-prop"><button class="principal danger" id="urg-activer">🚨 Activer le mode urgence</button><button id="urg-secteurs">🗺️ Secteurs d’alerte</button></div>
+      <div class="actions-prop">${etat.admin ? '<button class="principal danger" id="urg-activer">🚨 Activer le mode urgence</button>' : ''}<button id="urg-secteurs">🗺️ Secteurs d’alerte</button></div>
+      ${etat.admin ? '' : '<p class="note">Seul un administrateur active ou termine le mode urgence.</p>'}
       ${blocArchives}</div>`;
-    $('#urg-activer').onclick = activerUrgence;
+    { const b = $('#urg-activer'); if (b) b.onclick = activerUrgence; }
     $('#urg-secteurs').onclick = () => ficheSecteurs();
     return;
   }
   const sos = t.sos || [], alS = t.alertesSecteurs || [], membres = t.membres || [], crit = t.critiques || [], evts = t.evenements || [];
   z.innerHTML = `<div class="tableau-crise"><h2>🚨 Tableau de crise</h2>
     <div class="alerte critique">En cours depuis <b>${heureCrise(e.debut)}</b> (${dureeCrise(e.debut)}) · activé par ${esc(e.auteur || '?')}${e.motif ? ` · <b>${esc(e.motif)}</b>` : ''}</div>
-    <div class="actions-prop"><button id="urg-note">📝 Ajouter une note au journal</button><a class="bouton" href="/api/urgence/journal.csv?crise=${encodeURIComponent(e.id)}" download>⬇ Journal (CSV)</a><button id="urg-secteurs">🗺️ Secteurs</button><button id="urg-equipes" ${etat.admin ? '' : 'hidden'}>👥 Équipes</button><button class="danger" id="urg-fin">⏹ Terminer le mode urgence</button></div>
+    <div class="actions-prop"><button id="urg-note">📝 Ajouter une note au journal</button><a class="bouton" href="/api/urgence/journal.csv?crise=${encodeURIComponent(e.id)}" download>⬇ Journal (CSV)</a><button id="urg-secteurs">🗺️ Secteurs</button><button id="urg-equipes" ${etat.admin ? '' : 'hidden'}>👥 Équipes</button>${etat.admin ? '<button class="danger" id="urg-fin">⏹ Terminer le mode urgence</button>' : ''}</div>
     <h3>🆘 Demandes d’aide${sos.length ? ` (${sos.length})` : ''}</h3>
     ${sos.length ? sos.map((x) => `<div class="alerte critique sos-eq">🆘 <b>${esc(x.nom)}</b> (équipe ${esc(x.nomEquipe)}) ${ilYa(x.heure)} : « ${esc(x.texte)} »${lienPos(x.position)}${etat.admin ? ` <button class="mini principal" data-sos="${esc(x.equipe)}|${esc(x.id)}">✔ Pris en compte</button>` : ''}</div>`).join('') : '<div class="vide">Aucune demande d’aide en attente.</div>'}
     <h3>⛔ Secteurs d’alerte${alS.length ? ` (${alS.length})` : ''}</h3>
@@ -395,7 +396,7 @@ async function ficheCrise(garder) {
   z.querySelectorAll('[data-fiche-noeud]').forEach((l) => (l.onclick = (ev) => { ev.preventDefault(); const n = Number(l.dataset.ficheNoeud) >>> 0; if (etat.noeuds.has(n)) ouvrirFiche(n); }));
   z.querySelectorAll('[data-sos]').forEach((b) => (b.onclick = async () => { const [eq, id] = b.dataset.sos.split('|'); try { await postJson(`/api/equipes/${eq}/sos/${id}`, {}); await chargerUrgence(); ficheCrise(true); } catch (x) { annonce(x.message, 'erreur'); } }));
   $('#urg-note').onclick = async () => { const n = await saisir('Note pour le journal de la crise (heure ajoutée automatiquement) :', ''); if (!n || !n.trim()) return; try { await postJson('/api/urgence/note', { texte: n }); await chargerUrgence(); ficheCrise(true); } catch (x) { annonce(x.message, 'erreur'); } };
-  $('#urg-fin').onclick = terminerUrgence;
+  { const b = $('#urg-fin'); if (b) b.onclick = terminerUrgence; }
   $('#urg-secteurs').onclick = () => ficheSecteurs();
   $('#urg-equipes').onclick = () => ficheEquipes();
 }
