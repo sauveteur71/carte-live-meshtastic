@@ -103,6 +103,37 @@ async function demarrer() {
   if (config.meshcore) setInterval(rafraichirMc, 90000);
   connecterWs();
   installerCouverture();
+  setTimeout(chargerDonateursPub, 4000);
+  setInterval(chargerDonateursPub, 15 * 60000);
+}
+
+// ---- Mur des donateurs (HelloAsso + GitHub Sponsors) : même bandeau discret que la carte complète -----------
+const donPub = { liste: [], index: 0 };
+let donPubTimer = null;
+async function chargerDonateursPub() {
+  try { const r = await (await fetch('/api/donateurs')).json(); donPub.liste = r.liste || []; } catch { return; }
+  rendreBandeauDonateursPub();
+}
+function paysDrapeauPub(code) { if (!code || code.length !== 2) return ''; const base = 0x1f1e6; return [...code.toUpperCase()].map((c) => String.fromCodePoint(base + c.charCodeAt(0) - 65)).join(''); }
+function rendreBandeauDonateursPub() {
+  let b = document.getElementById('bandeau-donateurs');
+  try { if (localStorage.getItem('publique_donateurs_masque') === '1') { if (b) b.remove(); clearInterval(donPubTimer); return; } } catch { /* stockage indisponible : bandeau affiché quand même */ }
+  if (!donPub.liste.length) { if (b) b.remove(); clearInterval(donPubTimer); return; }
+  const afficher = () => {
+    const x = donPub.liste[donPub.index % donPub.liste.length];
+    const montant = x.montant != null ? ` ${x.montant} ${x.devise === 'USD' ? '$' : '€'}` : '';
+    const t = b.querySelector('span');
+    if (t) t.innerHTML = `${esc(x.nom)}${x.pays ? ' ' + paysDrapeauPub(x.pays) : ''} a ${x.source === 'github' ? 'parrainé' : 'donné'}${montant} pour soutenir le projet`;
+  };
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'bandeau-donateurs'; b.className = 'bandeau-donateurs';
+    b.innerHTML = '💜 <span></span><button type="button" class="fermer-bandeau" title="Masquer le mur des donateurs" aria-label="Masquer le mur des donateurs">✕</button>';
+    b.querySelector('.fermer-bandeau').onclick = () => { try { localStorage.setItem('publique_donateurs_masque', '1'); } catch { /* ignoré */ } b.remove(); clearInterval(donPubTimer); };
+    document.body.appendChild(b);
+    donPubTimer = setInterval(() => { donPub.index = (donPub.index + 1) % donPub.liste.length; afficher(); }, 8000);
+  }
+  afficher();
 }
 
 // ---- Fonds de carte au choix (mêmes fonds que la carte complète) ----------------------------------
