@@ -673,6 +673,8 @@ document.querySelectorAll('details.pli-alertes').forEach((d) => {
 }
 
 // ---- Santé de la carte (processeur, mémoire, réactivité, disque, base, MQTT) ---------------------------
+// Nom d'une tâche du registre de santé : une route HTTP (« GET /api/liens ») reste telle quelle, le reste est traduit
+const nomTacheSante = (n) => (/^(GET|POST|PUT|PATCH|DELETE) /.test(n) ? `<span translate="no">${esc(n)}</span>` : esc(tr(n)));
 async function chargerSanteCarte() {
   if (!etat.membre) return;
   let r;
@@ -703,11 +705,11 @@ async function chargerSanteCarte() {
     ${courbe(r.historique.map((x) => ({ heure: x.heure, gel: x.latenceMax != null ? x.latenceMax / 1000 : null })), 'gel', 'Gels (retard maximal par minute)', ' s', 1, 1.5) || ''}
     ${(r.gels || []).length ? `<h4>Gels récents (plus de 1,5 s sans répondre)</h4>
       <table class="voisins tableau-taches"><thead><tr><th>Heure</th><th>Durée</th><th>Tâche la plus longue de la minute</th></tr></thead><tbody>
-      ${r.gels.slice(0, 8).map((g) => `<tr><td>${new Date(g.heure).toLocaleTimeString(window.LOCALE || 'fr-FR', { hour: '2-digit', minute: '2-digit' })}</td><td><b>${fmt(g.ms / 1000, 1, ' s')}</b></td><td>${g.tache ? `${esc(tr(g.tache.nom))} · ${g.tache.ms} ms${g.tache.n > 1 ? ` · ${tr(`${g.tache.n} fois`)}` : ''}` : '–'}</td></tr>`).join('')}
+      ${r.gels.slice(0, 8).map((g) => `<tr><td>${new Date(g.heure).toLocaleTimeString(window.LOCALE || 'fr-FR', { hour: '2-digit', minute: '2-digit' })}</td><td><b>${fmt(g.ms / 1000, 1, ' s')}</b></td><td>${g.tache ? `${nomTacheSante(g.tache.nom)} · ${g.tache.ms} ms${g.tache.n > 1 ? ` · ${tr(`${g.tache.n} fois`)}` : ''}` : '–'}</td></tr>`).join('')}
       </tbody></table>` : ''}
     ${(r.taches || []).length ? `<h4>Tâches les plus lentes (dernière heure)</h4>
       <table class="voisins tableau-taches"><thead><tr><th>Tâche</th><th>Plus longue</th><th>Moyenne</th><th>Exécutions</th></tr></thead><tbody>
-      ${r.taches.slice(0, 10).map((t) => `<tr><td>${esc(tr(t.nom))}</td><td><b${t.maxMs > 500 ? ' style="color:var(--attention)"' : ''}>${t.maxMs >= 1000 ? fmt(t.maxMs / 1000, 1, ' s') : t.maxMs + ' ms'}</b></td><td>${fmt(t.moyMs, t.moyMs < 10 ? 1 : 0, ' ms')}</td><td>${t.n}</td></tr>`).join('')}
+      ${r.taches.slice(0, 10).map((t) => `<tr><td>${nomTacheSante(t.nom)}</td><td><b${t.maxMs > 500 ? ' style="color:var(--attention)"' : ''}>${t.maxMs >= 1000 ? fmt(t.maxMs / 1000, 1, ' s') : t.maxMs + ' ms'}</b></td><td>${fmt(t.moyMs, t.moyMs < 10 ? 1 : 0, ' ms')}</td><td>${t.n}</td></tr>`).join('')}
       </tbody></table>
       <p class="note">Temps pendant lequel la carte ne peut rien faire d’autre. Une tâche qui dépasse souvent 500 ms fige la carte pour tous les visiteurs.</p>` : ''}
     ${courbe(r.historique, 'cpuPct', 'Processeur', ' %', 0) || ''}
