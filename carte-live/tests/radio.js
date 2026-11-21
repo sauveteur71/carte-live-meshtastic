@@ -147,6 +147,62 @@ test('MeshCore : message de canal entendu par un observateur signalé comme nouv
   fs.rmSync(dossier, { recursive: true, force: true });
 });
 
+// Observatoire CoreScope simulé : paquets bruts lus sur l'API REST, nœuds importés, plafond par minute, zones, panne
+test('MeshCore : observatoire CoreScope (API REST) intégré comme un flux MQTT, plafonné et filtré par zone', async () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-cs-'));
+  process.env.FICHIER_BASE = path.join(dossier, 'x.db');
+  const config = require('../src/config');
+  const { creerStockage } = require('../src/base');
+  const { creerReseauMc } = require('../src/meshcore/reseau');
+  const cs = require('../src/meshcore/corescope');
+  assert.deepEqual(cs.lireSources('analyzer.on8ar.eu=bru, lgg\nhttps://meshstats.serveurperso.in/ ; pas une adresse'),
+    [{ url: 'https://analyzer.on8ar.eu', regions: ['BRU', 'LGG'] }, { url: 'https://meshstats.serveurperso.in', regions: [] }]);
+  const st = creerStockage(path.join(dossier, 'x.db'));
+  const r = creerReseauMc(st.db, config, PUBLIC);
+  const OBS = 'AB'.repeat(32), REP = 'f0f3440c3ca9fc564a3339226d7b6f7add99f8ad434f7c8bc035cecebebc37da';
+  let id = 100, panne = false;
+  const paquets = [];
+  const ajouter = (texte, iata) => paquets.push({ id: ++id, raw_hex: messagePublic(texte).toString('hex'), observer_id: OBS, observer_iata: iata, snr: 6, rssi: -95, direction: 'rx', timestamp: new Date().toISOString() });
+  const faux = async (url) => {
+    if (panne) throw new Error('connect ECONNREFUSED');
+    const u = new URL(url), corps = { '/api/observers': { observers: [{ id: OBS, name: 'BE-BRU-Obs', iata: 'BRU', lat: 50.85, lon: 4.35, nodeRole: 'repeater', last_seen: new Date().toISOString() }] },
+      '/api/nodes': { nodes: [{ public_key: REP, name: 'BE-WKD-ON4EA', role: 'repeater', lat: 50.67, lon: 5.93, last_seen: new Date().toISOString(), region_placement: { regions: ['BRU'] } },
+        { public_key: 'CD'.repeat(32), name: 'Ailleurs', role: 'companion', lat: 1, lon: 1, region_placement: { regions: ['AUS'] } }] },
+      '/api/packets': { packets: paquets.slice().reverse() } }[u.pathname];
+    return { ok: !!corps, status: corps ? 200 : 404, json: async () => corps };
+  };
+  for (let k = 0; k < 5; k++) ajouter('ancien ' + k, 'BRU');
+  const recus = [];
+  const s = cs.creerCoreScope({ sources: [{ url: 'https://exemple.org', regions: ['BRU'] }], maxParMinute: 4, fetch: faux,
+    integrer: (o) => { recus.push(o); return r.integrer(o); }, noterObservateur: r.noterObservateur, importerNoeuds: r.importerContacts });
+  s._etats[0].dernierId = null;
+  const tourner = async () => { s._etats[0].obsHeure = s._etats[0].obsHeure || 0; await s._tour.call(null, s._etats[0]); clearTimeout(s._etats[0].minuteur); };
+  s.demarrer(); clearTimeout(s._etats[0].minuteur); // pas de minuterie pendant le test
+  await tourner();
+  assert.equal(r.q.noeud.get(REP.toUpperCase()).nom, 'BE-WKD-ON4EA', 'nœud importé depuis /api/nodes');
+  assert.equal(r.q.noeud.get('CD'.repeat(32)), undefined, 'nœud d\'une autre zone ignoré');
+  assert.equal(r.q.noeud.get(OBS).observateur, 1, 'observateur noté avec sa position');
+  assert.equal(recus.length, 4, 'premier tour : plafond de 4 paquets par minute');
+  assert.equal(recus[0].via, 'corescope');
+  assert.equal(recus[0].snr, 6);
+  ajouter('nouveau', 'BRU'); ajouter('hors zone', 'AUS');
+  await tourner();
+  let e = s.etat().sources[0];
+  assert.equal(e.horsZone, 1);
+  assert.equal(e.ecartes, 2, 'au-delà du plafond : écarté, pas mis en attente');
+  assert.equal(recus.length, 4, 'aucun paquet déjà vu retraité');
+  s._etats[0].fenetre.debut = 0; // minute suivante
+  ajouter('après la minute', 'BRU');
+  await tourner();
+  assert.equal(recus[recus.length - 1].brut.toString('hex'), paquets[paquets.length - 1].raw_hex);
+  panne = true;
+  await tourner();
+  e = s.etat().sources[0];
+  assert.ok(e.enPanne && /ECONNREFUSED/.test(e.derniereErreur.message), 'panne signalée');
+  s.arreter();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
 test('Réglages avancés : une variable réglée sur la carte prime sur le .env, les inconnues sont ignorées', () => {
   const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'variables-'));
   const avant = { FICHIER_BASE: process.env.FICHIER_BASE, SEUIL_TENSION_VOLTS: process.env.SEUIL_TENSION_VOLTS, PORT: process.env.PORT };

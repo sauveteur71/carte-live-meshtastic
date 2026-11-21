@@ -2508,7 +2508,10 @@ function etatMc(admin) {
     e.reglages = { iata: config.meshcore.iata, racine: config.meshcore.racine, republier: config.meshcore.republier, canaux: config.meshcore.canaux.join('\n'), perimetre: config.meshcore.perimetre, liensOctetsMin: config.meshcore.liensOctetsMin, iataVoisins: config.meshcore.iataVoisins.join(', '), supervisionHeures: config.meshcore.supervisionHeures, horsPerimetre: compteurMc.horsPerimetre || 0 };
     e.agents = agents.liste();
     e.ecoutes = ecoutes.liste().meshcore;
+    e.corescope = { ...corescope.etat(), texte: ecrireSourcesCs(config.meshcore.corescope.sources), connues: INSTANCES_CS };
   }
+  // Crédit public : d'où viennent les données MeshCore affichées
+  e.observatoires = config.meshcore.corescope.sources.map((x) => { try { return new URL(x.url).host; } catch { return x.url; } });
   return e;
 }
 app.get('/api/mc/etat', (req, res) => { if (!exigerMc(res)) return; res.set('Cache-Control', 'no-store').json(etatMc(estAdmin(req))); });
@@ -2854,6 +2857,14 @@ app.post('/api/mc/reglages', (req, res) => {
   if ([1, 2, 3].includes(Number(b.liensOctetsMin))) m.liensOctetsMin = Number(b.liensOctetsMin);
   if (typeof b.iataVoisins === 'string') m.iataVoisins = b.iataVoisins.split(/[,;\s]+/).map((x) => x.trim().toUpperCase()).filter((x) => /^[A-Z0-9]{2,8}$/.test(x)).slice(0, 20);
   if (b.supervisionHeures !== undefined) { const h = Number(b.supervisionHeures); if (!Number.isInteger(h) || h < 0 || h > 48) return res.status(400).json({ erreur: 'Supervision : 0 à 48 heures' }); m.supervisionHeures = h; }
+  if (typeof b.corescope === 'string') {
+    const l = require('./meshcore/corescope').lireSources(b.corescope);
+    const lignes = b.corescope.split(/[;\n]+/).map((x) => x.trim()).filter(Boolean);
+    if (l.length !== lignes.length) return res.status(400).json({ erreur: 'Observatoire CoreScope : une adresse https://… par ligne, éventuellement suivie de =CODE,CODE (5 au plus)' });
+    m.corescope = { ...(m.corescope || {}), sources: l };
+  }
+  if (b.corescopeMax !== undefined) { const n = Number(b.corescopeMax); if (!Number.isInteger(n) || n < 5 || n > 600) return res.status(400).json({ erreur: 'Plafond CoreScope : 5 à 600 paquets par minute' }); m.corescope = { ...(m.corescope || {}), maxParMinute: n }; }
+  if (b.corescopeIntervalle !== undefined) { const n = Number(b.corescopeIntervalle); if (!Number.isInteger(n) || n < 10 || n > 300) return res.status(400).json({ erreur: 'Intervalle CoreScope : 10 à 300 secondes' }); m.corescope = { ...(m.corescope || {}), intervalleS: n }; }
   if (typeof b.canaux === 'string') {
     const l = b.canaux.split(/[;\n]/).map((x) => x.trim()).filter(Boolean).slice(0, 20);
     const ok = preparerCanauxMc(l);
@@ -2862,6 +2873,15 @@ app.post('/api/mc/reglages', (req, res) => {
   }
   res.json({ ok: true, redemarrage: true });
   enregistrerReglagesEtRedemarrer({ ...config.reglages, meshcore: m }, u.identifiant);
+});
+
+// Essai d'un observatoire CoreScope avant de l'enregistrer (débit réel, nombre de nœuds, codes de zone vus)
+app.post('/api/mc/corescope/tester', async (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  const b = req.body || {};
+  const regions = String(b.regions || '').split(/[,\s]+/).filter(Boolean);
+  try { res.json(await testerCoreScope(String(b.url || ''), regions)); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 
 app.get('/sante', (req, res) => res.json({ ok: true, mqtt: clientMqtt && clientMqtt.connected }));
@@ -3383,6 +3403,17 @@ const companion = creerCompanion(config, {
 require('./meshcore/paquet').ajouterRegions(String(process.env.MESHCORE_REGIONS || '').split(/[,;\s]+/));
 setInterval(() => { try { const z = companion.etat().zoneDefaut; if (z) require('./meshcore/paquet').ajouterRegions([z]); } catch { /* ignore */ } }, 60000);
 if (config.meshcore.actif) companion.demarrer();
+// Observatoires MeshCore publics (CoreScope) : paquets bruts lus sur leur API REST, traités comme un flux MQTT
+const { creerCoreScope, testerCoreScope, ecrireSources: ecrireSourcesCs, INSTANCES_CONNUES: INSTANCES_CS } = require('./meshcore/corescope');
+const corescope = creerCoreScope({
+  ...config.meshcore.corescope,
+  integrer: (obs) => { const sortie = reseauMc.integrer(obs); if (sortie) diffuserSortieMc(sortie); return sortie; },
+  noterObservateur: (cle, info) => reseauMc.noterObservateur(cle, info),
+  importerNoeuds: (liste) => { reseauMc.importerContacts(liste); diffuser({ genre: 'mc-noeuds' }); },
+  apres: () => planifierEtatMc(),
+  journal: (...a) => journal('[MeshCore]', ...a),
+});
+if (config.meshcore.actif) corescope.demarrer();
 // Canaux MeshCore déchiffrés : ceux des réglages, plus ceux lus dans le companion principal et les companions en écoute
 function majCanauxMc() {
   const tous = [...canauxMc];

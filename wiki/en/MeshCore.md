@@ -74,6 +74,15 @@ Sheet of a repeater, room or sensor, **Sensors** tab:
 
 Readings made by hand from the administration also feed the curves. History is kept 90 days.
 
+## Public observatories (CoreScope)
+MeshCore has no worldwide public MQTT server, but several communities openly publish what their observers hear, using the free [CoreScope](https://github.com/Kpa-clawbot/corescope) software. The map reads their read-only API, with no account or key:
+- **France**: `https://meshstats.serveurperso.in` · **Texas**: `https://analyzer.meshtexas.org` · **Belgium, Netherlands**: `https://analyzer.on8ar.eu`.
+- One click in the "No MeshCore source" message, or **MeshCore › Companion › Public observatories**: the map tests the address (known nodes, real rate) before adding it.
+- **Keep one area only**: add `=CODE,CODE` after the address (observer area codes, e.g. `https://meshstats.serveurperso.in=LYS,CFE`).
+- **Controlled volume**: the map polls the API (every 20 s by default) instead of receiving a pushed stream; above the cap (60 packets per minute per observatory by default), packets are ignored.
+- The observatory's known nodes (names, positions, roles) show up straight away; packets then go through the same processing as an MQTT stream (links, paths, Public channel messages).
+- The observatory is credited at the bottom of the map. Variables: `MESHCORE_CORESCOPE`, `MESHCORE_CORESCOPE_INTERVALLE`, `MESHCORE_CORESCOPE_MAX_MINUTE`.
+
 ## MQTT republishing and channels
 - **Republish the companion's packets**: published to your broker under `meshcore/IATA/KEY/packets` (meshcoretomqtt format), for other maps.
 - **Area code (IATA)**: 3 letters, for example `LPY` for Le Puy.

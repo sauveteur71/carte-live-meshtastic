@@ -282,6 +282,11 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
     invalider();
   }
 
+  // Lot de contacts (observatoire public : des milliers de nœuds) en une seule transaction
+  function importerContacts(liste, heure = Date.now()) {
+    db.transaction(() => { for (const ct of liste) importerContact(ct, heure); })();
+  }
+
   // État d'un observateur (companion relié ou observateur MQTT)
   function noterObservateur(cle, { nom, role, lat, lon, etat, details } = {}) {
     if (!cle) return;
@@ -550,7 +555,7 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
 
   return {
     supprimerNoeud, annoncesDe,
-    positionDe, noterEtat, telemetrie, calculerAlertes, analyse, surveilles, integrer, importerContact, noterObservateur, vueNoeud, liens, statistiques, detailNoeud, paquets, detailPaquet, messages, noterMessage, confirmerAck, statutMessage, lierVoisins, lierMesure, definirCanaux, definirMoi, canaux: () => canaux, purger, q, resoudreChemin };
+    positionDe, noterEtat, telemetrie, calculerAlertes, analyse, surveilles, integrer, importerContact, importerContacts, noterObservateur, vueNoeud, liens, statistiques, detailNoeud, paquets, detailPaquet, messages, noterMessage, confirmerAck, statutMessage, lierVoisins, lierMesure, definirCanaux, definirMoi, canaux: () => canaux, purger, q, resoudreChemin };
 }
 
 module.exports = { creerReseauMc };

@@ -172,6 +172,13 @@ const config = {
     iataVoisins: texte('MESHCORE_IATA_VOISINS').split(/[,;\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean),
     // Interrogation automatique de l'état des répéteurs surveillés (0 = jamais) et nombre max. par tour
     supervisionHeures: nombre('MESHCORE_SUPERVISION_HEURES', 3),
+    // Observatoires publics CoreScope (API REST ouverte) : « https://hote » ou « https://hote=AUS,HOU » (codes de zone
+    // des observateurs à garder), séparés par ; ou un par ligne. Interrogés toutes les N secondes, plafond par minute.
+    corescope: {
+      sources: require('./meshcore/corescope').lireSources(texte('MESHCORE_CORESCOPE')),
+      intervalleS: Math.min(300, Math.max(10, nombre('MESHCORE_CORESCOPE_INTERVALLE', 20))),
+      maxParMinute: Math.min(600, Math.max(5, nombre('MESHCORE_CORESCOPE_MAX_MINUTE', 60))),
+    },
     supervisionMax: nombre('MESHCORE_SUPERVISION_MAX', 8),
   },
 };
@@ -222,6 +229,12 @@ function appliquerReglages(r) {
     if (Array.isArray(m.iataVoisins)) config.meshcore.iataVoisins = m.iataVoisins.map((x) => String(x).toUpperCase()).filter((x) => /^[A-Z0-9]{2,8}$/.test(x));
     if (Array.isArray(m.canaux) && m.canaux.length) config.meshcore.canaux = m.canaux.map(String);
     if (Number.isInteger(m.supervisionHeures) && m.supervisionHeures >= 0 && m.supervisionHeures <= 48) config.meshcore.supervisionHeures = m.supervisionHeures;
+    if (m.corescope && typeof m.corescope === 'object') {
+      const c = m.corescope;
+      if (Array.isArray(c.sources)) config.meshcore.corescope.sources = require('./meshcore/corescope').lireSources(c.sources);
+      if (Number.isInteger(c.intervalleS) && c.intervalleS >= 10 && c.intervalleS <= 300) config.meshcore.corescope.intervalleS = c.intervalleS;
+      if (Number.isInteger(c.maxParMinute) && c.maxParMinute >= 5 && c.maxParMinute <= 600) config.meshcore.corescope.maxParMinute = c.maxParMinute;
+    }
   }
 }
 try {
