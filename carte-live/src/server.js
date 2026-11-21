@@ -86,6 +86,8 @@ const canaux = preparerCanaux(config.canaux);
 journal(`Canaux configurés : ${canaux.map((c) => `${c.nom} (hachage ${c.hachage})`).join(', ')}`);
 const canauxMc = preparerCanauxMc(config.meshcore.canaux);
 const reseauMc = creerReseauMc(stockage.db, config, canauxMc, (...a) => journal('[MeshCore]', ...a));
+// Index plein texte des messages (créé et rempli au premier démarrage, tenu à jour par des déclencheurs SQLite)
+const rechercheMessages = require('./recherche-messages').creerRechercheMessages(stockage.db, journal);
 if (config.meshcore.actif) journal(`MeshCore : canaux ${canauxMc.map((c) => c.nom).join(', ') || 'aucun'}, sujets ${config.meshcore.racine}/#`);
 
 // ---- Comptes et sessions ------------------------------------------------------
@@ -170,7 +172,7 @@ app.use((req, res, next) => {
 // Écrans lisibles par un visiteur en démonstration (GET seulement) : jamais les comptes, le journal d'audit, les
 // sauvegardes, les clés d'équipe, les QR de canaux, les exports YAML ni la mise à jour.
 const DEMO_LECTURE = [
-  /^\/api\/messages(\/\d+\/parcours)?$/, /^\/api\/mc\/messages$/, /^\/api\/trames\/\d+$/, /^\/api\/paquets$/,
+  /^\/api\/messages(\/\d+\/parcours|\/recherche)?$/, /^\/api\/mc\/messages$/, /^\/api\/trames\/\d+$/, /^\/api\/paquets$/,
   /^\/api\/admin-noeuds(\/(modeles|favoris|firmware|conformite-auto|v28|taches\/[\w-]+|lecture\/\d+(\/detail)?))?$/,
   /^\/api\/lorawan(\/[\w:.-]+)?$/, /^\/api\/trafic\/controle$/, /^\/api\/noeuds-nouveaux$/, /^\/api\/installations$/, /^\/api\/responsables$/,
   /^\/api\/mc\/(admin(\/modeles|\/taches\/[\w-]+)?|maintenance|audit\/(regions|collisions)|noeuds\/[0-9A-Fa-f]{64}\/chemin|capteurs\/[0-9A-Fa-f]{64}|companion\/(stats|telemetrie|decouverte))$/,
@@ -1990,10 +1992,12 @@ app.get('/api/etat', (req, res) => {
   res.json({ stats: reseau.statistiques(), alertes: estAdmin(req) ? dernieresAlertes : alertesPubliques(dernieresAlertes), meshmonitor: sourceMM ? sourceMM.etat() : null, radio: sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
 });
 
+// Canaux Meshtastic publics (clé par défaut) : les seuls lisibles en démonstration (messages, recherche)
+const canauxPublicsMt = () => config.canaux.filter((c) => !c.cle || c.cle === 'AQ==' || c.cle === '1PG7OiApB1nwvP+rz05pAQ==').map((c) => c.nom);
 app.get('/api/messages', (req, res) => {
   if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
   // Démonstration : canaux publics (clé par défaut) seulement, jamais les messages directs
-  const publics = new Set(config.canaux.filter((c) => !c.cle || c.cle === 'AQ==' || c.cle === '1PG7OiApB1nwvP+rz05pAQ==').map((c) => c.nom));
+  const publics = new Set(canauxPublicsMt());
   const garder = (m) => !req.demoLecture || (m.vers === 0xffffffff && publics.has(m.canal));
   const limite = Math.min(Number(req.query.limite) || 300, 2000);
   // ?canal=nom : un seul canal ; ?direct=1 : messages directs seulement ; sinon les derniers, tous canaux confondus
@@ -2005,6 +2009,22 @@ app.get('/api/messages', (req, res) => {
     try { entendus = JSON.parse(m.entendus || '[]'); } catch { /* vide */ }
     return { ...m, entendus, accuse: a ? { statut: a.statut, detail: a.detail || null, heure: a.heureAccuse || null, dest: a.dest } : null };
   }));
+});
+
+// Recherche dans les messages (Meshtastic et MeshCore) : mots du texte, nom ou identifiant de l'expéditeur (et du
+// destinataire d'un message direct). Mêmes droits que /api/messages et /api/mc/messages : membres connectés ;
+// démonstration : canaux publics seulement, jamais les messages directs.
+app.get('/api/messages/recherche', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  try {
+    res.set('Cache-Control', 'no-store').json(rechercheMessages.chercher({
+      q: String(req.query.q || ''), demo: !!req.demoLecture, publics: canauxPublicsMt(),
+      avant: Number(req.query.avant) || null, limite: Number(req.query.limite) || 100,
+    }));
+  } catch (e) {
+    journal('[Recherche] échec :', e.message);
+    res.status(400).json({ erreur: 'Recherche impossible : essayez d’autres mots' });
+  }
 });
 
 // Notifications de l'application Android (service en arrière-plan, écran éteint) : ce qui mérite de réveiller le

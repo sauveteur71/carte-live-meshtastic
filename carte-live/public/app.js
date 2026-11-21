@@ -2473,6 +2473,142 @@ document.addEventListener('click', (e) => {
   menuAuteur(Number(b.dataset.auteur), b);
 });
 
+// ---- Recherche dans les messages (Meshtastic et MeshCore) ----------------------------------------------------
+// Un mot du texte, ou le nom (long, court) / l'identifiant de l'expéditeur — et du destinataire d'un message
+// direct. Sans majuscules ni accents ; le serveur applique les mêmes droits que pour la lecture des messages.
+const rechMsg = { q: '', n: 0, minuteur: null, resultats: [], mots: [], suite: null, active: false };
+// Sans accents ni majuscules, caractère par caractère (garde la correspondance avec le texte d'origine)
+function normaliserRecherche(t) {
+  const car = Array.from(String(t == null ? '' : t)), norm = [], index = [];
+  car.forEach((c, i) => { for (const x of c.normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase()) { norm.push(x); index.push(i); } });
+  return { car, norm: norm.join(''), index };
+}
+// Texte échappé, chaque terme trouvé (sans tenir compte des accents ni des majuscules) entouré de <mark>
+function surlignerRecherche(texte, termes) {
+  if (texte == null || texte === '') return '';
+  const { car, norm, index } = normaliserRecherche(texte);
+  const marque = new Array(car.length).fill(false);
+  for (const t of termes || []) {
+    const nt = normaliserRecherche(t).norm;
+    if (!nt) continue;
+    for (let p = norm.indexOf(nt); p >= 0; p = norm.indexOf(nt, p + nt.length)) for (let k = p; k < p + nt.length; k++) marque[index[k]] = true;
+  }
+  let h = '', dans = false;
+  car.forEach((c, i) => {
+    if (marque[i] && !dans) { h += '<mark>'; dans = true; } else if (!marque[i] && dans) { h += '</mark>'; dans = false; }
+    h += esc(c);
+  });
+  return h + (dans ? '</mark>' : '');
+}
+function modeRecherche(actif) {
+  rechMsg.active = actif;
+  const s = document.querySelector('section[data-vue="messages"]');
+  if (s) s.classList.toggle('en-recherche', actif);
+  const z = $('#resultats-recherche'); if (z) z.hidden = !actif;
+  const b = $('#effacer-recherche-messages'); if (b) b.hidden = !($('#recherche-messages') || {}).value;
+}
+async function lancerRechercheMessages(suite = false) {
+  const champ = $('#recherche-messages'), z = $('#resultats-recherche');
+  if (!champ || !z) return;
+  const q = champ.value.replace(/\s+/g, ' ').trim();
+  if (!q) { modeRecherche(false); return; }
+  modeRecherche(true);
+  if (q.replace(/[^\p{L}\p{N}]/gu, '').length < 2) { z.innerHTML = '<div class="vide">Tapez au moins 2 lettres ou chiffres.</div>'; return; }
+  const n = ++rechMsg.n;
+  if (!suite) z.innerHTML = '<div class="vide">Recherche…</div>';
+  let r;
+  try { r = await api('/api/messages/recherche?q=' + encodeURIComponent(q) + (suite && rechMsg.suite ? '&avant=' + rechMsg.suite : '')); } catch (e) { if (n === rechMsg.n) z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  if (n !== rechMsg.n) return; // une frappe plus récente a relancé la recherche
+  rechMsg.q = q; rechMsg.mots = r.mots || []; rechMsg.suite = r.suite;
+  rechMsg.resultats = suite ? [...rechMsg.resultats, ...r.resultats] : r.resultats;
+  rendreRechercheMessages();
+}
+function rendreRechercheMessages() {
+  const z = $('#resultats-recherche');
+  if (!z) return;
+  const l = rechMsg.resultats, termes = [...rechMsg.mots, rechMsg.q];
+  const S = (t) => surlignerRecherche(t, termes);
+  const TROUVE = { texte: 'dans le texte', expediteur: 'par l’expéditeur', destinataire: 'par le destinataire' };
+  const ligne = (r) => {
+    const date = new Date(r.heure).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const lieu = r.direct ? '<b class="canal-msg direct">✉️ Direct</b>' : `<b class="canal-msg" style="--coul:${couleurCanal(r.canal)}">📢 ${esc(r.canal || '?')}</b>`;
+    let qui;
+    if (r.reseau === 'mt') {
+      const nom = (num, long, court, id) => {
+        const libelle = long || court || nomNoeud(num), details = [long && court ? court : null, id !== libelle ? id : null].filter(Boolean);
+        return `<button type="button" class="auteur-msg" data-auteur="${num >>> 0}" title="Fiche, message direct, position">${S(libelle)}</button>${details.length ? ` <small class="id-recherche">${details.map(S).join(' · ')}</small>` : ''}`;
+      };
+      qui = nom(r.de, r.nomDe, r.nomCourtDe, r.idDe) + (r.direct ? ' → ' + nom(r.vers, r.nomVers, r.nomCourtVers, r.idVers) : '');
+    } else {
+      const nom = (cle, n) => `<button type="button" class="auteur-msg" data-mc-auteur="${esc(cle || '')}" data-mc-nom="${esc(n || '')}" title="Fiche, message direct, position">${S(n || '?')}</button>`;
+      qui = nom(r.de, r.nomDe) + (r.nomActuelDe ? ` <small class="id-recherche"><span>nom actuel :</span> ${S(r.nomActuelDe)}</small>` : '') + (r.direct ? ' → ' + nom(r.vers, r.nomVers) : '');
+    }
+    return `<div class="message resultat-recherche cliquable" data-cle="${esc(r.cle)}" tabindex="0" role="button" title="Ouvrir le message dans son canal">
+      <div class="entete">${esc(date)} · ${lieu} · <span class="tag reseau-${r.reseau}">${r.reseau === 'mc' ? 'MeshCore' : 'Meshtastic'}</span> · ${qui}</div>
+      <div class="texte" translate="no">${S(r.texte)}</div>
+      <div class="trouve-recherche">${r.trouve.map((k) => `<span>${TROUVE[k]}</span>`).join('')}</div></div>`;
+  };
+  z.innerHTML = !l.length ? `<div class="vide">Aucun message trouvé pour « ${esc(rechMsg.q)} ».</div>`
+    : `<div class="note">Messages trouvés : ${l.length + (rechMsg.suite ? '+' : '')} · du plus récent au plus ancien</div>${l.map(ligne).join('')}${rechMsg.suite ? '<button type="button" class="mini" id="suite-recherche">Plus anciens…</button>' : ''}`;
+  const suite = $('#suite-recherche'); if (suite) suite.onclick = () => lancerRechercheMessages(true);
+  z.querySelectorAll('.resultat-recherche').forEach((el) => {
+    const r = l.find((x) => x.cle === el.dataset.cle);
+    const ouvrir = (e) => { if (e.target.closest('[data-auteur], [data-mc-auteur], [data-epingle]')) return; ouvrirResultatRecherche(r); };
+    el.onclick = ouvrir;
+    el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ouvrir(e); } };
+  });
+}
+// Mise en évidence d'un message retrouvé dans sa liste (canal ou messages directs)
+function reperer(el) {
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.classList.add('repere');
+  setTimeout(() => el.classList.remove('repere'), 4000);
+}
+// Clic sur un résultat : le message est affiché dans son canal (ou parmi les messages directs), à sa place
+async function ouvrirResultatRecherche(r) {
+  if (!r) return;
+  modeRecherche(false);
+  if (r.reseau === 'mt') {
+    const filtre = r.direct ? (estMonDirect(r) ? 'direct' : '') : 'c:' + r.canal;
+    if (filtreMessages !== filtre) choisirFiltreMessages(filtre);
+    try { await chargerMessages(); } catch { /* hors ligne */ }
+    const el = $('#messages').querySelector(`.message[data-rowid="${r.rowid}"]`);
+    if (el) reperer(el);
+    else { annonce('Message plus ancien que l’historique affiché : son parcours est tracé sur la carte.'); afficherParcours(r.rowid); }
+    return;
+  }
+  if (typeof choisirFiltreMc !== 'function') return;
+  choisirFiltreMc(r.direct ? 'direct' : 'c:' + r.canal);
+  mc.vue = 'messages';
+  if (typeof cliquerOnglet === 'function') { ergo.groupe = 'messages'; cliquerOnglet('meshcore', 'messages'); }
+  for (let k = 0; k < 20; k++) {
+    await new Promise((f) => setTimeout(f, 200));
+    const el = document.querySelector(`#mc-contenu [data-mc-id="${r.id}"]`);
+    if (el) { reperer(el); return; }
+  }
+  annonce('Message plus ancien que les 300 derniers messages MeshCore affichés.');
+}
+// Saisie : recherche après une courte pause ; Entrée tout de suite ; Échap efface ; retour au champ = résultats
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'recherche-messages') return;
+  clearTimeout(rechMsg.minuteur);
+  if (!e.target.value.trim()) { rechMsg.n++; modeRecherche(false); return; }
+  rechMsg.minuteur = setTimeout(() => lancerRechercheMessages(), 350);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target.id !== 'recherche-messages') return;
+  if (e.key === 'Enter') { e.preventDefault(); clearTimeout(rechMsg.minuteur); lancerRechercheMessages(); }
+  else if (e.key === 'Escape' && e.target.value) { e.preventDefault(); e.target.value = ''; rechMsg.n++; modeRecherche(false); }
+});
+document.addEventListener('focusin', (e) => {
+  if (e.target.id === 'recherche-messages' && !rechMsg.active && e.target.value.trim() && rechMsg.q === e.target.value.replace(/\s+/g, ' ').trim()) { modeRecherche(true); rendreRechercheMessages(); }
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#effacer-recherche-messages')) return;
+  const c = $('#recherche-messages'); if (c) { c.value = ''; c.focus(); }
+  rechMsg.n++; modeRecherche(false);
+});
+
 // Clic sur un message : le formulaire bascule sur le bon canal (ou en direct vers l'expéditeur) pour répondre
 async function repondreA(el) {
   const f = $('#form-envoi');

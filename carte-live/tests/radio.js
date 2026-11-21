@@ -1051,3 +1051,83 @@ test('Cache du relief : espace occupé, purge par ancienneté, zone verrouillée
     assert.equal(liberees.length, 0);
   } finally { c.arreter(); }
 });
+
+// Recherche dans les messages : index plein texte rempli depuis l'historique, accents et majuscules ignorés,
+// nom ACTUEL de l'expéditeur, identifiant, MeshCore, droits de la démonstration, purge
+test('Recherche dans les messages : texte, accents, nom actuel de l’expéditeur, identifiant, démonstration, purge', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'recherche-'));
+  process.env.FICHIER_BASE = path.join(dossier, 'x.db');
+  const config = require('../src/config');
+  const { creerStockage } = require('../src/base');
+  const { creerReseauMc } = require('../src/meshcore/reseau');
+  const { creerRechercheMessages } = require('../src/recherche-messages');
+  const st = creerStockage(path.join(dossier, 'x.db'));
+  const r = creerReseauMc(st.db, config, PUBLIC);
+  const B = 0xffffffff, t0 = Date.now() - 3600000;
+  let idp = 1;
+  const message = (de, texte, { vers = B, canal = 'LongFast', heure = t0 + idp * 1000, port = 'texte' } = {}) => st.q.insererPaquet.get({
+    idPaquet: idp++, de, vers, canal, port, nomPort: 'TEXT_MESSAGE_APP', portnum: 1, heure, hopDepart: 3, hopRestant: 2, sauts: 1, dechiffre: 1,
+    resume: null, texte, taille: 20, viaMqtt: 0, contenu: null, pki: 0, signe: 0, signature: null }).rowid;
+  const nommer = (num, nomLong, nomCourt) => { st.assurerNoeud(num, Date.now()); st.q.infos.run({ num, nomLong, nomCourt, materiel: null, role: null, firmware: null, preset: null }); };
+  // Historique déjà là avant la création de l'index : il doit être retrouvé (migration)
+  const ancien = message(0x5a1e0001, 'Qui a perdu son CHAPEAU au Mézenc ?');
+  message(0x5a1e0001, 'position', { port: 'position' });
+  const rech = creerRechercheMessages(st.db);
+  assert.equal(rech.fts(), true, 'FTS5 disponible');
+  const cles = (o) => rech.chercher(o).resultats.map((x) => x.cle);
+  assert.deepEqual(cles({ q: 'chapeau' }), ['mt' + ancien], 'historique indexé à la migration');
+  // Nouveaux messages : indexés au fil de l'eau (déclencheurs), du plus récent au plus ancien
+  nommer(0x5a1e0002, 'Olivier F4GLD', 'GLD');
+  const deGld = message(0x5a1e0002, 'Bonjour à tous');
+  const versGld = message(0x5a1e0003, 'reçu 5/9', { vers: 0x5a1e0002 });
+  const prive = message(0x5a1e0003, 'Été au chapeau', { canal: 'Equipe' });
+  const cite = message(0x5a1e0004, 'Merci f4gld pour le relais');
+  assert.deepEqual(cles({ q: 'Chapéau' }), ['mt' + prive, 'mt' + ancien], 'majuscules et accents ignorés, plus récent d’abord');
+  assert.deepEqual(cles({ q: 'ETE' }), ['mt' + prive]);
+  assert.deepEqual(cles({ q: 'chap' }), ['mt' + prive, 'mt' + ancien], 'début de mot');
+  const gld = rech.chercher({ q: 'F4GLD' }).resultats;
+  assert.deepEqual(gld.map((x) => x.cle), ['mt' + cite, 'mt' + versGld, 'mt' + deGld], 'texte + expéditeur + destinataire d’un direct');
+  assert.deepEqual(gld.map((x) => x.trouve), [['texte'], ['destinataire'], ['expediteur']]);
+  assert.equal(gld[2].nomDe, 'Olivier F4GLD');
+  assert.deepEqual(cles({ q: 'gld' }), ['mt' + versGld, 'mt' + deGld], 'nom court');
+  assert.deepEqual(cles({ q: '!5a1e0002' }), ['mt' + versGld, 'mt' + deGld], 'identifiant');
+  assert.deepEqual(cles({ q: String(0x5a1e0002) }), ['mt' + versGld, 'mt' + deGld], 'numéro');
+  // Nœud renommé : retrouvé sous son nom actuel, plus sous l'ancien (hors texte)
+  nommer(0x5a1e0002, 'Relais Mégal', 'MGL');
+  assert.deepEqual(cles({ q: 'megal' }), ['mt' + versGld, 'mt' + deGld], 'nom actuel');
+  assert.deepEqual(cles({ q: 'f4gld' }), ['mt' + cite], 'ancien nom : seulement le texte');
+  // MeshCore : texte, nom porté par le message, nom actuel du nœud par sa clé
+  const cleMc = 'AB'.repeat(32);
+  st.db.prepare('INSERT INTO mc_noeuds (cle, nom, premier_vu, dernier_vu) VALUES (?, ?, ?, ?)').run(cleMc, 'Pic du Lizieux', Date.now(), Date.now());
+  const mcCanal = r.noterMessage({ sens: 'recu', genre: 'canal', canal: 'Public', texte: 'Un chapeau trouvé', nomDe: 'Bob' });
+  const mcDirect = r.noterMessage({ sens: 'recu', genre: 'direct', de: cleMc, nomDe: 'Ancien nom', texte: 'Coucou en direct' });
+  const mcPrive = r.noterMessage({ sens: 'recu', genre: 'canal', canal: 'Club', texte: 'Chapeau du club', nomDe: 'Alice' });
+  assert.deepEqual(cles({ q: 'chapeau' }), ['mc' + mcPrive, 'mc' + mcCanal, 'mt' + prive, 'mt' + ancien], 'Meshtastic et MeshCore mêlés');
+  assert.deepEqual(cles({ q: 'lizieux' }), ['mc' + mcDirect], 'MeshCore : nom actuel par la clé');
+  assert.deepEqual(cles({ q: 'bob' }), ['mc' + mcCanal], 'MeshCore : nom porté par le message');
+  assert.deepEqual(cles({ q: 'abab' }), ['mc' + mcDirect], 'MeshCore : début de clé');
+  // Démonstration : canaux publics seulement (LongFast, Public, « # »), jamais de message direct
+  const demo = (q) => rech.chercher({ q, demo: true, publics: ['LongFast'] }).resultats.map((x) => x.cle);
+  assert.deepEqual(demo('chapeau'), ['mc' + mcCanal, 'mt' + ancien], 'canaux privés exclus');
+  assert.deepEqual(demo('megal'), ['mt' + deGld], 'message direct exclu');
+  assert.deepEqual(demo('lizieux'), [], 'message direct MeshCore exclu');
+  // Recherches vides ou trop courtes, caractères spéciaux de FTS5 et de LIKE sans erreur
+  assert.equal(rech.chercher({ q: 'a' }).resultats.length, 0);
+  for (const q of ['"', 'chapeau" OR "x', '%', '_*', 'NEAR(a b)', 'é-è', '😀😀']) assert.doesNotThrow(() => rech.chercher({ q }), q);
+  // Pagination : la suite reprend juste avant le dernier résultat
+  const p1 = rech.chercher({ q: 'chapeau', limite: 2 });
+  assert.equal(p1.resultats.length, 2); assert.ok(p1.suite);
+  assert.deepEqual(rech.chercher({ q: 'chapeau', limite: 2, avant: p1.suite }).resultats.map((x) => x.cle), ['mt' + prive, 'mt' + ancien]);
+  // Purge (rétention) : les messages supprimés disparaissent aussi de l'index
+  st.db.prepare('UPDATE paquets SET heure = 1 WHERE rowid = ?').run(ancien);
+  st.db.prepare('UPDATE mc_messages SET heure = 1 WHERE id = ?').run(mcPrive);
+  st.purger(1, 1); r.purger(1);
+  assert.deepEqual(cles({ q: 'chapeau' }), ['mc' + mcCanal, 'mt' + prive], 'purgés : plus trouvés');
+  st.db.exec("INSERT INTO recherche_mt(recherche_mt) VALUES ('integrity-check')");
+  st.db.exec("INSERT INTO recherche_mc(recherche_mc) VALUES ('integrity-check')");
+  // Redémarrage : l'index existant est repris tel quel (pas de doublon)
+  const rech2 = creerRechercheMessages(st.db);
+  assert.deepEqual(rech2.chercher({ q: 'chapeau' }).resultats.map((x) => x.cle), ['mc' + mcCanal, 'mt' + prive]);
+  st.db.close();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
