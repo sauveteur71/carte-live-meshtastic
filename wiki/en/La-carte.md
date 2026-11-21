@@ -38,7 +38,14 @@ In *Messages*, clicking a message's origin (📡 / 🌐) shows its **route**:
 - **Alerts**: silent node, low battery, saturated channel, gateway offline.
 - **Statistics › Maintenance**: relays' radio load, runtime, firmware, role advice.
 - **History** over more than a year, **replay** of the last 24 hours, **weekly report** (*Tools*).
-- **Map health** (*Network*): processor, memory, disk, database, MQTT.
+- **Map health** (*Network*): processor, memory, disk, database, MQTT, responsiveness.
+  - **Freezes**: every minute the map measures its longest moment without responding. "Warning" alert if it
+    freezes for more than 1.5 s at least twice in 10 minutes, "critical" beyond 5 s in one go.
+  - **Slowest tasks (last hour)**: every job is timed (MQTT message, status broadcast every 30 s, hourly purge,
+    API pages, timers). The table shows the longest run, the average and the number of runs. A task that often
+    exceeds 500 ms freezes the map for all visitors.
+  - **Recent freezes**: time, duration and longest task of that minute (the suspect). A "timer …" task is named
+    after the program file that created it: quote that name when reporting a problem.
 
 ## How to reach it and person in charge of a node
 Node card, **Neighbours** tab, **How to reach it** section: through which station of the map to reach it (linked module, listening modules, then MQTT gateways that heard it) and the state of the link: *direct, both ways proven*, *direct, return path not proven*, *N hops* or *out of range*. Hearing a node does not prove it hears us: the return path is proven when it lists us as a neighbour, a traceroute comes back or a link is measured the other way. An MQTT gateway only listens.
@@ -58,6 +65,15 @@ A public page (no messages or exact positions of private individuals) can be sha
 - **🧭 Try the full map (demo)** opens, for everyone and without an account, the full map as a **demo**, on the same view: every tab and screen (Messages, Manage, MeshCore, Settings…), with the real messages of **public channels** only (default key, MeshCore Public and “#” channels; never private channels or direct messages). Passwords, channel keys, addresses, contacts and accounts are never sent; accounts, log, backups and update stay private. Nothing is saved or sent by radio: every attempt shows “Demo: nothing is saved or sent”. No sign-in or sign-up from the demo. Direct link: `/?consultation`.
 - The link to the full map (administration) only appears to logged-in administrators.
 - **Foreign visitors: “Switch to the world map” banner** (off by default). *Settings › Advanced settings › Display › “Offer the world map to foreign visitors”* → **yes**: a visitor whose browser is not in French (and who has not chosen French in the map) sees, on the map and the public page, a small English banner with an **Open the world map** button. It places itself where it hides neither the top bar, the search nor the buttons (bottom centre on a computer, below the search on a phone) and steps aside when there is no room left. The ✕ closes it for good in that browser. The address it opens is set in “World map address” (empty = the world edition page on GitHub).
+
+## Donor wall
+A **discreet banner** at the top of the map and of the public page (💜) thanks those who support the project: shortened name (“42BAR***”), country and, only if the administrator chooses so, the amount. Every visitor can close it with ✕ (it no longer comes back in that browser). Everything is **off by default**: nothing shows until a source is enabled.
+
+Settings: *Tools › 📤 Public map and exports › Donor wall* (administrator). Two independent sources:
+- **HelloAsso** (donations to the Radio-club du Velay association): HelloAsso does not say whether a donor agrees to be shown publicly, so **no donation appears automatically**. The administrator adds each donation by hand (name or nickname, country, amount), with the mandatory **“The donor agreed to be shown on the map”** box; an entry is removed with one click. The API credentials (created on admin.helloasso.com, API section) only serve to check that the access to the form works.
+- **GitHub Sponsors**: the map reads the sponsorships of the given GitHub account with a read-only token (`read:user`) and only shows the sponsors that GitHub marks **public**; private sponsors are never shown. Sources are re-read every hour (`DONATEURS_INTERVALLE_HEURES`, 1 to 24).
+
+The HelloAsso secret and the GitHub token are never sent back to the browser nor written to the log: a secret already entered shows as “•••••• (unchanged)”, and a field left empty keeps the previous value. The same settings exist in the `.env` (`HELLOASSO_*`, `GITHUB_SPONSORS_*`); those made from the map are saved in `/data/donateurs.json` and take precedence. No e-mail or postal address is ever read.
 
 ## Favorites and “My nodes”
 In a node's sheet, Meshtastic or MeshCore (logged-in account):

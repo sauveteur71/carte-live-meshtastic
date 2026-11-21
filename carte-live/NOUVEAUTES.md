@@ -16,8 +16,41 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 - **Journal horodaté de la crise** : déclenchement, demandes d'aide, messages de détresse entendus sur les canaux (SOS, MAYDAY, 🔔…), événements des secteurs, alertes critiques nouvelles, notes à la main, fin ; **export CSV**, les 10 crises précédentes sont gardées. Résiste à un redémarrage.
 - Le mode urgence ne change aucun réglage radio et n'envoie aucun message LoRa.
 
+### ⚡ La carte ne se fige plus
+- Le **relais** de chaque paquet est retrouvé dans un index (avant, toute la table des nœuds était relue à chaque paquet) ; la **liste des nœuds** est préparée au plus toutes les 10 s et partagée entre tous les visiteurs, qui ne reçoivent plus que les nœuds modifiés ; statistiques et alertes Meshtastic calculées par la base ; **purge horaire par petits lots** de 250 lignes ; nouveaux nœuds filtrés par zone ; paquets MeshCore hors périmètre écartés d'après le sujet MQTT.
+- **Santé de la carte › Réactivité** (*Réseau*) : **gels** mesurés chaque minute (alerte « attention » au-delà de 1,5 s répétés, « critique » au-delà de 5 s), courbe des gels, **tâches les plus lentes de la dernière heure** (durée maximale, moyenne, nombre d'exécutions) et, pour chaque gel récent, la tâche suspecte. Outil `outils/banc-reactivite.js` pour mesurer une installation.
+- Relief Copernicus (hors de France) décodé dans un fil séparé et tuiles lues une par une ; points de cession dans les calculs de couverture : la carte reste réactive pendant un chargement de relief.
+
+### 🏔️ Relief approximatif et place prise par le relief
+- **Relief approximatif du monde entier** (NOAA ETOPO1, ≈ 9 km, 19 Mo téléchargés une seule fois en arrière-plan) : le temps que le relief précis d'une zone se télécharge, la couverture d'un point, d'un site, de plusieurs sites ou du réseau, la simulation « et si… » et « relier deux lieux » s'affichent déjà, marquées **« ⏳ Relief approximatif »**, puis sont recalculées toutes seules sur le relief précis. Jamais gardé en cache comme s'il était précis. **Désactivé par défaut** dans l'édition France (`RELIEF_MONDE=oui`, ou *Outils › 🗺️ Toute la France › 💾 Relief téléchargé sur ce serveur*).
+- **Purge du cache du relief** (administrateur, même bloc) : espace occupé, chaque zone avec sa taille et sa dernière utilisation, suppression **par zone**, des zones **inutilisées depuis N jours** ou de **tout** (avec confirmation), **plafond en Go** au-delà duquel les zones les moins récemment utilisées sont supprimées d'elles-mêmes. La zone de la carte, une zone en chargement ou utilisée il y a moins de 10 min ne sont jamais supprimées ; chaque purge est écrite dans le journal.
+
+### 🔎 Chercher dans les messages
+- Champ **« Chercher un mot, un nom ou un indicatif… »** en haut de l'onglet *Messages* : texte des messages Meshtastic et MeshCore (index plein texte SQLite, **majuscules et accents ignorés**, début de mot : « chap » trouve « chapeau »), **nom long, nom court, identifiant** (`!xxxxxxxx`, numéro, début de clé MeshCore) de l'expéditeur et du destinataire d'un message direct, sous leur **nom actuel** même si le nœud a été renommé.
+- Résultats du plus récent au plus ancien, termes surlignés, raison de la correspondance (texte, expéditeur, destinataire), « Plus anciens… » ; un clic ouvre le message à sa place dans son canal.
+- **Mêmes droits** que la lecture des messages : membres connectés ; en démonstration, canaux publics seulement, jamais les messages directs. L'index se construit au premier démarrage et suit la purge de rétention.
+
+### 💜 Mur des donateurs
+- *Outils › 📤 Carte publique et exports › Mur des donateurs* (administrateur) : un **bandeau discret**, en haut de la carte et de la page publique, remercie ceux qui soutiennent le projet (nom abrégé « 42BAR*** », pays, montant seulement si vous le voulez). Chaque visiteur peut le fermer pour de bon. Tout est **désactivé par défaut**.
+- **HelloAsso** (dons au Radio-club du Velay) : HelloAsso ne dit pas si un donateur accepte d'être affiché, donc **aucun don n'apparaît automatiquement** : l'administrateur ajoute chaque entrée à la main, avec la case « accord du donateur » obligatoire. Les identifiants d'API servent seulement à vérifier l'accès.
+- **GitHub Sponsors** : seuls les sponsors que GitHub marque **publics** sont lus (jeton côté serveur, jamais envoyé au navigateur). Réglages aussi par `.env` (`HELLOASSO_*`, `GITHUB_SPONSORS_*`, `DONATEURS_INTERVALLE_HEURES`) ; clés et jetons ne sont jamais réaffichés ni écrits dans le journal.
+
+### 🌍 Bandeau « Switch to the world map »
+- Un visiteur dont le navigateur n'est pas en français peut se voir proposer l'édition monde par un petit bandeau en anglais, sur la carte et la page publique. **Désactivé par défaut** : *Réglages › Réglages avancés › Affichage › « Proposer la carte monde aux visiteurs étrangers »* (`BANDEAU_MONDE`) et « Adresse de la carte monde » (`BANDEAU_MONDE_URL`, vide = page de l'édition monde sur GitHub). Le bandeau se place là où il ne cache rien et se ferme pour de bon d'un clic.
+
+### 📡 Firmware Meshtastic 2.8
+- **Signature des paquets** vérifiée par la carte avec la clé publique de l'expéditeur (✍ signé, ✍ ? clé inconnue, ⚠ signature invalide), badge « signe ses paquets » dans la fiche du nœud.
+- **Nœuds renumérotés** (numéro dérivé de la clé en 2.8) : fusion sûre quand le numéro découle de la clé, nœuds réinitialisés proposés à la fusion (même nom et matériel), fusion étendue aux équipes, favoris et responsables, **annulation des 20 dernières fusions**.
+- Fiche du nœud : « aucune position reçue » expliqué (position coupée par défaut en 2.8), position floutée montrée par un cercle. Presets TinyFast/TinySlow, LiteFast/LiteSlow, NarrowFast/NarrowSlow reconnus partout.
+
+### 🔭 MeshCore : observatoires publics (CoreScope)
+- Les observatoires communautaires [CoreScope](https://github.com/Kpa-clawbot/corescope) (France, Texas, Belgique/Pays-Bas) deviennent une **source MeshCore** sans compte ni clé : *MeshCore › Companion › Observatoires publics*, ou un clic dans le message « Aucune source MeshCore ». L'adresse est testée avant d'être ajoutée.
+- API interrogée à notre rythme (toutes les 20 s), **plafond par minute**, filtre par codes de zone (`adresse=LYS,CFE`), nœuds connus importés d'un coup, observatoire crédité au pied de la carte. Variables `MESHCORE_CORESCOPE`, `MESHCORE_CORESCOPE_INTERVALLE`, `MESHCORE_CORESCOPE_MAX_MINUTE`.
+- Sans source MeshCore : message clair et aide en trois choix, adresse de broker acceptée sans `mqtts://`, compteurs MeshCore masqués sur la page publique tant qu'aucun nœud n'est reçu. Wiki : **matériel minimum** (Pi 4/5 en 64 bits, NAS).
+
 ### 🛠️ Corrections
-- Traductions anglaises manquantes des messages du serveur (observatoires CoreScope, fusion et annulation de fusion de nœuds 2.8).
+- Traductions anglaises manquantes des messages du serveur (observatoires CoreScope, fusion et annulation de fusion de nœuds 2.8) ; journal anglais : « mode urgence terminé par … » et « secteur … créé / supprimé par … » étaient à moitié traduits.
+- *Connecter un module en Wi-Fi* : le bouton « Connecter » était blanc sur blanc.
 
 ## 2.28.15
 

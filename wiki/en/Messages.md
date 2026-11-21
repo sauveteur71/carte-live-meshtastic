@@ -53,6 +53,15 @@ To send one:
 - **📍 Attach the map centre**, under the input area (Meshtastic and MeshCore);
 - or **right-click on the map › 📍 Share this point in a message**.
 
+## Searching in messages
+The **“Search a word, a name or a callsign…”** field at the top of the *Messages* tab searches the Meshtastic and MeshCore messages kept by the map:
+- **in the text**: case and accents ignored (“reseau” finds “Réseau”), start of a word is enough (“chap” finds “chapeau”); several words = all present;
+- **by sender or recipient** (direct messages): long name, short name, `!xxxxxxxx` id or number; MeshCore: name carried by the message and start of the public key. A renamed node is found under its **current name**.
+
+Results go from newest to oldest, with the term highlighted and why it matched (text, sender, recipient); **Older…** loads more. A click opens the message in its place in its channel (or its route if it is older than the history shown). Enter searches at once, Esc clears.
+
+Same permissions as reading messages: logged-in members; in the demo, public channels only, never direct messages. The index is built at the first start after the update (a few seconds on a large database) and follows the retention purge: a deleted message also disappears from the search.
+
 ## Choosing what is shown
 A **single *Channel* menu** at the top of the tab is used to read and write: the chosen channel is the one whose messages you see and the one the typed message goes to. **✉️ My direct messages** shows the recipient choice. **All channels** and **Relayed by the bridge** are read only, like a channel the map's node doesn't have. Replying to a message selects its channel. Same behaviour in MeshCore › Messages, with the companion's channels.
 
