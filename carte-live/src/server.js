@@ -164,11 +164,13 @@ const jsonPhoto = express.json({ limit: '5mb' });
 app.use((req, res, next) => (req.path === '/api/sauvegardes/restaurer' ? jsonGros : req.path === '/api/releves' ? jsonPhoto : jsonPetit)(req, res, next));
 // Journal d'audit : toute action (hors lecture) d'un utilisateur connecté, avec son résultat
 const SANS_AUDIT = new Set(['/api/connexion', '/api/deconnexion', '/api/installation', '/api/inscription', '/api/releves']);
+// Champs masqués dans le journal d'audit pour une route donnée (le nom d'un donateur n'y a rien à faire)
+const AUDIT_MASQUES = { '/api/donateurs/manuel': ['nom'] };
 app.use((req, res, next) => {
   if (req.method === 'GET' || !req.path.startsWith('/api/') || SANS_AUDIT.has(req.path)) return next();
   const u = utilisateur(req);
   if (!u) return next();
-  res.on('finish', () => audit.noter(nomCompte(u), req.ip, `${req.method} ${req.path}`, audit.resumer(req.body), res.statusCode < 400));
+  res.on('finish', () => audit.noter(nomCompte(u), req.ip, `${req.method} ${req.path}`, audit.resumer(req.body, AUDIT_MASQUES[req.path] || []), res.statusCode < 400));
   next();
 });
 // ---- Démonstration en lecture (lien « Explorer en détail ») ------------------------------------------------
@@ -2019,12 +2021,28 @@ app.get('/api/messages', (req, res) => {
 // Recherche dans les messages (Meshtastic et MeshCore) : mots du texte, nom ou identifiant de l'expéditeur (et du
 // destinataire d'un message direct). Mêmes droits que /api/messages et /api/mc/messages : membres connectés ;
 // démonstration : canaux publics seulement, jamais les messages directs.
+// Débit : une recherche lit plusieurs index et bloque le serveur quelques millisecondes (better-sqlite3 est
+// synchrone : il n'y a jamais deux recherches en même temps, mais une rafale ferait attendre tout le monde).
+// Même principe que « tentatives » ci-dessus : 30 requêtes par minute et par adresse, 10 en démonstration.
+const recherchesParIp = new Map();
+function limiterRecherche(ip, max) {
+  const maintenant = Date.now();
+  const t = (recherchesParIp.get(ip) || []).filter((x) => maintenant - x < 60000);
+  if (t.length >= max) { recherchesParIp.set(ip, t); return true; }
+  t.push(maintenant);
+  recherchesParIp.set(ip, t);
+  return false;
+}
+setInterval(() => { const limite = Date.now() - 60000; for (const [ip, t] of recherchesParIp) if (!t.some((x) => x > limite)) recherchesParIp.delete(ip); }, 60000).unref();
 app.get('/api/messages/recherche', (req, res) => {
   if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  if (!rechercheMessages.disponible()) return res.status(503).set('Cache-Control', 'no-store').json({ erreur: 'Recherche indisponible : index impossible à créer (disque plein ou base en lecture seule), voir le journal' });
+  // Compteur séparé pour la démonstration : un visiteur derrière le même NAT ne bloque pas un membre connecté
+  if (limiterRecherche((req.demoLecture ? 'demo:' : '') + req.ip, req.demoLecture ? 10 : 30)) return res.status(429).set('Retry-After', '60').json({ erreur: 'Trop de recherches, réessayez dans une minute' });
   try {
     res.set('Cache-Control', 'no-store').json(rechercheMessages.chercher({
       q: String(req.query.q || ''), demo: !!req.demoLecture, publics: canauxPublicsMt(),
-      avant: Number(req.query.avant) || null, limite: Number(req.query.limite) || 100,
+      avant: String(req.query.avant || '').slice(0, 40), limite: Number(req.query.limite) || 100,
     }));
   } catch (e) {
     journal('[Recherche] échec :', e.message);
@@ -4638,23 +4656,29 @@ app.post('/api/federation/partenaires', async (req, res) => {
 app.delete('/api/federation/partenaires', (req, res) => { if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); federation.retirer(String(req.query.url || '')); res.json({ ok: true }); });
 
 // ---- Mur des donateurs (HelloAsso + GitHub Sponsors, voir src/donateurs.js) -------------------------------
-// Public : jamais de clé, jamais d'e-mail ni d'adresse, noms anonymisés et montants masqués par défaut
-app.get('/api/donateurs', (req, res) => { res.set('Cache-Control', 'max-age=60').json({ liste: donateurs.liste() }); });
+// Public : jamais de clé, jamais d'e-mail, d'adresse ni de date, noms anonymisés et montants masqués par défaut ;
+// liens « Faire un don » tirés des réglages (absents si la source est désactivée)
+app.get('/api/donateurs', (req, res) => {
+  try { res.set('Cache-Control', 'max-age=60').json({ liste: donateurs.liste(), liens: donateurs.liens() }); }
+  catch (e) { journal('[Donateurs] liste :', e.message); res.status(500).json({ erreur: 'Mur des donateurs indisponible' }); }
+});
 app.get('/api/donateurs/reglages', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   res.set('Cache-Control', 'no-store').json(donateurs.etat());
 });
+// Un enregistrement impossible (disque plein, volume en lecture seule) répond 500 : le réglage n'est pas pris
+const erreurDonateurs = (res, e) => res.status(e.code === 'SAUVEGARDE' ? 500 : 400).json({ erreur: e.message });
 app.post('/api/donateurs/reglages', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
-  try { res.json(donateurs.regler(req.body || {})); } catch (e) { res.status(400).json({ erreur: e.message }); }
+  try { res.json(donateurs.regler(req.body || {})); } catch (e) { erreurDonateurs(res, e); }
 });
 app.post('/api/donateurs/manuel', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
-  try { res.json(donateurs.manuelAjouter(req.body || {})); } catch (e) { res.status(400).json({ erreur: e.message }); }
+  try { res.json(donateurs.manuelAjouter(req.body || {})); } catch (e) { erreurDonateurs(res, e); }
 });
 app.delete('/api/donateurs/manuel/:id', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
-  try { donateurs.manuelRetirer(String(req.params.id)); res.json({ ok: true }); } catch (e) { res.status(400).json({ erreur: e.message }); }
+  try { donateurs.manuelRetirer(String(req.params.id)); res.json({ ok: true }); } catch (e) { erreurDonateurs(res, e); }
 });
 
 // ---- Exports et intégrations (GeoJSON, Prometheus/Grafana, Home Assistant) ------------------------

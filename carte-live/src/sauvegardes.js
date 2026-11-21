@@ -10,6 +10,7 @@ const FICHIERS = [
   'configs-noeuds.json', 'lectures-noeuds.json', 'noeuds-administrables.json',
   'meshcore-admin.json', 'meshcore-companion.json', 'meshcore-lectures.json', 'code-agents.txt',
   'federation.json', 'releves/releves.json', 'modules-cles.json', 'passerelle.json', 'equipes.json', 'signalements.json', 'meshcore-capteurs.json', 'maj-auto.json',
+  'donateurs.json', // mur des donateurs : liste saisie à la main et réglages (secrets saisis compris, comme equipes.json : sauvegarde en 600, admin seulement)
 ];
 const GARDER = 14;
 

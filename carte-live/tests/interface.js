@@ -1071,7 +1071,8 @@ async function essaiRechercheMessages(navig, cookie) {
   const db = new Database(path.join(donnees, 'carte-live.db'));
   db.pragma('busy_timeout = 5000');
   const h = Date.now() - 600000;
-  db.prepare('INSERT OR REPLACE INTO noeuds (num, id, nom_long, nom_court, premier_vu, dernier_vu) VALUES (?, ?, ?, ?, ?, ?)').run(0x5a1e0042, '!5a1e0042', 'Olivier F4GLD', 'GLD', h, h);
+  // Jamais INSERT OR REPLACE sur « noeuds » : l'index des noms (déclencheurs) ne verrait pas la suppression
+  db.prepare('INSERT INTO noeuds (num, id, nom_long, nom_court, premier_vu, dernier_vu) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(num) DO UPDATE SET nom_long = excluded.nom_long, nom_court = excluded.nom_court').run(0x5a1e0042, '!5a1e0042', 'Olivier F4GLD', 'GLD', h, h);
   const ins = db.prepare("INSERT INTO paquets (id_paquet, de, vers, canal, port, heure, texte) VALUES (?, ?, ?, ?, 'texte', ?, ?)");
   ins.run(900001, 0x5a1e0042, 0xffffffff, 'LongFast', h, 'Bonjour depuis le Mézenc');
   ins.run(900002, 0x5a1e0043, 0xffffffff, 'LongFast', h + 1000, 'Qui a vu mon CHAPEAU ?');
@@ -1086,6 +1087,13 @@ async function essaiRechercheMessages(navig, cookie) {
   const adminNom = await appel('/api/messages/recherche?q=F4GLD', { Cookie: `${cookie.name}=${cookie.value}` });
   const textes = (x) => (x.j.resultats || []).map((m) => m.texte);
   if (anonyme.statut === 401) ok('recherche : refusée à un visiteur non connecté'); else ko('recherche visiteur : ' + anonyme.statut);
+  // Démonstration : la référence d'un résultat n'est pas masquée (champ « ref », pas « cle »), le clic ouvre le bon message
+  if (demo.statut === 200 && (demo.j.resultats || []).every((m) => /^mt\d+$/.test(m.ref) && !('cle' in m))) ok('recherche (démonstration) : référence « ref » lisible, pas de champ masqué'); else ko('recherche démonstration ref : ' + JSON.stringify((demo.j.resultats || []).map((m) => [m.ref, m.cle])));
+  // Débit : 10 recherches par minute en démonstration, puis 429
+  let refus = 0, message = '';
+  for (let k = 0; k < 12; k++) { const r = await appel('/api/messages/recherche?q=chapeau' + k, { 'X-Demo': '1' }); if (r.statut === 429) { refus++; message = r.j.erreur; } }
+  const membre = await appel('/api/messages/recherche?q=chapeau', { Cookie: `${cookie.name}=${cookie.value}` });
+  if (refus === 4 && /une minute/.test(message) && membre.statut === 200) ok('recherche : 10 par minute en démonstration (4 refus sur 12 après les 2 premières), membre connecté non bloqué'); else ko(`recherche : limite de débit, refus = ${refus}, membre ${membre.statut}`);
   if (demo.statut === 200 && JSON.stringify(textes(demo)) === JSON.stringify(['Qui a vu mon CHAPEAU ?']) && JSON.stringify(textes(demoNom)) === JSON.stringify(['Bonjour depuis le Mézenc'])) ok('recherche (démonstration) : canaux publics seulement, jamais les messages directs');
   else ko('recherche démonstration : ' + JSON.stringify([demo.statut, textes(demo), textes(demoNom)]));
   if (JSON.stringify(textes(admin)) === JSON.stringify(['Chapeau rangé au local', 'Qui a vu mon CHAPEAU ?']) && JSON.stringify(textes(adminNom)) === JSON.stringify(['Message direct pour Olivier', 'Bonjour depuis le Mézenc'])) ok('recherche (administrateur) : accents ignorés, tous canaux, expéditeur et destinataire par leur nom');
@@ -1195,7 +1203,7 @@ async function essaiBandeauMonde(navig, cookie) {
     for (const q of sel) document.querySelectorAll(q).forEach((o) => { const b = o.getBoundingClientRect(); if (b.width && b.height && getComputedStyle(o).visibility !== 'hidden' && croise(r, b)) chevauche.push(q); });
     const a = e.querySelector('.bm-ouvrir');
     return { present: true, visible: !e.classList.contains('cache') && r.width > 0, dedans: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
-      titre: (e.querySelector('b') || {}).textContent, bouton: a && a.textContent, href: a && a.getAttribute('href'), croix: !!e.querySelector('.bm-fermer'), chevauche, place: e.dataset.place, largeur: Math.round(r.width), texteLarge: Math.round(e.querySelector('.bm-texte').getBoundingClientRect().width) };
+      titre: (e.querySelector('b') || {}).textContent, bouton: a && a.textContent, href: a && a.getAttribute('href'), cible: a && a.getAttribute('target'), rel: a && a.getAttribute('rel'), croix: !!e.querySelector('.bm-fermer'), chevauche, place: e.dataset.place, largeur: Math.round(r.width), texteLarge: Math.round(e.querySelector('.bm-texte').getBoundingClientRect().width) };
   }, selecteurs);
   const CARTE = ['.barre', '.outils', '.recherche-lieu', '.panneau', '.legende', '.leaflet-control', '.deplier'];
   const attendre = (page) => page.waitForFunction(() => { const e = document.getElementById('bandeau-monde'); return e && !e.classList.contains('cache'); }, null, { timeout: 6000 }).catch(() => {});
@@ -1215,7 +1223,7 @@ async function essaiBandeauMonde(navig, cookie) {
   await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
   await attendre(page);
   let m = await mesurer(page, CARTE);
-  if (m.visible && m.dedans && m.titre === 'Switch to the world map' && m.bouton === 'Open the world map' && m.href === 'https://monde.essai/carte' && m.croix) ok('ordinateur en anglais : bandeau « Switch to the world map » et bouton vers la carte monde réglée');
+  if (m.visible && m.dedans && m.titre === 'Switch to the world map' && m.bouton === 'Open the world map' && m.href === 'https://monde.essai/carte' && m.cible === '_blank' && m.rel === 'noopener' && m.croix) ok('ordinateur en anglais : bandeau « Switch to the world map » et bouton vers la carte monde réglée (nouvel onglet)');
   else ko('ordinateur en anglais : bandeau ' + JSON.stringify(m));
   if (m.visible && !m.chevauche.length) ok(`ordinateur : bandeau (${m.place}) sans chevauchement de la barre, des outils, de la recherche, du panneau ni de la légende`); else ko('ordinateur : bandeau chevauche ' + JSON.stringify(m.chevauche));
   // Lisible : pas de texte écrasé en colonne étroite
@@ -1275,6 +1283,90 @@ async function essaiBandeauMonde(navig, cookie) {
   if (r.status === 400 && /http/.test(t.erreur || '')) ok('réglage : adresse de la carte monde non http(s) refusée'); else ko(`réglage : adresse refusée attendue, reçu ${r.status} ${JSON.stringify(t)}`);
 }
 
+// Mur des donateurs : un don saisi par l'administrateur → bandeau visible sur la carte et sur la page publique,
+// sans recouvrir la barre du haut, la recherche, le panneau, la légende ni les boutons ; croix = fermé ; caché en urgence
+async function essaiDonateurs(navig, cookie) {
+  console.log('Mur des donateurs');
+  const entetes = { 'Content-Type': 'application/json', Cookie: `${cookie.name}=${cookie.value}` };
+  const poster = (url, corps) => fetch(BASE + url, { method: 'POST', headers: entetes, body: JSON.stringify(corps) });
+  let r = await poster('/api/donateurs/manuel', { nom: '42BARBE', pays: 'FR', montant: 20, accord: true });
+  const ajout = await r.json().catch(() => ({}));
+  if (r.ok && ajout.id) ok('don manuel ajouté par l’API admin'); else ko('don manuel : ' + r.status + ' ' + JSON.stringify(ajout));
+  r = await poster('/api/donateurs/manuel', { nom: 'Sans accord', accord: false });
+  if (r.status === 400) ok('don sans accord refusé'); else ko('don sans accord : ' + r.status);
+  r = await poster('/api/donateurs/manuel', { nom: 'Pays faux', pays: 'France', accord: true });
+  if (r.status === 400) ok('pays autre qu’un code à 2 lettres refusé'); else ko('pays faux : ' + r.status);
+  // Liens « Faire un don » : seulement quand la source est activée, tirés des réglages
+  await poster('/api/donateurs/reglages', { helloasso: { actif: true, organisation: 'asso-essai', formulaire: 'form-1' }, githubSponsors: { actif: false } });
+  const pub = await (await fetch(BASE + '/api/donateurs')).json();
+  const nomsOk = (pub.liste || []).length === 1 && pub.liste[0].nom === '42B***' && pub.liste[0].montant == null && !('date' in pub.liste[0]);
+  if (nomsOk) ok('liste publique : nom abrégé (42B***), montant masqué, pas de date'); else ko('liste publique : ' + JSON.stringify(pub));
+  if (pub.liens && pub.liens.helloasso === 'https://www.helloasso.com/associations/asso-essai/formulaires/form-1' && pub.liens.github === null) ok('liens tirés des réglages, GitHub absent (source désactivée)'); else ko('liens : ' + JSON.stringify(pub.liens));
+  // Journal d'audit : le nom du donateur n'y figure pas
+  const audit = await (await fetch(BASE + '/api/audit', { headers: entetes })).json().catch(() => []);
+  const lignes = JSON.stringify(audit);
+  if (/donateurs\/manuel/.test(lignes) && !/42BARBE/.test(lignes)) ok('journal d’audit : action notée sans le nom du donateur'); else ko('journal d’audit : ' + lignes.slice(0, 300));
+  // Rectangle du bandeau et chevauchements avec les éléments à ne pas couvrir
+  const mesurer = (page, selecteurs) => page.evaluate((sel) => {
+    const e = document.getElementById('bandeau-donateurs');
+    if (!e) return { present: false };
+    const r = e.getBoundingClientRect();
+    const croise = (x, y) => x.left < y.right && y.left < x.right && x.top < y.bottom && y.top < x.bottom;
+    const chevauche = [];
+    for (const q of sel) document.querySelectorAll(q).forEach((o) => { const b = o.getBoundingClientRect(); if (b.width && b.height && getComputedStyle(o).visibility !== 'hidden' && getComputedStyle(o).display !== 'none' && croise(r, b)) chevauche.push(q); });
+    const liens = [...e.querySelectorAll('a')].map((a) => [a.textContent, a.getAttribute('href'), a.getAttribute('target'), a.getAttribute('rel')]);
+    return { present: true, visible: getComputedStyle(e).display !== 'none' && r.width > 0, dedans: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+      texte: (e.querySelector('.don-texte') || {}).textContent, liens, croix: !!e.querySelector('.fermer-bandeau'), chevauche, largeur: Math.round(r.width), style: getComputedStyle(e).position };
+  }, selecteurs);
+  const attendre = (page) => page.waitForFunction(() => { const e = document.getElementById('bandeau-donateurs'); return e && (e.querySelector('.don-texte') || {}).textContent; }, null, { timeout: 8000 }).catch(() => {});
+  const CARTE = ['.barre', '.outils', '.recherche-lieu', '.panneau', '.legende', '.leaflet-control', '.deplier', '.bandeau-urgence', '.bandeau-crise'];
+  for (const [nom, vue, mobile] of [['ordinateur', { width: 1400, height: 900 }, false], ['téléphone', { width: 390, height: 844 }, true], ['tablette', { width: 1024, height: 700 }, false]]) {
+    const ctx = await navig.newContext({ viewport: vue, locale: 'fr-FR', isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 2 : 1 });
+    await ctx.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+    const { page, erreurs } = await ouvrir(ctx, '/');
+    await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await attendre(page);
+    const m = await mesurer(page, CARTE);
+    if (m.visible && m.dedans && /42B\*\*\* 🇫🇷 a donné pour soutenir le projet/.test(m.texte || '') && m.croix) ok(`${nom} : bandeau des donateurs visible (« ${m.texte} »)`); else ko(`${nom} : bandeau ` + JSON.stringify(m));
+    if (m.visible && !m.chevauche.length) ok(`${nom} : bandeau sans chevauchement de la barre du haut, de la recherche, du panneau, de la légende ni des boutons`); else ko(`${nom} : bandeau chevauche ` + JSON.stringify(m.chevauche));
+    if (nom === 'ordinateur') {
+      if (m.liens.length === 1 && m.liens[0][0] === 'Faire un don' && m.liens[0][1] === 'https://www.helloasso.com/associations/asso-essai/formulaires/form-1' && m.liens[0][2] === '_blank' && m.liens[0][3] === 'noopener') ok('ordinateur : lien « Faire un don » des réglages, nouvel onglet, pas de lien GitHub'); else ko('ordinateur : liens ' + JSON.stringify(m.liens));
+      // Mode urgence : le bandeau s'efface
+      await page.evaluate(() => document.body.classList.add('mode-urgence'));
+      const u = await mesurer(page, []);
+      if (!u.visible) ok('ordinateur : bandeau caché en mode urgence'); else ko('ordinateur : bandeau visible en mode urgence');
+      await page.evaluate(() => document.body.classList.remove('mode-urgence'));
+    }
+    await capture(page, 'donateurs-' + nom.normalize('NFD').replace(/[^a-z]/g, ''));
+    if (nom === 'téléphone') {
+      await page.click('#bandeau-donateurs .fermer-bandeau');
+      const ferme = await page.evaluate(() => ({ parti: !document.getElementById('bandeau-donateurs'), memo: localStorage.getItem('gaulix_donateurs_masque') }));
+      if (ferme.parti && ferme.memo === '1') ok('téléphone : croix = bandeau fermé et mémorisé'); else ko('téléphone : croix ' + JSON.stringify(ferme));
+    }
+    bilanErreurs(erreurs, 'donateurs (' + nom + ')');
+    await ctx.close();
+  }
+  // Page publique (sans style.css) : le bandeau a son style, en bas, sans toucher le bandeau du haut ni la légende
+  for (const [nom, vue] of [['ordinateur', { width: 1280, height: 800 }], ['téléphone', { width: 390, height: 844 }]]) {
+    const ctx = await navig.newContext({ viewport: vue, locale: 'fr-FR', isMobile: nom === 'téléphone', hasTouch: nom === 'téléphone' });
+    const { page, erreurs } = await ouvrir(ctx, '/publique.html');
+    await attendre(page);
+    const m = await mesurer(page, ['.bandeau', '.legende', '.leaflet-control', '#bandeau-monde']);
+    if (m.visible && m.dedans && m.style === 'fixed' && m.largeur > 150 && /42B\*\*\*/.test(m.texte || '')) ok(`page publique (${nom}) : bandeau stylé et visible`); else ko(`page publique (${nom}) : bandeau ` + JSON.stringify(m));
+    if (m.visible && !m.chevauche.length) ok(`page publique (${nom}) : sans chevauchement`); else ko(`page publique (${nom}) : chevauche ` + JSON.stringify(m.chevauche));
+    await capture(page, 'donateurs-publique-' + (nom === 'téléphone' ? 'telephone' : 'ordinateur'));
+    if (nom === 'ordinateur') {
+      await page.click('#bandeau-donateurs .fermer-bandeau');
+      if (await page.evaluate(() => !document.getElementById('bandeau-donateurs') && localStorage.getItem('publique_donateurs_masque') === '1')) ok('page publique : croix = bandeau fermé'); else ko('page publique : croix');
+    }
+    bilanErreurs(erreurs, 'donateurs (page publique, ' + nom + ')');
+    await ctx.close();
+  }
+  // Nettoyage : le don retiré ne pollue pas les autres essais
+  await fetch(BASE + '/api/donateurs/manuel/' + ajout.id, { method: 'DELETE', headers: entetes });
+  await poster('/api/donateurs/reglages', { helloasso: { actif: false } });
+}
+
 async function essaiPagesPubliques(navig) {
   for (const [url, nom, attendu] of [['/publique.html', 'carte publique', '#carte .leaflet-pane, .leaflet-pane'], ['/topologie.html', 'graphe des liens', 'svg, canvas']]) {
     console.log(nom[0].toUpperCase() + nom.slice(1) + ' (visiteur)');
@@ -1322,6 +1414,7 @@ async function essaiPagesPubliques(navig) {
     await essaiRechercheMessages(navigateur, cookie);
     await essaiUrgenceEtSecteurs(navigateur, cookie);
     await essaiBandeauMonde(navigateur, cookie);
+    await essaiDonateurs(navigateur, cookie);
     await essaiPagesPubliques(navigateur);
     code = echecs ? 1 : 0;
     console.log(echecs ? `\n${echecs} problème(s) : captures et journal dans tests/resultats/` : '\nTout est bon ✓');
