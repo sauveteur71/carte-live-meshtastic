@@ -287,7 +287,8 @@ app.get('/api/aide/:page', (req, res) => {
 
 app.get('/api/config', (req, res) => {
   res.json({
-    fonctionsMasquees: typeof fonctionsMasquees !== 'undefined' ? [...fonctionsMasquees] : [],
+    fonctionsMasquees: typeof fonctionsMasquees !== 'undefined' ? masqueesEffectives() : [],
+    urgence: (() => { try { return estMembre(req) ? urgence.etat() : null; } catch { return null; } })(),
     version: infosVersion(),
     freqMHz: Number(process.env.RADIO_FREQ_MHZ) || 869.525,
     titre: config.carte.titre,
@@ -1483,7 +1484,7 @@ app.post('/api/admin-noeuds/conformite-auto', (req, res) => {
 let favorisPlan = null, modeles = null, renumerotation = null;
 const obtenirFavoris = () => favorisPlan || (favorisPlan = require('./favoris').creerFavoris({ stockage, config, administration }));
 const obtenirModeles = () => modeles || (modeles = require('./modeles').creerModeles(path.dirname(config.fichierBase), { ROLES: administration.ROLES, REDIFFUSIONS: administration.REDIFFUSIONS }));
-const obtenirRenumerotation = () => renumerotation || (renumerotation = require('./renumerotation').creerRenumerotation({ stockage, config, installations, comptes, administration, journal, autres: () => ({ equipes, suivis, responsables }) }));
+const obtenirRenumerotation = () => renumerotation || (renumerotation = require('./renumerotation').creerRenumerotation({ stockage, config, installations, comptes, administration, journal, autres: () => ({ equipes, suivis, responsables, secteursAlerte }) }));
 app.get('/api/admin-noeuds/favoris', (req, res) => {
   if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const p = obtenirFavoris().plan({ jours: Math.min(30, Math.max(1, Number(req.query.jours) || 7)) });
@@ -3229,6 +3230,19 @@ function diffuser(message) {
   }
   noterTache(message.genre === 'etat' || message.genre === 'mc-etat' ? 'diffusion de l’état aux navigateurs' : 'diffusion d’un paquet aux navigateurs', performance.now() - t0);
 }
+// Message réservé aux comptes connectés (positions des intervenants, demandes d'aide, mode urgence) : rien vers le public
+function diffuserMembres(message) {
+  const t = JSON.stringify(message);
+  for (const ws of wss.clients) if (ws.readyState === 1 && ws.admin) ws.send(t);
+}
+// Secteurs d'alerte et mode urgence : positions reçues (un paquet vu par plusieurs passerelles compte une fois)
+// et messages de détresse pendant une crise
+function crisePaquet(evt) {
+  try {
+    if (evt.port === 'position' && evt.position && evt.position.lat != null && evt.de != null) secteursAlerte.position('mt:' + (evt.de >>> 0), { lat: evt.position.lat, lon: evt.position.lon, precision: evt.position.precision, id: evt.idPaquet });
+    if (evt.port === 'texte' && evt.texte && urgence.actif() && RE_SOS.test(evt.texte)) urgence.noter({ cle: `msg:${evt.de >>> 0}:${evt.idPaquet}`, type: 'message', niveau: 'critique', texte: `Message de détresse de ${nomNoeudServeur(evt.de)}${evt.canal ? ` (canal ${evt.canal})` : ''} : ${String(evt.texte).replace(/\u0007/g, '🔔').slice(0, 200)}`, noeud: evt.de >>> 0 });
+  } catch (e) { if (!(e instanceof ReferenceError)) journal('[Secteurs]', e.message); } // pas encore créés au démarrage
+}
 
 // ---- MQTT -----------------------------------------------------------------
 let compteur = { recus: 0, decodes: 0, erreurs: 0 };
@@ -3363,7 +3377,7 @@ function traiterEnveloppeMt(topic, message) {
     if (evt.genre === 'erreur') { compteur.erreurs++; return; }
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
     versPasserelleRadio(evt);
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
@@ -3454,7 +3468,8 @@ let dernieresAlertes = [];
 // Alertes des services internes (adresses, messages d'erreur) réservées aux administrateurs
 function alertesPubliques(l) {
   const lorawanPublic = (() => { try { return lorawan.etat().public; } catch { return false; } })();
-  return l.filter((a) => a.type !== 'service' && (a.type !== 'lorawan' || lorawanPublic));
+  // Équipes, secteurs d'alerte et mode urgence : noms et positions d'intervenants, réservés aux comptes connectés
+  return l.filter((a) => a.type !== 'service' && a.type !== 'equipe' && a.type !== 'secteur' && a.type !== 'urgence' && (a.type !== 'lorawan' || lorawanPublic));
 }
 // Services de fond en échec prolongé : visibles dans les alertes de la carte, pas seulement dans le journal du serveur
 const enEchecDepuis = {};
@@ -3493,6 +3508,14 @@ function rafraichirEtat() {
   try { dernieresAlertes = [...dernieresAlertes, ...lorawan.alertes()]; } catch (e) { if (!(e instanceof ReferenceError)) journal('[LoRaWAN]', e.message); }
   try { dernieresAlertes = [...dernieresAlertes, ...rivieres.alertes()]; } catch (e) { if (!(e instanceof ReferenceError)) journal('[Rivières]', e.message); } // pas encore créé au démarrage
   try { if (!fonctionMasquee('feux')) dernieresAlertes = [...dernieresAlertes, ...feux.alertes()]; } catch (e) { if (!(e instanceof ReferenceError)) journal('[Feux]', e.message); } // pas encore créé au démarrage
+  try { dernieresAlertes = [...dernieresAlertes, ...secteursAlerte.alertes()]; } catch (e) { if (!(e instanceof ReferenceError)) journal('[Secteurs]', e.message); }
+  try {
+    if (urgence.actif()) {
+      const u = urgence.etat();
+      dernieresAlertes = [{ cle: 'urgence:' + u.id, type: 'urgence', niveau: 'critique', depuis: u.debut, message: `Mode urgence en cours${u.motif ? ' : ' + u.motif : ''}` }, ...dernieresAlertes];
+      noterAlertesCrise([...dernieresAlertes, ...(config.meshcore.actif ? alertesMc : [])]);
+    }
+  } catch (e) { if (!(e instanceof ReferenceError)) journal('[Urgence]', e.message); }
   diffuser({ genre: 'etat', stats: chronoTache('statistiques Meshtastic', () => reseau.statistiques()), alertes: dernieresAlertes, meshmonitor: typeof sourceMM !== 'undefined' && sourceMM ? sourceMM.etat() : null, radio: typeof sourceRadio !== 'undefined' && sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
 }
 setInterval(rafraichirEtat, 30000);
@@ -3683,7 +3706,7 @@ const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   integrerEvenement: (evt) => {
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
     versPasserelleRadio(evt);
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
@@ -3703,7 +3726,7 @@ const ecoutes = creerEcoutes({
     integrerEvenement: (evt) => {
       if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
     versPasserelleRadio(evt);
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } }
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuser({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
@@ -3718,14 +3741,22 @@ ecoutes.demarrer();
 const administration = creerAdministration(sourceRadio, stockage);
 // ---- Équipes : canal chiffré par équipe, posé ou retiré à distance (administrateur) ----
 const reqPosEquipe = stockage.db.prepare('SELECT lat, lon, heure_position FROM noeuds WHERE num = ?');
-const equipes = require('./equipes').creerEquipes({ config, administration, journal, diffuser, nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); }, positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
+const equipes = require('./equipes').creerEquipes({ config, administration, journal,
+  diffuser: (m) => {
+    if (m.genre !== 'equipe-sos') return diffuser(m);
+    diffuserMembres(m);
+    try { urgence.noter({ cle: `equipe-sos:${m.equipe}:${m.id}`, type: 'sos', niveau: 'critique', texte: `Demande d’aide de ${m.nom} (équipe ${m.nomEquipe}) : ${m.texte}`, noeud: m.num, lat: m.position ? m.position.lat : null, lon: m.position ? m.position.lon : null }); } catch { /* urgence pas encore prête */ }
+  },
+  surZone: (id, zone, auteur) => secteursAlerte.zoneEquipe(id, zone, auteur),
+  secteursDe: (id) => secteursAlerte.resumeEquipe(id),
+  nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); }, positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
 const routeEquipe = (f) => (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   try { res.set('Cache-Control', 'no-store').json(f(req, req.body || {}, nomCompte(utilisateur(req)))); } catch (e) { res.status(400).json({ erreur: e.message }); }
 };
 app.get('/api/equipes', routeEquipe(() => ({ equipes: equipes.liste(), sourceCle: equipes.sourceCle(), module: administration.infos() })));
 app.post('/api/equipes', routeEquipe((req, b, a) => equipes.creer(b, a)));
-app.patch('/api/equipes/:id', routeEquipe((req, b) => equipes.modifier(req.params.id, b)));
+app.patch('/api/equipes/:id', routeEquipe((req, b, a) => equipes.modifier(req.params.id, b, a)));
 app.post('/api/equipes/:id/membres', routeEquipe((req, b, a) => equipes.membres(req.params.id, b, a)));
 app.post('/api/equipes/:id/reappliquer', routeEquipe((req, b, a) => equipes.reappliquer(req.params.id, a)));
 app.post('/api/equipes/:id/recherche', routeEquipe((req, b, a) => equipes.recherche(req.params.id, b, a)));
@@ -3742,6 +3773,106 @@ app.get('/api/equipes/:id/export', routeEquipe((req, b, a) => {
   return x;
 }));
 const reqNomSig = stockage.db.prepare('SELECT nom_court, nom_long FROM noeuds WHERE num = ?');
+// ---- Secteurs d'alerte (géorepérage) des équipes de terrain : voir secteurs.js ----------------------------------
+const { RE_SOS } = require('./equipes');
+let minutRafraichir = null;
+const planifierRafraichir = () => { if (!minutRafraichir) minutRafraichir = setTimeout(() => { minutRafraichir = null; rafraichirEtat(); }, 1500); };
+const secteursAlerte = require('./secteurs').creerSecteurs({
+  config, journal,
+  diffuser: (m) => (m.genre === 'secteurs' ? diffuser(m) : diffuserMembres(m)),
+  membresEquipe: (id) => equipes.membresDe(id),
+  nomEquipe: (id) => equipes.nomDe(id),
+  nomDe: (k) => (k.startsWith('mt:') ? nomNoeudServeur(Number(k.slice(3))) : nomNoeudMc(k.slice(3)) || null),
+  positionDe: (num) => { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; },
+  // Option d'un secteur : alerte courte sur un canal LoRa (module de la carte), au plus une toutes les 30 s
+  envoyerLora: (texte, canal) => administration.envoyerTexte({ texte, canal }, 'secteurs'),
+  surEvenement: (e) => {
+    if (['sortie', 'entree', 'silence'].includes(e.type) && e.alerte !== false) planifierRafraichir();
+    if (['creation', 'modification', 'suppression', 'imprecise'].includes(e.type) && !urgence.actif()) return;
+    const genre = e.type === 'sortie' ? 'dehors' : e.type === 'entree' ? 'dedans' : e.type;
+    const noeud = e.noeud && e.noeud.startsWith('mt:') ? Number(e.noeud.slice(3)) : e.noeud ? e.noeud.slice(3) : null;
+    urgence.noter({ cle: `secteur:${e.secteur}:${e.noeud}:${genre}:${e.heure}`, type: 'secteur', niveau: e.niveau, texte: e.message, noeud, lat: e.lat ?? null, lon: e.lon ?? null, auteur: e.auteur || null });
+  },
+});
+reseauMc.ecouterPositions((p) => secteursAlerte.position('mc:' + p.cle, { lat: p.lat, lon: p.lon, heure: p.heure, id: p.id }));
+// Anciennes zones de sécurité des équipes (cercle) : reprises une fois en secteurs d'alerte rattachés à l'équipe
+{
+  const m = equipes.zonesAMigrer();
+  let ok = true;
+  for (const z of m.liste) {
+    try { secteursAlerte.zoneEquipe(z.id, z.zone, 'reprise automatique'); journal(`[Secteurs] zone de sécurité de l’équipe « ${z.nom} » reprise en secteur d’alerte`); } catch (e) { ok = false; journal('[Secteurs] zone de sécurité non reprise :', e.message); }
+  }
+  if (m.liste.length && ok) m.valider();
+}
+// ---- Mode urgence : configuration de crise de la carte, voir urgence.js ----------------------------------------
+const urgence = require('./urgence').creerUrgence({ config, journal, diffuser: diffuserMembres });
+// Pendant une crise, l'état du réseau (alertes, compteurs) part toutes les 10 s au lieu de 30 s
+setInterval(() => { try { if (urgence.actif()) rafraichirEtat(); } catch (e) { journal('[Urgence]', e.message); } }, 10000).unref();
+const OUTILS_CRISE = ['signalements', 'main-courante']; // remis en service pendant une crise s'ils étaient masqués
+// Alertes critiques nouvelles notées au journal de la crise (chacune une seule fois)
+function noterAlertesCrise(l) {
+  for (const a of l) {
+    if (a.niveau !== 'critique' || a.type === 'urgence') continue;
+    urgence.noter({ cle: a.cle || `${a.type}:${a.noeud ?? a.num ?? a.nom}:${a.depuis || ''}`, type: a.type === 'secteur' ? 'secteur' : 'alerte', niveau: 'critique', texte: a.message, noeud: a.noeud ?? null });
+  }
+}
+function tableauCrise() {
+  let eqs = [];
+  try { eqs = equipes.liste(); } catch { /* équipes illisibles */ }
+  const sos = [], membres = [];
+  for (const e of eqs) {
+    for (const x of e.sos) if (!x.pris) sos.push({ id: x.id, num: x.num, nom: x.nom, texte: x.texte, heure: x.heure, position: x.position, equipe: e.id, nomEquipe: e.nom });
+    for (const m of e.membres) if (m.etat === 'membre') membres.push({ num: m.num, nom: nomNoeudServeur(m.num), equipe: e.nom, position: m.position, sansNouvelle: m.sansNouvelle });
+  }
+  const secteurs = secteursAlerte.liste().filter((s) => s.actif).map((s) => ({ id: s.id, nom: s.nom, forme: s.forme, centre: s.centre, rayon: s.rayon, points: s.points, sens: s.sens, nomEquipe: s.nomEquipe, dehors: s.dehors,
+    membres: s.membres.filter((m) => m.derniere || m.silence).map((m) => ({ cle: m.cle, nom: m.nom, etat: m.etat, silence: m.silence, derniere: m.derniere })) }));
+  return {
+    sos, membres, secteurs, alertesSecteurs: secteursAlerte.alertes(),
+    critiques: [...dernieresAlertes, ...(config.meshcore.actif ? alertesMc : [])].filter((a) => a.niveau === 'critique' && a.type !== 'urgence' && a.type !== 'secteur' && a.type !== 'equipe').slice(0, 30),
+    evenements: urgence.evenements(null, 150), archives: urgence.archives(),
+  };
+}
+const routeGestion = (f, ecriture) => (req, res) => {
+  const u = utilisateur(req);
+  if (!estGestion(req) || (ecriture && !u)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });
+  try { res.set('Cache-Control', 'no-store').json(f(req, req.body || {}, nomCompte(u) || 'démonstration')); } catch (e) { res.status(400).json({ erreur: e.message }); }
+};
+const routeAdminSecteur = (f) => (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { res.set('Cache-Control', 'no-store').json(f(req, req.body || {}, nomCompte(u))); } catch (e) { res.status(400).json({ erreur: e.message }); }
+};
+app.get('/api/secteurs', routeGestion((req) => ({ secteurs: secteursAlerte.liste(), equipes: (() => { try { return equipes.liste().map((e) => ({ id: e.id, nom: e.nom, nbMembres: e.nbMembres })); } catch { return []; } })(), modifiable: estAdmin(req) && !req.demoLecture })));
+app.post('/api/secteurs', routeAdminSecteur((req, b, a) => { const s = secteursAlerte.creer(b, a); audit.noter(a, req.ip, 'secteur d’alerte créé', s.nom, true); return s; }));
+app.patch('/api/secteurs/:id', routeAdminSecteur((req, b, a) => secteursAlerte.modifier(String(req.params.id), b, a)));
+app.delete('/api/secteurs/:id', routeAdminSecteur((req, b, a) => { const s = secteursAlerte.secteur(String(req.params.id)); secteursAlerte.supprimer(s.id, a); audit.noter(a, req.ip, 'secteur d’alerte supprimé', s.nom, true); planifierRafraichir(); return { ok: true }; }));
+app.get('/api/secteurs/journal', routeGestion((req) => ({ evenements: secteursAlerte.journal({ secteur: req.query.secteur ? String(req.query.secteur) : null, limite: req.query.limite }) })));
+app.get('/api/secteurs/journal.csv', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });
+  res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="journal-secteurs.csv"', 'Cache-Control': 'no-store' }).send('\ufeff' + secteursAlerte.csv({ secteur: req.query.secteur ? String(req.query.secteur) : null }));
+});
+app.get('/api/urgence', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  const e = urgence.etat();
+  res.set('Cache-Control', 'no-store').json(estGestion(req) ? { ...e, tableau: tableauCrise() } : e);
+});
+// Activer ou terminer le mode urgence : administrateur seulement (les gestionnaires lisent le tableau et notent au journal)
+app.post('/api/urgence', (req, res, suite) => { const u = utilisateur(req); if (u && u.role === 'gestionnaire') return res.status(403).json({ erreur: 'Seul un administrateur active ou termine le mode urgence' }); suite(); }, routeAdminSecteur((req, b, a) => {
+  const r = b.actif ? urgence.activer({ motif: b.motif }, a) : urgence.desactiver(a);
+  audit.noter(a, req.ip, b.actif ? 'mode urgence activé' : 'mode urgence terminé', b.actif ? String(b.motif || '').slice(0, 140) : `${r.derniere.nb} événement(s)`, true);
+  if (b.actif) noterAlertesCrise([...dernieresAlertes, ...(config.meshcore.actif ? alertesMc : [])]); // situation au déclenchement
+  diffuser({ genre: 'fonctions-masquees', masquees: masqueesEffectives() });
+  rafraichirEtat();
+  return r;
+}));
+app.post('/api/urgence/note', routeGestion((req, b, a) => urgence.note(b.texte, a), true));
+app.get('/api/urgence/journal.csv', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion gestionnaire requise' });
+  try {
+    const x = urgence.csv(req.query.crise ? String(req.query.crise) : null);
+    res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${x.nom}"`, 'Cache-Control': 'no-store' }).send('\ufeff' + x.texte);
+  } catch (e) { res.status(404).json({ erreur: e.message }); }
+});
 // ---- Section ADRASEC (radiogoniométrie, main courante) et Winlink par Pat ----
 // Envoi radio d'un point de passage + message (diffusion de la position estimée d'une balise aux équipes)
 const radioPointAdrasec = async ({ texte, canal, ...p }) => {
@@ -4146,7 +4277,13 @@ const FONCTIONS_MASQUABLES = ['signalements', 'vigipirate', 'fr-alert', 'main-co
 const fFonctionsMasquees = path.join(path.dirname(config.fichierBase), 'fonctions-masquees.json');
 let fonctionsMasquees = new Set(String(process.env.FONCTIONS_MASQUEES || '').split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter((x) => FONCTIONS_MASQUABLES.includes(x)));
 try { fonctionsMasquees = new Set(lireJson(fFonctionsMasquees).filter((x) => FONCTIONS_MASQUABLES.includes(x))); } catch { /* valeur du .env */ }
-const fonctionMasquee = (f) => fonctionsMasquees.has(f);
+// Pendant une crise, les outils de crise masqués (signalements, main courante) reviennent ; le réglage ne change pas
+function masqueesEffectives() {
+  let crise = false;
+  try { crise = urgence.actif(); } catch { /* pas encore créé */ }
+  return [...fonctionsMasquees].filter((f) => !(crise && OUTILS_CRISE.includes(f)));
+}
+const fonctionMasquee = (f) => masqueesEffectives().includes(f);
 app.post('/api/fonctions-masquees', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
   const l = Array.isArray((req.body || {}).masquees) ? req.body.masquees.filter((x) => FONCTIONS_MASQUABLES.includes(x)) : null;
@@ -4154,7 +4291,7 @@ app.post('/api/fonctions-masquees', (req, res) => {
   fonctionsMasquees = new Set(l);
   try { ecrireSur(fFonctionsMasquees, JSON.stringify([...fonctionsMasquees])); } catch (e) { return res.status(500).json({ erreur: e.message }); }
   journal(`Fonctions masquées par ${nomCompte(utilisateur(req))} : ${l.join(', ') || 'aucune'}`);
-  diffuser({ genre: 'fonctions-masquees', masquees: [...fonctionsMasquees] });
+  diffuser({ genre: 'fonctions-masquees', masquees: masqueesEffectives() });
   res.json({ masquees: [...fonctionsMasquees] });
 });
 const alertesOff = require('./alertes-officielles').creerAlertesOfficielles({
@@ -4613,6 +4750,7 @@ process.on('unhandledRejection', (e) => { console.error(new Date().toISOString()
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     journal('Arrêt…');
+    try { secteursAlerte.arreter(); urgence.arreter(); } catch { /* rien à enregistrer */ }
     publicateurMc.fermer();
     clientMqtt.end(true);
     stockage.db.close();

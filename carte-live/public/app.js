@@ -1868,6 +1868,8 @@ const CATALOGUE_REGLAGES = [
   // Programmer (Meshtastic)
   ['Clés d’administration', 'Programmer', 'admin key pki clé publique', 'gestion', () => ouvrirOutilProgrammer('voir-cles')],
   ['Équipes (canal chiffré par équipe)', 'Programmer', 'équipe canal clé psk intervenant cle_equipes', 'admin', () => ouvrirOutilProgrammer('voir-equipes')],
+  ['Secteurs d’alerte (géorepérage)', 'Outils', 'secteur zone géorepérage geofence sortie entrée équipe alerte polygone périmètre', 'gestion', () => ficheSecteurs()],
+  ['Mode urgence (crise)', 'Outils', 'urgence crise catastrophe bandeau journal adrasec plan secours exercice', 'gestion', () => ficheCrise()],
   ['Favoris entre relais', 'Programmer', 'favoris sauts relais', 'gestion', () => ouvrirOutilProgrammer('voir-favoris')],
   ['Modèles de réglages', 'Programmer', 'modèle yaml export import', 'gestion', () => ouvrirOutilProgrammer('voir-modeles')],
   ['Contrôle du trafic', 'Programmer', 'bavard trafic mqtt réinjecté', 'gestion', () => ouvrirOutilProgrammer('voir-trafic')],
@@ -5420,8 +5422,8 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
         ${e.recherche ? `<span class="note">🔎 En cours jusqu’à ${new Date(e.recherche.jusqua).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} (toutes les ${e.recherche.intervalle} min)</span>` : ''}
       </div>
       <div class="parametres compact">
-        <span>Zone de sécurité : ${e.zone ? `<b>${(e.zone.rayon / 1000).toLocaleString('fr-FR')} km</b> autour de ${e.zone.lat.toFixed(4)}, ${e.zone.lon.toFixed(4)} <a href="#" data-voir-zone>voir</a>` : '<span class="note">aucune</span>'}</span>
-        <button class="mini" data-zone>📍 ${e.zone ? 'Changer' : 'Définir'} la zone</button>${e.zone ? '<button class="mini" data-zone-suppr>Retirer</button>' : ''}
+        <span>Secteurs d’alerte : ${(e.secteurs || []).length ? e.secteurs.map((x) => `<b>${esc(x.nom)}</b>${x.actif ? '' : ' (désactivé)'}${x.dehors ? ` <span class="sa-dehors">⛔ ${x.dehors} hors secteur</span>` : ''}`).join(', ') : '<span class="note">aucun</span>'}</span>
+        <button class="mini" data-secteurs title="Prévenir quand un membre sort d’un secteur dessiné sur la carte (ou y entre)">🗺️ ${(e.secteurs || []).length ? 'Secteurs…' : 'Définir un secteur'}</button>
       </div>
       <div class="actions-prop">
         ${e.nbMembres ? `<button data-positions-eq title="Chaque nœud de l’équipe renvoie sa position (espacées de 3 s)">📍 Demander les positions</button>` : ''}
@@ -5472,16 +5474,7 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
       const m = Number(ev.target.value);
       try { await postJson(`/api/equipes/${id}/recherche`, { minutes: m, intervalle: 2 }); ficheEquipes(id).then(() => { const b = z.querySelector(`[data-eq="${id}"] [data-retour]`); if (b) b.textContent = m ? `🔎 Mode recherche : positions demandées toutes les 2 min pendant ${m} min, puis retour au suivi habituel. Chaque demande est un paquet radio.` : 'Mode recherche arrêté.'; }); } catch (e) { retour(e.message); }
     };
-    { const eq = r.equipes.find((x) => x.id === id);
-      const bz = bloc.querySelector('[data-zone]'); if (bz) bz.onclick = () => choisirPointPuis('Touchez la carte au centre de la zone de sécurité.', async (ll) => {
-        const km = await saisir('Rayon de la zone de sécurité, en km (0,1 à 100) :', eq.zone ? String(eq.zone.rayon / 1000).replace('.', ',') : '2');
-        if (km == null) return;
-        const v = Number(String(km).replace(',', '.'));
-        try { await postJson(`/api/equipes/${id}`, { zone: { lat: ll.lat, lon: ll.lng, rayon: v * 1000 } }, 'PATCH'); ficheEquipes(id); montrerZoneEquipe({ lat: ll.lat, lon: ll.lng, rayon: v * 1000 }, eq.nom); } catch (e) { retour(e.message); }
-      });
-      const bs = bloc.querySelector('[data-zone-suppr]'); if (bs) bs.onclick = async () => { try { await postJson(`/api/equipes/${id}`, { zone: null }, 'PATCH'); montrerZoneEquipe(null); ficheEquipes(id); } catch (e) { retour(e.message); } };
-      const bv = bloc.querySelector('[data-voir-zone]'); if (bv) bv.onclick = (ev) => { ev.preventDefault(); montrerZoneEquipe(eq.zone, eq.nom, true); };
-    }
+    { const bz = bloc.querySelector('[data-secteurs]'); if (bz) bz.onclick = () => ficheSecteurs({ equipe: id }); }
     bloc.querySelector('[data-positions]').onchange = async (ev) => { try { await postJson(`/api/equipes/${id}`, { positions: ev.target.checked }, 'PATCH'); retour('Enregistré : « Renvoyer » ou une nouvelle clé l’appliquera aux nœuds déjà membres.'); } catch (e) { retour(e.message); } };
     { const bp = bloc.querySelector('[data-positions-eq]'); if (bp) bp.onclick = async () => {
       const eq = r.equipes.find((x) => x.id === id);
@@ -6062,6 +6055,7 @@ function connecterWs() {
       if (f && !$('#fiche').hidden && f.querySelector('.alertes-off')) (etat.membre && !masquee('signalements') ? ficheSignalements() : ficheAlertesOff());
       return;
     }
+    if (typeof criseRecevoir === 'function' && criseRecevoir(m)) return;
     if (m.genre === 'equipe-sos') {
       if (etat.gestion) {
         annonce(`🆘 ${m.nom} (équipe ${m.nomEquipe}) demande de l’aide : « ${m.texte} »`, 'erreur');
@@ -6798,6 +6792,7 @@ async function demarrer() {
   // ?vue=lat,lon,zoom (lien « Explorer en détail » de la carte publique) : reprendre la même vue
   { const v = (new URLSearchParams(location.search).get('vue') || '').split(',').map(Number); if (v.length === 3 && v.every(Number.isFinite)) setTimeout(() => carte.setView([v[0], v[1]], v[2]), 200); }
   if (typeof demarrerMeshcore === 'function') demarrerMeshcore();
+  if (typeof demarrerCrise === 'function') demarrerCrise();
   chargerRelief();
   chargerAsymetrie(); setInterval(chargerAsymetrie, 120000);
   chargerNouveaux(); setInterval(chargerNouveaux, 300000);
@@ -7933,16 +7928,6 @@ async function statistiquesNoeud(num, jours = 7) {
     ${r.sauts.length ? `<h4>Sauts pour arriver</h4>${barres(r.sauts, (t) => (t.sauts === 0 ? 'direct' : `${t.sauts} saut${t.sauts > 1 ? 's' : ''}`), (t) => t.nb, (t) => (t.sauts === 0 ? '#2dd4bf' : t.sauts <= 2 ? '#facc15' : '#fb923c'))}` : ''}
     ${r.recepteurs.length ? `<h4>Qui le reçoit le plus</h4>${barres(r.recepteurs, (t) => esc(nomNoeud(t.num)) + (t.sautsMin === 0 ? ' · direct' : ''), (t) => t.nb, (t) => (t.snr != null ? couleurSnr(t.snr) : '#94a3b8'))}` : ''}`;
   const s = $('#stats-jours'); if (s) s.onchange = () => statistiquesNoeud(num, Number(s.value));
-}
-
-// Zone de sécurité d'une équipe tracée sur la carte (cercle), avec les membres
-let coucheZoneEquipe = null;
-function montrerZoneEquipe(z, nom, cadrer) {
-  if (coucheZoneEquipe) { coucheZoneEquipe.remove(); coucheZoneEquipe = null; }
-  if (!z) return;
-  coucheZoneEquipe = L.circle([z.lat, z.lon], { radius: z.rayon, color: '#22d3ee', weight: 2, dashArray: '6 6', fillOpacity: 0.06, interactive: false }).addTo(carte);
-  coucheZoneEquipe.bindTooltip(`Zone de sécurité · ${nom || ''}`, { permanent: false });
-  if (cadrer) carte.fitBounds(coucheZoneEquipe.getBounds(), { padding: [30, 30] });
 }
 
 // ---- Stations APRS (dont LoRa APRS 433,775 MHz), lues par le serveur sur APRS-IS ---------------------

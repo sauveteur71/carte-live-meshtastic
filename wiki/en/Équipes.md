@@ -51,7 +51,7 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
 - The key never appears in the team list, recorded operations, logs or history; only the export (administrator) shows it.
 - Configuration reads kept by the map (Program › Read) contain the channels read, keys included, as for other channels: protect the data folder.
 
-## In the field: safety zone, search mode, help request
-- **Safety zone**: *📍 Set the zone*, then tap the map at the centre and give the radius (0.1 to 100 km). A member whose last position leaves the circle is flagged in the network alerts (“outside the safety zone, X km from the centre”). The circle shows on the map (*view*).
+## In the field: alert sectors, search mode, help request
+- **Alert sectors**: *🗺️ Define a sector* opens the team's alert sectors (polygon or circle drawn on the map): alert when a member leaves it (or enters it), with debouncing, loss of contact and an exportable log. See [[Alert sectors and emergency mode|Secteurs-et-mode-urgence]]. The former “safety zone” (circle) is turned into a sector automatically.
 - **Search mode**: positions requested **every 2 minutes** for 15 min, 30 min, 1 h or 2 h, then back to the usual tracking. To find a team or a responder quickly; each request is a radio packet, hence the limited duration.
 - **Help request**: a message from a member containing the Meshtastic app's **alert bell** (🔔), **SOS**, **MAYDAY**, “au secours” or “besoin d'aide” triggers a critical alert: banner and sound for connected managers, notification, popup on the map at their last position (with the DFCI code), and a fresh position is requested right away. **✔ Acknowledged** clears it.

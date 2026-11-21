@@ -1787,3 +1787,40 @@ dialog.large:has(#pan-comptes:not([hidden])) { width: min(1240px, 97vw); }
 .ligne-jeu { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
 .ligne-jeu [data-champ="nom"] { width: 9.5em; }
 .ligne-jeu [data-champ="collee"] { flex: 1 1 16em; min-width: 12em; }
+
+/* ---- Secteurs d'alerte et mode urgence (crise.js) ---- */
+#bandeau-urgence { margin-left: 8px; padding: 3px 10px; border-radius: 12px; border: 2px solid #fecaca; background: #b91c1c; color: #fff; font-weight: 800; font-size: 12.5px; letter-spacing: .02em; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; max-width: 46vw; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 0 0 3px rgba(239,68,68,.35); }
+#bandeau-urgence i { width: 9px; height: 9px; border-radius: 50%; background: #fff; flex: none; animation: urg-point 1s ease-in-out infinite; }
+#bandeau-urgence .u-motif { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+@keyframes urg-point { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+/* Cadre rouge autour de l'écran : on voit d'un coup d'œil que la carte est en crise */
+body.mode-urgence::after { content: ''; position: fixed; inset: 0; border: 4px solid #ef4444; pointer-events: none; z-index: 2900; }
+/* Réseau ordinaire au second plan : équipes, demandes d'aide et secteurs restent nets (volets « urgence » et « secteurs ») */
+body.mode-urgence .leaflet-overlay-pane, body.mode-urgence .leaflet-marker-pane, body.mode-urgence .leaflet-shadow-pane, body.mode-urgence .leaflet-liens-pane, body.mode-urgence .leaflet-traces-pane { opacity: .35; }
+body.mode-urgence .kpis { display: none; }
+.leaflet-urgence-pane .urg-sos { animation: urg-pouls 1.1s ease-in-out infinite; }
+@keyframes urg-pouls { 0%, 100% { stroke-width: 4; stroke-opacity: 1; } 50% { stroke-width: 14; stroke-opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .leaflet-urgence-pane .urg-sos, #bandeau-urgence i { animation: none; } }
+.leaflet-tooltip.etiq-urgence { background: #0b1117; color: #fff; border: 2px solid #fff; font-weight: 700; font-size: 12px; padding: 1px 6px; box-shadow: none; }
+.leaflet-tooltip.etiq-urgence.sos { background: #b91c1c; border-color: #fecaca; }
+.leaflet-tooltip.etiq-urgence::before { display: none; }
+.tableau-crise h3, .secteurs-alerte h3 { margin: 16px 0 6px; font-size: 14px; color: var(--texte); }
+.tableau-crise .alerte, .secteurs-alerte .alerte { color: var(--texte); }
+.tableau-crise .actions-prop, .secteurs-alerte .actions-prop { flex-wrap: wrap; }
+.journal-crise, .journal-sa { max-height: 340px; overflow-y: auto; border: 1px solid var(--bord); border-radius: 8px; padding: 4px 8px; }
+.evt-crise, .evt-sa { padding: 4px 0; border-bottom: 1px solid var(--bord); font-size: 12.5px; color: var(--texte); line-height: 1.4; }
+.evt-crise:last-child, .evt-sa:last-child { border-bottom: 0; }
+.evt-crise time, .evt-sa time { font-family: var(--mono); font-weight: 700; color: #fff; margin-right: 4px; }
+.evt-crise.critique span, .evt-sa.sortie span, .evt-sa.entree span { color: #fecaca; font-weight: 600; }
+.evt-crise.attention span, .evt-sa.silence span { color: #fde68a; }
+.sa-dehors { color: #fdba74; font-weight: 700; }
+.secteurs-alerte .modif-sa { margin-top: 6px; }
+.secteurs-alerte .modif-sa > summary, .archives-crise > summary { cursor: pointer; font-weight: 600; }
+.archives-crise { margin-top: 14px; }
+#barre-dessin { position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 3100; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; max-width: calc(100vw - 32px); background: #0f172a; color: #f8fafc; border: 2px solid #22d3ee; border-radius: 12px; padding: 8px 12px; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+body.theme-clair #bandeau-urgence { color: #fff; }
+body.theme-clair .evt-crise time, body.theme-clair .evt-sa time { color: #0f172a; }
+body.theme-clair .evt-crise.critique span, body.theme-clair .evt-sa.sortie span, body.theme-clair .evt-sa.entree span { color: #991b1b; }
+body.theme-clair .evt-crise.attention span, body.theme-clair .evt-sa.silence span { color: #854d0e; }
+body.theme-clair .sa-dehors { color: #9a3412; }
+@media (max-width: 700px) { #bandeau-urgence { margin-left: 4px; padding: 3px 7px; max-width: 40vw; } #bandeau-urgence .u-motif { display: none; } }

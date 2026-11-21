@@ -2,6 +2,23 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.29.0
+
+### 🗺️ Secteurs d'alerte (géorepérage)
+- *Outils › 🗺️ Secteurs d'alerte* (lecture pour les gestionnaires, modification par les administrateurs) : un **polygone** ou un **cercle** dessiné sur la carte, rattaché à une **équipe** (ses membres du moment) et/ou à des nœuds choisis (Meshtastic, ou MeshCore par clé publique) ; alerte quand un intervenant **sort** du secteur, y **entre** (zone à éviter) ou les deux.
+- **Pas de fausses alertes** : marge autour de la limite, 2 positions de suite pour changer d'état (réglable), délai minimal entre deux alertes pour un même nœud, paquet entendu par plusieurs passerelles compté une fois. Les **positions floutées** (firmware 2.7/2.8) élargissent la marge ; une position plus floue que le secteur est ignorée et notée une fois.
+- **Perte de contact** en option (aucune position pendant 10 min à 2 h) et **message LoRa** court en option sur un canal (au plus un toutes les 30 s).
+- Les alertes arrivent au même endroit que les autres : *Réseau › Alertes*, son et notification des gestionnaires connectés, appli Android, domotique MQTT. **Journal** des entrées, sorties et pertes de contact, filtre par secteur, **export CSV**.
+- L'ancienne « zone de sécurité » (cercle) des équipes devient un secteur automatiquement. Secteurs, alertes et demandes d'aide des équipes ne partent plus vers la vue publique.
+
+### 🚨 Mode urgence
+- *Outils › 🚨 Mode urgence* (activé et terminé par un administrateur ; les gestionnaires lisent le tableau de crise et ajoutent des notes), inspiré du mode urgence de MeshWave : **bandeau rouge** et cadre rouge pour tous les comptes connectés, **carte simplifiée et contrastée** (réseau ordinaire au second plan, intervenants, demandes d'aide et secteurs devant), **tableau de crise** (demandes d'aide, alertes des secteurs, intervenants, alertes critiques), état du réseau toutes les 10 s, signalements et main courante remis en service s'ils étaient masqués.
+- **Journal horodaté de la crise** : déclenchement, demandes d'aide, messages de détresse entendus sur les canaux (SOS, MAYDAY, 🔔…), événements des secteurs, alertes critiques nouvelles, notes à la main, fin ; **export CSV**, les 10 crises précédentes sont gardées. Résiste à un redémarrage.
+- Le mode urgence ne change aucun réglage radio et n'envoie aucun message LoRa.
+
+### 🛠️ Corrections
+- Traductions anglaises manquantes des messages du serveur (observatoires CoreScope, fusion et annulation de fusion de nœuds 2.8).
+
 ## 2.28.15
 
 ### 🛠️ Corrections

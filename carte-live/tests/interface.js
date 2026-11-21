@@ -1126,6 +1126,60 @@ async function essaiRechercheMessages(navig, cookie) {
   }
 }
 
+// Secteurs d'alerte et mode urgence : secteur dessiné à la souris, bascule urgence (bandeau, carte, tableau de crise), retour normal
+async function essaiUrgenceEtSecteurs(navig, cookie) {
+  console.log('Secteurs d’alerte et mode urgence');
+  const H = { 'Content-Type': 'application/json', Cookie: `${cookie.name}=${cookie.value}` };
+  const appel = async (m, url, b, h = H) => { const r = await fetch(BASE + url, { method: m, headers: h, body: b ? JSON.stringify(b) : undefined }); return { statut: r.status, j: await r.json().catch(() => ({})) }; };
+  const ctx = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
+  await ctx.addCookies([cookie]);
+  await ctx.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(ctx, '/');
+  // Secteur : polygone dessiné sur la carte puis créé
+  await page.evaluate(() => ficheSecteurs()); await page.waitForTimeout(1200);
+  await page.locator('.nouveau-sa [data-poly]').click();
+  for (const [x, y] of [[520, 320], [820, 330], [780, 600], [500, 580]]) { await page.mouse.click(x, y); await page.waitForTimeout(120); }
+  await page.locator('#barre-dessin [data-finir]').click();
+  await page.locator('.nouveau-sa [data-c="nom"]').fill('Secteur essai');
+  await page.locator('.nouveau-sa [data-c="noeuds"]').fill('!5a1e0001');
+  await page.locator('.nouveau-sa [data-creer]').click(); await page.waitForTimeout(1200);
+  const l = await appel('GET', '/api/secteurs');
+  const sec = (l.j.secteurs || []).find((x) => x.nom === 'Secteur essai');
+  if (sec && sec.forme === 'polygone' && sec.points.length === 4 && sec.membres.length === 1) ok('secteur dessiné à la souris et créé'); else ko('secteur : ' + JSON.stringify(l.j).slice(0, 200));
+  if (await page.locator('.leaflet-secteurs-pane path').count()) ok('secteur tracé sur la carte'); else ko('secteur absent de la carte');
+  const pub = await appel('GET', '/api/secteurs', null, {});
+  if (pub.statut === 401) ok('secteurs refusés au public'); else ko('secteurs lisibles sans compte : ' + pub.statut);
+  // Mode urgence : activé (bandeau, carte en crise, tableau), puis terminé
+  const a = await appel('POST', '/api/urgence', { actif: true, motif: 'Essai automatique' });
+  await page.waitForTimeout(1500);
+  const enCrise = await page.evaluate(() => ({ classe: document.body.classList.contains('mode-urgence'), bandeau: (document.querySelector('#bandeau-urgence') || {}).textContent || '' }));
+  if (a.statut === 200 && enCrise.classe && /URGENCE/.test(enCrise.bandeau) && /Essai automatique/.test(enCrise.bandeau)) ok('mode urgence : bandeau et carte en crise reçus en direct'); else ko('mode urgence activé : ' + JSON.stringify({ a, enCrise }));
+  await page.locator('#bandeau-urgence').click(); await page.waitForTimeout(1200);
+  const tableau = await page.locator('#fiche-contenu').innerText().catch(() => '');
+  if (/Tableau de crise/.test(tableau) && /Mode urgence activé par/.test(tableau)) ok('tableau de crise et journal'); else ko('tableau de crise : ' + tableau.slice(0, 160));
+  await capture(page, 'mode-urgence');
+  const deux = await appel('POST', '/api/urgence', { actif: true });
+  if (deux.statut === 400) ok('double activation refusée'); else ko('double activation : ' + deux.statut);
+  // Gestionnaire : lit le tableau de crise et note au journal, mais n'active ni ne termine le mode urgence
+  await appel('POST', '/api/comptes', { identifiant: 'Gilles gestion', motDePasse: 'Essai-gilles-2026!!', role: 'gestionnaire' });
+  const cx = await fetch(BASE + '/api/connexion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifiant: 'Gilles gestion', motDePasse: 'Essai-gilles-2026!!' }) });
+  const HG = { 'Content-Type': 'application/json', Cookie: (cx.headers.get('set-cookie') || '').split(';')[0] };
+  const finG = await appel('POST', '/api/urgence', { actif: false }, HG);
+  const lectureG = await appel('GET', '/api/urgence', null, HG);
+  const noteG = await appel('POST', '/api/urgence/note', { texte: 'Note du gestionnaire' }, HG);
+  if (finG.statut === 403 && lectureG.statut === 200 && lectureG.j.actif && lectureG.j.tableau && noteG.statut === 200) ok('gestionnaire : 403 pour terminer, tableau lisible, note acceptée'); else ko('gestionnaire : ' + JSON.stringify({ fin: finG.statut, lecture: lectureG.statut, note: noteG.statut }));
+  const f = await appel('POST', '/api/urgence', { actif: false });
+  const actG = await appel('POST', '/api/urgence', { actif: true }, HG);
+  if (actG.statut === 403) ok('gestionnaire : 403 pour activer le mode urgence'); else ko('gestionnaire active le mode urgence : ' + actG.statut);
+  await page.waitForTimeout(1500);
+  const apres = await page.evaluate(() => ({ classe: document.body.classList.contains('mode-urgence'), bandeau: !!document.querySelector('#bandeau-urgence') }));
+  if (f.statut === 200 && !apres.classe && !apres.bandeau) ok('mode urgence terminé : affichage habituel'); else ko('fin du mode urgence : ' + JSON.stringify({ f: f.statut, apres }));
+  const csv = await fetch(BASE + '/api/urgence/journal.csv?crise=' + (f.j.derniere || {}).id, { headers: H });
+  if (csv.status === 200 && /heure_utc;heure_locale;type/.test(await csv.text())) ok('journal de crise exporté (CSV)'); else ko('export du journal de crise : ' + csv.status);
+  await appel('DELETE', '/api/secteurs/' + (sec ? sec.id : 'x'));
+  bilanErreurs(erreurs, 'secteurs et urgence');
+  await ctx.close();
+}
 async function essaiPagesPubliques(navig) {
   for (const [url, nom, attendu] of [['/publique.html', 'carte publique', '#carte .leaflet-pane, .leaflet-pane'], ['/topologie.html', 'graphe des liens', 'svg, canvas']]) {
     console.log(nom[0].toUpperCase() + nom.slice(1) + ' (visiteur)');
@@ -1171,6 +1225,7 @@ async function essaiPagesPubliques(navig) {
     await essaiEcran150(navigateur);
     await essaiTelephone(navigateur);
     await essaiRechercheMessages(navigateur, cookie);
+    await essaiUrgenceEtSecteurs(navigateur, cookie);
     await essaiPagesPubliques(navigateur);
     code = echecs ? 1 : 0;
     console.log(echecs ? `\n${echecs} problème(s) : captures et journal dans tests/resultats/` : '\nTout est bon ✓');

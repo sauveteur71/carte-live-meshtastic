@@ -122,6 +122,7 @@ function creerRenumerotation({ stockage, config, installations, comptes, adminis
       secteurs: comptes.remplacerNoeud(ancien, nouveau),
       equipes: o.equipes ? o.equipes.renumeroter(ancien, nouveau) : 0,
       suivis: o.suivis ? o.suivis.renumeroter(ancien, nouveau) : 0,
+      secteursAlerte: o.secteursAlerte ? o.secteursAlerte.renumeroter(ancien, nouveau) : 0,
     };
     if (o.responsables) o.responsables.remplacerNoeud(ancien, nouveau);
     administration.renumeroter(ancien, nouveau);
@@ -163,6 +164,7 @@ function creerRenumerotation({ stockage, config, installations, comptes, adminis
     if (h.secteurs) comptes.remplacerNoeud(h.nouveau, h.ancien);
     if (h.equipes && o.equipes) o.equipes.renumeroter(h.nouveau, h.ancien);
     if (h.suivis && o.suivis) o.suivis.renumeroter(h.nouveau, h.ancien);
+    if (h.secteursAlerte && o.secteursAlerte) o.secteursAlerte.renumeroter(h.nouveau, h.ancien);
     if (o.responsables) o.responsables.remplacerNoeud(h.nouveau, h.ancien);
     administration.renumeroter(h.nouveau, h.ancien);
     h.annule = { heure: Date.now(), par: auteur, lignes: remis };

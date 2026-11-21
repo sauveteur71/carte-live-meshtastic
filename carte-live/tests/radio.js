@@ -1131,3 +1131,178 @@ test('Recherche dans les messages : texte, accents, nom actuel de l’expéditeu
   st.db.close();
   fs.rmSync(dossier, { recursive: true, force: true });
 });
+
+// ---------- Secteurs d'alerte (géorepérage) et mode urgence ----------
+const geo = require('../src/secteurs');
+// Point à d mètres au nord (ou au sud si d < 0) d'un point donné
+const auNord = (p, d) => ({ lat: p.lat + d / 111195, lon: p.lon });
+function secteursEssai(extra = {}) {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'secteurs-'));
+  const horloge = { t: Date.UTC(2026, 10, 21, 8, 0, 0) };
+  const diffuses = [], evenements = [], lora = [];
+  const s = geo.creerSecteurs({
+    config: { fichierBase: path.join(dossier, 'base.db') }, intervalleMs: 0, maintenant: () => horloge.t,
+    membresEquipe: (id) => (id === 'eq1' ? [0x5a1e0001, 0x5a1e0002] : []), nomEquipe: (id) => (id === 'eq1' ? 'Equipe1' : null),
+    nomDe: (k) => ({ 'mt:1511915521': 'Alpha' })[k] || null,
+    diffuser: (m) => diffuses.push(m), surEvenement: (e) => evenements.push(e), envoyerLora: (t, c) => lora.push([t, c]), ...extra,
+  });
+  return { s, horloge, diffuses, evenements, lora, dossier };
+}
+const CENTRE = { lat: 45.0434, lon: 3.8851 };
+
+test('Secteurs : géométrie (point dans polygone, distance signée, précision des positions floutées)', () => {
+  const carre = [[45.00, 3.80], [45.00, 3.90], [45.05, 3.90], [45.05, 3.80]];
+  assert.equal(geo.pointDansPolygone({ lat: 45.02, lon: 3.85 }, carre), true);
+  assert.equal(geo.pointDansPolygone({ lat: 45.06, lon: 3.85 }, carre), false);
+  // Polygone concave (en U) : le creux est dehors
+  const u = [[45.0, 3.8], [45.0, 3.9], [45.05, 3.9], [45.05, 3.87], [45.01, 3.87], [45.01, 3.83], [45.05, 3.83], [45.05, 3.8]];
+  assert.equal(geo.pointDansPolygone({ lat: 45.03, lon: 3.85 }, u), false, 'creux du U');
+  assert.equal(geo.pointDansPolygone({ lat: 45.03, lon: 3.81 }, u), true, 'branche du U');
+  const d = geo.distanceLimite({ forme: 'polygone', points: carre }, { lat: 45.06, lon: 3.85 });
+  assert.ok(Math.abs(d - 1112) < 5, `≈ 1,1 km au nord du bord : ${d}`);
+  assert.ok(geo.distanceLimite({ forme: 'polygone', points: carre }, { lat: 45.045, lon: 3.85 }) < 0, 'dedans : distance négative');
+  const c = { forme: 'cercle', centre: CENTRE, rayon: 1000 };
+  assert.ok(Math.abs(geo.distanceLimite(c, auNord(CENTRE, 1500)) - 500) < 1);
+  assert.ok(Math.abs(geo.distanceLimite(c, CENTRE) + 1000) < 1e-6);
+  assert.ok(Math.abs(geo.tailleSecteur({ forme: 'polygone', points: carre }) - Math.sqrt(5560 * 7870 / Math.PI)) < 60);
+  assert.equal(geo.incertitude(32), 0); assert.equal(geo.incertitude(null), 0); assert.equal(geo.incertitude(0), 0);
+  assert.ok(Math.abs(geo.incertitude(13) - 2918) < 2, 'précision 13 bits ≈ 2,9 km');
+  assert.ok(Math.abs(geo.incertitude(16) - 365) < 2, 'précision 16 bits ≈ 364 m');
+  assert.throws(() => geo.valider({ nom: 'x', forme: 'polygone', points: [[45, 3], [45.0001, 3]], noeuds: [1] }), /3 à 200 sommets/);
+  assert.throws(() => geo.valider({ nom: 'x', forme: 'polygone', points: [[45, 3], [45.00001, 3], [45, 3.00001]], noeuds: [1] }), /trop petit/);
+  assert.throws(() => geo.valider({ nom: 'x', forme: 'cercle', centre: CENTRE, rayon: 500 }), /équipe ou à des nœuds/);
+  assert.throws(() => geo.valider({ nom: 'x', forme: 'cercle', centre: CENTRE, rayon: 10 }), /Rayon/);
+  assert.throws(() => geo.valider({ nom: 'x', forme: 'cercle', centre: CENTRE, rayon: 500, noeudsMc: ['AB'] }), /64 caractères/);
+});
+
+test('Secteurs : sortie confirmée par 2 positions, bordure et aller-retour sans alerte, anti-rebond, LoRa', () => {
+  const { s, horloge, evenements, lora, diffuses, dossier } = secteursEssai();
+  const sec = s.creer({ nom: 'Mézenc nord', forme: 'cercle', centre: CENTRE, rayon: 1000, equipe: 'eq1', marge: 50, confirmations: 2, delaiMin: 10, canalLora: 1 }, 'essai');
+  assert.equal(sec.membres.length, 2, 'membres de l’équipe suivis');
+  const A = 'mt:' + 0x5a1e0001;
+  let id = 0;
+  const pos = (d, extra = {}) => { horloge.t += 60000; return s.position(A, { ...auNord(CENTRE, 1000 + d), id: ++id, ...extra }); };
+  pos(-500); pos(-400);
+  assert.equal(s.secteur(sec.id).membres.find((m) => m.cle === A).etat, 'dedans', 'deux positions dedans : état connu');
+  assert.equal(evenements.filter((e) => e.notifier).length, 0, 'aucune alerte en entrant au départ');
+  pos(30); pos(40); // dans la marge de 50 m : bordure
+  assert.equal(s.secteur(sec.id).membres.find((m) => m.cle === A).etat, 'dedans', 'bordure : rien ne change');
+  pos(200); pos(-100); pos(200); // aller-retour : jamais deux positions dehors de suite
+  assert.equal(evenements.filter((e) => e.type === 'sortie').length, 0, 'aller-retour sans alerte');
+  pos(300);
+  const sortie = evenements.filter((e) => e.type === 'sortie');
+  assert.equal(sortie.length, 1); assert.equal(sortie[0].notifier, true); assert.equal(sortie[0].nom, 'Alpha');
+  assert.match(sortie[0].message, /Alpha est sorti du secteur \(300 m au-delà de la limite\)/);
+  assert.equal(lora.length, 1); assert.equal(lora[0][1], 1); assert.match(lora[0][0], /Alpha hors secteur Mézenc nord/);
+  assert.ok(diffuses.some((m) => m.genre === 'secteur-alerte' && m.type === 'sortie' && m.niveau === 'critique'));
+  const al = s.alertes();
+  assert.equal(al.length, 1); assert.equal(al[0].niveau, 'critique'); assert.equal(al[0].noeud, 0x5a1e0001);
+  assert.equal(al[0].cle, `secteur:${sec.id}:${A}:dehors:${sortie[0].heure}`, 'clé d’alerte = heure de l’événement');
+  // Même paquet reçu par une autre passerelle : compté une fois
+  const avant = evenements.length;
+  s.position(A, { ...auNord(CENTRE, 500), id }); s.position(A, { ...auNord(CENTRE, 500), id });
+  assert.equal(evenements.length, avant, 'doublon ignoré');
+  // Retour puis nouvelle sortie dans les 10 min : notée, pas notifiée
+  pos(-300); pos(-300); pos(400); pos(400);
+  const deux = evenements.filter((e) => e.type === 'sortie');
+  assert.equal(deux.length, 2); assert.equal(deux[1].notifier, false); assert.match(deux[1].detail, /délai minimal/);
+  assert.equal(lora.length, 1, 'pas de second message LoRa');
+  // Après le délai : notifiée de nouveau
+  pos(-300); pos(-300); horloge.t += 11 * 60000; pos(400); pos(400);
+  assert.equal(evenements.filter((e) => e.type === 'sortie' && e.notifier).length, 2);
+  // Journal et CSV
+  const j = s.journal({ secteur: sec.id });
+  assert.equal(j[0].type, 'sortie'); assert.ok(j.some((e) => e.type === 'creation'));
+  assert.match(s.csv(), /^heure_utc;heure_locale;secteur;type;noeud;nom;lat;lon/);
+  assert.match(s.csv(), /!5a1e0001;Alpha/);
+  s.arreter();
+  // Rechargé depuis le fichier : secteurs, état et journal conservés
+  const r = geo.creerSecteurs({ config: { fichierBase: path.join(dossier, 'base.db') }, intervalleMs: 0, membresEquipe: () => [0x5a1e0001], nomEquipe: () => 'Equipe1' });
+  assert.equal(r.liste()[0].membres[0].etat, 'dehors');
+  assert.ok(r.journal().length >= 5);
+  r.arreter();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('Secteurs : position floutée trop imprécise ignorée, secteur « entrée », perte de contact, MeshCore', () => {
+  const { s, horloge, evenements, dossier } = secteursEssai();
+  const sec = s.creer({ nom: 'Petit', forme: 'cercle', centre: CENTRE, rayon: 1000, noeuds: [0x5a1e0009], confirmations: 1 }, 'essai');
+  const K = 'mt:' + 0x5a1e0009;
+  s.position(K, { ...auNord(CENTRE, 5000), precision: 13, id: 1 }); // ± 2,9 km sur un secteur de 1 km
+  s.position(K, { ...auNord(CENTRE, 6000), precision: 13, id: 2 });
+  assert.equal(evenements.filter((e) => e.type === 'imprecise').length, 1, 'noté une seule fois');
+  assert.equal(evenements.filter((e) => e.type === 'sortie').length, 0, 'pas d’alerte sur une position floue');
+  // 16 bits (± 364 m) : utilisable, mais la marge s'élargit d'autant
+  s.position(K, { ...auNord(CENTRE, 1000 + 300), precision: 16, id: 3 });
+  assert.equal(evenements.filter((e) => e.type === 'sortie').length, 0, '300 m dehors à ± 364 m : bordure');
+  s.position(K, { ...auNord(CENTRE, 1000 + 600), precision: 16, id: 4 });
+  assert.equal(evenements.filter((e) => e.type === 'sortie').length, 1, '600 m dehors à ± 364 m : sortie');
+  // Secteur « entrée » (zone à éviter), nœud MeshCore
+  const CLE = 'AB'.repeat(32);
+  const z = s.creer({ nom: 'Zone dangereuse', forme: 'polygone', points: [[45.00, 3.80], [45.00, 3.82], [45.02, 3.82], [45.02, 3.80]], noeudsMc: [CLE], sens: 'entree', confirmations: 1, marge: 0, silenceMin: 15, delaiMin: 5 }, 'essai');
+  s.position('mc:' + CLE, { lat: 45.05, lon: 3.81, id: 'x1' });
+  assert.equal(evenements.filter((e) => e.secteur === z.id && e.notifier).length, 0, 'dehors au départ : rien');
+  horloge.t += 60000;
+  s.position('mc:' + CLE, { lat: 45.01, lon: 3.81, id: 'x2' });
+  const ent = evenements.find((e) => e.secteur === z.id && e.type === 'entree');
+  assert.ok(ent && ent.notifier && /est entré dans le secteur/.test(ent.message));
+  assert.ok(s.alertes().some((a) => a.secteur === z.id && a.noeudMc === CLE && a.niveau === 'critique'));
+  // Perte de contact : 16 min sans position
+  horloge.t += 16 * 60000;
+  s.verifierSilences();
+  const sil = evenements.find((e) => e.type === 'silence');
+  assert.ok(sil && sil.notifier && sil.minutes === 16);
+  assert.ok(s.alertes().some((a) => a.cle.includes(':silence:') && a.niveau === 'attention'));
+  s.verifierSilences();
+  assert.equal(evenements.filter((e) => e.type === 'silence').length, 1, 'une seule fois par épisode');
+  s.position('mc:' + CLE, { lat: 45.01, lon: 3.81, id: 'x3' });
+  assert.ok(evenements.some((e) => e.type === 'contact'));
+  assert.ok(!s.alertes().some((a) => a.cle.includes(':silence:')));
+  // Renumérotation 2.8 : le nœud garde son secteur
+  s.renumeroter(0x5a1e0009, 0x5a1e000a);
+  assert.deepEqual(s.secteur(sec.id).noeuds, [0x5a1e000a]);
+  assert.equal(s.secteur(sec.id).membres[0].etat, 'dehors');
+  s.supprimer(z.id, 'essai');
+  assert.equal(s.liste().length, 1);
+  s.arreter();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('Mode urgence : activation, journal sans doublon, note, fin, archive et export CSV', () => {
+  const { creerUrgence } = require('../src/urgence');
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'urgence-'));
+  const config = { fichierBase: path.join(dossier, 'base.db') };
+  const diffuses = [];
+  let t = Date.UTC(2026, 10, 21, 9, 0, 0);
+  const u = creerUrgence({ config, diffuser: (m) => diffuses.push(m), maintenant: () => t });
+  assert.equal(u.actif(), false);
+  assert.equal(u.noter({ texte: 'rien' }), null, 'hors crise : rien n’est noté');
+  assert.throws(() => u.desactiver('essai'), /pas actif/);
+  u.activer({ motif: 'Recherche de personne, Mézenc' }, 'f4gld');
+  assert.equal(u.actif(), true);
+  assert.throws(() => u.activer({}, 'x'), /déjà actif/);
+  assert.ok(diffuses.some((m) => m.genre === 'urgence' && m.actif && m.motif === 'Recherche de personne, Mézenc'));
+  t += 60000;
+  assert.ok(u.noter({ cle: 'equipe-sos:a:b', type: 'sos', niveau: 'critique', texte: 'Demande d’aide de Alpha', noeud: 0x5a1e0001, lat: 45.1, lon: 4.1 }));
+  assert.equal(u.noter({ cle: 'equipe-sos:a:b', type: 'sos', texte: 'Demande d’aide de Alpha' }), null, 'même clé : une seule fois');
+  u.note('Équipe 2 partie vers le col', 'f4gld');
+  assert.throws(() => u.note('  ', 'f4gld'), /vide/);
+  assert.equal(u.evenements()[0].type, 'note');
+  // Redémarrage pendant la crise : elle continue
+  u.arreter();
+  const u2 = creerUrgence({ config, maintenant: () => t });
+  assert.equal(u2.actif(), true);
+  assert.equal(u2.noter({ cle: 'equipe-sos:a:b', texte: 'x' }), null, 'clés déjà vues reprises au redémarrage');
+  t += 3600000;
+  const fin = u2.desactiver('f4gld');
+  assert.equal(fin.actif, false); assert.equal(fin.derniere.nb, 4);
+  assert.equal(u2.actif(), false);
+  assert.equal(u2.archives().length, 1);
+  const x = u2.csv(fin.derniere.id);
+  assert.match(x.nom, /^crise-2026-11-21-09-00\.csv$/);
+  const lignes = x.texte.split('\n');
+  assert.equal(lignes.length, 5);
+  assert.match(lignes[1], /;debut;critique;/); assert.match(x.texte, /!5a1e0001;45\.1;4\.1/); assert.match(lignes[4], /;fin;/);
+  u2.arreter();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
