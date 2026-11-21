@@ -138,6 +138,12 @@ const config = {
   // Client et flasheur officiels Meshtastic (vide = calculé : même machine, ports 8443/10000 en HTTPS ou 8096/8097 en HTTP)
   urlClient: texte('URL_CLIENT_MESHTASTIC'),
   urlFlasher: texte('URL_FLASHER'),
+  // Bandeau anglais « Switch to the world map » pour les visiteurs dont le navigateur n'est pas en français.
+  // Désactivé par défaut (chaque installation choisit) ; adresse invalide (autre que http/https) = adresse par défaut.
+  bandeauMonde: {
+    actif: texte('BANDEAU_MONDE', 'non') === 'oui',
+    url: (() => { const u = String(texte('BANDEAU_MONDE_URL')).trim(); return /^https?:\/\/[^\s"'<>]+$/i.test(u) ? u : 'https://github.com/sauveteur71/live-mesh-map-world'; })(),
+  },
   // Au-delà de cette distance, une « liaison radio directe » est jugée impossible (erreur de position ou de relais)
   lienDistanceMaxKm: nombre('LIEN_DISTANCE_MAX_KM', 120),
   // Preset LoRa du réseau (pour le temps d'émission) si le module radio ne l'a pas communiqué

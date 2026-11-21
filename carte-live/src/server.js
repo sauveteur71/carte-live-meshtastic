@@ -270,6 +270,7 @@ app.get('/api/config', (req, res) => {
     freqMHz: Number(process.env.RADIO_FREQ_MHZ) || 869.525,
     titre: config.carte.titre,
     outils: { client: config.urlClient || '', flasher: config.urlFlasher || '' },
+    bandeauMonde: config.bandeauMonde.actif ? { url: config.bandeauMonde.url } : null,
     centre: [config.carte.centreLat, config.carte.centreLon],
     zoom: config.carte.zoom,
     tuiles: config.carte.tuiles,

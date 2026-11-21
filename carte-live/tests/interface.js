@@ -30,7 +30,7 @@ fs.writeFileSync(path.join(donnees, 'feux.json'), JSON.stringify({ maj: Date.now
 ] }));
 function demarrerServeur() {
   serveur = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
-    env: { ...process.env, PORT: String(PORT), FICHIER_BASE: path.join(donnees, 'carte-live.db'), MQTT_URL: 'mqtt://127.0.0.1:1', DEPARTEMENT: '43', MESHCORE: 'oui', ADMIN_MOT_DE_PASSE: '', AGENTS_PORT: String(PORT + 5), PAT_URL: `http://127.0.0.1:${PORT + 7}`, PAT_INDICATIF: 'F4XYZ', SMTP_HOTE: 'fichier', CARTE_ADRESSE: 'https://carte.essai', STATS_PAYS: 'non' },
+    env: { ...process.env, PORT: String(PORT), FICHIER_BASE: path.join(donnees, 'carte-live.db'), MQTT_URL: 'mqtt://127.0.0.1:1', DEPARTEMENT: '43', MESHCORE: 'oui', ADMIN_MOT_DE_PASSE: '', AGENTS_PORT: String(PORT + 5), PAT_URL: `http://127.0.0.1:${PORT + 7}`, PAT_INDICATIF: 'F4XYZ', SMTP_HOTE: 'fichier', CARTE_ADRESSE: 'https://carte.essai', STATS_PAYS: 'non', BANDEAU_MONDE: 'oui', BANDEAU_MONDE_URL: 'https://monde.essai/carte' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const log = fs.createWriteStream(path.join(sorties, 'serveur.log'));
@@ -1050,6 +1050,100 @@ async function essaiTelephone(navig) {
   await contexte.close();
 }
 
+// Bandeau « Switch to the world map » : visiteurs étrangers seulement, sans chevaucher la barre, la recherche,
+// les outils, le panneau, la légende ni les boutons de la carte ; fermeture mémorisée
+async function essaiBandeauMonde(navig, cookie) {
+  console.log('Bandeau « carte monde » (visiteurs étrangers)');
+  // Rectangles du bandeau et des éléments à ne pas couvrir, puis liste de ceux qui le croisent
+  const mesurer = (page, selecteurs) => page.evaluate((sel) => {
+    const e = document.getElementById('bandeau-monde');
+    if (!e) return { present: false };
+    const r = e.getBoundingClientRect();
+    const croise = (x, y) => x.left < y.right && y.left < x.right && x.top < y.bottom && y.top < x.bottom;
+    const chevauche = [];
+    for (const q of sel) document.querySelectorAll(q).forEach((o) => { const b = o.getBoundingClientRect(); if (b.width && b.height && getComputedStyle(o).visibility !== 'hidden' && croise(r, b)) chevauche.push(q); });
+    const a = e.querySelector('.bm-ouvrir');
+    return { present: true, visible: !e.classList.contains('cache') && r.width > 0, dedans: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+      titre: (e.querySelector('b') || {}).textContent, bouton: a && a.textContent, href: a && a.getAttribute('href'), croix: !!e.querySelector('.bm-fermer'), chevauche, place: e.dataset.place, largeur: Math.round(r.width), texteLarge: Math.round(e.querySelector('.bm-texte').getBoundingClientRect().width) };
+  }, selecteurs);
+  const CARTE = ['.barre', '.outils', '.recherche-lieu', '.panneau', '.legende', '.leaflet-control', '.deplier'];
+  const attendre = (page) => page.waitForFunction(() => { const e = document.getElementById('bandeau-monde'); return e && !e.classList.contains('cache'); }, null, { timeout: 6000 }).catch(() => {});
+
+  // Navigateur en français : jamais de bandeau
+  let ctx = await navig.newContext({ viewport: { width: 1366, height: 800 }, locale: 'fr-FR' });
+  await ctx.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); } catch { /* */ } });
+  let { page, erreurs } = await ouvrir(ctx, '/');
+  await page.waitForTimeout(1800);
+  if (!(await mesurer(page, [])).present) ok('navigateur en français : pas de bandeau'); else ko('navigateur en français : bandeau affiché');
+  await ctx.close();
+
+  // Ordinateur, navigateur en anglais : bandeau, lien réglé, rien de recouvert ; la croix le ferme pour de bon
+  ctx = await navig.newContext({ viewport: { width: 1366, height: 800 }, locale: 'en-US' });
+  await ctx.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); } catch { /* */ } });
+  ({ page, erreurs } = await ouvrir(ctx, '/'));
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  await attendre(page);
+  let m = await mesurer(page, CARTE);
+  if (m.visible && m.dedans && m.titre === 'Switch to the world map' && m.bouton === 'Open the world map' && m.href === 'https://monde.essai/carte' && m.croix) ok('ordinateur en anglais : bandeau « Switch to the world map » et bouton vers la carte monde réglée');
+  else ko('ordinateur en anglais : bandeau ' + JSON.stringify(m));
+  if (m.visible && !m.chevauche.length) ok(`ordinateur : bandeau (${m.place}) sans chevauchement de la barre, des outils, de la recherche, du panneau ni de la légende`); else ko('ordinateur : bandeau chevauche ' + JSON.stringify(m.chevauche));
+  // Lisible : pas de texte écrasé en colonne étroite
+  if (m.largeur >= 400 && m.texteLarge >= 200) ok(`ordinateur : bandeau lisible (${m.largeur} px, texte ${m.texteLarge} px)`); else ko(`ordinateur : bandeau trop étroit ${m.largeur} px, texte ${m.texteLarge} px`);
+  await capture(page, 'bandeau-monde-ordinateur');
+  await page.click('#bandeau-monde .bm-fermer');
+  const ferme = await page.evaluate(() => ({ parti: !document.getElementById('bandeau-monde'), memo: localStorage.getItem('gaulix_bandeau_monde_ferme') }));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(3500);
+  if (ferme.parti && ferme.memo === '1' && !(await mesurer(page, [])).present) ok('croix : bandeau fermé et pas revenu après rechargement'); else ko('croix : ' + JSON.stringify(ferme));
+  bilanErreurs(erreurs, 'bandeau carte monde (ordinateur)');
+  await ctx.close();
+
+  // Téléphone en anglais : bandeau visible sans toucher la barre du haut, la recherche, les boutons ni le tiroir
+  ctx = await navig.newContext({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'en-GB' });
+  await ctx.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); } catch { /* */ } });
+  ({ page, erreurs } = await ouvrir(ctx, '/'));
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  await attendre(page);
+  m = await mesurer(page, CARTE);
+  if (m.visible && m.dedans && !m.chevauche.length) ok(`téléphone : bandeau (${m.place}) sans chevauchement de la barre du haut, de la recherche, des outils, du tiroir ni des boutons`);
+  else ko('téléphone : bandeau ' + JSON.stringify(m));
+  await capture(page, 'bandeau-monde-telephone');
+  // Tablette en paysage
+  await page.setViewportSize({ width: 1024, height: 700 });
+  await page.waitForTimeout(2200);
+  m = await mesurer(page, CARTE);
+  if (!m.visible || (m.dedans && !m.chevauche.length)) ok('tablette : bandeau sans chevauchement (ou effacé faute de place)'); else ko('tablette : bandeau chevauche ' + JSON.stringify(m.chevauche));
+  bilanErreurs(erreurs, 'bandeau carte monde (téléphone)');
+  await ctx.close();
+
+  // Page publique, navigateur en allemand : texte anglais intact (pas traduit), rien de recouvert
+  ctx = await navig.newContext({ viewport: { width: 1280, height: 800 }, locale: 'de-DE' });
+  ({ page, erreurs } = await ouvrir(ctx, '/publique.html'));
+  await attendre(page);
+  m = await mesurer(page, ['.bandeau', '.legende', '.leaflet-control']);
+  if (m.visible && m.titre === 'Switch to the world map' && !m.chevauche.length) ok('page publique (allemand) : bandeau en anglais, sans chevauchement'); else ko('page publique : bandeau ' + JSON.stringify(m));
+  await capture(page, 'bandeau-monde-publique');
+  bilanErreurs(erreurs, 'bandeau carte monde (page publique)');
+  await ctx.close();
+
+  // Installation qui ne l'a pas activé : rien ; adresse par défaut (GitHub) : bouton honnête
+  for (const [bm, attendu] of [[null, null], [{ url: 'https://github.com/sauveteur71/live-mesh-map-world' }, 'See the world edition']]) {
+    ctx = await navig.newContext({ viewport: { width: 1366, height: 800 }, locale: 'en-US' });
+    await ctx.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); } catch { /* */ } });
+    await ctx.route('**/api/config', async (r) => { const rep = await r.fetch(); const j = await rep.json(); j.bandeauMonde = bm; await r.fulfill({ response: rep, json: j }); });
+    ({ page } = await ouvrir(ctx, '/'));
+    await page.waitForTimeout(1800);
+    m = await mesurer(page, []);
+    if (bm === null) { if (!m.present) ok('bandeau non activé par l’installation : rien ne s’affiche'); else ko('bandeau affiché alors qu’il est désactivé'); }
+    else if (m.bouton === attendu) ok('adresse GitHub par défaut : bouton « See the world edition »'); else ko('adresse GitHub : bouton ' + m.bouton);
+    await ctx.close();
+  }
+  // Réglage avancé : adresse autre que http(s) refusée par le serveur (sans rien enregistrer)
+  const r = await fetch(BASE + '/api/reglages/variables', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: `${cookie.name}=${cookie.value}` }, body: JSON.stringify({ variables: { BANDEAU_MONDE_URL: 'javascript:alert(1)' } }) });
+  const t = await r.json().catch(() => ({}));
+  if (r.status === 400 && /http/.test(t.erreur || '')) ok('réglage : adresse de la carte monde non http(s) refusée'); else ko(`réglage : adresse refusée attendue, reçu ${r.status} ${JSON.stringify(t)}`);
+}
+
 async function essaiPagesPubliques(navig) {
   for (const [url, nom, attendu] of [['/publique.html', 'carte publique', '#carte .leaflet-pane, .leaflet-pane'], ['/topologie.html', 'graphe des liens', 'svg, canvas']]) {
     console.log(nom[0].toUpperCase() + nom.slice(1) + ' (visiteur)');
@@ -1094,6 +1188,7 @@ async function essaiPagesPubliques(navig) {
     await essaiUsbAuto(navigateur, cookie);
     await essaiEcran150(navigateur);
     await essaiTelephone(navigateur);
+    await essaiBandeauMonde(navigateur, cookie);
     await essaiPagesPubliques(navigateur);
     code = echecs ? 1 : 0;
     console.log(echecs ? `\n${echecs} problème(s) : captures et journal dans tests/resultats/` : '\nTout est bon ✓');

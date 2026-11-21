@@ -67,6 +67,7 @@ Default display (optional):
 | `CARTE_RESEAUX` | networks offered | `les-deux` (default, both), `meshtastic`, `meshcore`: the Meshtastic / MeshCore / Both choice disappears |
 | `MESHCORE_RADIO_ATTENDUE` | expected radio setting of the MeshCore companion (warning if different) | `869.618,62.5,8,8` (default), or `non` to never warn |
 | `CARTE_COUCHES_MASQUEES` | layers hidden at start | e.g. `sommets` (high points and suggested sites), `routiers`, `animations`… |
+| `BANDEAU_MONDE` / `BANDEAU_MONDE_URL` | English “Switch to the world map” banner for visitors whose browser is not in French | `non` (default) or `oui`; `http(s)://…` address of the world map (empty = world edition on GitHub) |
 
 Each visitor can then change the base map and layers in *Layers ▾*. Their choice is kept in their browser.
 
