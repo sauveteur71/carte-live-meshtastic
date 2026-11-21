@@ -3,7 +3,7 @@
 // MeshCore national) puis chronomètre les traitements qui tournent pendant que la carte sert ses visiteurs :
 // état toutes les 30 s (alertes, statistiques), liste des nœuds, purge horaire, décodage d'un message MQTT…
 //
-//   node outils/banc-reactivite.js /chemin/essai.db [--remplir] [--noeuds 12000] [--paquets 400000]
+//   node outils/banc-reactivite.js /chemin/essai.db [--remplir] [--noeuds 12000] [--paquets 400000] [--textes 200000]
 //
 // --remplir recrée la base (sinon elle est réutilisée telle quelle). Rien n'est envoyé sur le réseau.
 const fs = require('fs');
@@ -16,6 +16,9 @@ const opt = (nom, defaut) => { const i = args.indexOf('--' + nom); return i >= 0
 const remplir = args.includes('--remplir') || !fs.existsSync(fichier);
 const NB_NOEUDS = opt('noeuds', 12000), NB_PAQUETS = opt('paquets', 400000);
 const NB_MC_NOEUDS = opt('mc-noeuds', 5000), NB_MC_PAQUETS = opt('mc-paquets', 150000);
+// Messages texte anciens (entre la rétention du trafic et celle des messages, 7 à 90 jours) : conservés par la
+// purge, mais qu'elle doit savoir enjamber sans les relire à chaque lot
+const NB_TEXTES = opt('textes', 200000);
 
 process.env.FICHIER_BASE = fichier;
 process.env.DEPARTEMENT = process.env.DEPARTEMENT || '43';
@@ -81,6 +84,16 @@ if (remplir) {
       }
     })();
   }
+  // Textes anciens : du lendemain de la limite du trafic jusqu'à la limite des messages, plus 1 % déjà expirés
+  const retMsg = Math.max(config.messagesRetentionJours, config.retentionJours) * JOUR;
+  for (let t = 0; t < NB_TEXTES;) {
+    db.transaction(() => {
+      for (let k = 0; k < 20000 && t < NB_TEXTES; k++, t++) {
+        const heure = maintenant - retention - 3600000 - (retMsg - retention) * (t / NB_TEXTES) * 1.01;
+        insP.run(2 ** 30 + t, choix(nums), 'texte', 'TEXT', heure, 2, 1, 1);
+      }
+    })();
+  }
   db.transaction(() => {
     const insL = db.prepare('INSERT OR IGNORE INTO liens (a, b, source, snr, rssi, nb, premier_vu, dernier_vu) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     for (let i = 0; i < NB_NOEUDS * 2.5; i++) { const h = maintenant - Math.random() * (retention + 3600000); insL.run(choix(nums), choix(nums), choix(['rf', 'voisinage', 'traceroute']), alea(-20, 10), -100, entier(1, 50), h - JOUR, h); }
@@ -121,7 +134,7 @@ if (remplir) {
 
 // ---- Mesures ----
 const compte = (t) => db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n;
-console.log(`\nBase ${fichier} (${Math.round(fs.statSync(fichier).size / 1048576)} Mo) : ${compte('noeuds')} nœuds, ${compte('paquets')} paquets, ${compte('receptions')} réceptions · MeshCore ${compte('mc_noeuds')} nœuds, ${compte('mc_paquets')} paquets, ${compte('mc_receptions')} réceptions\n`);
+console.log(`\nBase ${fichier} (${Math.round(fs.statSync(fichier).size / 1048576)} Mo) : ${compte('noeuds')} nœuds, ${compte('paquets')} paquets (${db.prepare("SELECT COUNT(*) AS n FROM paquets WHERE port = 'texte'").get().n} textes), ${compte('receptions')} réceptions · MeshCore ${compte('mc_noeuds')} nœuds, ${compte('mc_paquets')} paquets, ${compte('mc_receptions')} réceptions\n`);
 const resultats = {};
 const m = (nom, fn) => { const x = chrono(nom, fn); resultats[nom] = x.ms; return x.r; };
 m('Meshtastic : calculerAlertes()', () => reseau.calculerAlertes());

@@ -14,7 +14,9 @@ const RECENT_MS = 10 * 60000;
 
 // dossier : données de la carte ; verrous() : codes en cours de chargement ou de préparation ;
 // enMemoire() : Map code -> instance de relief ouverte ; liberer(code) : ferme l'instance en mémoire
-function creerCacheRelief({ dossier, journal = () => {}, verrous = () => new Set(), enMemoire = () => new Map(), liberer = () => {}, grossier = null, nomZone = () => null }) {
+// codePrincipal : code de la zone de la carte (ses villes-XX.json / communes-XX.json ne sont pas une zone purgeable)
+function creerCacheRelief({ dossier, journal = () => {}, verrous = () => new Set(), enMemoire = () => new Map(), liberer = () => {}, grossier = null, nomZone = () => null, codePrincipal = null }) {
+  const principal = codePrincipal ? String(codePrincipal).toUpperCase() : null;
   const fUtil = path.join(dossier, 'relief-utilisation.json');
   let utilisation = {};
   try { utilisation = lireJson(fUtil) || {}; } catch { /* premier lancement */ }
@@ -45,6 +47,7 @@ function creerCacheRelief({ dossier, journal = () => {}, verrous = () => new Set
       try { st = fs.statSync(path.join(dossier, f)); } catch { continue; }
       if (!st.isFile()) continue;
       const code = m[2].toUpperCase();
+      if (code === principal) continue; // zone de la carte : jamais purgeable, comptée avec les fichiers sans suffixe
       if (!parCode.has(code)) parCode.set(code, { code, octets: 0, fichiers: [], mnt: false, mtime: 0 });
       const z = parCode.get(code);
       z.octets += st.size; z.fichiers.push(f);
@@ -63,6 +66,11 @@ function creerCacheRelief({ dossier, journal = () => {}, verrous = () => new Set
   function principale() {
     let octets = 0;
     for (const f of ['mnt.bin', 'mnt.json', 'sommets-osm.json', 'acces-sommets.json', 'realisme.json']) { try { octets += fs.statSync(path.join(dossier, f)).size; } catch { /* absent */ } }
+    if (principal) {
+      let noms = [];
+      try { noms = fs.readdirSync(dossier); } catch { /* dossier absent */ }
+      for (const f of noms) { const m = RE_ZONE.exec(f); if (m && m[2].toUpperCase() === principal) { try { octets += fs.statSync(path.join(dossier, f)).size; } catch { /* disparu */ } } }
+    }
     return { octets };
   }
 

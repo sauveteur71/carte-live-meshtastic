@@ -6014,22 +6014,54 @@ setInterval(() => { if (carte) dessinerChaleur(); }, 20000);
 // ---- Chargement & temps réel -------------------------------------------------------
 // Liste complète au démarrage et toutes les 10 min ; entre-temps, seulement les nœuds modifiés (?depuis=) :
 // avec le flux msh/EU_868, la liste complète pèse plusieurs Mo et était redemandée toutes les 4 s par chaque carte
+// Le repère ?depuis= est l'heure serveur de préparation de la liste (en-tête X-Heure), jamais une heure tirée des
+// données (une horloge GPS dans le futur gelait la mise à jour). Le serveur renvoie les nœuds dont la fiche a été
+// écrite depuis (quelle que soit l'heure de la donnée) et ceux qui ont été supprimés.
 async function chargerNoeuds(complet) {
   if (complet || !etat.heureNoeuds || Date.now() - (etat.completNoeuds || 0) > 600000) {
-    const liste = await api('/api/noeuds');
+    const r = await fetch('/api/noeuds', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error(r.statusText);
+    const liste = await r.json();
     etat.noeuds = new Map(liste.map((n) => [n.num, n]));
-    // Repère pris sur l'horloge du serveur (heures des nœuds), pas sur celle du navigateur
-    etat.heureNoeuds = liste.reduce((m, n) => Math.max(m, n.dernierVu || 0, n.heurePosition || 0, n.heureTelemetrie || 0), 0) || 1;
+    etat.heureNoeuds = Number(r.headers.get('X-Heure')) || Date.now();
     etat.completNoeuds = Date.now();
   } else {
     const r = await api('/api/noeuds?depuis=' + etat.heureNoeuds);
-    for (const n of r.noeuds || []) etat.noeuds.set(n.num, n);
+    if (Array.isArray(r)) { // repère trop ancien pour le serveur : il a renvoyé la liste complète
+      etat.noeuds = new Map(r.map((n) => [n.num, n]));
+      etat.completNoeuds = Date.now();
+    } else {
+      for (const n of r.noeuds || []) etat.noeuds.set(n.num, n);
+      for (const num of r.supprimes || []) retirerNoeud(Number(num) >>> 0);
+    }
     if (r.heure) etat.heureNoeuds = r.heure;
   }
+  majStatuts();
   dessinerNoeuds();
   if (etat.config) rendreLegende();
   rendreNoeuds();
 }
+// Nœud disparu (purge, administrateur) : retiré de la carte et des listes
+function retirerNoeud(k) {
+  etat.noeuds.delete(k);
+  const mk = etat.marqueurs.get(k); if (mk) { mk.remove(); etat.marqueurs.delete(k); }
+  if (etat.selection === k) $('#fermer-fiche').click();
+}
+// Statut (actif → récent → inactif) recalculé ici à partir de dernierVu : le serveur ne renvoie pas un nœud qui
+// vieillit sans rien émettre. Vrai si au moins un statut a changé.
+function majStatuts() {
+  const s = etat.config && etat.config.seuils;
+  if (!s) return false;
+  const maintenant = Date.now();
+  let change = false;
+  for (const n of etat.noeuds.values()) {
+    const age = maintenant - (n.dernierVu || 0);
+    const statut = age < s.actifMinutes * 60000 ? 'actif' : age < s.inactifHeures * 3600000 ? 'recent' : 'inactif';
+    if (n.statut !== statut) { n.statut = statut; change = true; }
+  }
+  return change;
+}
+setInterval(() => { if (carte && majStatuts()) { dessinerNoeuds(); rendreNoeuds(); } }, 60000);
 async function chargerLiens() {
   etat.liens = await api('/api/liens?heures=' + $('#fenetre').value);
   dessinerLiens();
@@ -6082,14 +6114,17 @@ function majEtat(e) {
 
 // ---- Page du broker MQTT : état, passerelles entendues, réglages et test ----------------------
 
-let rafraichir = null;
+let rafraichir = null, rafraichirLiens = null;
 function planifierRafraichissement() {
   if (rafraichir) return;
   rafraichir = setTimeout(async () => {
     rafraichir = null;
-    // Liaisons relues au plus toutes les 30 s (des milliers de liaisons avec le flux d'un pays entier)
-    const liens = Date.now() - (etat.heureLiens || 0) > 30000;
+    // Liaisons relues au plus toutes les 30 s (des milliers de liaisons avec le flux d'un pays entier) ; si la relecture
+    // est sautée, elle est programmée à l'échéance pour ne pas attendre le paquet suivant
+    const reste = 30000 - (Date.now() - (etat.heureLiens || 0));
+    const liens = reste <= 0;
     if (liens) etat.heureLiens = Date.now();
+    else if (!rafraichirLiens) rafraichirLiens = setTimeout(() => { rafraichirLiens = null; planifierRafraichissement(); }, reste + 100);
     await Promise.all([chargerNoeuds(), liens ? chargerLiens() : null]).catch(() => {});
     rendreReseau();
   }, 4000);
@@ -6097,7 +6132,7 @@ function planifierRafraichissement() {
 
 // Économie de données et de batterie : onglet caché depuis 2 min (téléphone en poche), le flux en direct est coupé ;
 // au retour, reconnexion et rechargement des nœuds et liaisons
-const veille = { ws: null, minuterie: null, endormi: false };
+const veille = { ws: null, minuterie: null, endormi: false, coupe: false };
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     clearTimeout(veille.minuterie);
@@ -6107,7 +6142,7 @@ document.addEventListener('visibilitychange', () => {
     if (veille.endormi) {
       veille.endormi = false;
       connecterWs();
-      Promise.all([chargerNoeuds(), chargerLiens()]).then(() => rendreReseau()).catch(() => {});
+      Promise.all([chargerNoeuds(true), chargerLiens()]).then(() => rendreReseau()).catch(() => {});
       if (typeof mcPlanifier === 'function') mcPlanifier();
     }
   }
@@ -6148,10 +6183,7 @@ function connecterWs() {
     }
     // Nœud supprimé par un administrateur : retiré de la carte et des listes
     if (m.genre === 'noeud-supprime') {
-      const k = Number(m.num) >>> 0;
-      etat.noeuds.delete(k);
-      const mk = etat.marqueurs.get(k); if (mk) { mk.remove(); etat.marqueurs.delete(k); }
-      if (etat.selection === k) $('#fermer-fiche').click();
+      retirerNoeud(Number(m.num) >>> 0);
       rendreNoeuds(); dessinerLiens();
       return;
     }
@@ -6163,6 +6195,8 @@ function connecterWs() {
       return;
     }
     if (m.genre === 'bienvenue' || m.genre === 'mqtt') {
+      // Reconnexion après une coupure : des suppressions ou des modifications ont pu être manquées, liste complète
+      if (m.genre === 'bienvenue' && veille.coupe) { veille.coupe = false; chargerNoeuds(true).then(() => rendreReseau()).catch(() => {}); }
       const ok = m.genre === 'bienvenue' ? m.mqtt : m.connecte;
       temoin.className = 'direct ' + (ok ? 'ok' : 'ko');
       temoin.querySelector('b').textContent = ok ? 'En direct' : 'Broker déconnecté';
@@ -6183,6 +6217,8 @@ function connecterWs() {
       majEtat(m);
       dessinerNoeuds();
     } else if (m.genre === 'statut') {
+      // Module radio ou MeshMonitor (re)connecté : des fiches entières peuvent avoir changé, liste complète
+      etat.completNoeuds = 0;
       planifierRafraichissement();
     } else if (m.genre && m.genre.startsWith('mc-') && typeof mcRecevoir === 'function') {
       mcRecevoir(m);
@@ -6192,6 +6228,7 @@ function connecterWs() {
     temoin.className = 'direct ko';
     if (veille.endormi) { temoin.querySelector('b').textContent = 'En pause'; return; } // reprise au retour sur l'onglet
     temoin.querySelector('b').textContent = 'Reconnexion…';
+    veille.coupe = true;
     setTimeout(connecterWs, 4000);
   };
 }

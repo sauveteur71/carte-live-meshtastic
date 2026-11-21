@@ -1111,7 +1111,7 @@ async function rendreCacheRelief(message) {
   };
   $('#cr-grossier').onchange = (e) => envoyer({ grossier: e.target.checked });
   const dl = $('#cr-dl-grossier'); if (dl) dl.onclick = () => envoyer({ telechargerGrossier: true });
-  const sg = $('#cr-suppr-grossier'); if (sg) sg.onclick = () => envoyer({ purger: { grossier: true } }, 'Supprimer le relief approximatif du monde entier ? Il sera retéléchargé (≈ 19 Mo) tant que l’option reste cochée.');
+  const sg = $('#cr-suppr-grossier'); if (sg) sg.onclick = () => envoyer({ purger: { grossier: true } }, 'Supprimer le relief approximatif du monde entier ? L’option sera décochée en même temps (sinon il serait retéléchargé dans l’heure, ≈ 19 Mo).');
   $('#cr-plafond-ok').onclick = () => envoyer({ plafondGo: Number($('#cr-plafond').value) || 0 });
   $('#cr-vieilles').onclick = () => { const j = Math.max(1, Number($('#cr-jours').value) || 30); envoyer({ purger: { joursInactifs: j } }, `Supprimer le relief des zones inutilisées depuis ${j} jours ?`); };
   $('#cr-tout').onclick = () => envoyer({ purger: { tout: true } }, `Supprimer le relief des ${r.nbZones} zone(s) téléchargée(s) (${tailleDisque(r.zonesOctets)}) ? La zone de la carte et le relief mondial sont gardés.`);

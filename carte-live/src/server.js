@@ -10,6 +10,7 @@ const { ecrireSur, lireJson } = require('./fichiers');
 const path = require('path');
 const net = require('net');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const express = require('express');
 const mqtt = require('mqtt');
 const { WebSocketServer } = require('ws');
@@ -333,21 +334,28 @@ app.get('/api/config', (req, res) => {
 // Liste complète des nœuds : des milliers avec le flux msh/EU_868 (plusieurs Mo de JSON). Elle est préparée au plus
 // toutes les 10 s et la même réponse sert tous les navigateurs (une vue membre, une vue publique). ?depuis=heure :
 // seulement les nœuds modifiés depuis (mise à jour incrémentale de la carte, quelques nœuds au lieu de milliers).
+// L'en-tête X-Heure donne l'heure serveur de préparation de la liste : c'est le repère que le navigateur renvoie en
+// ?depuis= (et non le maximum des heures des nœuds : une horloge GPS dans le futur gelait la liste incrémentale).
+// Un ?depuis= trop ancien (plus de 10 min : onglet endormi) reçoit la liste complète en cache.
 let cacheNoeuds = {};
 function viderCacheNoeuds(ageMs = 0) { for (const k of Object.keys(cacheNoeuds)) if (Date.now() - cacheNoeuds[k].heure >= ageMs) delete cacheNoeuds[k]; }
 app.get('/api/noeuds', (req, res) => {
   const admin = estMembre(req);
   const maintenant = Date.now();
   const depuis = Number(req.query.depuis) || 0;
-  if (depuis > 0) return res.set('Cache-Control', 'no-store').json({ heure: maintenant, noeuds: reseau.noeudsDepuis(Math.min(depuis, maintenant) - 5000, admin) });
+  res.set('Cache-Control', 'private, no-cache').set('Vary', 'Cookie, Accept-Encoding').set('X-Heure', String(maintenant));
+  if (depuis > 0 && maintenant - depuis < 600000) return res.set('Cache-Control', 'no-store').json({ heure: maintenant, ...reseau.noeudsDepuis(Math.min(depuis, maintenant) - 5000, admin) });
   const k = admin ? 'membre' : 'public';
   let c = cacheNoeuds[k];
   if (!c || maintenant - c.heure > 10000) {
     const corps = Buffer.from(JSON.stringify(stockage.q.noeuds.all().map((n) => reseau.vueNoeud(n, admin, maintenant))));
-    c = cacheNoeuds[k] = { heure: maintenant, corps, etag: `W/"${corps.length.toString(16)}-${crypto.createHash('sha1').update(corps).digest('base64').slice(0, 20)}"` };
+    // Version gzip gardée avec la liste : compressée une fois toutes les 10 s au lieu d'une fois par navigateur
+    const gz = corps.length > 1024 ? zlib.gzipSync(corps, { level: 5 }) : null;
+    c = cacheNoeuds[k] = { heure: maintenant, corps, gz, etag: `W/"${corps.length.toString(16)}-${crypto.createHash('sha1').update(corps).digest('base64').slice(0, 20)}"` };
   }
-  res.set('ETag', c.etag).type('json');
+  res.set('ETag', c.etag).set('X-Heure', String(c.heure)).type('json');
   if (req.fresh) return res.status(304).end();
+  if (c.gz && req.acceptsEncodings('gzip')) return res.set('Content-Encoding', 'gzip').send(c.gz);
   res.send(c.corps);
 });
 
@@ -461,9 +469,11 @@ const cacheRelief = creerCacheRelief({
   enMemoire: () => reliefsEtude,
   liberer: (code) => { const v = reliefsEtude.get(code); if (v) { try { v.arreter(); } catch { /* déjà */ } reliefsEtude.delete(code); } },
   nomZone: (code) => nomDepartement(code),
+  codePrincipal: config.departement.code,
 });
 const plafondRelief = () => Math.max(0, Number(reliefPublic.plafondGo) || 0);
-const appliquerPlafondRelief = () => { try { cacheRelief.appliquerPlafond(plafondRelief()); } catch (e) { journal('[Relief] plafond :', e.message); } };
+// Plafond suspendu pendant « Préparer toute la France / la zone » : sinon il supprimait les zones à peine préparées
+const appliquerPlafondRelief = () => { if (precharge.enCours) return; try { cacheRelief.appliquerPlafond(plafondRelief()); } catch (e) { journal('[Relief] plafond :', e.message); } };
 setInterval(appliquerPlafondRelief, 3600000).unref();
 const reliefSurDisque = (code) => ['mnt-' + code + '.bin', 'sommets-osm-' + code + '.json'].every((f) => fs.existsSync(path.join(path.dirname(config.fichierBase), f)));
 // Paquet « relief France » : relief IGN, points hauts, accès, sites et communes de chaque département, en un fichier
@@ -719,6 +729,12 @@ app.post('/api/relief/cache', async (req, res) => {
       grossier: p.grossier === true,
     };
     if (!o.tout && !o.codes && o.joursInactifs == null && !o.grossier) return res.status(400).json({ erreur: 'Rien à purger' });
+    // Relief mondial supprimé : l'option est décochée en même temps, sinon l'essai horaire le retéléchargeait (≈ 19 Mo)
+    if (o.grossier && grossierActif()) {
+      reliefPublic.grossier = false; reliefGrossier.arreter();
+      journal(`[Relief] relief grossier mondial désactivé avec sa suppression (${qui})`);
+      try { ecrireSur(fReliefPublic, JSON.stringify(reliefPublic)); } catch (e) { return res.status(500).json({ erreur: e.message }); }
+    }
     try { purge = await cacheRelief.purger(o, qui); } catch (e) { return res.status(500).json({ erreur: e.message }); }
     cacheTerrain.clear();
   }
@@ -769,6 +785,16 @@ app.get('/api/relief/relier', async (req, res) => {
   try { res.json(RR.relierPoints(a, b, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
 });
 const cacheCouverture = new Map();
+// Calculs asynchrones : N demandes identiques simultanées (plusieurs onglets, double clic) ne lancent plus N calculs
+// (mémoire × N dans un conteneur de 512 Mo) ; la promesse en cours est partagée par clé puis retirée.
+const calculPartage = require('./calcul-partage').creerCalculPartage().partager;
+function garderCouverture(cle, r) {
+  r.id = crypto.randomBytes(6).toString('hex');
+  if (!r.approximatif) cacheCouverture.set(cle, r); // relief grossier : jamais gardé comme un résultat précis
+  cacheCouverture.set(r.id, r);
+  if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
+  return r;
+}
 const calculsPublics = new Map();
 function limiterCalcul(ip) {
   const t = Date.now(), l = (calculsPublics.get(ip) || []).filter((x) => t - x < 15 * 60000);
@@ -793,11 +819,7 @@ app.get('/api/relief/couverture', async (req, res) => {
   if (!r) {
     // Visiteurs non connectés (carte publique) : 20 nouveaux calculs par quart d'heure au plus
     if (!estMembre(req) && limiterCalcul(req.ip)) return res.status(429).json({ erreur: 'Trop de calculs de couverture : réessayez dans quelques minutes' });
-    try { r = await RR.couverturePng({ lat, lon }, o); } catch (e) { return res.status(503).json({ erreur: e.message }); }
-    r.id = crypto.randomBytes(6).toString('hex');
-    if (!r.approximatif) cacheCouverture.set(cle, r); // relief grossier : jamais gardé comme un résultat précis
-    cacheCouverture.set(r.id, r);
-    if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
+    try { r = await calculPartage(cle, async () => garderCouverture(cle, await RR.couverturePng({ lat, lon }, o))); } catch (e) { return res.status(503).json({ erreur: e.message }); }
   }
   res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), departement: RR.etat().departement, surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sol: r.sol, env: r.env, rayonKm: r.rayonKm, approximatif: !!r.approximatif, reliefApprox: r.reliefApprox || null });
 });
@@ -812,11 +834,7 @@ app.get('/api/relief/couverture-multi', async (req, res) => {
   const cle = JSON.stringify(['multi', RR.code, sites, o, (RR.calibration() || {}).date]);
   let r = RR.pret() ? cacheCouverture.get(cle) : null;
   if (!r) {
-    try { r = await RR.couverturePngMulti(sites, o); } catch (e) { return res.status(503).json({ erreur: e.message }); }
-    r.id = crypto.randomBytes(6).toString('hex');
-    if (!r.approximatif) cacheCouverture.set(cle, r);
-    cacheCouverture.set(r.id, r);
-    if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
+    try { r = await calculPartage(cle, async () => garderCouverture(cle, await RR.couverturePngMulti(sites, o))); } catch (e) { return res.status(503).json({ erreur: e.message }); }
   }
   res.json({ image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), departement: RR.etat().departement, surfaceKm2: r.surfaceKm2, surfaceZoneKm2: r.surfaceZoneKm2, pctZone: r.pctZone, sites: r.sites, env: r.env, rayonKm: r.rayonKm, approximatif: !!r.approximatif, reliefApprox: r.reliefApprox || null });
 });
@@ -826,12 +844,7 @@ async function couvertureReseauCachee(RR, o, reseauCle) {
   const cle = JSON.stringify(['reseau', RR.code, reseauCle, o.hn || 6, Math.floor(Date.now() / 600000), (RR.calibration() || {}).date, versionFiches]);
   let r = RR.pret() ? cacheCouverture.get(cle) : null;
   if (!r) {
-    r = await RR.couvertureReseau(o);
-    if (r.vide) return r;
-    r.id = crypto.randomBytes(6).toString('hex');
-    if (!r.approximatif) cacheCouverture.set(cle, r);
-    cacheCouverture.set(r.id, r);
-    if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
+    r = await calculPartage(cle, async () => { const x = await RR.couvertureReseau(o); return x.vide ? x : garderCouverture(cle, x); });
   }
   return r;
 }
@@ -2576,7 +2589,8 @@ app.get('/api/mc/noeuds', (req, res) => {
   const membre = estMembre(req), maintenant = Date.now();
   // ?depuis=heure : seulement les nœuds modifiés depuis (le flux national compte des milliers de nœuds)
   const depuis = Number(req.query.depuis) || 0;
-  if (depuis) return res.json({ heure: maintenant, noeuds: reseauMc.q.noeudsDepuis.all(depuis - 5000).map((n) => reseauMc.vueNoeud(n, membre, maintenant)) });
+  res.set('Cache-Control', 'private, no-cache').set('Vary', 'Cookie').set('X-Heure', String(maintenant)); // repère pris sur l'heure serveur
+  if (depuis) return res.json({ heure: maintenant, noeuds: reseauMc.q.noeudsDepuis.all(Math.min(depuis, maintenant) - 5000).map((n) => reseauMc.vueNoeud(n, membre, maintenant)) });
   res.json(reseauMc.q.noeuds.all().map((n) => reseauMc.vueNoeud(n, membre, maintenant)));
 });
 app.get('/api/mc/noeuds/:cle', (req, res) => {
@@ -3278,15 +3292,17 @@ const clientMqtt = mqtt.connect(config.mqtt.url, {
 const sujets = [config.mqtt.racine + '/#', ...config.mqtt.sujetsSupplementaires, ...(config.meshcore.actif ? [config.meshcore.racine + '/#'] : [])];
 const prefixeMc = config.meshcore.racine + '/';
 let compteurMc = { recus: 0, observations: 0, erreurs: 0 };
+// Décision { dans, pos } : pos = vrai quand elle repose sur la position connue de l'observateur (sûre), faux quand
+// elle ne repose que sur le code de zone du sujet (provisoire : la clé du sujet peut différer de l'origin_id du JSON)
 function dansPerimetreMc(cleObs, iata) {
   const p = config.meshcore.perimetre;
-  if (p === 'national') return true;
+  if (p === 'national') return { dans: true, pos: true };
   const z = p === 'voisins' ? ((zoneVoisins() || {}).bbox || config.zone) : config.zone;
   const pos = reseauMc.positionDe(cleObs);
-  if (pos) return pos.lat >= z[0] - 0.05 && pos.lat <= z[2] + 0.05 && pos.lon >= z[1] - 0.05 && pos.lon <= z[3] + 0.05;
+  if (pos) return { dans: pos.lat >= z[0] - 0.05 && pos.lat <= z[2] + 0.05 && pos.lon >= z[1] - 0.05 && pos.lon <= z[3] + 0.05, pos: true };
   // Position inconnue : code de zone du sujet (le nôtre ou ceux déclarés voisins)
   const code = String(iata || '').toUpperCase();
-  return code === config.meshcore.iata || config.meshcore.iataVoisins.includes(code);
+  return { dans: code === config.meshcore.iata || config.meshcore.iataVoisins.includes(code), pos: false };
 }
 // Paquet MeshCore intégré ; un message de canal déchiffré depuis le paquet brut (observateur MQTT ou companion)
 // part aussi comme « mc-message » : les cartes des membres le comptent dans les non-lus et rafraîchissent la liste
@@ -3298,18 +3314,21 @@ function diffuserSortieMc(sortie) {
 // d'observateurs lointains, rejetés d'après le sujet MQTT seul, sans lire le JSON ni chercher leur position à chaque fois
 const perimetreObs = new Map();
 function obsDansPerimetre(cle, iata) {
-  const t = Date.now(), k = cle + '|' + iata, d = perimetreObs.get(k);
-  if (d && t - d.heure < 60000) return d.dans;
-  const dans = dansPerimetreMc(cle, iata);
+  const t = Date.now(), k = cle + '|' + iata;
+  let d = perimetreObs.get(k);
+  if (d && t - d.heure < 60000) return d;
+  d = { ...dansPerimetreMc(cle, iata), heure: t };
   if (perimetreObs.size > 5000) perimetreObs.clear();
-  perimetreObs.set(k, { dans, heure: t });
-  return dans;
+  perimetreObs.set(k, d);
+  return d;
 }
 function messageMc(topic, message) {
   compteurMc.recus++;
   if (config.meshcore.perimetre !== 'national') {
+    // Rejet d'après le sujet seul, uniquement quand la décision repose sur une position connue ; sinon le JSON est lu
+    // (son origin_id fait foi) et la décision se prend plus bas
     const s = RE_SUJET_MC.exec(topic);
-    if (s && s[4] === 'packets' && !obsDansPerimetre(s[3].toUpperCase(), s[2])) { compteurMc.horsPerimetre = (compteurMc.horsPerimetre || 0) + 1; return; }
+    if (s && s[4] === 'packets') { const d = obsDansPerimetre(s[3].toUpperCase(), s[2]); if (!d.dans && d.pos) { compteurMc.horsPerimetre = (compteurMc.horsPerimetre || 0) + 1; return; } }
   }
   const m = lireMessageMc(topic, message);
   if (!m) return;
@@ -3318,10 +3337,13 @@ function messageMc(topic, message) {
   if (m.cle === moi) return; // nos propres republications
   if (m.genre === 'statut') { reseauMc.noterObservateur(m.cle, { nom: m.nom, etat: m.etat, details: m.details }); planifierEtatMc(); return; }
   // Filtre à la source : on ne garde que ce qu'ont capté les observateurs du périmètre choisi
-  if (!obsDansPerimetre(m.cle, m.iata)) { compteurMc.horsPerimetre = (compteurMc.horsPerimetre || 0) + 1; return; }
+  const d = obsDansPerimetre(m.cle, m.iata);
+  if (!d.dans) { compteurMc.horsPerimetre = (compteurMc.horsPerimetre || 0) + 1; return; }
   if (m.nom) reseauMc.noterObservateur(m.cle, { nom: m.nom, details: { iata: m.iata } });
   const sortie = reseauMc.integrer(m.obs);
   if (sortie) { compteurMc.observations++; diffuserSortieMc(sortie); }
+  // Décision provisoire (code de zone) et position de l'observateur connue depuis : la décision est reprise au prochain paquet
+  if (!d.pos && reseauMc.positionDe(m.cle)) perimetreObs.delete(m.cle + '|' + m.iata);
 }
 clientMqtt.on('connect', () => {
   statsMqtt.depuis = Date.now();

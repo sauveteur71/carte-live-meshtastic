@@ -79,6 +79,34 @@ function ouvrirBase(fichier) {
   db.exec('CREATE INDEX IF NOT EXISTS idx_receptions_gw ON receptions(passerelle, heure)');
   // Liens d'un nœud dans les deux sens (« a = ? OR b = ? ») : sans cet index, toute la table était lue à chaque fois
   db.exec('CREATE INDEX IF NOT EXISTS idx_liens_b ON liens(b)');
+  // Purge horaire : « heure < limite » sur telemetrie/positions/traceroutes n'avait que des index (num, heure) ou
+  // (cible, heure), donc chaque lot de 250 lignes relisait toute la table. Créés une seule fois (quelques secondes
+  // sur une grosse base existante), puis la purge ne lit que les lignes à supprimer.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_telemetrie_heure ON telemetrie(heure)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_positions_heure ON positions(heure)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_traceroutes_heure ON traceroutes(heure)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_noeuds_dernier_vu ON noeuds(dernier_vu)');
+  // Horloge de modification des nœuds (liste incrémentale ?depuis=) : « modifie » est l'heure serveur de la dernière
+  // écriture, quelle qu'elle soit (synchronisation d'un module radio ou de MeshMonitor qui écrivent l'heure du module,
+  // positions annulées par nettoyer(), renumérotation, presets…). Tenue par des déclencheurs : aucune écriture ne peut
+  // l'oublier. Les suppressions (purge, administrateur, renumérotation) sont notées dans noeuds_supprimes.
+  const nouvelleColonne = !colonnes('noeuds').includes('modifie');
+  ajouter('noeuds', 'modifie', 'INTEGER');
+  if (nouvelleColonne) db.exec('UPDATE noeuds SET modifie = dernier_vu'); // base existante : repère de départ
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_noeuds_modifie ON noeuds(modifie);
+    CREATE TABLE IF NOT EXISTS noeuds_supprimes (num INTEGER PRIMARY KEY, heure INTEGER);
+    CREATE TRIGGER IF NOT EXISTS trg_noeuds_ins AFTER INSERT ON noeuds BEGIN
+      UPDATE noeuds SET modifie = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER) WHERE num = NEW.num;
+      DELETE FROM noeuds_supprimes WHERE num = NEW.num;
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_noeuds_maj AFTER UPDATE ON noeuds WHEN NEW.modifie IS OLD.modifie BEGIN
+      UPDATE noeuds SET modifie = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER) WHERE num = NEW.num;
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_noeuds_del AFTER DELETE ON noeuds BEGIN
+      INSERT OR REPLACE INTO noeuds_supprimes (num, heure) VALUES (OLD.num, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
+    END;
+  `);
   return db;
 }
 
@@ -200,10 +228,15 @@ function creerStockage(fichier) {
   // Purge par petits lots (250 lignes), avec une pause entre deux lots : un seul gros DELETE sur une base de
   // plusieurs centaines de Mo (flux msh/EU_868) bloquait la carte plusieurs secondes chaque heure.
   // Chaque requête prend ses paramètres (limite générale, limite des messages) et supprime au plus un lot.
+  // Les messages texte suivent leur propre durée (MESSAGES_RETENTION_JOURS, 90 jours), le reste du trafic
+  // RETENTION_JOURS (7 jours). Une seule requête « heure < limite AND (non texte OR heure < limiteMessages) »
+  // relisait à chaque lot tous les textes conservés avant d'atteindre les lignes à supprimer (mesuré : 213 lots
+  // × 26 ms sur 200 000 textes). D'où deux requêtes : tout ce qui précède la limite des messages, puis les non-textes
+  // à partir d'un curseur avancé à l'heure de la dernière ligne supprimée (chaque texte n'est relu qu'une fois).
   const LOT_PURGE = 250;
   const purges = [
-    // Les messages texte suivent leur propre durée (MESSAGES_RETENTION_JOURS), le reste du trafic RETENTION_JOURS
-    ['paquets', db.prepare("DELETE FROM paquets WHERE rowid IN (SELECT rowid FROM paquets WHERE heure < @limite AND (port IS NOT 'texte' OR heure < @limiteMessages) LIMIT @lot)")],
+    ['paquets', db.prepare('DELETE FROM paquets WHERE rowid IN (SELECT rowid FROM paquets WHERE heure < @limiteMessages ORDER BY heure LIMIT @lot)')],
+    ['paquets', db.prepare("DELETE FROM paquets WHERE rowid IN (SELECT rowid FROM paquets WHERE heure >= @curseur AND heure < @limite AND port IS NOT 'texte' ORDER BY heure LIMIT @lot) RETURNING heure"), 'curseur'],
     ['receptions', db.prepare('DELETE FROM receptions WHERE rowid IN (SELECT rowid FROM receptions WHERE heure < @limite LIMIT @lot)')],
     ['telemetrie', db.prepare('DELETE FROM telemetrie WHERE rowid IN (SELECT rowid FROM telemetrie WHERE heure < @limite LIMIT @lot)')],
     ['positions', db.prepare('DELETE FROM positions WHERE rowid IN (SELECT rowid FROM positions WHERE heure < @limite LIMIT @lot)')],
@@ -225,17 +258,30 @@ function creerStockage(fichier) {
     const p = { limite: Date.now() - retentionJours * 86400000, limiteMessages: Date.now() - Math.max(retentionMessagesJours, retentionJours) * 86400000, lot };
     purgeEnCours = (async () => {
       let n = 0;
-      for (const [, st] of purges) {
+      for (const [, st, mode] of purges) {
+        // Curseur de la 2e requête « paquets » : heure de la dernière ligne supprimée (les lignes sont prises par heure
+        // croissante, donc tout ce qui précède a déjà été traité ou est un texte à garder)
+        let curseur = 0;
         for (;;) {
           let c = 0;
           const t0 = performance.now();
-          try { c = st.run(st.source.includes('@limiteMessages') ? p : { limite: p.limite, lot }).changes; } catch (e) { if (/locked|busy/i.test(e.message)) { await new Promise((ok) => setTimeout(ok, 1000)); continue; } throw e; }
+          try {
+            if (mode === 'curseur') {
+              const lignes = st.all({ limite: p.limite, lot, curseur });
+              c = lignes.length;
+              if (c) curseur = Math.max(curseur, ...lignes.map((l) => l.heure || 0));
+            } else {
+              c = st.run(st.source.includes('@limiteMessages') ? { limiteMessages: p.limiteMessages, lot } : { limite: p.limite, lot }).changes;
+            }
+          } catch (e) { if (/locked|busy/i.test(e.message)) { await new Promise((ok) => setTimeout(ok, 1000)); continue; } throw e; }
           n += c;
           noterTache('purge Meshtastic (un lot)', performance.now() - t0);
           await pause();
           if (c < lot) break;
         }
       }
+      // Nœuds supprimés notés par le déclencheur : utiles 10 min (liste incrémentale), gardés une heure
+      try { db.prepare('DELETE FROM noeuds_supprimes WHERE heure < ?').run(Date.now() - 3600000); } catch { /* base occupée */ }
       // Checkpoint passif (le journal WAL est recopié dans la base sans attendre) ; le fichier n'est tronqué que s'il a
       // beaucoup grossi, car la troncature recopie tout d'un coup
       try {
