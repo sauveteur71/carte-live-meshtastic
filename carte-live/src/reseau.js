@@ -57,16 +57,28 @@ function creerReseau(stockage, config) {
     q.lien.run({ a, b, source, snr: snr ?? null, rssi: rssi ?? null, heure });
   }
 
+  // Index des nœuds positionnés par dernier octet de leur numéro (le seul connu d'un relais, champ relay_node) :
+  // relu au plus toutes les 60 s. Avant, chaque paquet relayé relisait toute la table des nœuds (plus de 100 ms
+  // avec le flux msh/EU_868 entier, et la carte se figeait quand plusieurs paquets arrivaient d'affilée).
+  const qPositionnes = stockage.db.prepare('SELECT num, lat, lon FROM noeuds WHERE lat IS NOT NULL AND lon IS NOT NULL');
+  let indexOctets = null, heureIndex = 0;
+  function noeudsParOctet(octet) {
+    if (!indexOctets || Date.now() - heureIndex > 60000) {
+      indexOctets = new Map();
+      for (const n of qPositionnes.all()) { const k = n.num & 0xff; const l = indexOctets.get(k); if (l) l.push(n); else indexOctets.set(k, [n]); }
+      heureIndex = Date.now();
+    }
+    return indexOctets.get(octet & 0xff) || [];
+  }
+
   // Retrouve le nœud relais à partir du dernier octet de son identifiant
   function trouverRelais(octet, exclure, passerelle) {
     // Seul le dernier octet de l'identifiant du relais est connu : on ne retient qu'un candidat
     // situé à portée radio plausible de la passerelle, et sans ambiguïté.
-    const candidats = q.noeuds.all().filter((n) => (n.num & 0xff) === octet && !exclure.includes(n.num));
-    if (candidats.length === 0) return null;
     const gw = q.noeud.get(passerelle);
     if (!gw || gw.lat == null) return null; // passerelle sans position : impossible de vérifier, on s'abstient
-    const proches = candidats
-      .filter((c) => c.lat != null)
+    const proches = noeudsParOctet(octet)
+      .filter((c) => !exclure.includes(c.num))
       .map((c) => ({ num: c.num, d: distanceKm(c, gw) }))
       .filter((c) => c.d <= config.lienDistanceMaxKm)
       .sort((x, y) => x.d - y.d);
@@ -330,6 +342,9 @@ function creerReseau(stockage, config) {
     }
     return sortie;
   }
+  // Seulement les colonnes utiles aux alertes : lire toute la fiche de milliers de nœuds coûtait des centaines de ms
+  const qAlertes = stockage.db.prepare(`SELECT num, id, nom_long, nom_court, role, est_passerelle, etat_passerelle, dernier_vu, dernier_vu_passerelle,
+      heure_telemetrie, batterie, tension, canal, emission FROM noeuds`);
   function calculerAlertes() {
     const maintenant = Date.now();
     const nouvelles = new Map();
@@ -338,7 +353,7 @@ function creerReseau(stockage, config) {
       nouvelles.set(cle, { cle, depuis: ancienne ? ancienne.depuis : maintenant, ...a });
     };
     const figes = new Set(gpsFiges().map((x) => x.num));
-    for (const n of q.noeuds.all()) {
+    for (const n of qAlertes.all()) {
       const nom = n.nom_long || n.nom_court || n.id;
       const surveille = estSurveille(n);
       const ageMin = (maintenant - (n.dernier_vu || 0)) / 60000;
@@ -413,29 +428,39 @@ function creerReseau(stockage, config) {
     return [...alertesActives.values()].sort((a, b) => ordre[a.niveau] - ordre[b.niveau] || a.depuis - b.depuis);
   }
 
+  // Statistiques calculées par la base (comptes, moyennes) au lieu de relire chaque nœud en JavaScript
+  const qStats = stockage.db.prepare(`SELECT COUNT(*) AS noeuds,
+      SUM(CASE WHEN dernier_vu >= @actif THEN 1 ELSE 0 END) AS actifs,
+      SUM(CASE WHEN est_passerelle THEN 1 ELSE 0 END) AS passerelles,
+      SUM(CASE WHEN est_passerelle AND COALESCE(etat_passerelle, '') <> 'offline' AND COALESCE(dernier_vu_passerelle, 0) > @muet THEN 1 ELSE 0 END) AS enLigne,
+      AVG(CASE WHEN canal IS NOT NULL AND heure_telemetrie >= @canal THEN canal END) AS canalMoyen,
+      MAX(CASE WHEN canal IS NOT NULL AND heure_telemetrie >= @canal THEN canal END) AS canalMax
+    FROM noeuds`);
+  const qNbLiens = stockage.db.prepare('SELECT COUNT(*) AS nb FROM liens WHERE dernier_vu >= ?');
   function statistiques() {
     const maintenant = Date.now();
-    const noeuds = q.noeuds.all();
-    const actifs = noeuds.filter((n) => statut(n, maintenant) === 'actif').length;
-    const passerelles = noeuds.filter((n) => n.est_passerelle);
-    const enLigne = passerelles.filter(
-      (n) => n.etat_passerelle !== 'offline' && maintenant - (n.dernier_vu_passerelle || 0) < s.muetMinutes * 60000
-    ).length;
+    const r = qStats.get({ actif: maintenant - s.actifMinutes * 60000, muet: maintenant - s.muetMinutes * 60000, canal: maintenant - 2 * 3600000 });
     const parPort = {};
-    for (const r of q.compteParPort.all(maintenant - 3600000)) parPort[r.port] = r.nb;
-    const canaux = noeuds.filter((n) => n.canal != null && n.heure_telemetrie && maintenant - n.heure_telemetrie < 2 * 3600000).map((n) => n.canal);
+    for (const x of q.compteParPort.all(maintenant - 3600000)) parPort[x.port] = x.nb;
     return {
-      noeuds: noeuds.length,
-      actifs,
-      passerelles: passerelles.length,
-      passerellesEnLigne: enLigne,
-      liens: q.liens.all(maintenant - 24 * 3600000).length,
+      noeuds: r.noeuds || 0,
+      actifs: r.actifs || 0,
+      passerelles: r.passerelles || 0,
+      passerellesEnLigne: r.enLigne || 0,
+      liens: qNbLiens.get(maintenant - 24 * 3600000).nb,
       paquetsMinute: Math.round((q.compteMinute.get(maintenant - 5 * 60000).nb / 5) * 10) / 10,
       paquetsHeure: Object.values(parPort).reduce((a, b) => a + b, 0),
       parPort,
-      canalMoyen: canaux.length ? Math.round((canaux.reduce((a, b) => a + b, 0) / canaux.length) * 10) / 10 : null,
-      canalMax: canaux.length ? Math.max(...canaux) : null,
+      canalMoyen: r.canalMoyen != null ? Math.round(r.canalMoyen * 10) / 10 : null,
+      canalMax: r.canalMax ?? null,
     };
+  }
+
+  // Nœuds modifiés depuis une heure donnée (mise à jour incrémentale de la carte : quelques nœuds au lieu de milliers)
+  const qDepuis = stockage.db.prepare(`SELECT * FROM noeuds WHERE dernier_vu >= @d OR heure_etat_passerelle >= @d OR heure_position >= @d OR heure_telemetrie >= @d`);
+  function noeudsDepuis(depuis, admin) {
+    const maintenant = Date.now();
+    return qDepuis.all({ d: depuis }).map((n) => vueNoeud(n, admin, maintenant));
   }
 
   function liens(depuisMs) {
@@ -492,15 +517,18 @@ function creerReseau(stockage, config) {
     const db = stockage.db;
     const pos = db.prepare('UPDATE noeuds SET lat = NULL, lon = NULL WHERE lat IS NOT NULL AND ABS(lat) < 1 AND ABS(lon) < 1').run().changes;
     db.prepare('DELETE FROM positions WHERE ABS(lat) < 1 AND ABS(lon) < 1').run();
-    let liens = 0;
-    const supprimer = db.prepare('DELETE FROM liens WHERE a = ? AND b = ? AND source = ?');
-    for (const l of db.prepare('SELECT a, b, source FROM liens').all()) {
-      if (!lienPlausible(l.a, l.b)) { supprimer.run(l.a, l.b, l.source); liens++; }
+    // Positions lues une seule fois (avant : deux lectures de nœud par lien, plus d'une seconde sur une grosse base)
+    const positions = new Map(db.prepare('SELECT num, lat, lon FROM noeuds WHERE lat IS NOT NULL AND lon IS NOT NULL').raw(true).all().map((r) => [r[0], { lat: r[1], lon: r[2] }]));
+    const aSupprimer = [];
+    for (const [a, b, source] of db.prepare('SELECT a, b, source FROM liens').raw(true).iterate()) {
+      const na = positions.get(a), nb = positions.get(b);
+      if (na && nb && distanceKm(na, nb) > config.lienDistanceMaxKm) aSupprimer.push([a, b, source]);
     }
-    return { positions: pos, liens };
+    const supprimer = db.prepare('DELETE FROM liens WHERE a = ? AND b = ? AND source = ?');
+    if (aSupprimer.length) db.transaction(() => { for (const l of aSupprimer) supprimer.run(...l); })();
+    return { positions: pos, liens: aSupprimer.length };
   }
-
-  return { nettoyer, integrer, vueNoeud, vueTrame, calculerAlertes, statistiques, liens, detailNoeud, estSurveille, gpsFiges, ROLES_FR };
+  return { nettoyer, integrer, vueNoeud, vueTrame, calculerAlertes, statistiques, noeudsDepuis, liens, detailNoeud, estSurveille, gpsFiges, ROLES_FR };
 }
 
 function formaterDuree(minutes) {

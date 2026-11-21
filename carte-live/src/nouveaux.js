@@ -8,7 +8,9 @@ function creerNouveaux(stockage, config, reseau) {
   const db = stockage.db;
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_receptions_relais_num ON receptions(relais_num)'); } catch { /* ancienne base */ }
   const q = {
-    nouveaux: db.prepare('SELECT * FROM noeuds WHERE premier_vu >= ? ORDER BY premier_vu DESC LIMIT 400'),
+    // Avec le flux d'un pays entier, des milliers de nouveaux nœuds par semaine : ceux qui ont une position hors de la
+    // zone sont écartés sans requête, les autres (400 au plus) sont examinés en détail
+    nouveaux: db.prepare('SELECT * FROM noeuds WHERE premier_vu >= ? ORDER BY premier_vu DESC LIMIT 5000'),
     paquets: db.prepare('SELECT port, COUNT(*) AS nb, MAX(heure) AS dernier FROM paquets WHERE de = ? GROUP BY port'),
     receptions: db.prepare(`SELECT r.passerelle, COUNT(*) AS nb, MIN(r.sauts) AS sautsMin, MAX(r.snr) AS snr, MAX(r.heure) AS dernier
       FROM receptions r JOIN paquets p ON p.rowid = r.paquet WHERE p.de = ? GROUP BY r.passerelle`),
@@ -17,19 +19,39 @@ function creerNouveaux(stockage, config, reseau) {
   };
   const z = () => config.zone;
   const dansZone = (n) => { const zz = z(); return !zz || (n && n.lat != null && n.lat >= zz[0] && n.lat <= zz[2] && n.lon >= zz[1] && n.lon <= zz[3]); };
-  const nomDe = (num) => { const n = stockage.q.noeud.get(num >>> 0); return n ? n.nom_long || n.nom_court || '!' + (num >>> 0).toString(16).padStart(8, '0') : '!' + (num >>> 0).toString(16).padStart(8, '0'); };
+  // Fiches des passerelles et voisins lues une seule fois par liste (les mêmes centaines de passerelles reviennent
+  // pour chaque nouveau nœud : relire leur fiche à chaque fois coûtait l'essentiel du temps)
+  let fiches = new Map();
+  const fiche = (num) => { num >>>= 0; if (!fiches.has(num)) fiches.set(num, stockage.q.noeud.get(num) || null); return fiches.get(num); };
+  const nomDe = (num) => { const n = fiche(num); return n ? n.nom_long || n.nom_court || '!' + (num >>> 0).toString(16).padStart(8, '0') : '!' + (num >>> 0).toString(16).padStart(8, '0'); };
 
+  // Résultat gardé 4 min et partagé : chaque carte ouverte le redemande toutes les 5 min
+  const cache = new Map();
   function lister(jours = 7) {
-    const depuis = Date.now() - Math.min(Math.max(jours, 1), 60) * 86400000;
+    jours = Math.min(Math.max(Math.round(Number(jours) || 7), 1), 60);
+    const c = cache.get(jours);
+    if (c && Date.now() - c.heure < 240000) return c.r;
+    fiches = new Map();
+    let r;
+    try { r = listerSansCache(jours); } finally { fiches = new Map(); }
+    cache.set(jours, { heure: Date.now(), r });
+    if (cache.size > 10) cache.delete(cache.keys().next().value);
+    return r;
+  }
+  function listerSansCache(jours) {
+    const depuis = Date.now() - jours * 86400000;
     const sortie = [];
+    let examines = 0;
     for (const n of q.nouveaux.all(depuis)) {
+      if (n.lat != null && !dansZone(n)) continue; // position connue, hors de la zone : pas « du secteur »
+      if (++examines > 400) break;
       const ports = q.paquets.all(n.num);
       const recs = q.receptions.all(n.num);
       const liens = q.liens.all(n.num, n.num);
       let rel = { nb: 0, dernier: null };
       try { rel = q.commeRelais.get(n.num, depuis); } catch { /* colonne absente (ancienne base) */ }
-      const gw = recs.map((r) => ({ ...r, nom: nomDe(r.passerelle), noeud: stockage.q.noeud.get(r.passerelle >>> 0) }));
-      const voisinsZone = liens.filter((l) => dansZone(stockage.q.noeud.get((l.a === n.num ? l.b : l.a) >>> 0)));
+      const gw = recs.map((r) => ({ ...r, nom: nomDe(r.passerelle), noeud: fiche(r.passerelle) }));
+      const voisinsZone = liens.filter((l) => dansZone(fiche(l.a === n.num ? l.b : l.a)));
       // Sans position : entendu en direct (ou par un seul relais) par une passerelle de la zone, ou voisin déclaré d'un nœud de la zone
       // (les nœuds lointains reçus par MQTT ou après plusieurs relais ne sont pas « du secteur »)
       const secteur = n.lat != null ? dansZone(n) : gw.some((g) => dansZone(g.noeud) && g.sautsMin <= 1) || voisinsZone.some((l) => l.source !== 'traceroute');

@@ -4,6 +4,8 @@
 const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
+const { performance } = require('perf_hooks');
+const { noter: noterTache } = require('./sante-carte');
 
 function ouvrirBase(fichier) {
   fs.mkdirSync(path.dirname(fichier), { recursive: true });
@@ -75,7 +77,26 @@ function ouvrirBase(fichier) {
   db.exec('CREATE INDEX IF NOT EXISTS idx_noeuds_cle ON noeuds(cle_publique)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_paquets_vers ON paquets(vers, heure)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_receptions_gw ON receptions(passerelle, heure)');
+  // Liens d'un nœud dans les deux sens (« a = ? OR b = ? ») : sans cet index, toute la table était lue à chaque fois
+  db.exec('CREATE INDEX IF NOT EXISTS idx_liens_b ON liens(b)');
   return db;
+}
+
+// Lecture de toutes les fiches de nœuds (des milliers avec le flux msh/EU_868) : lignes brutes transformées par un
+// constructeur de forme fixe, deux à trois fois plus rapide que des objets remplis champ par champ par SQLite, et
+// des objets plus rapides à parcourir ensuite. Reconstruit si les colonnes changent (migration).
+function lectureRapide(st) {
+  st.raw(true);
+  let cles = '', construire = null;
+  return {
+    source: st.source,
+    all(...params) {
+      const cols = st.columns().map((c) => c.name);
+      const k = cols.join(',');
+      if (k !== cles) { cles = k; construire = new Function('r', `return {${cols.map((c, i) => `${JSON.stringify(c)}: r[${i}]`).join(', ')}};`); }
+      return st.all(...params).map(construire);
+    },
+  };
 }
 
 function creerStockage(fichier) {
@@ -117,7 +138,7 @@ function creerStockage(fichier) {
           snr = CASE WHEN excluded.snr IS NULL THEN liens.snr WHEN liens.snr IS NULL THEN excluded.snr ELSE ROUND(liens.snr * 0.7 + excluded.snr * 0.3, 2) END,
           rssi = CASE WHEN excluded.rssi IS NULL THEN liens.rssi WHEN liens.rssi IS NULL THEN excluded.rssi ELSE ROUND(liens.rssi * 0.7 + excluded.rssi * 0.3, 1) END,
           nb = liens.nb + 1, dernier_vu = MAX(liens.dernier_vu, excluded.dernier_vu)`),
-    noeuds: db.prepare('SELECT * FROM noeuds ORDER BY dernier_vu DESC'),
+    noeuds: lectureRapide(db.prepare('SELECT * FROM noeuds ORDER BY dernier_vu DESC')),
     licencie: db.prepare('UPDATE noeuds SET licencie = ? WHERE num = ?'),
     clePublique: db.prepare('UPDATE noeuds SET cle_publique = ? WHERE num = ? AND cle_publique IS NOT ?'),
     liens: db.prepare('SELECT * FROM liens WHERE dernier_vu >= ?'),
@@ -176,31 +197,57 @@ function creerStockage(fichier) {
       FROM paquets p WHERE p.port = 'texte' AND p.vers <> 4294967295 ORDER BY p.heure DESC LIMIT ?`),
   };
 
+  // Purge par petits lots (250 lignes), avec une pause entre deux lots : un seul gros DELETE sur une base de
+  // plusieurs centaines de Mo (flux msh/EU_868) bloquait la carte plusieurs secondes chaque heure.
+  // Chaque requête prend ses paramètres (limite générale, limite des messages) et supprime au plus un lot.
+  const LOT_PURGE = 250;
   const purges = [
     // Les messages texte suivent leur propre durée (MESSAGES_RETENTION_JOURS), le reste du trafic RETENTION_JOURS
-    db.prepare("DELETE FROM paquets WHERE heure < ? AND (port IS NOT 'texte' OR heure < ?)"),
-    db.prepare('DELETE FROM receptions WHERE heure < ?'),
-    db.prepare('DELETE FROM telemetrie WHERE heure < ?'),
-    db.prepare('DELETE FROM positions WHERE heure < ?'),
-    db.prepare('DELETE FROM liens WHERE dernier_vu < ?'),
-    db.prepare('DELETE FROM traceroutes WHERE heure < ?'),
-    db.prepare('DELETE FROM noeuds WHERE dernier_vu < ? AND COALESCE(est_passerelle,0) = 0'),
+    ['paquets', db.prepare("DELETE FROM paquets WHERE rowid IN (SELECT rowid FROM paquets WHERE heure < @limite AND (port IS NOT 'texte' OR heure < @limiteMessages) LIMIT @lot)")],
+    ['receptions', db.prepare('DELETE FROM receptions WHERE rowid IN (SELECT rowid FROM receptions WHERE heure < @limite LIMIT @lot)')],
+    ['telemetrie', db.prepare('DELETE FROM telemetrie WHERE rowid IN (SELECT rowid FROM telemetrie WHERE heure < @limite LIMIT @lot)')],
+    ['positions', db.prepare('DELETE FROM positions WHERE rowid IN (SELECT rowid FROM positions WHERE heure < @limite LIMIT @lot)')],
+    ['liens', db.prepare('DELETE FROM liens WHERE rowid IN (SELECT rowid FROM liens WHERE dernier_vu < @limite LIMIT @lot)')],
+    ['traceroutes', db.prepare('DELETE FROM traceroutes WHERE rowid IN (SELECT rowid FROM traceroutes WHERE heure < @limite LIMIT @lot)')],
+    ['noeuds', db.prepare('DELETE FROM noeuds WHERE num IN (SELECT num FROM noeuds WHERE dernier_vu < @limite AND COALESCE(est_passerelle,0) = 0 LIMIT @lot)')],
   ];
 
   function assurerNoeud(num, heure) {
     q.creerNoeud.run(num, '!' + (num >>> 0).toString(16).padStart(8, '0'), heure, heure);
   }
 
-  function purger(retentionJours, retentionMessagesJours = retentionJours) {
-    const limite = Date.now() - retentionJours * 86400000;
-    const limiteMessages = Date.now() - Math.max(retentionMessagesJours, retentionJours) * 86400000;
-    const tx = db.transaction(() => purges.reduce((t, st, i) => t + (i === 0 ? st.run(limite, limiteMessages) : st.run(limite)).changes, 0));
-    const n = tx();
-    db.pragma('wal_checkpoint(TRUNCATE)');
-    return n;
+  // Purge asynchrone : promesse du nombre de lignes supprimées. Un deuxième appel pendant une purge en cours
+  // reçoit la même promesse (pas deux purges en parallèle).
+  let purgeEnCours = null;
+  const pause = () => new Promise((ok) => setImmediate(ok));
+  function purger(retentionJours, retentionMessagesJours = retentionJours, { lot = LOT_PURGE } = {}) {
+    if (purgeEnCours) return purgeEnCours;
+    const p = { limite: Date.now() - retentionJours * 86400000, limiteMessages: Date.now() - Math.max(retentionMessagesJours, retentionJours) * 86400000, lot };
+    purgeEnCours = (async () => {
+      let n = 0;
+      for (const [, st] of purges) {
+        for (;;) {
+          let c = 0;
+          const t0 = performance.now();
+          try { c = st.run(st.source.includes('@limiteMessages') ? p : { limite: p.limite, lot }).changes; } catch (e) { if (/locked|busy/i.test(e.message)) { await new Promise((ok) => setTimeout(ok, 1000)); continue; } throw e; }
+          n += c;
+          noterTache('purge Meshtastic (un lot)', performance.now() - t0);
+          await pause();
+          if (c < lot) break;
+        }
+      }
+      // Checkpoint passif (le journal WAL est recopié dans la base sans attendre) ; le fichier n'est tronqué que s'il a
+      // beaucoup grossi, car la troncature recopie tout d'un coup
+      try {
+        const wal = fs.existsSync(fichier + '-wal') ? fs.statSync(fichier + '-wal').size : 0;
+        db.pragma(wal > 64 * 1048576 ? 'wal_checkpoint(TRUNCATE)' : 'wal_checkpoint(PASSIVE)');
+      } catch { /* base occupée : le checkpoint automatique s'en chargera */ }
+      return n;
+    })().finally(() => { purgeEnCours = null; });
+    return purgeEnCours;
   }
 
   return { db, q, assurerNoeud, purger, transaction: (fn) => db.transaction(fn) };
 }
 
-module.exports = { creerStockage };
+module.exports = { creerStockage, lectureRapide };

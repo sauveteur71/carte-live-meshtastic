@@ -165,6 +165,10 @@ table.voisins th { text-align: left; color: var(--tres-doux); font-weight: 500; 
 table.voisins td { padding: 5px 4px; border-top: 1px solid rgba(255,255,255,.04); font-variant-numeric: tabular-nums; }
 table.voisins td.num { text-align: right; }
 table.voisins tr { cursor: pointer; }
+/* Santé de la carte : gels récents et tâches les plus lentes (texte lisible, pas de survol) */
+table.tableau-taches tr { cursor: default; }
+table.tableau-taches td { word-break: break-word; }
+#sante-carte h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--tres-doux); margin: 12px 0 4px; }
 table.voisins tr:hover td { background: rgba(255,255,255,.03); }
 .boutons { display: flex; gap: 6px; margin-top: 8px; }
 .boutons button { background: var(--surface-2); border: 1px solid var(--bord); border-radius: 7px; padding: 5px 10px; cursor: pointer; }

@@ -11,6 +11,8 @@ const path = require('path');
 const mt = require('../src/decodeur');
 const mc = require('../src/meshcore/paquet');
 const DFCI = require('../public/dfci.js');
+// Des modules (passerelle…) gardent des minuteries actives : arrêt du processus une fois tous les tests passés
+test.after(() => setImmediate(() => process.exit(0)));
 
 // ---------- Meshtastic ----------
 const CANAUX = mt.preparerCanaux([{ nom: 'LongFast', cle: 'AQ==' }, { nom: 'Prive', cle: crypto.randomBytes(32).toString('base64') }]);
@@ -498,12 +500,12 @@ test('Passerelle : positions et signalements relayés une fois, sans écho', asy
   assert.ok(textes.every((t) => /DFCI [A-HK-N]{2}/.test(t)), textes.join(' | '));
   assert.ok(!textes.some((t) => t.includes('BASE')));
   fs.rmSync(dossier, { recursive: true, force: true });
-  setImmediate(() => process.exit(0)); // la passerelle garde des minuteries actives
+  // la passerelle garde des minuteries actives : le processus est arrêté après le dernier test (test.after)
 });
 
 // Non-régression (17/11) : l'historique d'un canal calme ne doit ni disparaître après 7 jours (purge générale),
 // ni être caché par les 300 derniers messages des canaux bavards
-test('Messages : conservés plus longtemps que le trafic, historique d’un seul canal', () => {
+test('Messages : conservés plus longtemps que le trafic, historique d’un seul canal', async () => {
   const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'msg-'));
   const { creerStockage } = require('../src/base');
   const st = creerStockage(path.join(dossier, 'x.db'));
@@ -514,7 +516,7 @@ test('Messages : conservés plus longtemps que le trafic, historique d’un seul
   ins('ADRASEC43', 'texte', 120 * j, 'trop vieux');
   for (let i = 0; i < 400; i++) ins('Fr_BlaBla', 'texte', i * 60000, 'bavard ' + i);
   ins('Fr_BlaBla', 'texte', 60000, 'direct', 1234);
-  st.purger(7, 90);
+  await st.purger(7, 90);
   const restant = st.db.prepare("SELECT port, texte FROM paquets WHERE canal = 'ADRASEC43'").all();
   assert.deepEqual(restant.map((x) => x.texte), ['vieux message du canal calme']);
   assert.ok(!st.q.messages.all(300).some((m) => m.canal === 'ADRASEC43'), 'noyé dans les 300 derniers');
@@ -765,5 +767,91 @@ test('Firmware 2.8 : fusion d’un nœud renuméroté puis annulation (historiqu
   assert.throws(() => r.fusionner(vieux, n2, 'essai'), /même clé/);
   assert.equal(r.fusionner(vieux, n2, 'essai', { force: true }).force, true);
   db.close();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+// ---------- Réactivité du serveur (gels de plusieurs secondes relevés en production le 21/11/2026) ----------
+test('Santé : un gel isolé ne donne pas d’alerte, des gels répétés ou très longs oui, avec la tâche suspecte', () => {
+  const { alertesReactivite } = require('../src/sante-carte');
+  const e = (max, tache, p99 = 40) => ({ heure: Date.now(), latenceP99: p99, latenceMax: max, tache });
+  assert.deepEqual(alertesReactivite([e(30), e(2000), e(40)]), [], 'gel ancien unique : rien');
+  assert.deepEqual(alertesReactivite([e(30), e(2400)]), [], 'un seul gel de 2,4 s : rien');
+  const rep = alertesReactivite([e(1600, { nom: 'GET /api/noeuds', ms: 900, n: 3 }), e(20), e(3900, { nom: 'message MQTT Meshtastic', ms: 150, n: 40 })]);
+  assert.equal(rep.length, 1); assert.equal(rep[0].niveau, 'attention');
+  assert.match(rep[0].message, /2 fois.*3\.9 s.*message MQTT Meshtastic \(150 ms\)/);
+  const crit = alertesReactivite([e(20), e(8100, { nom: 'purge Meshtastic (un lot)', ms: 7900, n: 1 })]);
+  assert.equal(crit[0].niveau, 'critique'); assert.match(crit[0].message, /8\.1 s.*purge Meshtastic/);
+  // Le p99 garde la priorité (retard permanent)
+  assert.match(alertesReactivite([e(9000, null, 2500)])[0].message, /se fige/);
+});
+
+test('Santé : registre des tâches (maximum, cumul, tâche la plus longue de la minute, dernière heure)', () => {
+  const s = require('../src/sante-carte');
+  s.cloreMinute(); // minute vierge
+  s.noter('message MQTT Meshtastic', 3); s.noter('message MQTT Meshtastic', 140); s.noter('alertes Meshtastic', 90);
+  assert.equal(s.chrono('calcul', () => 42), 42);
+  assert.throws(() => s.chrono('échec', () => { throw new Error('x'); }));
+  const lentes = s.tachesLentes();
+  assert.equal(lentes[0].nom, 'message MQTT Meshtastic'); assert.equal(lentes[0].maxMs, 140); assert.equal(lentes[0].n, 2);
+  assert.ok(lentes.some((t) => t.nom === 'échec'), 'une tâche en erreur est quand même comptée');
+  const m = s.cloreMinute();
+  assert.deepEqual(m.tache, { nom: 'message MQTT Meshtastic', ms: 140, n: 2 });
+  assert.equal(m.tacheCumul.nom, 'message MQTT Meshtastic');
+  assert.ok(s.tachesLentes().some((t) => t.nom === 'alertes Meshtastic'), 'gardée une heure après la fin de la minute');
+});
+
+test('Purge par lots : la boucle d’événements reprend la main entre deux lots, purges non cumulées', async () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'purge-'));
+  const { creerStockage } = require('../src/base');
+  const st = creerStockage(path.join(dossier, 'x.db'));
+  const vieux = Date.now() - 30 * 86400000;
+  st.db.transaction(() => {
+    const p = st.db.prepare("INSERT INTO paquets (id_paquet, de, port, heure) VALUES (?, 7, 'position', ?)"), r = st.db.prepare('INSERT INTO receptions (paquet, passerelle, heure) VALUES (?, 1, ?)');
+    for (let i = 0; i < 5000; i++) { const x = p.run(i, vieux); r.run(x.lastInsertRowid, vieux); }
+    st.db.prepare("INSERT INTO paquets (id_paquet, de, port, heure) VALUES (9999999, 7, 'position', ?)").run(Date.now());
+  })();
+  let tours = 0, fini = false;
+  const compter = () => { tours++; if (!fini) setImmediate(compter); };
+  setImmediate(compter);
+  const p1 = st.purger(7, 90, { lot: 1000 });
+  assert.equal(st.purger(7, 90), p1, 'une purge en cours n’est pas relancée');
+  const n = await p1; fini = true;
+  assert.equal(n, 10000);
+  assert.ok(tours >= 8, `la carte doit pouvoir répondre entre les lots (${tours} tours)`);
+  assert.equal(st.db.prepare('SELECT COUNT(*) n FROM paquets').get().n, 1, 'le paquet récent reste');
+  assert.notEqual(st.purger(7, 90), p1, 'nouvelle purge possible une fois la précédente finie');
+  st.db.close();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('Réseau : relais retrouvé par son dernier octet sans relire toute la table, statistiques et nœuds modifiés', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'relais-'));
+  const { creerStockage } = require('../src/base');
+  const { creerReseau } = require('../src/reseau');
+  const st = creerStockage(path.join(dossier, 'x.db'));
+  const config = { seuils: { actifMinutes: 30, inactifHeures: 24, muetMinutes: 60, tensionVolts: 3.5, batteriePourcent: 20, chargeSolaireVolts: 4, canalPourcent: 25, canalCritiquePourcent: 40, emissionPourcent: 10 }, lienDistanceMaxKm: 120, noeudsSurveilles: [], canauxTexte: [], precisionPublique: 2 };
+  const reseau = creerReseau(st, config);
+  const t = Date.now();
+  const noeud = (num, lat, lon, extra = '') => st.db.prepare(`INSERT INTO noeuds (num, id, lat, lon, premier_vu, dernier_vu, role${extra ? ', est_passerelle' : ''}) VALUES (?, ?, ?, ?, ?, ?, 'ROUTER'${extra ? ', 1' : ''})`).run(num, '!' + num.toString(16), lat, lon, t - 7200000, t - 7200000);
+  noeud(0x5a1e00aa, 45.05, 3.9, 'gw'); // passerelle au Puy
+  noeud(0x11223344, 45.10, 3.95); // relais proche, octet 0x44
+  noeud(0x99887744, 48.85, 2.35); // même octet, à Paris : hors de portée
+  st.db.prepare('UPDATE noeuds SET canal = 12, heure_telemetrie = ? WHERE num = ?').run(t, 0x11223344);
+  const s0 = reseau.statistiques();
+  assert.equal(s0.noeuds, 3); assert.equal(s0.passerelles, 1); assert.equal(s0.actifs, 0); assert.equal(s0.canalMax, 12);
+  const avant = Date.now();
+  reseau.integrer({ genre: 'paquet', idPaquet: 77, de: 0x0badcafe, vers: 0xffffffff, port: 'texte', canal: 'LongFast', sauts: 1, relais: 0x44, numPasserelle: 0x5a1e00aa, snr: 4.5, rssi: -101 });
+  const lien = st.db.prepare('SELECT a, b, source FROM liens').all();
+  assert.deepEqual(lien, [{ a: 0x11223344, b: 0x5a1e00aa, source: 'rf' }], 'relais proche retenu, homonyme lointain écarté');
+  const modifies = reseau.noeudsDepuis(avant - 1000, true).map((n) => n.num).sort();
+  assert.deepEqual(modifies, [0x0badcafe, 0x11223344, 0x5a1e00aa].sort(), 'nœuds touchés par le paquet, et le relais (télémétrie récente)');
+  assert.equal(reseau.statistiques().actifs, 2, 'émetteur et passerelle entendus à l’instant');
+  // Liste complète : objets ordinaires (lecture rapide), mêmes champs qu'avant
+  const tous = st.q.noeuds.all();
+  assert.equal(tous.length, 4); assert.equal(typeof tous[0].num, 'number'); assert.ok('stats_locales' in tous[0]);
+  // Nettoyage : un lien de 400 km est supprimé
+  st.db.prepare("INSERT INTO liens (a, b, source, nb, premier_vu, dernier_vu) VALUES (?, ?, 'rf', 1, ?, ?)").run(0x99887744, 0x5a1e00aa, t, t);
+  assert.equal(reseau.nettoyer().liens, 1);
+  st.db.close();
   fs.rmSync(dossier, { recursive: true, force: true });
 });

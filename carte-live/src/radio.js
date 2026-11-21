@@ -384,6 +384,14 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
     for (const [id, a] of enAttente) if (a.heure < limite) enAttente.delete(id);
   }, 30000));
 
+  // Nombre de cibles affiché dans l'état du module : compté au plus une fois par minute. L'état est demandé très
+  // souvent (passerelle toutes les 10 s, état diffusé toutes les 30 s, preset du réseau…) et chaque comptage relisait
+  // toute la table des nœuds
+  let ciblesCompte = { heure: 0, nb: 0 };
+  function nbCiblesAuto() {
+    if (Date.now() - ciblesCompte.heure > 60000) ciblesCompte = { heure: Date.now(), nb: ciblesAutomatiques().length };
+    return ciblesCompte.nb;
+  }
   function ciblesAutomatiques() {
     const toutes = q.noeuds.all();
     if (cfg.tracerouteCibles.length) {
@@ -602,7 +610,7 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
     etat: () => ({
       ...etat, hote: memo.actif ? memo.actif.hote : null, arret: arretVoulu, repriseAuto, preset, hopLimit: hopLimitLora, traceroutesEnAttente: enAttente.size,
       prochainCycle: cfg.tracerouteIntervalleMinutes > 0 ? prochainCycle : null, cycleEnCours,
-      ciblesAuto: cfg.tracerouteIntervalleMinutes > 0 ? ciblesAutomatiques().length : 0,
+      ciblesAuto: cfg.tracerouteIntervalleMinutes > 0 ? nbCiblesAuto() : 0,
     }),
     traceroute: lancerTraceroute,
     // Arrêt définitif (module en écoute retiré)

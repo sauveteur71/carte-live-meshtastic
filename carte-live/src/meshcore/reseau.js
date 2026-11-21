@@ -8,6 +8,7 @@
 
 const { decoderPaquet, resumer, ROLES_FR } = require('./paquet');
 const { distanceKm } = require('../reseau');
+const { lectureRapide } = require('../base');
 
 const ROLES_RELAIS = new Set(['repeteur', 'salon']);
 
@@ -59,7 +60,7 @@ function creerReseauMc(db, config, canauxInitiaux, journal = () => {}) {
   if (!db.prepare('PRAGMA table_info(mc_messages)').all().some((c) => c.name === 'taille_hachage')) db.exec('ALTER TABLE mc_messages ADD COLUMN taille_hachage INTEGER');
   const q = {
     noeud: db.prepare('SELECT * FROM mc_noeuds WHERE cle = ?'),
-    noeuds: db.prepare('SELECT * FROM mc_noeuds ORDER BY dernier_vu DESC'),
+    noeuds: lectureRapide(db.prepare('SELECT * FROM mc_noeuds ORDER BY dernier_vu DESC')),
     noeudsDepuis: db.prepare('SELECT * FROM mc_noeuds WHERE MAX(COALESCE(dernier_vu, 0), COALESCE(derniere_annonce, 0), COALESCE(observateur_vu, 0), COALESCE(heure_position, 0)) >= ?'),
     creer: db.prepare('INSERT OR IGNORE INTO mc_noeuds (cle, premier_vu, dernier_vu, source) VALUES (?, ?, ?, ?)'),
     vu: db.prepare(`UPDATE mc_noeuds SET dernier_vu = MAX(COALESCE(dernier_vu, 0), @heure),

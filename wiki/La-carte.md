@@ -37,7 +37,14 @@ Dans *Messages*, un clic sur l'origine d'un message (📡 / 🌐) affiche son **
 - **Alertes** : nœud muet, batterie faible, canal saturé, passerelle hors ligne.
 - **Statistiques › Maintenance** : charge radio des relais, autonomie, firmwares, conseils de rôles.
 - **Historique** sur plus d'un an, **rejeu** des 24 dernières heures, **rapport hebdomadaire** (*Outils*).
-- **Santé de la carte** (*Réseau*) : processeur, mémoire, disque, base, MQTT.
+- **Santé de la carte** (*Réseau*) : processeur, mémoire, disque, base, MQTT, réactivité.
+  - **Gels** : la carte mesure chaque minute son plus long moment sans répondre. Alerte « attention » si elle se
+    fige plus de 1,5 s au moins 2 fois en 10 minutes, « critique » au-delà de 5 s d'un coup.
+  - **Tâches les plus lentes (dernière heure)** : chaque traitement est chronométré (message MQTT, état diffusé
+    toutes les 30 s, purge horaire, pages de l'API, minuteries). Le tableau donne la durée la plus longue, la
+    moyenne et le nombre d'exécutions. Une tâche qui dépasse souvent 500 ms fige la carte pour tous les visiteurs.
+  - **Gels récents** : heure, durée et tâche la plus longue de la minute (la suspecte). Une tâche « minuterie … »
+    est nommée d'après le fichier du programme qui l'a créée : indiquez ce nom en signalant un problème.
 
 ## Pour le joindre et responsable d'un nœud
 Fiche d'un nœud, onglet **Voisins**, rubrique **Pour le joindre** : par quelle station de la carte l'atteindre (module relié, modules en écoute, puis passerelles MQTT qui l'ont entendu) et dans quel état est la liaison : *direct, aller-retour prouvé*, *direct, sens retour non prouvé*, *N sauts* ou *hors de portée*. Entendre un nœud ne prouve pas qu'il nous entend : le retour est prouvé quand il nous liste dans son voisinage, qu'une traceroute revient ou qu'une liaison est mesurée dans l'autre sens. Une passerelle MQTT ne fait qu'écouter.
