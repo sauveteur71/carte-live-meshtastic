@@ -1201,8 +1201,32 @@ test('Secteurs : géométrie (point dans polygone, distance signée, précision 
   assert.ok(Math.abs(geo.distanceLimite(c, CENTRE) + 1000) < 1e-6);
   assert.ok(Math.abs(geo.tailleSecteur({ forme: 'polygone', points: carre }) - Math.sqrt(5560 * 7870 / Math.PI)) < 60);
   assert.equal(geo.incertitude(32), 0); assert.equal(geo.incertitude(null), 0); assert.equal(geo.incertitude(0), 0);
-  assert.ok(Math.abs(geo.incertitude(13) - 2918) < 2, 'précision 13 bits ≈ 2,9 km');
-  assert.ok(Math.abs(geo.incertitude(16) - 365) < 2, 'précision 16 bits ≈ 364 m');
+  // Demi-diagonale de la maille : à l'équateur × √2, à 45° × 1,22 (I7)
+  assert.ok(Math.abs(geo.incertitude(13, 0) - 2918 * Math.SQRT2) < 3, 'précision 13 bits à l’équateur ≈ 4,1 km');
+  assert.ok(Math.abs(geo.incertitude(13, 45) - 2918 * Math.hypot(1, Math.cos(Math.PI / 4))) < 3, 'précision 13 bits à 45° ≈ 3,6 km');
+  assert.ok(Math.abs(geo.incertitude(16, 45) - 365 * Math.hypot(1, Math.cos(Math.PI / 4))) < 3, 'précision 16 bits à 45° ≈ 446 m');
+  assert.ok(geo.incertitude(16, 60) < geo.incertitude(16, 10), 'maille moins large vers les pôles');
+  // Antiméridien (M2) : un polygone à cheval sur 180° est d'un seul tenant
+  const anti = [[10, 179.99], [10, -179.99], [10.02, -179.99], [10.02, 179.99]];
+  assert.ok(geo.surfacePolygone(anti) < 1e7 && geo.surfacePolygone(anti) > 4e6, `antiméridien : ≈ 4,9 km², pas 360° de large : ${geo.surfacePolygone(anti)}`);
+  assert.equal(geo.pointDansPolygone({ lat: 10.01, lon: 180 }, anti), true);
+  assert.equal(geo.pointDansPolygone({ lat: 10.01, lon: 0 }, anti), false);
+  assert.doesNotThrow(() => geo.valider({ nom: 'a', forme: 'polygone', points: anti, noeuds: [1] }));
+  // Polygone auto-intersecté (M3)
+  const papillon = [[45, 4], [45.01, 4.01], [45.01, 4], [45, 4.01]];
+  assert.equal(geo.polygoneCroise(papillon), true); assert.equal(geo.polygoneCroise(carre), false); assert.equal(geo.polygoneCroise(u), false);
+  assert.throws(() => geo.valider({ nom: 'a', forme: 'polygone', points: papillon, noeuds: [1] }), /se croise/);
+  // Marge trop grande pour une alerte à l'entrée (M4)
+  assert.throws(() => geo.valider({ nom: 'a', forme: 'cercle', centre: CENTRE, rayon: 100, noeuds: [1], sens: 'entree', marge: 500 }), /Marge trop grande/);
+  assert.throws(() => geo.valider({ nom: 'a', forme: 'cercle', centre: CENTRE, rayon: 100, noeuds: [1], sens: 'deux', marge: 50 }), /Marge trop grande/);
+  assert.doesNotThrow(() => geo.valider({ nom: 'a', forme: 'cercle', centre: CENTRE, rayon: 100, noeuds: [1], sens: 'sortie', marge: 500 }));
+  assert.equal(geo.valider({ nom: 'a', forme: 'cercle', centre: CENTRE, rayon: 100, noeuds: [1] }).silenceMin, 30, 'perte de contact : 30 min par défaut (I1)');
+  // Coupe en octets UTF-8 (M12) et cellule CSV (I5)
+  assert.equal(Buffer.byteLength(geo.couperOctets('⛔'.repeat(100), 200)), 198, '⛔ = 3 octets : 66 caractères, 198 octets');
+  assert.equal(geo.couperOctets('abc', 200), 'abc');
+  assert.equal(geo.celluleCsv('=HYPERLINK("http://x","clic")'), `"'=HYPERLINK(""http://x"",""clic"")"`);
+  assert.equal(geo.celluleCsv('+33 6'), "'+33 6"); assert.equal(geo.celluleCsv('@SUM'), "'@SUM"); assert.equal(geo.celluleCsv('-1 x'), "'-1 x");
+  assert.equal(geo.celluleCsv(-50), '-50', 'un nombre reste un nombre'); assert.equal(geo.celluleCsv('a\rb'), '"a\rb"'); assert.equal(geo.celluleCsv(null), '');
   assert.throws(() => geo.valider({ nom: 'x', forme: 'polygone', points: [[45, 3], [45.0001, 3]], noeuds: [1] }), /3 à 200 sommets/);
   assert.throws(() => geo.valider({ nom: 'x', forme: 'polygone', points: [[45, 3], [45.00001, 3], [45, 3.00001]], noeuds: [1] }), /trop petit/);
   assert.throws(() => geo.valider({ nom: 'x', forme: 'cercle', centre: CENTRE, rayon: 500 }), /équipe ou à des nœuds/);
@@ -1229,6 +1253,7 @@ test('Secteurs : sortie confirmée par 2 positions, bordure et aller-retour sans
   assert.equal(sortie.length, 1); assert.equal(sortie[0].notifier, true); assert.equal(sortie[0].nom, 'Alpha');
   assert.match(sortie[0].message, /Alpha est sorti du secteur \(300 m au-delà de la limite\)/);
   assert.equal(lora.length, 1); assert.equal(lora[0][1], 1); assert.match(lora[0][0], /Alpha hors secteur Mézenc nord/);
+  assert.equal(sortie[0].lora, 'envoyé');
   assert.ok(diffuses.some((m) => m.genre === 'secteur-alerte' && m.type === 'sortie' && m.niveau === 'critique'));
   const al = s.alertes();
   assert.equal(al.length, 1); assert.equal(al[0].niveau, 'critique'); assert.equal(al[0].noeud, 0x5a1e0001);
@@ -1259,19 +1284,28 @@ test('Secteurs : sortie confirmée par 2 positions, bordure et aller-retour sans
   fs.rmSync(dossier, { recursive: true, force: true });
 });
 
-test('Secteurs : position floutée trop imprécise ignorée, secteur « entrée », perte de contact, MeshCore', () => {
+test('Secteurs : position floutée surveillée quand même (I2), secteur « entrée », perte de contact, MeshCore', () => {
   const { s, horloge, evenements, dossier } = secteursEssai();
   const sec = s.creer({ nom: 'Petit', forme: 'cercle', centre: CENTRE, rayon: 1000, noeuds: [0x5a1e0009], confirmations: 1 }, 'essai');
   const K = 'mt:' + 0x5a1e0009;
-  s.position(K, { ...auNord(CENTRE, 5000), precision: 13, id: 1 }); // ± 2,9 km sur un secteur de 1 km
-  s.position(K, { ...auNord(CENTRE, 6000), precision: 13, id: 2 });
+  // ± 3,6 km (13 bits à 45°) sur un secteur de 1 km : à 1,5 km du centre, impossible de trancher → signalé, pas ignoré
+  s.position(K, { ...auNord(CENTRE, 1500), precision: 13, id: 1 });
+  s.position(K, { ...auNord(CENTRE, 1600), precision: 13, id: 2 });
   assert.equal(evenements.filter((e) => e.type === 'imprecise').length, 1, 'noté une seule fois');
-  assert.equal(evenements.filter((e) => e.type === 'sortie').length, 0, 'pas d’alerte sur une position floue');
-  // 16 bits (± 364 m) : utilisable, mais la marge s'élargit d'autant
-  s.position(K, { ...auNord(CENTRE, 1000 + 300), precision: 16, id: 3 });
-  assert.equal(evenements.filter((e) => e.type === 'sortie').length, 0, '300 m dehors à ± 364 m : bordure');
-  s.position(K, { ...auNord(CENTRE, 1000 + 600), precision: 16, id: 4 });
-  assert.equal(evenements.filter((e) => e.type === 'sortie').length, 1, '600 m dehors à ± 364 m : sortie');
+  assert.equal(evenements.find((e) => e.type === 'imprecise').niveau, 'attention');
+  assert.match(evenements.find((e) => e.type === 'imprecise').message, /non surveillable précisément : position floutée \(± 3,6 km\)/);
+  assert.ok(s.alertes().some((a) => a.cle.endsWith(':imprecise') && a.niveau === 'attention'), 'alerte active « non surveillable »');
+  assert.equal(evenements.filter((e) => e.type === 'sortie').length, 0, 'pas de sortie : la maille chevauche la limite');
+  // La même position floutée, mais à 50 km : toute la maille est dehors → sortie, même floutée
+  s.position(K, { ...auNord(CENTRE, 50000), precision: 13, id: 3 });
+  assert.equal(evenements.filter((e) => e.type === 'sortie').length, 1, 'floutée mais franchement dehors : sortie');
+  assert.ok(!s.alertes().some((a) => a.cle.endsWith(':imprecise')), 'plus « non surveillable » dès qu’on peut trancher');
+  s.position(K, { ...auNord(CENTRE, 0), id: 4 }); s.position(K, { ...auNord(CENTRE, 0), id: 5 });
+  // 16 bits (± 446 m à 45°) : utilisable, mais la marge s'élargit d'autant
+  s.position(K, { ...auNord(CENTRE, 1000 + 300), precision: 16, id: 6 });
+  assert.equal(evenements.filter((e) => e.type === 'sortie').length, 1, '300 m dehors à ± 446 m : bordure');
+  s.position(K, { ...auNord(CENTRE, 1000 + 600), precision: 16, id: 7 });
+  assert.equal(evenements.filter((e) => e.type === 'sortie').length, 2, '600 m dehors à ± 446 m : sortie');
   // Secteur « entrée » (zone à éviter), nœud MeshCore
   const CLE = 'AB'.repeat(32);
   const z = s.creer({ nom: 'Zone dangereuse', forme: 'polygone', points: [[45.00, 3.80], [45.00, 3.82], [45.02, 3.82], [45.02, 3.80]], noeudsMc: [CLE], sens: 'entree', confirmations: 1, marge: 0, silenceMin: 15, delaiMin: 5 }, 'essai');
@@ -1344,6 +1378,224 @@ test('Mode urgence : activation, journal sans doublon, note, fin, archive et exp
 
 // ---------- Mur des donateurs (HelloAsso + GitHub Sponsors) ----------
 const { creerDonateurs, anonymiser } = require('../src/donateurs');
+
+test('Secteurs : sortie probable après une position dehors puis silence (I1), expiration (M5), demande de position', () => {
+  const demandes = [];
+  const { s, horloge, evenements, dossier } = secteursEssai({ demanderPosition: (n, m) => demandes.push([n, m]) });
+  const sec = s.creer({ nom: 'Crête', forme: 'cercle', centre: CENTRE, rayon: 1000, noeuds: [0x5a1e0021], confirmations: 2, delaiMin: 10 }, 'essai');
+  const K = 'mt:' + 0x5a1e0021;
+  s.position(K, { ...CENTRE, id: 1 }); s.position(K, { ...CENTRE, id: 2 });
+  horloge.t += 60000;
+  s.position(K, { ...auNord(CENTRE, 5000), id: 3 }); // une seule position dehors, puis plus rien
+  assert.deepEqual(demandes, [[0x5a1e0021, 'secteur']], 'position demandée tout de suite au premier signe de sortie');
+  assert.equal(s.secteur(sec.id).membres[0].etat, 'dedans');
+  horloge.t += 5 * 60000; s.verifierSilences();
+  assert.equal(evenements.filter((e) => e.type === 'sortie').length, 0, '5 min : trop tôt');
+  horloge.t += 5 * 60000; s.verifierSilences();
+  const e = evenements.find((e) => e.type === 'sortie');
+  assert.ok(e && e.probable && e.notifier && e.alerte, 'sortie probable après 10 min de silence');
+  assert.match(e.message, /sortie probable de !5a1e0021 \(une position hors secteur, plus de nouvelles depuis 10 min\)/);
+  assert.equal(e.niveau, 'critique');
+  const m = s.secteur(sec.id).membres[0];
+  assert.equal(m.etat, 'dehors'); assert.ok(m.probable);
+  assert.ok(s.alertes().some((a) => a.niveau === 'critique' && /sortie probable/.test(a.message)));
+  s.verifierSilences();
+  assert.equal(evenements.filter((e) => e.type === 'sortie').length, 1, 'pas répétée');
+  // Le nœud redonne des nouvelles : dedans → retour sans alerte (sens « sortie »)
+  s.position(K, { ...CENTRE, id: 4 }); s.position(K, { ...CENTRE, id: 5 });
+  assert.equal(s.secteur(sec.id).membres[0].etat, 'dedans');
+  // Intervalle de suivi de l'équipe (60 min) : le seuil de sortie probable le suit
+  const demandes2 = [];
+  const r = geo.creerSecteurs({ config: { fichierBase: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'secteurs-')), 'base.db') }, intervalleMs: 0, maintenant: () => horloge.t,
+    membresEquipe: () => [0x5a1e0022], nomEquipe: () => 'Eq', suiviMinDe: () => 60, surEvenement: (e) => demandes2.push(e) });
+  r.creer({ nom: 'Lent', forme: 'cercle', centre: CENTRE, rayon: 1000, equipe: 'eq', confirmations: 2 }, 'essai');
+  const K2 = 'mt:' + 0x5a1e0022;
+  r.position(K2, { ...CENTRE, id: 1 }); r.position(K2, { ...CENTRE, id: 2 }); r.position(K2, { ...auNord(CENTRE, 5000), id: 3 });
+  horloge.t += 30 * 60000; r.verifierSilences();
+  assert.equal(demandes2.filter((e) => e.type === 'sortie').length, 0, 'suivi toutes les 60 min : 30 min de silence ne suffisent pas');
+  horloge.t += 31 * 60000; r.verifierSilences();
+  assert.equal(demandes2.filter((e) => e.type === 'sortie' && e.probable).length, 1, 'après un intervalle de suivi : sortie probable');
+  r.arreter();
+  // M5 : un comptage « dehors » non confirmé expire (le nœud continue d'émettre en bordure)
+  horloge.t += 60000;
+  s.position(K, { ...auNord(CENTRE, 5000), id: 10 }); // candidat dehors
+  for (let i = 0; i < 8; i++) { horloge.t += 20 * 60000; s.position(K, { ...auNord(CENTRE, 1010), id: 20 + i }); s.verifierSilences(); } // bordure pendant 2 h 40
+  s.position(K, { ...auNord(CENTRE, 5000), id: 30 });
+  assert.equal(s.secteur(sec.id).membres[0].etat, 'dedans', 'un « dehors » vieux de 2 h 40 ne compte plus comme première confirmation');
+  assert.equal(s.secteur(sec.id).membres[0].candidat, 'dehors');
+  s.arreter();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('Secteurs : pas de rafale de pertes de contact au redémarrage ni quand le flux est coupé (I3)', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'secteurs-'));
+  const horloge = { t: Date.UTC(2026, 10, 21, 8, 0, 0) };
+  let reception = horloge.t;
+  const evenements = [];
+  const fabriquer = () => geo.creerSecteurs({ config: { fichierBase: path.join(dossier, 'base.db') }, intervalleMs: 0, maintenant: () => horloge.t, derniereReception: () => reception, surEvenement: (e) => evenements.push(e) });
+  let s = fabriquer();
+  s.creer({ nom: 'Col', forme: 'cercle', centre: CENTRE, rayon: 1000, noeuds: [1, 2, 3, 4, 5], silenceMin: 10 }, 'essai');
+  for (const n of [1, 2, 3, 4, 5]) s.position('mt:' + n, { ...CENTRE, id: n });
+  s.arreter();
+  // Redémarrage après 1 h d'arrêt : délai de grâce de silenceMin, aucune alerte en masse
+  horloge.t += 3600000; reception = horloge.t;
+  s = fabriquer();
+  s.verifierSilences();
+  assert.equal(evenements.filter((e) => e.type === 'silence').length, 0, 'délai de grâce après le démarrage');
+  horloge.t += 11 * 60000; reception = horloge.t;
+  s.verifierSilences();
+  assert.equal(evenements.filter((e) => e.type === 'silence').length, 5, 'après la grâce, les silences réels sont signalés');
+  // Flux coupé (plus rien reçu d'aucune source depuis 10 min) : une seule alerte, surveillance suspendue
+  for (const n of [1, 2, 3, 4, 5]) s.position('mt:' + n, { ...CENTRE, id: 100 + n });
+  assert.equal(evenements.filter((e) => e.type === 'contact').length, 5);
+  horloge.t += 12 * 60000; // reception n'avance pas
+  s.verifierSilences(); s.verifierSilences();
+  const flux = evenements.filter((e) => e.type === 'flux');
+  assert.equal(flux.length, 1, 'une seule alerte « flux interrompu »'); assert.equal(flux[0].niveau, 'attention'); assert.ok(flux[0].notifier);
+  assert.match(flux[0].message, /flux interrompu, surveillance des secteurs suspendue/);
+  assert.equal(evenements.filter((e) => e.type === 'silence').length, 5, 'aucune nouvelle perte de contact pendant la coupure');
+  assert.ok(s.alertes().some((a) => a.cle.startsWith('secteur:flux:') && a.niveau === 'attention'));
+  assert.ok(s.fluxCoupe());
+  // Retour du flux : alerte levée, puis les silences reprennent
+  horloge.t += 60000; reception = horloge.t;
+  s.verifierSilences();
+  assert.equal(evenements.filter((e) => e.type === 'flux-retour').length, 1);
+  assert.ok(!s.alertes().some((a) => a.cle.startsWith('secteur:flux:')));
+  assert.equal(evenements.filter((e) => e.type === 'silence').length, 10, 'les silences réels sont signalés au retour du flux');
+  s.arreter();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('Secteurs : envoi LoRa en file (I6) — alertes simultanées regroupées, 30 s, plafond horaire, 200 octets, échec', () => {
+  const lora = [];
+  let panne = false;
+  const { s, horloge, evenements, dossier } = secteursEssai({ envoyerLora: (t, c) => { if (panne) throw new Error('module coupé'); lora.push([horloge.t, t, c]); }, nomDe: (k) => (k === 'mt:' + 0x5a1e0001 ? 'Ω'.repeat(150) : null) });
+  const sec = s.creer({ nom: 'Mont Bar', forme: 'cercle', centre: CENTRE, rayon: 1000, noeuds: [1, 2, 3], canalLora: 2, confirmations: 1, delaiMin: 1 }, 'essai');
+  s.position('mt:1', { ...auNord(CENTRE, 5000), id: 1 });
+  horloge.t += 1000; s.position('mt:2', { ...auNord(CENTRE, 5000), id: 2 });
+  horloge.t += 1000; s.position('mt:3', { ...auNord(CENTRE, 5000), id: 3 });
+  assert.equal(lora.length, 1, 'le premier part tout de suite');
+  assert.match(lora[0][1], /^⛔ !00000001 hors secteur Mont Bar$/);
+  // L'état d'envoi est mis à jour sur l'entrée du journal (les copies diffusées gardent l'état du moment)
+  const sorties = () => s.journal({ limite: 3000 }).filter((e) => e.type === 'sortie').reverse();
+  assert.deepEqual(sorties().map((e) => e.lora), ['envoyé', 'différé', 'différé']);
+  horloge.t += 31000; s.viderLora();
+  assert.equal(lora.length, 2, 'les deux suivants partent ensemble 30 s plus tard');
+  assert.match(lora[1][1], /^⛔ !00000002, !00000003 hors secteur Mont Bar$/);
+  assert.deepEqual(sorties().map((e) => e.lora), ['envoyé', 'envoyé (groupé)', 'envoyé (groupé)']);
+  // Échec d'envoi : noté, le compteur n'est pas consommé, le message suivant part dès que le module revient
+  panne = true;
+  horloge.t += 120000; s.position('mt:1', { ...CENTRE, id: 4 }); s.position('mt:1', { ...auNord(CENTRE, 5000), id: 5 });
+  horloge.t += 31000; s.viderLora();
+  assert.match(sorties().pop().lora, /^échec : module coupé/);
+  panne = false;
+  s.position('mt:2', { ...CENTRE, id: 6 }); s.position('mt:2', { ...auNord(CENTRE, 5000), id: 7 });
+  assert.equal(lora.length, 3, 'après un échec, l’envoi suivant n’attend pas 30 s');
+  // Plafond : 20 messages par heure, puis « différé »
+  for (let i = 0; i < 25; i++) { horloge.t += 61000; s.position('mt:3', { ...CENTRE, id: 100 + i }); s.position('mt:3', { ...auNord(CENTRE, 5000), id: 200 + i }); s.viderLora(); }
+  assert.equal(lora.length, 20, '20 par heure au plus');
+  assert.ok(sorties().some((e) => /20 messages par heure/.test(e.lora)));
+  // File bornée à 10
+  for (let i = 0; i < 15; i++) { horloge.t += 61000; s.position('mt:1', { ...CENTRE, id: 300 + i }); s.position('mt:1', { ...auNord(CENTRE, 5000), id: 400 + i }); }
+  assert.ok(sorties().some((e) => /file d’envoi pleine/.test(e.lora)));
+  // File vidée (un envoi toutes les 30 s), puis : 200 octets, coupés sans casser un caractère (nom de nœud de 300 octets)
+  horloge.t += 3600000 * 2;
+  for (let i = 0; i < 12; i++) { horloge.t += 31000; s.viderLora(); }
+  const long = s.creer({ nom: 'Éééééééééééééééééééééééééééééééééééééééé', forme: 'cercle', centre: CENTRE, rayon: 1000, noeuds: [0x5a1e0001], canalLora: 1, confirmations: 1 }, 'essai');
+  horloge.t += 31000; lora.length = 0;
+  s.position('mt:' + 0x5a1e0001, { ...auNord(CENTRE, 5000), id: 'long' });
+  assert.equal(lora.length, 1); assert.ok(Buffer.byteLength(lora[0][1]) <= 200 && Buffer.byteLength(lora[0][1]) >= 199, 'coupé à 200 octets : ' + Buffer.byteLength(lora[0][1]));
+  assert.equal(Buffer.from(lora[0][1]).toString(), lora[0][1], 'aucun caractère cassé');
+  assert.ok(long.id); s.arreter();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('Secteurs : injection CSV neutralisée (I5), mesure GPS périmée (I9), doublon MeshCore sans horodatage (M6)', () => {
+  const { s, horloge, evenements, dossier } = secteursEssai({ nomDe: (k) => ({ 'mt:1': '=HYPERLINK("http://x","clic")', 'mt:2': '-Alpha' })[k] || null });
+  const sec = s.creer({ nom: '=1+1', forme: 'cercle', centre: CENTRE, rayon: 1000, noeuds: [1, 2], confirmations: 1 }, 'essai');
+  s.position('mt:1', { ...auNord(CENTRE, 5000), id: 1 });
+  const csv = s.csv();
+  assert.ok(!/;=HYPERLINK/.test(csv) && !/^=1\+1/m.test(csv), 'aucune cellule ne commence par =');
+  assert.match(csv, /;"'=HYPERLINK\(""http:\/\/x"",""clic""\)";/);
+  assert.match(csv, /;'=1\+1;/);
+  assert.match(csv, /;4000;/, 'la distance reste un nombre');
+  // GPS périmé : le nœud répète un fix d'il y a 40 min → non compté, signalé
+  horloge.t += 60000;
+  const fix = horloge.t - 40 * 60000;
+  s.position('mt:2', { ...CENTRE, id: 2 }); // dedans, précis
+  assert.equal(s.secteur(sec.id).membres[1].etat, 'dedans');
+  s.position('mt:2', { ...auNord(CENTRE, 5000), id: 3, heureFix: fix });
+  assert.equal(s.secteur(sec.id).membres[1].etat, 'dedans', 'position périmée non comptée');
+  const p = evenements.find((e) => e.type === 'perimee');
+  assert.ok(p && p.niveau === 'attention' && /périmée \(mesure GPS d’il y a 40 min\)/.test(p.message));
+  assert.ok(s.alertes().some((a) => a.cle.endsWith(':perimee')));
+  s.position('mt:2', { ...auNord(CENTRE, 5000), id: 4, heureFix: fix });
+  assert.equal(evenements.filter((e) => e.type === 'perimee').length, 1, 'signalé une fois par épisode');
+  // Un fix vieux mais qui avance (horloge du nœud fausse, GPS vivant) : compté
+  s.position('mt:2', { ...auNord(CENTRE, 5000), id: 5, heureFix: fix + 60000 });
+  assert.equal(s.secteur(sec.id).membres[1].etat, 'dehors', 'fix qui avance : position comptée');
+  assert.ok(!s.alertes().some((a) => a.cle.endsWith(':perimee')));
+  // Un fix récent : compté normalement
+  s.position('mt:2', { ...CENTRE, id: 6, heureFix: horloge.t - 30000 });
+  assert.equal(s.secteur(sec.id).membres[1].etat, 'dedans');
+  // MeshCore : annonce sans horodatage (id null) répétée par plusieurs observateurs = une seule position
+  const CLE = 'CD'.repeat(32);
+  const z = s.creer({ nom: 'MC', forme: 'cercle', centre: CENTRE, rayon: 1000, noeudsMc: [CLE], confirmations: 2 }, 'essai');
+  s.position('mc:' + CLE, { ...auNord(CENTRE, 5000), id: null }); s.position('mc:' + CLE, { ...auNord(CENTRE, 5000), id: null });
+  assert.equal(s.secteur(z.id).membres[0].etat, 'inconnu', 'même annonce vue deux fois : une seule position');
+  s.position('mc:' + CLE, { ...auNord(CENTRE, 5001), id: null });
+  assert.equal(s.secteur(z.id).membres[0].etat, 'dehors');
+  // Horodatage plus vieux que la dernière position (annonce en retard) : ignoré
+  horloge.t += 60000;
+  s.position('mc:' + CLE, { ...CENTRE, id: 'vieux', heure: horloge.t - 120000 }); s.position('mc:' + CLE, { ...CENTRE, id: 'vieux2', heure: horloge.t - 120000 });
+  assert.equal(s.secteur(z.id).membres[0].etat, 'dehors', 'positions en retard ignorées');
+  s.arreter();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('Secteurs : forme modifiée → états remis à inconnu (M13), équipe supprimée → secteur désactivé (M8), renumérotation (M7)', () => {
+  const { s, horloge, evenements, dossier } = secteursEssai();
+  const sec = s.creer({ nom: 'Plateau', forme: 'cercle', centre: CENTRE, rayon: 1000, equipe: 'eq1', noeuds: [7], confirmations: 1 }, 'essai');
+  s.position('mt:7', { ...CENTRE, id: 1 });
+  assert.equal(s.secteur(sec.id).membres.find((m) => m.cle === 'mt:7').etat, 'dedans');
+  s.modifier(sec.id, { forme: 'cercle', centre: auNord(CENTRE, 10000), rayon: 1000 }, 'essai');
+  assert.equal(s.secteur(sec.id).membres.find((m) => m.cle === 'mt:7').etat, 'inconnu', 'nouvelle forme : l’ancien état ne vaut plus');
+  s.modifier(sec.id, { marge: 60 }, 'essai');
+  // Renumérotation : l'état du nouveau numéro, plus récent, n'est pas écrasé
+  s.position('mt:7', { ...auNord(CENTRE, 10000), id: 2 });
+  horloge.t += 60000;
+  s.position('mt:8', { ...CENTRE, id: 3 });
+  const avant = s.secteur(sec.id).membres.length;
+  s.renumeroter(7, 8);
+  assert.deepEqual(s.secteur(sec.id).noeuds, [8]);
+  assert.equal(s.secteur(sec.id).membres.length, avant, '7 devient 8');
+  assert.equal(s.renumeroter(7, 7), 0);
+  // Équipe supprimée : le secteur garde ses nœuds explicites → reste actif ; un secteur lié seulement à l'équipe est désactivé
+  const seul = s.creer({ nom: 'Équipe seule', forme: 'cercle', centre: CENTRE, rayon: 1000, equipe: 'eq1' }, 'essai');
+  assert.equal(s.equipeSupprimee('eq1'), 1);
+  assert.equal(s.secteur(seul.id).actif, false); assert.equal(s.secteur(sec.id).actif, true); assert.equal(s.secteur(sec.id).equipe, null);
+  assert.ok(evenements.some((e) => e.type === 'desactivation' && e.secteur === seul.id && e.notifier));
+  s.arreter();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('Mode urgence : message de détresse — motif élargi, mots entiers, pas d’explosion (I8), export CSV sans formule (I5)', () => {
+  const { RE_SOS } = require('../src/equipes');
+  for (const t of ['SOS', 'S.O.S', 's.o.s au col', 'Mayday mayday', 'au secours', 'help', 'aidez moi', 'aidez-moi', 'A L\'AIDE', 'à l’aide !', 'besoin d’aide', 'test \u0007']) assert.ok(RE_SOS.test(t), 'détresse : ' + t);
+  for (const t of ['sosie', 'isostatique', 'helpdesk', 'URGENT blessé', 'mayday2', 'xhelp']) assert.ok(!RE_SOS.test(t), 'pas une détresse : ' + t);
+  const t0 = Date.now(); RE_SOS.test('besoin d'.repeat(130000)); assert.ok(Date.now() - t0 < 500, '1 Mo de texte analysé sans explosion');
+  const { creerUrgence } = require('../src/urgence');
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'urgence-'));
+  const u = creerUrgence({ config: { fichierBase: path.join(dossier, 'base.db') } });
+  u.activer({ motif: 'essai' }, 'admin');
+  u.note('=HYPERLINK("http://x")', 'gest'); u.note('+33 6 12', 'gest'); u.note('@SUM(1)\tfoo\r\nbar', 'gest');
+  u.noter({ type: 'alerte', niveau: 'critique', texte: '=cmd|x muet', noeud: 0x5a1e0001 });
+  const csv = u.csv().texte;
+  assert.ok(!/;[=+@]/.test(csv.replace(/;"'/g, ';x')), 'aucune cellule ne commence par = + @ : ' + csv);
+  assert.match(csv, /"'=HYPERLINK\(""http:\/\/x""\)"/); assert.match(csv, /;'\+33 6 12$/m); assert.match(csv, /"'@SUM\(1\)\tfoo \nbar"/, 'le retour chariot est remplacé par une espace à la saisie'); assert.match(csv, /;'=cmd\|x muet$/m);
+  u.arreter();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
 
 test('Mur des donateurs : anonymisation du nom (jamais le nom complet)', () => {
   assert.equal(anonymiser(''), 'Un donateur');

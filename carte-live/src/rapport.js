@@ -20,7 +20,8 @@ function creerRapport(dep) {
     FROM paquets WHERE heure >= ? GROUP BY j ORDER BY j`);
   const nomNum = (num) => { const n = stockage.q.noeud.get(num >>> 0); return n ? n.nom_long || n.nom_court || '!' + (num >>> 0).toString(16) : '!' + (num >>> 0).toString(16); };
 
-  function construire() {
+  // opts.alertes : liste à montrer à la place de celle du serveur (démonstration : alertes publiques seulement)
+  function construire(opts = {}) {
     const fin = Date.now(), debut = fin - 7 * 86400000;
     const titre = (config.carte && config.carte.titre) || 'Réseau Meshtastic';
     const z = config.zone;
@@ -38,7 +39,7 @@ function creerRapport(dep) {
     try { conf = dep.conformite ? dep.conformite() : null; } catch { /* ignoré */ }
     try { fw = maintenance.firmwares(); autonomie = maintenance.autonomie(); charge = maintenance.chargeRadio(); } catch { /* ignoré */ }
     try { mc = dep.meshcore ? dep.meshcore() : null; } catch { /* ignoré */ }
-    const alertes = dep.alertes ? dep.alertes() : [];
+    const alertes = Array.isArray(opts.alertes) ? opts.alertes : dep.alertes ? dep.alertes() : [];
     const muets = relais.filter((r) => (r.dernier_vu || 0) < fin - 6 * 3600000);
     const sourds = asym ? (asym.sourds || []).filter((x) => !x.pos || dansZone(x.pos)) : [];
     const sensUnique = asym ? asym.sensUnique.filter((x) => (x.a && dansZone(x.a)) || (x.b && dansZone(x.b))) : [];

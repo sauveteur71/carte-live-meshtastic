@@ -19,7 +19,7 @@ const NOM_VALIDE = /^[A-Za-z0-9_+\-.]{1,11}$/;
 const distance = (a, b) => { const R = 6371000, r = Math.PI / 180; const dl = (b.lat - a.lat) * r, dg = (b.lon - a.lon) * r; const h = Math.sin(dl / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dg / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
 const dansZone = (z, p) => distance(z, p) <= z.rayon;
 
-function creerEquipes({ config, administration, journal, positionDe = () => null, diffuser = () => {}, nomDe = () => null, surZone = null, secteursDe = () => [] }) {
+function creerEquipes({ config, administration, journal, positionDe = () => null, diffuser = () => {}, nomDe = () => null, surZone = null, secteursDe = () => [], surSuppression = null }) {
   const { racine } = require('./decodeur');
   try { racine.lookupType('meshtastic.ChannelSet'); } catch { racine.loadSync(['meshtastic/apponly.proto']); }
   const dossier = path.dirname(config.fichierBase);
@@ -254,6 +254,7 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
     if (retirerDesNoeuds && nums.length) exigerModule();
     liste = liste.filter((x) => x !== e);
     sauver(true);
+    try { if (surSuppression) surSuppression(e.id); } catch (x) { journal('[Équipes] secteurs de l’équipe supprimée :', x.message); }
     journal(`[Équipes] équipe « ${e.nom} » supprimée par ${auteur}${retirerDesNoeuds && nums.length ? `, canal retiré de ${nums.length} nœud(s)` : ''}`);
     return { taches: retirerDesNoeuds && nums.length ? lancer(e, 'retirer', nums, auteur, true) : [] };
   }
@@ -308,10 +309,14 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
   // Anciennes zones de sécurité (cercles) à reprendre en secteurs : rendues une fois, puis retirées des équipes
   function zonesAMigrer() {
     const l = liste.filter((e) => e.zone).map((e) => ({ id: e.id, nom: e.nom, zone: e.zone }));
-    return { liste: l, valider: () => { for (const e of liste) delete e.zone; if (l.length) sauver(true); } };
+    // valider() : retire les zones des équipes seulement si le fichier s'écrit (sinon elles seront reprises au prochain démarrage)
+    return { liste: l, valider: () => { if (!l.length) return true; const copie = liste.map((e) => e.zone); for (const e of liste) delete e.zone; try { ecrireSur(fichier, JSON.stringify({ equipes: liste }), { mode: 0o600 }); return true; } catch (x) { liste.forEach((e, i) => { if (copie[i]) e.zone = copie[i]; }); journal('[Équipes] zones de sécurité gardées (écriture impossible) :', x.message); return false; } } };
   }
   return {
     renumeroter, membresDe, zonesAMigrer, nomDe: (id) => { const e = trouver(id); return e ? e.nom : null; },
+    // Intervalle de suivi (minutes, 0 si aucun) et appartenance d'un nœud à une équipe, pour les secteurs et le mode urgence
+    suiviDe: (id) => { const e = trouver(id); return e ? e.suiviMin || 0 : 0; },
+    estMembre: (num) => liste.some((e) => e.membres[num >>> 0] && e.membres[num >>> 0].etat === 'membre'),
     // Même clé maîtresse pour les jeux de canaux des groupes (jeux-canaux.js)
     chiffreur: { chiffrer, dechiffrer, empreinte },
     alertes,
@@ -322,7 +327,9 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
   };
 }
 
-// Message de demande d'aide : cloche Meshtastic (🔔), SOS, MAYDAY, « au secours », « besoin d'aide »
-const RE_SOS = /\u0007|\b(SOS|MAYDAY)\b|au secours|besoin d['’]aide/i;
+// Message de demande d'aide : cloche Meshtastic (🔔), SOS (ou S.O.S), MAYDAY, « à l'aide », « aidez-moi », « au secours »,
+// « help », « besoin d'aide » — mots entiers seulement (« sosie », « isostatique » ne comptent pas), sans quantificateur
+// imbriqué (pas de risque d'explosion sur un long texte).
+const RE_SOS = /\u0007|(?<![\p{L}\p{N}])(?:S\.?O\.?S|mayday|[àa] l['’]aide|aidez[- ]moi|au secours|help|besoin d['’]aide)(?![\p{L}\p{N}])/iu;
 
 module.exports = { creerEquipes, RE_SOS };

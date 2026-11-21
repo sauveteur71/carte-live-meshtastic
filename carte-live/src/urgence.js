@@ -82,7 +82,7 @@ function creerUrgence({ config, journal = () => {}, diffuser = () => {}, mainten
   function csv(id) {
     const c = trouverCrise(id) || archives[0];
     if (!c) throw new Error('Aucune crise enregistrée');
-    const q = (v) => (v == null ? '' : /[";\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+    const { celluleCsv: q } = require('./secteurs'); // guillemets, et apostrophe devant ce qu'un tableur prendrait pour une formule
     const local = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: process.env.TZ || 'Europe/Paris' });
     const noeud = (n) => (n == null ? '' : typeof n === 'number' ? '!' + (n >>> 0).toString(16).padStart(8, '0') : String(n));
     return { nom: `crise-${new Date(c.debut).toISOString().slice(0, 16).replace(/[:T]/g, '-')}.csv`,
