@@ -29,3 +29,6 @@ android/build/
 android/local.properties
 *.jks
 !android/app/cle-publique.jks
+
+# lien symbolique ou dossier
+node_modules
