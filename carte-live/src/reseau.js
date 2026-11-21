@@ -456,11 +456,18 @@ function creerReseau(stockage, config) {
     };
   }
 
-  // Nœuds modifiés depuis une heure donnée (mise à jour incrémentale de la carte : quelques nœuds au lieu de milliers)
-  const qDepuis = stockage.db.prepare(`SELECT * FROM noeuds WHERE dernier_vu >= @d OR heure_etat_passerelle >= @d OR heure_position >= @d OR heure_telemetrie >= @d`);
+  // Nœuds modifiés depuis une heure donnée (mise à jour incrémentale de la carte : quelques nœuds au lieu de milliers).
+  // Repère : l'horloge de modification « modifie » (heure serveur de la dernière écriture, tenue par déclencheur), et non
+  // les heures des données (dernier_vu, heure_position…) : une synchronisation du module radio ou de MeshMonitor écrit
+  // l'heure du module, une position annulée ou un nœud renuméroté ne changent aucune heure. Renvoie aussi les nœuds
+  // supprimés depuis (purge, administrateur) pour qu'ils quittent la carte.
+  const qDepuis = stockage.db.prepare('SELECT * FROM noeuds WHERE modifie >= ?');
+  const qSupprimes = stockage.db.prepare('SELECT num FROM noeuds_supprimes WHERE heure >= ?');
   function noeudsDepuis(depuis, admin) {
     const maintenant = Date.now();
-    return qDepuis.all({ d: depuis }).map((n) => vueNoeud(n, admin, maintenant));
+    const noeuds = qDepuis.all(depuis).map((n) => vueNoeud(n, admin, maintenant));
+    const presents = new Set(noeuds.map((n) => n.num));
+    return { noeuds, supprimes: qSupprimes.all(depuis).map((r) => r.num).filter((num) => !presents.has(num)) };
   }
 
   function liens(depuisMs) {

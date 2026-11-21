@@ -111,6 +111,9 @@ function lireLimiteMemoire() {
 function creerSanteCarte({ dossier, fichierBase, version, sources }) {
   const delai = monitorEventLoopDelay({ resolution: 20 });
   delai.enable();
+  // Le démarrage (ouverture de la base, index, chargement des modules) bloque la boucle plusieurs secondes d'un seul
+  // tenant : ce n'est pas un gel de la carte. Le compteur repart une fois le démarrage synchrone terminé.
+  setImmediate(() => delai.reset());
   const limiteMem = lireLimiteMemoire();
   let cpuAvant = process.cpuUsage(), tAvant = process.hrtime.bigint();
   const echantillons = []; // 24 h, un par minute

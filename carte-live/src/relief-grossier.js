@@ -139,9 +139,11 @@ function creerReliefGrossier({ dossier, journal = () => {}, minutes = 5, serveur
         await ceder();
       }
       fs.closeSync(fd); fd = null;
-      fs.renameSync(fPart, fBin);
+      // Fichier d'info écrit AVANT le renommage final : un arrêt entre les deux laissait un .bin complet sans son
+      // .json (relief jugé absent et retéléchargé)
       ecrireSur(fInfo, JSON.stringify({ nLat: NLAT, nLon: NLON, minutes, source: SOURCE, date: Date.now(), sud: -90, ouest: -180, ordre: 'ligne 0 = sud, Int16 petit-boutiste' }));
-      try { fs.unlinkSync(fReprise); } catch { /* déjà */ }
+      fs.renameSync(fPart, fBin);
+      for (const f of [fReprise, fReprise + '.bak']) { try { fs.unlinkSync(f); } catch { /* déjà */ } }
       verifierFichier();
       journal(`[Relief] relief mondial prêt (${Math.round(TAILLE / 1048576)} Mo, ≈ ${etat.resolutionKm} km)`);
       for (const cb of abonnes) { try { cb(); } catch (e) { journal('[Relief] relief mondial :', e.message); } }
@@ -154,10 +156,20 @@ function creerReliefGrossier({ dossier, journal = () => {}, minutes = 5, serveur
     }
   }
 
-  // Une seule fois à la fois ; rien à faire si le fichier est déjà là
+  // Une seule fois à la fois ; rien à faire si le fichier est déjà là. Arrêt puis réactivation rapide (case décochée
+  // puis recochée) : le téléchargement en cours s'arrête, et un nouveau est enchaîné aussitôt après, sans attendre
+  // l'essai horaire.
   function telecharger() {
     if (etat.statut === 'pret' || verifierFichier()) return Promise.resolve();
-    if (!promesse) { arret = false; promesse = telechargerTout().finally(() => { promesse = null; }); }
+    // (la promesse n'est effacée que si c'est encore la dernière : celle d'un téléchargement arrêté ne doit pas
+    // effacer celle qui lui est enchaînée)
+    let p;
+    if (promesse && arret) {
+      arret = false;
+      p = promesse.catch(() => {}).then(() => (etat.statut === 'pret' || verifierFichier() ? undefined : telechargerTout()));
+    } else if (!promesse) { arret = false; p = telechargerTout(); } else return promesse;
+    const p2 = p.finally(() => { if (promesse === p2) promesse = null; });
+    promesse = p2;
     return promesse;
   }
 

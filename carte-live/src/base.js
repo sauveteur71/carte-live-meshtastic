@@ -86,6 +86,27 @@ function ouvrirBase(fichier) {
   db.exec('CREATE INDEX IF NOT EXISTS idx_positions_heure ON positions(heure)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_traceroutes_heure ON traceroutes(heure)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_noeuds_dernier_vu ON noeuds(dernier_vu)');
+  // Horloge de modification des nœuds (liste incrémentale ?depuis=) : « modifie » est l'heure serveur de la dernière
+  // écriture, quelle qu'elle soit (synchronisation d'un module radio ou de MeshMonitor qui écrivent l'heure du module,
+  // positions annulées par nettoyer(), renumérotation, presets…). Tenue par des déclencheurs : aucune écriture ne peut
+  // l'oublier. Les suppressions (purge, administrateur, renumérotation) sont notées dans noeuds_supprimes.
+  const nouvelleColonne = !colonnes('noeuds').includes('modifie');
+  ajouter('noeuds', 'modifie', 'INTEGER');
+  if (nouvelleColonne) db.exec('UPDATE noeuds SET modifie = dernier_vu'); // base existante : repère de départ
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_noeuds_modifie ON noeuds(modifie);
+    CREATE TABLE IF NOT EXISTS noeuds_supprimes (num INTEGER PRIMARY KEY, heure INTEGER);
+    CREATE TRIGGER IF NOT EXISTS trg_noeuds_ins AFTER INSERT ON noeuds BEGIN
+      UPDATE noeuds SET modifie = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER) WHERE num = NEW.num;
+      DELETE FROM noeuds_supprimes WHERE num = NEW.num;
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_noeuds_maj AFTER UPDATE ON noeuds WHEN NEW.modifie IS OLD.modifie BEGIN
+      UPDATE noeuds SET modifie = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER) WHERE num = NEW.num;
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_noeuds_del AFTER DELETE ON noeuds BEGIN
+      INSERT OR REPLACE INTO noeuds_supprimes (num, heure) VALUES (OLD.num, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
+    END;
+  `);
   return db;
 }
 
@@ -259,6 +280,8 @@ function creerStockage(fichier) {
           if (c < lot) break;
         }
       }
+      // Nœuds supprimés notés par le déclencheur : utiles 10 min (liste incrémentale), gardés une heure
+      try { db.prepare('DELETE FROM noeuds_supprimes WHERE heure < ?').run(Date.now() - 3600000); } catch { /* base occupée */ }
       // Checkpoint passif (le journal WAL est recopié dans la base sans attendre) ; le fichier n'est tronqué que s'il a
       // beaucoup grossi, car la troncature recopie tout d'un coup
       try {

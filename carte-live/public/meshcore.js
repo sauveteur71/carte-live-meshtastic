@@ -1820,9 +1820,13 @@ async function mcOuvrirPaquet(id) {
 // Chargement complet au démarrage et toutes les 10 min ; entre-temps, seulement les nœuds modifiés
 async function mcChargerNoeuds(complet) {
   if (complet || !mc.heureNoeuds || Date.now() - mc.completNoeuds > 600000) {
-    const l = await api('/api/mc/noeuds');
+    const r = await fetch('/api/mc/noeuds', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error(r.statusText);
+    const l = await r.json();
     mc.noeuds = new Map(l.map((n) => [n.cle, n]));
-    mc.heureNoeuds = mc.completNoeuds = Date.now();
+    // Repère pris sur l'heure serveur (en-tête X-Heure), pas sur l'horloge du navigateur
+    mc.heureNoeuds = Number(r.headers.get('X-Heure')) || Date.now();
+    mc.completNoeuds = Date.now();
   } else {
     const r = await api('/api/mc/noeuds?depuis=' + mc.heureNoeuds);
     for (const n of r.noeuds) mc.noeuds.set(n.cle, n);

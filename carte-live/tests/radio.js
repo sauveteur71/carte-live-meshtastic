@@ -844,12 +844,25 @@ test('Réseau : relais retrouvé par son dernier octet sans relire toute la tabl
   st.db.prepare('UPDATE noeuds SET canal = 12, heure_telemetrie = ? WHERE num = ?').run(t, 0x11223344);
   const s0 = reseau.statistiques();
   assert.equal(s0.noeuds, 3); assert.equal(s0.passerelles, 1); assert.equal(s0.actifs, 0); assert.equal(s0.canalMax, 12);
+  // Horloge de modification tenue par déclencheur : les fiches viennent d'être écrites, on les vieillit pour le test
+  st.db.prepare('UPDATE noeuds SET modifie = ?').run(t - 7200000);
+  assert.deepEqual(st.db.prepare('SELECT DISTINCT modifie FROM noeuds').pluck().all(), [t - 7200000], 'une écriture qui fixe modifie elle-même n’est pas réécrite');
   const avant = Date.now();
   reseau.integrer({ genre: 'paquet', idPaquet: 77, de: 0x0badcafe, vers: 0xffffffff, port: 'texte', canal: 'LongFast', sauts: 1, relais: 0x44, numPasserelle: 0x5a1e00aa, snr: 4.5, rssi: -101 });
   const lien = st.db.prepare('SELECT a, b, source FROM liens').all();
   assert.deepEqual(lien, [{ a: 0x11223344, b: 0x5a1e00aa, source: 'rf' }], 'relais proche retenu, homonyme lointain écarté');
-  const modifies = reseau.noeudsDepuis(avant - 1000, true).map((n) => n.num).sort();
-  assert.deepEqual(modifies, [0x0badcafe, 0x11223344, 0x5a1e00aa].sort(), 'nœuds touchés par le paquet, et le relais (télémétrie récente)');
+  const d1 = reseau.noeudsDepuis(avant - 1000, true);
+  assert.deepEqual(d1.noeuds.map((n) => n.num).sort(), [0x0badcafe, 0x5a1e00aa].sort(), 'nœuds écrits par le paquet (émetteur, passerelle)');
+  assert.deepEqual(d1.supprimes, []);
+  // Synchronisation d'un module : position écrite avec une heure ancienne (horloge du module) → quand même renvoyée
+  st.q.position.run({ num: 0x99887744, lat: 48.86, lon: 2.36, alt: null, precision: null, heure: t - 86400000 });
+  assert.ok(reseau.noeudsDepuis(avant - 1000, true).noeuds.some((n) => n.num === 0x99887744), 'modification à heure ancienne vue par la liste incrémentale');
+  // Suppression (purge, administrateur) : signalée pour que le nœud quitte la carte
+  noeud(0x77777777, 44.9, 3.8);
+  st.db.prepare('DELETE FROM noeuds WHERE num = ?').run(0x77777777);
+  assert.deepEqual(reseau.noeudsDepuis(avant - 1000, true).supprimes, [0x77777777]);
+  const modifies = d1.noeuds.map((n) => n.num);
+  assert.ok(modifies.includes(0x5a1e00aa));
   assert.equal(reseau.statistiques().actifs, 2, 'émetteur et passerelle entendus à l’instant');
   // Liste complète : objets ordinaires (lecture rapide), mêmes champs qu'avant
   const tous = st.q.noeuds.all();
@@ -920,6 +933,27 @@ test('Relief grossier : téléchargement par bandes, reprise après une panne, l
     assert.equal(g.etat().statut, 'absent');
     assert.deepEqual(g.fichiers(), []);
   } finally { f.srv.close(); panne.srv.close(); }
+});
+
+test('Relief grossier : arrêt puis réactivation rapide → nouveau téléchargement enchaîné, sans attendre l’essai horaire', async () => {
+  const { creerReliefGrossier } = require('../src/relief-grossier');
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'grossier-'));
+  const f = await fauxErddap({ delai: 80 });
+  try {
+    const g = creerReliefGrossier({ dossier, minutes: 60, degreParBande: 30, serveurs: [f.url] });
+    const p1 = g.telecharger();
+    await new Promise((r) => setTimeout(r, 120)); // première bande en cours
+    g.arreter(); // case décochée…
+    const p2 = g.telecharger(); // … puis recochée aussitôt
+    assert.ok(g.etat().enCours, 'un téléchargement reste en cours après la réactivation');
+    await p1;
+    assert.ok(g.etat().enCours, 'la fin du téléchargement arrêté n’efface pas celui qui est enchaîné');
+    await p2;
+    assert.equal(g.etat().statut, 'pret', g.etat().erreur);
+    assert.ok(!g.etat().enCours);
+    assert.ok(fs.existsSync(path.join(dossier, 'relief-monde-60m.json')));
+    assert.ok(!fs.existsSync(path.join(dossier, 'relief-monde-60m.reprise.json')) && !fs.existsSync(path.join(dossier, 'relief-monde-60m.reprise.json.bak')), 'fichiers de reprise effacés');
+  } finally { f.srv.close(); }
 });
 
 test('Relief grossier : réponse inattendue (mauvaise grille) refusée, aucun fichier « prêt » laissé', async () => {
@@ -996,6 +1030,7 @@ test('Cache du relief : espace occupé, purge par ancienneté, zone verrouillée
   const ecrire = (f, n) => fs.writeFileSync(path.join(dossier, f), Buffer.alloc(n));
   const jour = 86400000, maintenant = Date.now();
   ecrire('mnt.bin', 5000); ecrire('mnt.json', 100); // zone de la carte : jamais purgée
+  ecrire('villes-43.json', 700); ecrire('communes-43.json', 300); // fichiers suffixés de la zone de la carte : pas une zone purgeable
   ecrire('mnt-07.bin', 3000); ecrire('mnt-07.json', 100); ecrire('sommets-osm-07.json', 50); ecrire('mnt-07.json.bak', 100);
   ecrire('mnt-MN45E003.bin', 2000); ecrire('mnt-MN45E003.json', 100);
   ecrire('mnt-MN46E003.bin', 4000); ecrire('mnt-MN46E003.json', 100);
@@ -1007,14 +1042,14 @@ test('Cache du relief : espace occupé, purge par ancienneté, zone verrouillée
   const liberees = [], journalLignes = [];
   let grossierSupprime = false;
   const grossier = { etat: () => ({ statut: 'pret', octetsDisque: grossierSupprime ? 0 : 18e6, resolutionKm: 9.3 }), supprimer: async () => { grossierSupprime = true; } };
-  const c = creerCacheRelief({ dossier, journal: (...l) => journalLignes.push(l.join(' ')), verrous: () => verrous, enMemoire: () => ouvertes, liberer: (x) => { liberees.push(x); ouvertes.delete(x); }, grossier });
+  const c = creerCacheRelief({ dossier, journal: (...l) => journalLignes.push(l.join(' ')), verrous: () => verrous, enMemoire: () => ouvertes, liberer: (x) => { liberees.push(x); ouvertes.delete(x); }, grossier, codePrincipal: '43' });
   try {
     let inv = c.inventaire(0);
     assert.deepEqual(inv.zones.map((z) => z.code).sort(), ['07', '15', 'MN45E003', 'MN46E003']);
     assert.equal(inv.zones.find((z) => z.code === '07').octets, 3250);
     assert.equal(inv.zonesOctets, 3250 + 2100 + 4100 + 1100);
-    assert.equal(inv.principale.octets, 5100);
-    assert.equal(inv.totalOctets, 3250 + 2100 + 4100 + 1100 + 5100 + 18e6);
+    assert.equal(inv.principale.octets, 6100);
+    assert.equal(inv.totalOctets, 3250 + 2100 + 4100 + 1100 + 6100 + 18e6);
     assert.equal(inv.zones.find((z) => z.code === 'MN46E003').verrou, true);
     assert.equal(inv.zones.find((z) => z.code === '15').recente, true);
     // Inutilisées depuis 30 jours : 07 supprimée, MN46E003 gardée (en préparation)
@@ -1420,4 +1455,23 @@ test('Mur des donateurs : source désactivée = liste vide pour cette source, r�
   assert.equal(don.etat().reglages.githubSponsors.jetonDefini, true);
   assert.ok(!JSON.stringify(don.etat()).includes('secret-abc'), 'le jeton n’est jamais renvoyé en clair');
   fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+// ---------- Calculs de couverture partagés : 5 demandes simultanées = 1 calcul ----------
+test('Calcul partagé par clé : demandes simultanées servies par une seule exécution, promesse retirée ensuite', async () => {
+  const { creerCalculPartage } = require('../src/calcul-partage');
+  const c = creerCalculPartage();
+  let lances = 0;
+  const calcul = () => new Promise((ok) => { lances++; setTimeout(() => ok({ valeur: lances }), 30); });
+  const r = await Promise.all([1, 2, 3, 4, 5].map(() => c.partager('a', calcul)));
+  assert.equal(lances, 1, 'un seul calcul pour cinq demandes identiques');
+  assert.ok(r.every((x) => x === r[0]), 'tous reçoivent le même résultat');
+  assert.equal(c.nombre(), 0, 'promesse retirée une fois réglée');
+  await c.partager('a', calcul);
+  assert.equal(lances, 2, 'après règlement, une nouvelle demande relance le calcul');
+  // Une autre clé est un autre calcul ; un échec est propagé puis oublié
+  await Promise.all([c.partager('b', calcul), c.partager('a', calcul)]);
+  assert.equal(lances, 4);
+  await assert.rejects(c.partager('c', () => Promise.reject(new Error('relief absent'))), /relief absent/);
+  assert.equal(c.nombre(), 0);
 });
