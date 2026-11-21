@@ -39,6 +39,7 @@ const { creerAudit } = require('./audit');
 const { creerNouveaux } = require('./nouveaux');
 const { creerRapport } = require('./rapport');
 const { creerSitesRoutiers } = require('./sites-routiers');
+const { creerDonateurs } = require('./donateurs');
 const installations = creerInstallations(path.dirname(config.fichierBase));
 let federation = null; // créée une fois le réseau prêt (voir plus bas)
 // Zone « département + voisins », recalculée si le département ou sa zone changent (installation, réglages)
@@ -95,6 +96,8 @@ const audit = creerAudit(stockage.db);
 const courriel = require('./courriel').creerCourriel({ config, journal });
 // Fréquentation (administrateurs) : compteurs par jour, sans adresse IP gardée ; pays par la base DB-IP sur place
 const frequentation = require('./frequentation').creerFrequentation({ db: stockage.db, config, journal, clientsEnLigne: () => (typeof wss !== 'undefined' ? wss.clients.size : 0) });
+// Mur des donateurs (HelloAsso + GitHub Sponsors) : désactivé tant qu'aucune source n'est configurée
+const donateurs = creerDonateurs({ config, journal });
 const nomCompte = (c) => (c ? c.indicatif ? `${c.identifiant} (${c.indicatif})` : c.identifiant : null);
 // « Membre » : tout compte connecté (messages texte, positions exactes) ; « admin » : réglages et pilotage
 // Démonstration (?consultation, en-tête X-Demo) : un visiteur lit en plus, en GET seulement, une liste d'écrans de
@@ -4319,6 +4322,26 @@ app.post('/api/federation/partenaires', async (req, res) => {
   try { const e = await federation.ajouter(String((req.body || {}).url || ''), (req.body || {}).nom); res.json({ ok: !e.erreur, erreur: e.erreur, relais: e.relais ? e.relais.length : 0 }); } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
 app.delete('/api/federation/partenaires', (req, res) => { if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' }); federation.retirer(String(req.query.url || '')); res.json({ ok: true }); });
+
+// ---- Mur des donateurs (HelloAsso + GitHub Sponsors, voir src/donateurs.js) -------------------------------
+// Public : jamais de clé, jamais d'e-mail ni d'adresse, noms anonymisés et montants masqués par défaut
+app.get('/api/donateurs', (req, res) => { res.set('Cache-Control', 'max-age=60').json({ liste: donateurs.liste() }); });
+app.get('/api/donateurs/reglages', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  res.set('Cache-Control', 'no-store').json(donateurs.etat());
+});
+app.post('/api/donateurs/reglages', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { res.json(donateurs.regler(req.body || {})); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.post('/api/donateurs/manuel', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { res.json(donateurs.manuelAjouter(req.body || {})); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
+app.delete('/api/donateurs/manuel/:id', (req, res) => {
+  if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  try { donateurs.manuelRetirer(String(req.params.id)); res.json({ ok: true }); } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 
 // ---- Exports et intégrations (GeoJSON, Prometheus/Grafana, Home Assistant) ------------------------
 const exportsCarte = creerExports({ config, stockage, reseau, reseauMc, maintenance, santeCarte: { etat: () => santeCarte.etat() }, relief, alertes: () => dernieresAlertes, alertesMc: () => (config.meshcore.actif ? alertesMc : []), adminMc });

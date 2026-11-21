@@ -181,6 +181,23 @@ const config = {
     },
     supervisionMax: nombre('MESHCORE_SUPERVISION_MAX', 8),
   },
+  // Mur des donateurs (voir src/donateurs.js) : tout est désactivé par défaut, rien n'est codé en dur.
+  // Ces réglages peuvent aussi être faits depuis la page d'administration (enregistrés alors dans donateurs.json).
+  donateurs: {
+    helloasso: {
+      actif: texte('HELLOASSO_ACTIF', 'non') === 'oui',
+      clientId: texte('HELLOASSO_CLIENT_ID'),
+      clientSecret: texte('HELLOASSO_CLIENT_SECRET'),
+      organisation: texte('HELLOASSO_ORGANISATION', 'radioclub-du-velay'),
+      formulaire: texte('HELLOASSO_FORMULAIRE', '2'),
+    },
+    githubSponsors: {
+      actif: texte('GITHUB_SPONSORS_ACTIF', 'non') === 'oui',
+      jeton: texte('GITHUB_SPONSORS_JETON'),
+      compte: texte('GITHUB_SPONSORS_COMPTE', 'sauveteur71'),
+    },
+    intervalleHeures: nombre('DONATEURS_INTERVALLE_HEURES', 1),
+  },
 };
 
 // ---- Réglages faits depuis la carte (assistant d'installation, page Réglages) ----------------

@@ -1514,6 +1514,11 @@ body.consultation #outil-connecter, body.consultation #outil-companion-mc { disp
 .lien-github { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; padding: 2px 9px; border-radius: 99px; background: #24292f; color: #fff !important; border: 1px solid #57606a; font-weight: 700; font-size: 11px; text-decoration: none; vertical-align: middle; }
 .lien-github:hover, .lien-github:focus-visible { background: #3d444d; outline: 2px solid #fff; outline-offset: 1px; }
 body.consultation #btn-admin, body.consultation .lien-inscription, body.consultation #hub-compte { display: none !important; }
+/* Mur des donateurs : bandeau discret en haut de carte, textes défilants, fermeture mémorisée dans ce navigateur */
+.bandeau-donateurs { position: fixed; left: 50%; top: 8px; transform: translateX(-50%); z-index: 1150; background: var(--surface-2); color: var(--texte); border: 1px solid #a855f7; border-radius: 99px; padding: 5px 14px; font-size: 13px; max-width: calc(100vw - 32px); text-align: center; box-shadow: 0 4px 14px #0007; }
+.bandeau-donateurs a { color: #a855f7; margin: 0 2px; }
+.bandeau-donateurs .fermer-bandeau { background: none; border: 0; color: var(--doux); cursor: pointer; font-size: 14px; margin-left: 8px; padding: 0 2px; }
+@media (max-width: 700px) { .bandeau-donateurs { border-radius: 12px; width: calc(100vw - 24px); max-width: none; font-size: 12px; padding: 6px 10px; top: 4px; } .bandeau-donateurs a { display: none; } }
 
 .tache-maj { margin: 8px 0 0; padding: 6px 8px; border-left: 2px solid var(--bord); font-size: 13px; }
 #maj-detail { margin-left: 6px; }

@@ -767,3 +767,118 @@ test('Firmware 2.8 : fusion d’un nœud renuméroté puis annulation (historiqu
   db.close();
   fs.rmSync(dossier, { recursive: true, force: true });
 });
+
+// ---------- Mur des donateurs (HelloAsso + GitHub Sponsors) ----------
+const { creerDonateurs, anonymiser } = require('../src/donateurs');
+
+test('Mur des donateurs : anonymisation du nom (jamais le nom complet)', () => {
+  assert.equal(anonymiser(''), 'Un donateur');
+  assert.notEqual(anonymiser('Jean Dupont'), 'Jean Dupont');
+  assert.ok(anonymiser('Jean Dupont').endsWith('***'));
+  assert.ok(anonymiser('Jean Dupont').length < 'Jean Dupont'.length);
+});
+
+function configDonateurs(dossier, extra = {}) {
+  return {
+    fichierBase: path.join(dossier, 'base.db'),
+    donateurs: {
+      helloasso: { actif: false, clientId: '', clientSecret: '', organisation: 'radioclub-du-velay', formulaire: '2' },
+      githubSponsors: { actif: false, jeton: '', compte: 'sauveteur71' },
+      intervalleHeures: 1,
+      ...extra,
+    },
+  };
+}
+
+test('Mur des donateurs : fusion HelloAsso (manuel, consenti) + GitHub Sponsors (publics), triés par date', async () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'don-'));
+  const appels = [];
+  const fauxFetch = async (url) => {
+    appels.push(String(url));
+    if (/graphql/.test(url)) {
+      return { ok: true, json: async () => ({ data: { user: { sponsorshipsAsMaintainer: { nodes: [
+        { privacyLevel: 'PUBLIC', createdAt: '2026-01-01T00:00:00Z', sponsorEntity: { login: 'f4abc', name: 'F4ABC' }, tier: { monthlyPriceInDollars: 5, isOneTime: false } },
+      ] } } } }) };
+    }
+    throw new Error('URL inattendue : ' + url);
+  };
+  const don = creerDonateurs({ config: configDonateurs(dossier, { githubSponsors: { actif: true, jeton: 'jeton-test', compte: 'sauveteur71' } }), journal: () => {}, fetch: fauxFetch });
+  don.manuelAjouter({ nom: '42BARBE', pays: 'fr', montant: 20, accord: true });
+  await don.rafraichir();
+  const l = don.liste();
+  assert.equal(l.length, 2);
+  assert.ok(l.every((x) => !x.nom.includes('Dupont') && x.nom.endsWith('***') || x.nom === 'Un donateur'));
+  assert.ok(l.some((x) => x.source === 'helloasso' && x.pays === 'FR'));
+  assert.ok(l.some((x) => x.source === 'github'));
+  // Montant masqué par défaut (seul l'administrateur l'active)
+  assert.ok(l.every((x) => x.montant == null));
+  assert.ok(appels.some((u) => /graphql/.test(u)));
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('Mur des donateurs : filtrage des non-consentants (accord manquant, sponsor GitHub privé)', async () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'don-'));
+  // Donnée existante (restauration après redémarrage) comportant une entrée jamais consentie : ne doit jamais apparaître
+  fs.writeFileSync(path.join(dossier, 'donateurs.json'), JSON.stringify({
+    reglages: {},
+    manuel: [
+      { id: 'a1', nom: 'Accord donné', pays: 'FR', montant: 10, date: '2026-01-01T00:00:00Z', accord: true },
+      { id: 'a2', nom: 'Jamais consenti', pays: 'FR', montant: 50, date: '2026-01-02T00:00:00Z', accord: false },
+    ],
+  }));
+  const fauxFetch = async (url) => {
+    if (/graphql/.test(url)) {
+      return { ok: true, json: async () => ({ data: { user: { sponsorshipsAsMaintainer: { nodes: [
+        { privacyLevel: 'PUBLIC', createdAt: '2026-01-03T00:00:00Z', sponsorEntity: { login: 'public1', name: 'Public Un' }, tier: { monthlyPriceInDollars: 3, isOneTime: false } },
+        { privacyLevel: 'PRIVATE', createdAt: '2026-01-04T00:00:00Z', sponsorEntity: { login: 'prive1', name: 'Jamais Montré' }, tier: { monthlyPriceInDollars: 100, isOneTime: false } },
+      ] } } } }) };
+    }
+    throw new Error('URL inattendue : ' + url);
+  };
+  const don = creerDonateurs({ config: configDonateurs(dossier, { githubSponsors: { actif: true, jeton: 'jeton-test', compte: 'sauveteur71' } }), journal: () => {}, fetch: fauxFetch });
+  await don.rafraichir();
+  const l = don.liste();
+  assert.equal(l.length, 2, 'seuls les deux consentants (1 manuel + 1 sponsor public) apparaissent');
+  assert.ok(!l.some((x) => x.source === 'helloasso' && x.montant === 50), 'entrée sans accord jamais affichée');
+  // Sans accord, l'ajout manuel est carrément refusé (jamais enregistré silencieusement)
+  assert.throws(() => don.manuelAjouter({ nom: 'Sans case cochée' }), /accord du donateur/);
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('Mur des donateurs : repli si une source devient indisponible (le cache précédent est gardé)', async () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'don-'));
+  let enPanne = false;
+  const fauxFetch = async (url) => {
+    if (/graphql/.test(url)) {
+      if (enPanne) throw new Error('GitHub injoignable (essai)');
+      return { ok: true, json: async () => ({ data: { user: { sponsorshipsAsMaintainer: { nodes: [
+        { privacyLevel: 'PUBLIC', createdAt: '2026-01-01T00:00:00Z', sponsorEntity: { login: 'stable', name: 'Sponsor Stable' }, tier: { monthlyPriceInDollars: 5, isOneTime: false } },
+      ] } } } }) };
+    }
+    throw new Error('URL inattendue : ' + url);
+  };
+  const don = creerDonateurs({ config: configDonateurs(dossier, { githubSponsors: { actif: true, jeton: 'jeton-test', compte: 'sauveteur71' } }), journal: () => {}, fetch: fauxFetch });
+  await don.rafraichir();
+  assert.equal(don.liste().length, 1);
+  assert.equal(don.etat().erreurs.githubSponsors, null);
+  enPanne = true;
+  await don.rafraichir();
+  assert.ok(don.etat().erreurs.githubSponsors, 'la panne est signalée');
+  assert.equal(don.liste().length, 1, 'le mur garde la dernière liste connue plutôt que de se vider');
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('Mur des donateurs : source désactivée = liste vide pour cette source, réglages jamais renvoyés en clair', async () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'don-'));
+  const don = creerDonateurs({ config: configDonateurs(dossier), journal: () => {}, fetch: async () => { throw new Error('ne doit pas être appelé'); } });
+  await don.rafraichir();
+  assert.deepEqual(don.liste(), []);
+  const e = don.etat();
+  assert.equal(e.reglages.githubSponsors.jetonDefini, false);
+  assert.ok(!('jeton' in e.reglages.githubSponsors));
+  assert.ok(!('clientSecret' in e.reglages.helloasso));
+  don.regler({ githubSponsors: { jeton: 'secret-abc' } });
+  assert.equal(don.etat().reglages.githubSponsors.jetonDefini, true);
+  assert.ok(!JSON.stringify(don.etat()).includes('secret-abc'), 'le jeton n’est jamais renvoyé en clair');
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
