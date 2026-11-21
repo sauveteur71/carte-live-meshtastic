@@ -4,7 +4,7 @@
 const APPLI = 'appli-v6';
 const TUILES = 'tuiles-v1';
 const MAX_TUILES = 4000;
-const COQUILLE = ['/', '/index.html', '/style.css', '/app.js', '/administration.js', '/meshcore.js', '/ergonomie.js', '/crise.js', '/animations.js', '/vendor/leaflet/leaflet.css', '/vendor/leaflet/leaflet.js', '/manifest.webmanifest', '/icone-192.png', '/favicon.svg', '/symbole.svg', '/publique.html', '/publique.js'];
+const COQUILLE = ['/', '/index.html', '/style.css', '/app.js', '/administration.js', '/meshcore.js', '/ergonomie.js', '/crise.js', '/bandeau-monde.js', '/animations.js', '/vendor/leaflet/leaflet.css', '/vendor/leaflet/leaflet.js', '/manifest.webmanifest', '/icone-192.png', '/favicon.svg', '/symbole.svg', '/publique.html', '/publique.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(APPLI).then((c) => c.addAll(COQUILLE)).catch(() => {}).then(() => self.skipWaiting()));

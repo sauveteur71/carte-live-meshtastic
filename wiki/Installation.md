@@ -65,6 +65,7 @@ Affichage par défaut (facultatif) :
 | `CARTE_RESEAUX` | réseaux proposés | `les-deux` (défaut), `meshtastic`, `meshcore` : le choix Meshtastic / MeshCore / Les deux disparaît |
 | `MESHCORE_RADIO_ATTENDUE` | réglage radio attendu du companion MeshCore (avertissement s'il diffère) | `869.618,62.5,8,8` (défaut), ou `non` pour ne jamais avertir |
 | `CARTE_COUCHES_MASQUEES` | couches masquées au départ | ex. `sommets` (points hauts et sites proposés), `routiers`, `animations`… |
+| `BANDEAU_MONDE` / `BANDEAU_MONDE_URL` | bandeau anglais « Switch to the world map » pour les visiteurs dont le navigateur n'est pas en français | `non` (défaut) ou `oui` ; adresse `http(s)://…` de la carte monde (vide = édition monde sur GitHub) |
 
 Chaque visiteur peut ensuite changer de fond et de couches dans *Couches ▾*. Son choix est gardé dans son navigateur.
 

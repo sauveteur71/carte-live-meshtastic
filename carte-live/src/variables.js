@@ -20,6 +20,8 @@ const CATALOGUE = [
   { nom: 'CARTE_TUILES_ATTRIBUTION', groupe: 'Affichage', libelle: 'Mention des sources du fond', type: 'texte', aide: 'Mention obligatoire des sources du fond choisi, affichée en bas de la carte (ex. « © contributeurs OpenStreetMap »).' },
   { nom: 'CARTE_TUILES_SOMBRES', groupe: 'Affichage', libelle: 'Tuiles déjà sombres', type: 'choix', choix: OUI_NON, aide: 'Oui : la carte ne les assombrit pas.' },
   { nom: 'URL_CLIENT_MESHTASTIC', groupe: 'Affichage', libelle: 'Lien vers le client Meshtastic', type: 'texte', aide: 'Lien proposé aux visiteurs pour régler leur module dans le navigateur. Vide = client web officiel de Meshtastic.' },
+  { nom: 'BANDEAU_MONDE', groupe: 'Affichage', libelle: 'Proposer la carte monde aux visiteurs étrangers', type: 'choix', choix: OUI_NON, aide: 'Par défaut non. Oui : un visiteur dont le navigateur n’est pas en français voit un petit bandeau en anglais « Switch to the world map », qu’il peut fermer (il ne revient plus).' },
+  { nom: 'BANDEAU_MONDE_URL', groupe: 'Affichage', libelle: 'Adresse de la carte monde', type: 'texte', url: true, aide: 'Adresse ouverte par le bouton du bandeau (http:// ou https://). Vide = page de l’édition monde sur GitHub.' },
   { nom: 'URL_FLASHER', groupe: 'Affichage', libelle: 'Lien vers l’outil de flash', type: 'texte', aide: 'Lien proposé pour installer ou mettre à jour le firmware. Vide = outil de flash officiel de Meshtastic.' },
   // Seuils d'état et d'alerte
   { nom: 'SEUIL_ACTIF_MINUTES', groupe: 'Seuils et alertes', libelle: 'Nœud « actif » s’il a parlé depuis (min)', type: 'nombre', min: 1, max: 1440, defaut: 60, aide: 'Un nœud entendu depuis moins longtemps est compté « actif » (point plein sur la carte, tableau de bord). Par défaut 60 min.' },
@@ -139,6 +141,7 @@ function valider(nom, valeur) {
     return String(n);
   }
   if (v.type === 'choix' && !v.choix.some(([c]) => c === s)) throw new Error(`${v.libelle} : choix inconnu`);
+  if (v.url && s && !/^https?:\/\/[^\s"'<>]+$/i.test(s)) throw new Error(`${v.libelle} : adresse http:// ou https:// attendue`);
   return s;
 }
 // Vue pour la page d'administration : jamais la valeur d'un secret
