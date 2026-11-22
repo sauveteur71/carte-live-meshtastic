@@ -2717,7 +2717,7 @@ function etatMc(admin) {
   if (admin) {
     e.companion = { ...c, canaux: companion.canaux() };
     e.republication = publicateurMc.etat();
-    e.reglages = { iata: config.meshcore.iata, racine: config.meshcore.racine, republier: config.meshcore.republier, canaux: config.meshcore.canaux.join('\n'), perimetre: config.meshcore.perimetre, liensOctetsMin: config.meshcore.liensOctetsMin, iataVoisins: config.meshcore.iataVoisins.join(', '), supervisionHeures: config.meshcore.supervisionHeures, horsPerimetre: compteurMc.horsPerimetre || 0 };
+    e.reglages = { iata: config.meshcore.iata, racine: config.meshcore.racine, republier: config.meshcore.republier, canaux: config.meshcore.canaux.join('\n'), perimetre: config.meshcore.perimetre, liensOctetsMin: config.meshcore.liensOctetsMin, iataVoisins: config.meshcore.iataVoisins.join(', '), supervisionHeures: config.meshcore.supervisionHeures, plafondReleveMin: config.meshcore.plafondReleveMin, plafondLectureMin: config.meshcore.plafondLectureMin, horsPerimetre: compteurMc.horsPerimetre || 0 };
     e.agents = agents.liste();
     e.ecoutes = ecoutes.liste().meshcore;
     e.corescope = { ...corescope.etat(), texte: ecrireSourcesCs(config.meshcore.corescope.sources), connues: INSTANCES_CS };
@@ -3069,6 +3069,8 @@ app.post('/api/mc/reglages', (req, res) => {
   if ([1, 2, 3].includes(Number(b.liensOctetsMin))) m.liensOctetsMin = Number(b.liensOctetsMin);
   if (typeof b.iataVoisins === 'string') m.iataVoisins = b.iataVoisins.split(/[,;\s]+/).map((x) => x.trim().toUpperCase()).filter((x) => /^[A-Z0-9]{2,8}$/.test(x)).slice(0, 20);
   if (b.supervisionHeures !== undefined) { const h = Number(b.supervisionHeures); if (!Number.isInteger(h) || h < 0 || h > 48) return res.status(400).json({ erreur: 'Supervision : 0 à 48 heures' }); m.supervisionHeures = h; }
+  if (b.plafondReleveMin !== undefined) { const n = Number(b.plafondReleveMin); if (!Number.isInteger(n) || n < 1 || n > 30) return res.status(400).json({ erreur: 'Délai maximal d’un relevé : 1 à 30 minutes' }); m.plafondReleveMin = n; }
+  if (b.plafondLectureMin !== undefined) { const n = Number(b.plafondLectureMin); if (!Number.isInteger(n) || n < 5 || n > 240) return res.status(400).json({ erreur: 'Délai maximal d’une lecture complète : 5 à 240 minutes' }); m.plafondLectureMin = n; }
   if (typeof b.corescope === 'string') {
     const l = require('./meshcore/corescope').lireSources(b.corescope);
     const lignes = b.corescope.split(/[;\n]+/).map((x) => x.trim()).filter(Boolean);

@@ -179,6 +179,24 @@ async function essaiCarteFrancais(contexte) {
     return /etiquette-auto/.test(src) && /🤖 automatique/.test(src);
   }).catch(() => false);
   if (auto) ok('programmer : opérations automatiques signalées'); else ko('programmer : étiquette « automatique » absente');
+  // 3 bis. Alertes des capteurs réglés à la main : visibles même hors de la zone ; les autres restent filtrées
+  const hz = await page.evaluate(() => {
+    const CLE = 'AA'.repeat(32);
+    const avant = (mc.etat && mc.etat.alertes) || [];
+    mc.noeuds.set(CLE, { cle: CLE, nom: 'Abri lointain', role: 'capteur', lat: 10, lon: 10, statut: 'actif' });
+    const d = Date.now() - 11 * 3600000;
+    mc.etat = { ...(mc.etat || {}), alertes: [
+      { cle: 'mc-capteur-retard:' + CLE, noeud: CLE, type: 'releve', niveau: 'attention', nom: 'Abri lointain', depuis: d, message: 'Abri lointain : aucun relev\u00e9 automatique re\u00e7u depuis hier' },
+      { cle: 'mc-capteur:' + CLE + ':tension:1', noeud: CLE, type: 'capteur', niveau: 'attention', nom: 'Abri lointain', depuis: d, message: 'Abri lointain \u00b7 Tension ADC : 3,20 V (sous 3,4 V)' },
+      { cle: 'mc-muet:' + CLE, noeud: CLE, type: 'muet', niveau: 'critique', nom: 'Abri lointain', depuis: d, message: 'R\u00e9p\u00e9teur MeshCore Abri lointain non entendu depuis 30 h' },
+    ] };
+    mcMajAlertes();
+    const t = document.querySelector('#alertes-mc').textContent;
+    const r = { horsZone: !mcDansZone(mc.noeuds.get(CLE)), pastille: (document.querySelector('#nb-alertes-mc') || {}).textContent, retard: /aucun relev\u00e9 automatique/.test(t), seuil: /Tension ADC/.test(t), muet: /non entendu depuis/.test(t) };
+    mc.noeuds.delete(CLE); mc.etat = { ...mc.etat, alertes: avant }; mcMajAlertes(); // la page est rendue \u00e0 son \u00e9tat d'avant
+    return r;
+  }).catch((e) => ({ erreur: e.message }));
+  if (hz.horsZone && hz.retard && hz.seuil && !hz.muet && hz.pastille === '2') ok('alertes des capteurs réglés à la main : visibles hors zone, les autres toujours filtrées'); else ko('alertes hors zone : ' + JSON.stringify(hz));
   // 4. Réglages avancés (variables du .env) : liste, fiche, refus d'une valeur hors bornes (sans redémarrer)
   const va = await page.evaluate(async () => {
     const l = await fetch('/api/reglages/variables').then((x) => x.json());

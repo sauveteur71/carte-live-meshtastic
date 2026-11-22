@@ -1205,7 +1205,11 @@ function mcMajAlertes() {
   document.querySelectorAll('.mc-seul-bloc').forEach((b) => (b.hidden = !mcAffiche()));
   { const pli = z.closest('details'); if (pli) pli.hidden = typeof deuxReseaux === 'function' && deuxReseaux(); }
   if (typeof deuxReseaux === 'function' && deuxReseaux() && typeof rendreReseau === 'function') { try { rendreReseau(); } catch { /* panneau absent */ } }
-  const a = ((mc.etat && mc.etat.alertes) || []).filter((x) => { const n = x.noeud && mc.noeuds.get(x.noeud); return !n || mcDansZone(n); });
+  // Alertes des capteurs réglés à la main (relevé en retard, mesure hors seuil) : montrées même hors de la zone.
+  // Un capteur dont on a soi-même réglé le relevé ou le seuil est un nœud qu'on suit, où qu'il soit ; il n'y en a
+  // que quelques-uns (ceux de meshcore-capteurs.json), aucun risque de déluge sur une carte qui voit des milliers
+  // de nœuds lointains. Les autres alertes (muet, batterie, canal…) restent filtrées sur la zone affichée.
+  const a = ((mc.etat && mc.etat.alertes) || []).filter((x) => { if (x.type === 'releve' || x.type === 'capteur') return true; const n = x.noeud && mc.noeuds.get(x.noeud); return !n || mcDansZone(n); });
   const p = $('#nb-alertes-mc');
   p.textContent = a.length;
   p.className = 'pastille' + (a.some((x) => x.niveau === 'critique') ? ' critique' : a.length ? ' attention' : '');
@@ -1350,6 +1354,8 @@ function mcRendreCompanion() {
         <label>Liaisons déduites des chemins <select name="liensOctetsMin">${[[1, 'tous les chemins (1 octet compris)'], [2, 'chemins en 2 octets ou plus'], [3, 'chemins en 3 octets seulement']].map(([v, t]) => `<option value="${v}" ${Number(e.reglages.liensOctetsMin || 2) === v ? 'selected' : ''}>${t}</option>`).join('')}</select><small>à 1 octet, deux répéteurs peuvent avoir le même préfixe : liaisons parfois fausses</small></label>
         <label>Codes de zone voisins <input name="iataVoisins" value="${esc(e.reglages.iataVoisins || '')}" placeholder="ex. CFE, LYS, EBU"><small>pour les observateurs sans position connue</small></label>
         <label>Relevé automatique de l’état des répéteurs <select name="supervisionHeures">${[[0, 'jamais'], [1, 'toutes les heures'], [3, 'toutes les 3 h'], [6, 'toutes les 6 h'], [12, 'toutes les 12 h'], [24, 'une fois par jour']].map(([v, t]) => `<option value="${v}" ${Number(e.reglages.supervisionHeures ?? 3) === v ? 'selected' : ''}>${t}</option>`).join('')}</select><small>par le companion, sans rien cocher (lignes « 🤖 automatique » de Programmer)</small></label>
+        <label>Délai maximal d’un relevé, par nœud <input name="plafondReleveMin" type="number" min="1" max="30" value="${e.reglages.plafondReleveMin ?? 4}"><small>minutes (4 par défaut) : télémétrie, état, chemin, trace. Passé ce délai, le nœud est déclaré sans réponse et la carte passe au suivant, pour ne pas bloquer les relevés des autres.</small></label>
+        <label>Délai maximal d’une lecture complète, par nœud <input name="plafondLectureMin" type="number" min="5" max="240" value="${e.reglages.plafondLectureMin ?? 60}"><small>minutes (60 par défaut) : lecture de tous les réglages, programmation, mise en service. Trop bas, un répéteur lent est déclaré sans réponse avant la fin.</small></label>
         <label style="grid-column:1/-1">Observatoires CoreScope (un par ligne) <textarea name="corescope" rows="2" placeholder="https://meshstats.serveurperso.in">${esc((e.corescope && e.corescope.texte) || '')}</textarea><small>adresse, éventuellement suivie de =CODE,CODE pour ne garder que certains observateurs (ex. =LYS,CFE) · vide : aucun</small></label>
         <label>Plafond par observatoire <input name="corescopeMax" type="number" min="5" max="600" value="${e.corescope ? e.corescope.maxParMinute : 60}"><small>paquets par minute (le reste est ignoré)</small></label>
         <label>Interrogation <select name="corescopeIntervalle">${[10, 20, 30, 60, 120].map((v) => `<option value="${v}" ${(e.corescope ? e.corescope.intervalleS : 20) === v ? 'selected' : ''}>toutes les ${v} s</option>`).join('')}</select></label>
@@ -1399,7 +1405,7 @@ function mcRendreCompanion() {
     ev.preventDefault();
     const f = ev.target;
     if (!(await confirmer('Enregistrer ces réglages MeshCore ? Le service redémarre (quelques secondes).'))) return;
-    try { await postJson('/api/mc/reglages', { iata: f.iata.value.trim(), racine: f.racine.value.trim(), republier: f.republier.checked, canaux: f.canaux.value, perimetre: f.perimetre.value, liensOctetsMin: Number(f.liensOctetsMin.value), iataVoisins: f.iataVoisins.value, supervisionHeures: Number(f.supervisionHeures.value), corescope: f.corescope.value, corescopeMax: Number(f.corescopeMax.value), corescopeIntervalle: Number(f.corescopeIntervalle.value) }); attendreRedemarrage('Réglages MeshCore enregistrés'); } catch (err) { retour(err.message); }
+    try { await postJson('/api/mc/reglages', { iata: f.iata.value.trim(), racine: f.racine.value.trim(), republier: f.republier.checked, canaux: f.canaux.value, perimetre: f.perimetre.value, liensOctetsMin: Number(f.liensOctetsMin.value), iataVoisins: f.iataVoisins.value, supervisionHeures: Number(f.supervisionHeures.value), plafondReleveMin: Number(f.plafondReleveMin.value), plafondLectureMin: Number(f.plafondLectureMin.value), corescope: f.corescope.value, corescopeMax: Number(f.corescopeMax.value), corescopeIntervalle: Number(f.corescopeIntervalle.value) }); attendreRedemarrage('Réglages MeshCore enregistrés'); } catch (err) { retour(err.message); }
   };
 }
 
@@ -1588,7 +1594,8 @@ async function mcRendreCapteurs(n, z, jours = 7) {
     <div class="actions-prop">${[1, 7, 30, 90].map((j) => `<button class="mini ${j === jours ? 'actif' : ''}" data-cj="${j}">${j} j</button>`).join('')}${r.series.length ? `<a class="mini bouton-lien" href="/api/mc/capteurs/${n.cle}/csv?jours=${jours}" download>⬇ CSV (${jours} j)</a>` : ''}</div>
     ${r.peutRegler ? `<div class="reglage-capteurs"><label>Relever toutes les <select id="cap-int">${r.intervalles.map((m) => `<option value="${m}" ${m === r.intervalleMin ? 'selected' : ''}>${lib(m)}</option>`).join('')}</select></label>
       <button class="mini principal" id="cap-maintenant">Relever maintenant</button></div>
-      <p class="note">Le relevé passe par le companion de la carte (tâche « télémétrie »). Le nœud doit autoriser la télémétrie : mot de passe invité ou admin mémorisé, ou télémétrie ouverte. Chaque relevé envoie un paquet : 1 h ou plus suffit pour un abri ou une batterie.</p>` : ''}
+      <p class="note">Le relevé passe par le companion de la carte (tâche « télémétrie »). Le nœud doit autoriser la télémétrie : mot de passe invité ou admin mémorisé, ou télémétrie ouverte. Chaque relevé envoie un paquet : 1 h ou plus suffit pour un abri ou une batterie.</p>
+      <p class="note">Si le nœud ne répond pas, la carte réessaie deux fois, à un quart d’heure d’intervalle, puis attend l’intervalle suivant.</p>` : ''}
     ${r.dernier ? `<p class="note">Dernier relevé ${ilYa(r.dernier)}.</p>` : ''}
     ${r.series.length ? r.series.filter((sr) => !(r.masquees || []).includes(sr.mesure)).map((sr) => {
       const pts = sr.points.map(([h, v]) => ({ heure: h, v }));

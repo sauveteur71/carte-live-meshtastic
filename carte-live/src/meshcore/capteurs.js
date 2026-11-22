@@ -9,6 +9,15 @@ const { ecrireSur, lireJson } = require('../fichiers');
 const path = require('path');
 
 const INTERVALLES = [0, 15, 30, 60, 180, 360, 720, 1440]; // minutes, 0 = jamais
+// Une tâche « télémétrie » qui n'est pas terminée au bout de ce délai est considérée perdue : ses nœuds sont
+// redemandés au lieu d'attendre une fin qui ne viendra peut-être jamais (le relevé se rétablit tout seul).
+// Dérivé du plafond par nœud réglé dans Module MeshCore : un lot compte 10 nœuds au plus, plus 20 min de marge,
+// jamais moins d'une demi-heure. Pas de réglage de plus à l'écran pour ça : il suit le premier tout seul.
+const plafondTacheMs = (config) => Math.max(30 * 60000, (10 * Math.min(30, Math.max(1, Number((config.meshcore || {}).plafondReleveMin) || 4)) + 20) * 60000);
+// Demande restée sans réponse : nouvelle tentative au bout de 15 min, deux fois au plus. Sans cela, une seule
+// tentative perdue coûtait un intervalle entier (3 h de trou pour un relevé toutes les 3 h).
+const RELANCE_MS = 15 * 60000;
+const RELANCES_MAX = 2;
 
 function creerCapteursMc({ db, config, adminMc, companion, journal }) {
   db.exec(`
@@ -25,6 +34,7 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
     effacerAvant: db.prepare('DELETE FROM mc_capteurs WHERE cle = ? AND heure < ?'),
   };
   const fichier = path.join(path.dirname(config.fichierBase), 'meshcore-capteurs.json');
+  const demarrage = Date.now(); // repère pour l'alerte de retard d'un nœud jamais relevé
   let reglages = {}; // cle -> { intervalleMin, libelles: { 'temperature:2': 'Abri' }, seuils: { 'tension:1': { min: 3.4 } }, dernier, nom }
   try { reglages = lireJson(fichier) || {}; } catch { /* aucun */ }
   const sauver = () => { try { ecrireSur(fichier, JSON.stringify(reglages)); } catch { /* lecture seule */ } };
@@ -38,7 +48,7 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
       q.inserer.run(cle, h, `${m.type}:${m.canal}`, m.valeur, m.unite || '');
       n++;
     }
-    reglages[cle] = { ...(reglages[cle] || {}), dernier: h };
+    reglages[cle] = { ...(reglages[cle] || {}), dernier: h, relances: 0 };
     sauver();
     return n;
   }
@@ -133,14 +143,37 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
   }
 
   // Relevés périodiques : une tâche « télémétrie » à la fois, quand le companion est prêt
+  const tachesPerdues = new Set(); // signalées une seule fois au journal
   const minut = setInterval(() => {
     try {
       if (!companion.etat().pret) return;
       const maintenant = Date.now();
-      const enCours = new Set(adminMc.taches().filter((t) => !t.fin && t.type === 'telemetrie').flatMap((t) => t.cles));
-      const dus = Object.entries(reglages).filter(([cle, r]) => r.intervalleMin > 0 && !enCours.has(cle) && maintenant - (r.essai || r.dernier || 0) >= r.intervalleMin * 60000).map(([cle]) => cle);
+      // Les nœuds d'une tâche en cours ne sont pas redemandés — sauf si cette tâche traîne depuis plus que le
+      // plafond : une tâche qui ne se termine jamais arrêtait les relevés automatiques définitivement, en silence.
+      const taches = adminMc.taches().filter((t) => !t.fin && t.type === 'telemetrie');
+      const plafond = plafondTacheMs(config);
+      const perdue = (t) => maintenant - (t.debut || t.creee || maintenant) > plafond;
+      const enCours = new Set(taches.filter((t) => !perdue(t)).flatMap((t) => t.cles));
+      for (const t of taches) {
+        if (!perdue(t) || tachesPerdues.has(t.id)) continue;
+        tachesPerdues.add(t.id);
+        if (tachesPerdues.size > 50) tachesPerdues.delete(tachesPerdues.values().next().value);
+        journal(`relevé des capteurs : tâche ${t.id} sans fin depuis plus de ${Math.round(plafond / 60000)} min, relevés relancés sans l’attendre`);
+      }
+      const dus = Object.entries(reglages).filter(([cle, r]) => {
+        if (!(r.intervalleMin > 0) || enCours.has(cle)) return false;
+        const attente = r.intervalleMin * 60000, essai = r.essai || 0, dernier = r.dernier || 0;
+        // Mesure arrivée depuis la dernière demande : prochaine demande un intervalle plus tard
+        if (dernier >= essai) return maintenant - dernier >= attente;
+        // Demande sans réponse : deux relances rapprochées, puis on attend l'intervalle complet
+        return maintenant - essai >= ((r.relances || 0) < RELANCES_MAX ? Math.min(RELANCE_MS, attente) : attente);
+      }).map(([cle]) => cle);
       if (!dus.length) return;
-      for (const cle of dus) reglages[cle].essai = maintenant; // pas de nouvelle demande avant l'intervalle, même en cas d'échec
+      for (const cle of dus) {
+        const r = reglages[cle];
+        r.relances = (r.dernier || 0) >= (r.essai || 0) ? 0 : (r.relances || 0) + 1; // nouveau cycle ou relance
+        r.essai = maintenant;
+      }
       sauver();
       // Un nœud disparu de la base (purgé après des jours sans être entendu) ne doit pas bloquer les relevés des autres :
       // il est mis de côté (signalé une fois au journal) et repris tout seul s'il réapparaît
@@ -172,8 +205,8 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
     for (const [cle, r] of Object.entries(reglages)) {
       if (!(r.intervalleMin > 0)) continue;
       const attendu = Math.max(3 * r.intervalleMin, 120) * 60000;
-      const depuis = r.dernier || r.debutAuto || 0;
-      if (!depuis || t - depuis < attendu) continue;
+      const depuis = r.dernier || r.debutAuto || demarrage; // réglage d'avant `debutAuto` : repère = démarrage de la carte
+      if (t - depuis < attendu) continue;
       const nom = nomDe(cle) || r.nom || cle.slice(0, 8);
       const h = new Date(depuis).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
       l.push({ cle: `mc-capteur-retard:${cle}`, noeud: cle, type: 'releve', niveau: 'attention', nom, depuis: depuis + attendu,
