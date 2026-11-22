@@ -2,22 +2,6 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
-## 2.29.1
-
-### 🧾 Opérations récentes : ce qui a vraiment été envoyé
-- *Gérer › Programmer › Opérations récentes* affichait les **noms de champs du firmware** (« télémétrie · device (nodeInfoBroadcastSecs) ») et jamais les valeurs. Chaque opération montre maintenant, **réglage par réglage et en français**, ce qui est parti vers le nœud, avec les unités : « Fiche du nœud : toutes les 3 h », « Puissance d'émission : 20 dBm », « Rôle : Routeur tardif ».
-- **Valeur d'avant** quand elle est réellement connue : « avant : toutes les 15 min (lu il y a 20 min) » à partir de la dernière configuration lue sur le nœud avant l'envoi. Une correction lancée depuis *🚦 Contrôle du trafic* affiche l'intervalle **mesuré** : « mesuré sur 24 h : toutes les 4 min » — c'est une mesure du trafic, pas le réglage enregistré dans le nœud. Sans lecture ni mesure, seule la valeur envoyée est affichée.
-- **Aucune clé n'est affichée** : un canal modifié indique « clé envoyée (non affichée) ». Les clés d'administration, mots de passe et jetons sont masqués, y compris pour un réglage que la carte ne connaît pas encore. Les paramètres d'une opération ne sortent plus du serveur, même pour le suivi d'une modification.
-- Résumé long replié sous « et N autres réglages » (rien n'est supprimé), lisible sur téléphone, valeurs en texte bien contrasté.
-
-### 🌡️ Relevé des capteurs MeshCore : il repart tout seul
-- **Un nœud qui ne répond pas ne bloque plus les autres** : chaque nœud d'une tâche MeshCore a maintenant une durée maximale, **réglable dans MeshCore › Companion › Module MeshCore** — *Délai maximal d'un relevé, par nœud* (1 à 30 min, 4 par défaut : télémétrie, état, chemin, trace) et *Délai maximal d'une lecture complète, par nœud* (5 à 240 min, 60 par défaut : lecture des réglages, programmation, mise en service) — et chaque tâche aussi. Une opération qui ne rendait jamais la main arrêtait **tous** les relevés automatiques suivants, sans rien signaler, jusqu'au redémarrage de la carte.
-- **Relance rapide** : une demande de relevé restée sans réponse est retentée deux fois, à un quart d'heure d'intervalle, au lieu d'attendre l'intervalle complet (une seule tentative perdue coûtait 3 h de trou pour un relevé toutes les 3 h).
-- **Plus de blocage définitif** : une tâche arrêtée depuis l'interface pendant qu'elle attendait son tour n'était jamais marquée terminée ; ses nœuds n'étaient alors plus jamais relevés automatiquement, même après un redémarrage (le fichier des tâches est réparé au démarrage). Le relevé des capteurs repart de lui-même si une tâche traîne plus d'une heure.
-- **Alerte « relevés en retard »** : elle fonctionne aussi pour un nœud réglé avant l'arrivée de ce suivi et jamais relevé depuis.
-- **Alertes des capteurs visibles hors de la zone** : l'alerte « relevés en retard » et celle d'une mesure hors seuil s'affichent maintenant même si le capteur est hors de la zone de la carte. Un capteur dont on a soi-même réglé le relevé est un nœud qu'on suit, où qu'il soit. Les autres alertes MeshCore (muet, batterie, canal) restent filtrées sur la zone.
-- Rappel affiché dans l'onglet *Capteurs* : le nombre de relevés indiqué sous une mesure est celui de la **période affichée** (1, 7, 30 ou 90 jours), pas un total.
-
 ## 2.30.0
 
 ### 🖱️ Les boutons du menu Outils marchent de nouveau
@@ -32,6 +16,20 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 - Sur un écran large, les fenêtres de réglages (🎚️ Fonctions de la carte, 👁️ Fonctions affichées…) s'ouvrent **plus larges** et leurs listes passent sur **deux colonnes** : tout se voit sans faire défiler, au lieu d'une colonne étroite au milieu de l'écran.
 - Bouton **⤢** à côté de la croix : élargit encore (jusqu'à 1 480 px, ou 1 800 px pour les très grandes fenêtres), **une fois pour toutes les fenêtres**, et le choix est gardé pour la prochaine visite. Masqué en dessous de 1 000 px de large : téléphone et tablette ne changent pas.
 - **Un clic à côté de la fenêtre la ferme**, comme la croix ✕ ou la touche Échap (plus besoin de remonter chercher la croix en haut d'une fenêtre longue). Un clic dans la fenêtre, même sur un bord ou une zone vide, ne ferme jamais, et un glissement de sélection relâché en dehors non plus. Si une **saisie est commencée**, la fenêtre reste ouverte et le dit : rien n'est perdu. La fenêtre d'installation, elle, ne se ferme pas de cette façon.
+
+### 🧾 Opérations récentes : ce qui a vraiment été envoyé
+- *Gérer › Programmer › Opérations récentes* affichait les **noms de champs du firmware** (« télémétrie · device (nodeInfoBroadcastSecs) ») et jamais les valeurs. Chaque opération montre maintenant, **réglage par réglage et en français**, ce qui est parti vers le nœud, avec les unités : « Fiche du nœud : toutes les 3 h », « Puissance d'émission : 20 dBm », « Rôle : Routeur tardif ».
+- **Valeur d'avant** quand elle est réellement connue : « avant : toutes les 15 min (lu il y a 20 min) » à partir de la dernière configuration lue sur le nœud avant l'envoi. Une correction lancée depuis *🚦 Contrôle du trafic* affiche l'intervalle **mesuré** : « mesuré sur 24 h : toutes les 4 min » — c'est une mesure du trafic, pas le réglage enregistré dans le nœud. Sans lecture ni mesure, seule la valeur envoyée est affichée.
+- **Aucune clé n'est affichée** : un canal modifié indique « clé envoyée (non affichée) ». Les clés d'administration, mots de passe et jetons sont masqués, y compris pour un réglage que la carte ne connaît pas encore. Les paramètres d'une opération ne sortent plus du serveur, même pour le suivi d'une modification.
+- Résumé long replié sous « et N autres réglages » (rien n'est supprimé), lisible sur téléphone, valeurs en texte bien contrasté.
+
+### 🌡️ Relevé des capteurs MeshCore : il repart tout seul
+- **Un nœud qui ne répond pas ne bloque plus les autres** : chaque nœud d'une tâche MeshCore a maintenant une durée maximale, **réglable dans MeshCore › Companion › Module MeshCore** — *Délai maximal d'un relevé, par nœud* (1 à 30 min, 4 par défaut : télémétrie, état, chemin, trace) et *Délai maximal d'une lecture complète, par nœud* (5 à 240 min, 60 par défaut : lecture des réglages, programmation, mise en service) — et chaque tâche aussi. Une opération qui ne rendait jamais la main arrêtait **tous** les relevés automatiques suivants, sans rien signaler, jusqu'au redémarrage de la carte.
+- **Relance rapide** : une demande de relevé restée sans réponse est retentée deux fois, à un quart d'heure d'intervalle, au lieu d'attendre l'intervalle complet (une seule tentative perdue coûtait 3 h de trou pour un relevé toutes les 3 h).
+- **Plus de blocage définitif** : une tâche arrêtée depuis l'interface pendant qu'elle attendait son tour n'était jamais marquée terminée ; ses nœuds n'étaient alors plus jamais relevés automatiquement, même après un redémarrage (le fichier des tâches est réparé au démarrage). Le relevé des capteurs repart de lui-même si une tâche traîne plus d'une heure.
+- **Alerte « relevés en retard »** : elle fonctionne aussi pour un nœud réglé avant l'arrivée de ce suivi et jamais relevé depuis.
+- **Alertes des capteurs visibles hors de la zone** : l'alerte « relevés en retard » et celle d'une mesure hors seuil s'affichent maintenant même si le capteur est hors de la zone de la carte. Un capteur dont on a soi-même réglé le relevé est un nœud qu'on suit, où qu'il soit. Les autres alertes MeshCore (muet, batterie, canal) restent filtrées sur la zone.
+- Rappel affiché dans l'onglet *Capteurs* : le nombre de relevés indiqué sous une mesure est celui de la **période affichée** (1, 7, 30 ou 90 jours), pas un total.
 
 ## 2.29.0
 
