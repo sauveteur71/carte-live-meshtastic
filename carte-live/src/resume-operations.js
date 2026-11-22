@@ -15,7 +15,9 @@ const { ROLES_FR } = require('./reseau');
 const SECRET = /psk|cl[eé]|key|pass|secret|jeton|token|mdp|priv|credential|auth|salt|hash|\botp\b|\bpin\b/i;
 const CLE_B64 = /^[A-Za-z0-9+/]{16,}={0,2}$/;
 const MASQUE = '(masqué)';
-const sensible = (nom, v) => SECRET.test(String(nom)) || (typeof v === 'string' && v.length >= 16 && CLE_B64.test(v));
+const ressembleCle = (v) => typeof v === 'string' && v.length >= 16 && CLE_B64.test(v);
+// Contrôle d'un réglage inconnu : son nom évoque un secret, ou sa valeur ressemble à une clé en base64
+const sensible = (nom, v) => SECRET.test(String(nom)) || ressembleCle(v);
 
 // ---- Mise en forme des valeurs --------------------------------------------------------------------
 // Durée lisible : 3600 s se lit « 1 h », 240 s « 4 min ». 0 = valeur par défaut du firmware.
@@ -88,8 +90,12 @@ const SECTIONS = ['nom', 'device', 'lora', 'position', 'voisinage', 'telemetrie'
 const CHAMPS_CONNUS = Object.keys(CHAMPS);
 
 // Valeur mise en forme d'un champ, ou « (masqué) » si elle peut être un secret
+// Un réglage connu de CHAMPS ne porte jamais de secret : seul son nom est contrôlé, pour qu'un nom long
+// de nœud fait de lettres et de chiffres (« 43BouchetRelais01 ») ne soit pas pris pour une clé.
+const masquer = (cle, champ, v) => (CHAMPS[cle] ? SECRET.test(String(champ)) : sensible(champ, v));
+
 function valeurChamp(cle, champ, v) {
-  if (sensible(champ, v)) return { valeur: MASQUE };
+  if (masquer(cle, champ, v)) return { valeur: MASQUE };
   const def = CHAMPS[cle];
   if (def && def.v) return { valeur: def.v(v) };
   if (v && typeof v === 'object') return { valeur: '…' };
@@ -104,7 +110,7 @@ function valeurChamp(cle, champ, v) {
 function noteAvant(t, cle, apres) {
   const def = CHAMPS[cle] || {};
   const a = t.avant && t.avant.valeurs ? t.avant.valeurs[cle] : undefined;
-  if (a !== undefined && a !== null && !sensible(cle, a)) {
+  if (a !== undefined && a !== null && !masquer(cle, cle, a)) {
     const txt = def.v ? def.v(a) : String(a);
     return txt === apres ? null : `avant : ${txt} (lu ${depuis(t.avant.heure)})`;
   }
@@ -195,4 +201,4 @@ function toucheCanalPrincipal(t) {
   return false;
 }
 
-module.exports = { detailsOperation, resumeOperation, toucheCanalPrincipal, duree, toutesLes, depuis, CHAMPS, CHAMPS_CONNUS, SECTIONS, MASQUE, sensible };
+module.exports = { detailsOperation, resumeOperation, toucheCanalPrincipal, duree, toutesLes, depuis, CHAMPS, CHAMPS_CONNUS, SECTIONS, MASQUE, sensible, masquer };

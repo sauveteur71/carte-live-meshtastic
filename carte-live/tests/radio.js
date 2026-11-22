@@ -1894,7 +1894,9 @@ test('Résumé : aucun secret ne sort (clé de canal, clé d’administration, m
     assert.ok(resumeOps.sensible(nom, 'x'), `${nom} doit être traité comme sensible`);
   }
   // …et ne masque aucun réglage normal (sinon le résumé perdrait de l'information)
-  for (const cle of resumeOps.CHAMPS_CONNUS) assert.ok(!resumeOps.sensible(cle, 1), `${cle} ne doit pas être pris pour un secret`);
+  for (const cle of resumeOps.CHAMPS_CONNUS) assert.ok(!resumeOps.masquer(cle, cle, 1), `${cle} ne doit pas être pris pour un secret`);
+  // Un nom de nœud long, fait de lettres et de chiffres, n'est pas pris pour une clé
+  assert.equal(resumeDe({ type: 'nom', params: { nomLong: '43BouchetRelais01' } }), 'Nom long : 43BouchetRelais01');
 });
 
 test('Résumé : valeur mesurée avant correction (Contrôle du trafic) affichée comme une mesure, pas comme un réglage', () => {
