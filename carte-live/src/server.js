@@ -3925,16 +3925,20 @@ const reqNomSig = stockage.db.prepare('SELECT nom_court, nom_long FROM noeuds WH
 const { RE_SOS } = require('./equipes');
 let minutRafraichir = null;
 const planifierRafraichir = () => { if (!minutRafraichir) minutRafraichir = setTimeout(() => { minutRafraichir = null; rafraichirEtat(); }, 1500); };
+// Équipes ADRASEC suivies par un secteur : le module ADRASEC est créé plus bas ; avant lui (démarrage), rien à suivre
+const estCleEquipeAdrasec = (id) => typeof id === 'string' && id.startsWith('adrasec:');
+const equipeAdrasec = (f, defaut) => { try { return f(adrasec); } catch { return defaut; } };
 const secteursAlerte = require('./secteurs').creerSecteurs({
   config, journal,
   diffuser: (m) => (m.genre === 'secteurs' ? diffuser(m) : diffuserMembres(m)),
-  membresEquipe: (id) => equipes.membresDe(id),
-  nomEquipe: (id) => equipes.nomDe(id),
+  // Équipe de la carte, ou équipe ADRASEC (« adrasec:CODE:ID » : nœuds portés par ses membres, relus à chaque fois)
+  membresEquipe: (id) => (estCleEquipeAdrasec(id) ? equipeAdrasec((a) => a.noeudsEquipe(id), []) : equipes.membresDe(id)),
+  nomEquipe: (id) => (estCleEquipeAdrasec(id) ? equipeAdrasec((a) => a.nomEquipe(id), null) : equipes.nomDe(id)),
   nomDe: (k) => (k.startsWith('mt:') ? nomNoeudServeur(Number(k.slice(3))) : nomNoeudMc(k.slice(3)) || null),
   positionDe: (num) => { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; },
   // Option d'un secteur : alerte courte sur un canal LoRa (module de la carte), au plus une toutes les 30 s
   envoyerLora: (texte, canal) => administration.envoyerTexte({ texte, canal }, 'secteurs'),
-  suiviMinDe: (id) => equipes.suiviDe(id),
+  suiviMinDe: (id) => (estCleEquipeAdrasec(id) ? 0 : equipes.suiviDe(id)),
   // Dernière réception d'un paquet, toutes sources (MQTT, module radio, agents, UDP) : sans rien depuis 10 min, la
   // surveillance des pertes de contact est suspendue (c'est la carte qui n'entend plus, pas les intervenants)
   derniereReception: () => Math.max(statsMqtt.dernierMessage || 0, dernierPaquetCrise),
@@ -4000,9 +4004,14 @@ const routeAdminSecteur = (f) => (req, res) => {
   if (!u || u.role !== 'admin') return res.status(401).json({ erreur: 'Connexion admin requise' });
   try { res.set('Cache-Control', 'no-store').json(f(req, req.body || {}, nomCompte(u))); } catch (e) { res.status(400).json({ erreur: e.message }); }
 };
-app.get('/api/secteurs', routeGestion((req) => ({ secteurs: secteursAlerte.liste(), equipes: (() => { try { return equipes.liste().map((e) => ({ id: e.id, nom: e.nom, nbMembres: e.nbMembres })); } catch { return []; } })(), modifiable: estAdmin(req) && !req.demoLecture })));
-app.post('/api/secteurs', routeAdminSecteur((req, b, a) => { const s = secteursAlerte.creer(b, a); audit.noter(a, req.ip, 'secteur d’alerte créé', s.nom, true); return s; }));
-app.patch('/api/secteurs/:id', routeAdminSecteur((req, b, a) => secteursAlerte.modifier(String(req.params.id), b, a)));
+// Équipes ADRASEC proposées : seulement celles des sections auxquelles le compte a accès (administrateur de la carte :
+// toutes ; gestionnaire membre d'une ADRASEC : la sienne ; sinon aucune). Rien ne change sur une carte sans ADRASEC.
+app.get('/api/secteurs', routeGestion((req) => ({ secteurs: secteursAlerte.liste(), equipes: (() => { try { return equipes.liste().map((e) => ({ id: e.id, nom: e.nom, nbMembres: e.nbMembres })); } catch { return []; } })(),
+  equipesAdrasec: req.demoLecture ? [] : equipeAdrasec((a) => a.equipesPourSecteurs(utilisateur(req)), []), modifiable: estAdmin(req) && !req.demoLecture })));
+// Rattacher un secteur à une équipe ADRASEC : il faut avoir accès à cette section (contrôle serveur, pas seulement le menu)
+const verifierEquipeSecteur = (req, b) => { if (estCleEquipeAdrasec(b.equipe) && !equipeAdrasec((a) => a.peutVoirEquipe(utilisateur(req), b.equipe), false)) throw new Error('Équipe ADRASEC inconnue ou hors de vos sections'); };
+app.post('/api/secteurs', routeAdminSecteur((req, b, a) => { verifierEquipeSecteur(req, b); const s = secteursAlerte.creer(b, a); audit.noter(a, req.ip, 'secteur d’alerte créé', s.nom, true); return s; }));
+app.patch('/api/secteurs/:id', routeAdminSecteur((req, b, a) => { const ancien = secteursAlerte.secteur(String(req.params.id)); if (b.equipe !== ancien.equipe) verifierEquipeSecteur(req, b); return secteursAlerte.modifier(String(req.params.id), b, a); }));
 app.delete('/api/secteurs/:id', routeAdminSecteur((req, b, a) => { const s = secteursAlerte.secteur(String(req.params.id)); secteursAlerte.supprimer(s.id, a); audit.noter(a, req.ip, 'secteur d’alerte supprimé', s.nom, true); planifierRafraichir(); return { ok: true }; }));
 app.get('/api/secteurs/journal', routeGestion((req) => ({ evenements: secteursAlerte.journal({ secteur: req.query.secteur ? String(req.query.secteur) : null, limite: req.query.limite }) })));
 app.get('/api/secteurs/journal.csv', (req, res) => {
@@ -4037,7 +4046,10 @@ const radioPointAdrasec = async ({ texte, canal, ...p }) => {
   signalements.envoyerPoint({ ...p, canal });
   if (texte) { await new Promise((r) => setTimeout(r, 400)); administration.envoyerTexte({ texte: signalements.couper(texte, 200), canal }, 'ADRASEC'); }
 };
-const adrasec = require('./adrasec').creerAdrasec({ config, journal, diffuser, radioPoint: radioPointAdrasec, nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); }, positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
+const adrasec = require('./adrasec').creerAdrasec({ config, journal, diffuser, radioPoint: radioPointAdrasec,
+  // Équipe ADRASEC supprimée (ou sa section) : ses secteurs d'alerte la perdent, comme pour une équipe de la carte
+  surEquipeSupprimee: (cle) => { if (secteursAlerte.equipeSupprimee(cle)) planifierRafraichir(); },
+  nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); }, positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
 const winlink = require('./winlink').creerWinlink({ journal });
 // ADRASEC du compte (un administrateur de la carte choisit celle qu'il consulte : ?g=43) ; membre, président
 // (responsable) ou administrateur de la carte, qui règle la section même désactivée
@@ -4159,22 +4171,23 @@ app.get('/api/adrasec/main-courante.csv', (req, res) => {
   res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', `attachment; filename="main-courante-${G.g.code}-${new Date().toISOString().slice(0, 10)}.csv"`).send(G.csvMc());
 });
 // Transfert de la section vers une autre carte : export d'un fichier ici, import là-bas (président, responsable
-// ou administrateur de la carte). Aucun compte, mot de passe, condensat ni jeton dans le fichier : chacun crée son
-// compte sur la carte d'arrivée par le lien d'invitation, et sa fiche métier l'y attend.
+// ou administrateur de la carte). Le fichier emporte équipes, fiches métier, main courante, recherches et relevés.
+// Aucun compte, mot de passe, condensat ni jeton (pas même celui d'un lien terrain) : chacun crée son compte sur la
+// carte d'arrivée par le lien d'invitation, et sa fiche métier l'y attend.
 app.get('/api/adrasec/export.json', (req, res) => {
   const u = utilisateur(req);
   const G = u && (u.role === 'admin' || adrasec.estMembre(u)) ? adrasec.groupePour(u, String(req.query.g || '').slice(0, 3) || null) : null;
   if (!G) return res.status(403).json({ erreur: 'Réservé à la section' });
   if (!G.estResponsable(u)) return res.status(403).json({ erreur: `Réservé au président et aux responsables de ${G.g.nom}` });
   const doc = G.exporter();
-  audit.noter(nomCompte(u), req.ip, 'ADRASEC : section exportée', `${G.g.nom} · ${doc.membres.length} fiche(s), ${doc.equipes.length} équipe(s)`, true);
+  audit.noter(nomCompte(u), req.ip, 'ADRASEC : section exportée', `${G.g.nom} · ${doc.membres.length} fiche(s), ${doc.equipes.length} équipe(s), ${doc.mainCourante.length} entrée(s) de main courante, ${doc.recherches.length} recherche(s), ${doc.releves.length} relevé(s)`, true);
   res.set('Content-Type', 'application/json; charset=utf-8').set('Cache-Control', 'no-store')
     .set('Content-Disposition', `attachment; filename="adrasec-${G.g.code}-${new Date().toISOString().slice(0, 10)}.json"`)
     .send(JSON.stringify(doc, null, 1));
 });
 app.post('/api/adrasec/import', routeAdrasec((req, b, u, G) => {
   const r = G.importer(b.fichier, comptes.lister(), { appliquer: !!b.appliquer }, nomCompte(u));
-  if (b.appliquer) audit.noter(nomCompte(u), req.ip, 'ADRASEC : section importée', `${G.g.nom} ← ${r.section} · ${r.rattaches.length} rattaché(s), ${r.attentes.length} en attente, ${r.equipesCreees.length} équipe(s)`, true);
+  if (b.appliquer) audit.noter(nomCompte(u), req.ip, 'ADRASEC : section importée', `${G.g.nom} ← ${r.section} · ${r.rattaches.length} rattaché(s), ${r.attentes.length} en attente, ${r.equipesCreees.length} équipe(s), ${r.mainCourante.nouvelles} entrée(s) de main courante, ${r.recherches.nouvelles} recherche(s), ${r.releves.nouveaux} relevé(s)`, true);
   return r;
 }, { admin: true }));
 app.delete('/api/adrasec/attentes/:id', routeAdrasec((req, b, u, G) => G.retirerAttente(String(req.params.id), nomCompte(u)), { admin: true }));

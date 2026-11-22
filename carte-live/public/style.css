@@ -1887,6 +1887,7 @@ body.mode-urgence .kpis { display: none; }
 .evt-crise.attention span, .evt-sa.silence span { color: #fde68a; }
 .sa-dehors { color: #fdba74; font-weight: 700; }
 .secteurs-alerte .modif-sa { margin-top: 6px; }
+.secteurs-alerte small.note { display: block; } /* explication sur sa propre ligne, pas collée au champ suivant */
 .secteurs-alerte .modif-sa > summary, .archives-crise > summary { cursor: pointer; font-weight: 600; }
 .archives-crise { margin-top: 14px; }
 #barre-dessin { position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 3100; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; max-width: calc(100vw - 32px); background: #0f172a; color: #f8fafc; border: 2px solid #22d3ee; border-radius: 12px; padding: 8px 12px; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,.5); }

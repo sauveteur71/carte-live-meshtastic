@@ -7,7 +7,7 @@
 'use strict';
 
 const crise = {
-  secteurs: [], equipes: [], modifiable: false, couche: null, apercu: null, coucheUrgence: null, rendu: null,
+  secteurs: [], equipes: [], equipesAdrasec: [], modifiable: false, couche: null, apercu: null, coucheUrgence: null, rendu: null,
   etat: { actif: false }, tableau: null, minuteur: null, minutDuree: null, minutCharge: null,
   visibles: lireLs('gaulix_secteurs_visibles', true), brouillon: null,
 };
@@ -49,7 +49,7 @@ function criseRecevoir(m) {
 async function chargerSecteurs() {
   try {
     const r = await api('/api/secteurs');
-    crise.secteurs = r.secteurs || []; crise.equipes = r.equipes || []; crise.modifiable = !!r.modifiable;
+    crise.secteurs = r.secteurs || []; crise.equipes = r.equipes || []; crise.equipesAdrasec = r.equipesAdrasec || []; crise.modifiable = !!r.modifiable;
   } catch { crise.secteurs = []; }
   dessinerSecteurs();
 }
@@ -90,19 +90,29 @@ function alerteSecteur(m) {
 // ---- Secteurs : fiche ---------------------------------------------------------------------------------------
 // Champs communs (création et modification)
 function champsSecteur(s = {}) {
-  const eq = crise.equipes;
+  const eq = crise.equipes, ad = crise.equipesAdrasec || [];
   const noeuds = [...(s.noeuds || []).map(idHex), ...(s.noeudsMc || [])].join(', ');
-  const opt = (v, t, c) => `<option value="${v}" ${String(c) === String(v) ? 'selected' : ''}>${t}</option>`;
-  // De quelles équipes parle-t-on ? Celles de la carte (un canal chiffré par équipe), réglées dans
-  // Programmer › 👥 Équipes — pas celles d'une section ADRASEC. Le lien n'est proposé qu'à un administrateur,
-  // seul à pouvoir en créer, et seulement si cet écran existe sur cette carte.
+  const opt = (v, t, c) => `<option value="${esc(v)}" ${String(c) === String(v) ? 'selected' : ''}>${t}</option>`;
+  // Deux sortes d'équipes :
+  // - celles de la carte (un canal chiffré par équipe), réglées dans Programmer › 👥 Équipes ;
+  // - celles des ADRASEC auxquelles ce compte a accès (valeur « adrasec:CODE:ID ») : la carte suit les nœuds portés
+  //   par leurs membres (fiche du membre, onglet Gestion de la page ADRASEC).
+  // Le lien vers les équipes de la carte n'est proposé qu'à un administrateur (seul à pouvoir en créer) ; celui vers
+  // les équipes ADRASEC ouvre la page de la section sur l'onglet Équipes.
   const versEquipes = etat.admin && typeof ficheEquipes === 'function';
-  const aideEquipe = eq.length
-    ? `<small class="note">Équipes de la carte : un canal chiffré partagé par les nœuds d’une équipe, réglé dans Programmer › 👥 Équipes.${versEquipes ? ' <a href="#" data-vers-equipes>Voir les équipes de la carte</a>' : ''}</small>`
+  const toutes = [...eq.map((e) => e.id), ...ad.flatMap((g) => g.equipes.map((e) => e.id))];
+  const lienAdrasec = (g) => `<a href="/adrasec?g=${encodeURIComponent(g.code)}&amp;onglet=equipes" target="_blank" rel="noopener" data-vers-adrasec="${esc(g.code)}">Voir les équipes ${esc(g.nom)}</a>`;
+  const aideAdrasec = ad.length ? `Équipes ADRASEC : la carte suit le nœud porté par chaque membre de l’équipe (réglé dans sa fiche). ${ad.map(lienAdrasec).join(' · ')}` : '';
+  const aideEquipe = eq.length || ad.length
+    ? `<small class="note">${eq.length ? `Équipes de la carte : un canal chiffré partagé par les nœuds d’une équipe, réglé dans Programmer › 👥 Équipes.${(versEquipes ? ' <a href="#" data-vers-equipes>Voir les équipes de la carte</a>' : '') + (ad.length ? '<br>' : '')}` : ''}${aideAdrasec}</small>`
     : `<p class="alerte attention">Aucune équipe n’existe encore sur cette carte. Une équipe, c’est un canal chiffré partagé par les nœuds de ceux qui partent sur le terrain : la carte sait alors qui suivre. Créez-en une dans Programmer › 👥 Équipes, puis revenez ici ; en attendant, surveillez des nœuds un par un dans « Autres nœuds suivis », juste en dessous.${versEquipes ? ' <a href="#" data-vers-equipes>Créer une équipe de la carte</a>' : ' Seul un administrateur de la carte peut en créer.'}</p>`;
+  const optCarte = eq.map((e) => opt(e.id, esc(e.nom) + ` (${e.nbMembres})`, s.equipe || '')).join('');
+  const optAdrasec = ad.map((g) => `<optgroup label="Équipes ${esc(g.nom)}">${g.equipes.map((e) => opt(e.id, esc(e.nom) + ` (${e.nbNoeuds} nœud${e.nbNoeuds > 1 ? 's' : ''} / ${e.nbMembres} membre${e.nbMembres > 1 ? 's' : ''})`, s.equipe || '')).join('')}</optgroup>`).join('');
+  // Équipe rattachée mais absente des listes (supprimée, ou ADRASEC hors de vos sections) : gardée telle quelle
+  const optAutre = s.equipe && !toutes.includes(s.equipe) ? opt(s.equipe, esc(s.nomEquipe || (String(s.equipe).startsWith('adrasec:') ? 'équipe ADRASEC introuvable' : s.equipe)), s.equipe) : '';
   return `<div class="parametres compact">
       <label>Nom <input data-c="nom" maxlength="40" value="${esc(s.nom || '')}" placeholder="Secteur nord, vallée de la Loire…"></label>
-      <label>Équipe <select data-c="equipe">${opt('', '— aucune —', s.equipe || '')}${eq.map((e) => opt(e.id, esc(e.nom) + ` (${e.nbMembres})`, s.equipe || '')).join('')}${s.equipe && !eq.some((e) => e.id === s.equipe) ? opt(s.equipe, esc(s.nomEquipe || s.equipe), s.equipe) : ''}</select></label>
+      <label>Équipe <select data-c="equipe">${opt('', '— aucune —', s.equipe || '')}${ad.length && eq.length ? `<optgroup label="Équipes de la carte">${optCarte}</optgroup>` : optCarte}${optAdrasec}${optAutre}</select></label>
     </div>
     ${aideEquipe}
     <label>Autres nœuds suivis <input data-c="noeuds" value="${esc(noeuds)}" placeholder="!a1b2c3d4, clé publique MeshCore (64 caractères)…"></label>
@@ -204,7 +214,7 @@ async function ficheSecteurs(opts = {}) {
     ${crise.secteurs.map((s) => `<details class="proposition secteur-sa" data-sa="${esc(s.id)}" ${opts.ouvert === s.id || crise.secteurs.length === 1 ? 'open' : ''}>
       <summary class="entete-prop"><b>${esc(s.nom)}</b><span class="marge">${s.actif ? '' : '⏸ désactivé · '}${texteForme(s)}${s.nomEquipe ? ' · équipe ' + esc(s.nomEquipe) : ''} · ${s.dehors ? `<span class="sa-dehors">⛔ ${s.dehors} hors secteur</span>` : `${s.membres.length} suivi(s)`}</span></summary>
       <div class="meta-longue">Alerte ${LIB_SENS[s.sens] || ''} · marge ${s.marge} m · ${s.confirmations} position(s) pour confirmer · ${s.delaiMin} min entre deux alertes${s.silenceMin ? ` · perte de contact après ${s.silenceMin} min` : ''}${s.canalLora != null ? ` · LoRa canal ${s.canalLora}` : ''}</div>
-      <div class="liste-membres">${s.membres.length ? s.membres.map((m) => ligneMembre(m, s)).join('') : '<div class="vide">Aucun nœud suivi : l’équipe est vide.</div>'}</div>
+      <div class="liste-membres">${s.membres.length ? s.membres.map((m) => ligneMembre(m, s)).join('') : (String(s.equipe || '').startsWith('adrasec:') ? '<div class="vide">Aucun nœud suivi : aucun membre de cette équipe ADRASEC n’a de nœud associé (fiche du membre, onglet Gestion de la page ADRASEC).</div>' : '<div class="vide">Aucun nœud suivi : l’équipe est vide.</div>')}</div>
       <div class="actions-prop"><button data-voir>🔍 Voir sur la carte</button><button data-journal>📜 Journal de ce secteur</button>
         ${mod ? `<button data-actif>${s.actif ? '⏸ Désactiver' : '▶ Réactiver'}</button><button data-supprimer class="danger">🗑 Supprimer</button>` : ''}</div>
       ${mod ? `<details class="modif-sa"><summary>Modifier</summary>${champsSecteur(s)}

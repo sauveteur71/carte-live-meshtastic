@@ -2,7 +2,9 @@
 // Secteurs d'alerte (géorepérage) des équipes de terrain : prévenir quand un membre sort d'un secteur (ou y entre).
 //
 // - Un secteur est un cercle (centre + rayon) ou un polygone dessiné sur la carte, rattaché à une équipe (ses membres
-//   du moment) et/ou à des nœuds choisis (Meshtastic par numéro, MeshCore par clé publique).
+//   du moment) et/ou à des nœuds choisis (Meshtastic par numéro, MeshCore par clé publique). L'équipe est celle de
+//   la carte (canal chiffré, equipes.js) ou une équipe ADRASEC (« adrasec:CODE:ID », nœuds portés par ses membres) :
+//   ce module ne fait pas la différence, server.js lui donne membresEquipe / nomEquipe pour les deux.
 // - Détection sur chaque position reçue, avec anti-rebond :
 //   · une position n'est « dehors » qu'au-delà d'une marge (en mètres) après la limite, et « dedans » qu'en deçà ;
 //     entre les deux (bordure), elle ne change rien ;
@@ -189,7 +191,8 @@ function valider(b, ancien = {}, equipeExiste = () => true) {
     } else throw new Error('Forme du secteur : cercle ou polygone');
   }
   if (b.equipe !== undefined) {
-    if (b.equipe && !equipeExiste(String(b.equipe))) throw new Error('Équipe inconnue');
+    // Équipe disparue entre-temps mais déjà rattachée (formulaire renvoyé tel quel) : pas d'erreur, le secteur la garde
+    if (b.equipe && String(b.equipe) !== ancien.equipe && !equipeExiste(String(b.equipe))) throw new Error('Équipe inconnue');
     s.equipe = b.equipe ? String(b.equipe) : null;
   }
   if (b.noeuds !== undefined) s.noeuds = [...new Set((Array.isArray(b.noeuds) ? b.noeuds : []).map((x) => Number(x) >>> 0))].filter(Boolean).slice(0, 200);

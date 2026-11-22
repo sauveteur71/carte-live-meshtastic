@@ -34,6 +34,10 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 ### 🧭 Nœuds d'un département : Meshtastic, MeshCore ou les deux
 - L'écran *Nœuds d'un département* (recherche « 43 », « Haute-Loire »…) liste aussi les **nœuds MeshCore**, rangés d'après la position de leur dernière annonce. Il part du réseau affiché sur la carte (Meshtastic, MeshCore ou les deux) et un sélecteur **Meshtastic / MeshCore / Les deux** permet d'en changer sur place ; pastille **MT** / **MC** sur chaque ligne, colonne *Réseau* dans l'export CSV. Un clic sur un nœud MeshCore ouvre sa fiche MeshCore, et la fermer ramène à la liste.
 
+### 🛰️ ADRASEC : secteurs d'alerte sur les équipes de la section, transfert avec l'historique
+- **Secteurs d'alerte → équipes ADRASEC** : la liste *Équipe* d'un secteur propose maintenant, dans une rubrique « Équipes ADRASEC 43 », les équipes des sections ADRASEC auxquelles on a accès (administrateur de la carte : toutes ; membre : la sienne ; personne d'autre). Le secteur suit le **nœud porté** par chaque membre de l'équipe, au fil des changements (nouveau nœud, changement d'équipe). Le lien **Voir les équipes ADRASEC 43** ouvre la page de la section sur l'onglet *👥 Équipes*. Équipe ou section supprimée : le secteur la perd et se désactive s'il ne suivait qu'elle, comme pour une équipe de la carte. Carte sans ADRASEC : rien ne change.
+- **Transfert de la section : la main courante, les recherches et les relevés partent aussi**, avec le nom de leurs auteurs. Importer deux fois le même fichier ne double rien, la durée de conservation de la carte d'arrivée est respectée, et le récapitulatif avant import annonce combien d'entrées, de recherches et de relevés seront repris. Une recherche en cours reste ouverte à l'arrivée, **sans lien terrain ni diffusion radio** (à recréer sur place). Toujours aucun compte, mot de passe, condensat ni jeton dans le fichier, pas même celui d'un lien terrain.
+
 ## 2.29.0
 
 ### 🗺️ Secteurs d'alerte (géorepérage)

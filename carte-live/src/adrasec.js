@@ -16,7 +16,8 @@
 // - Ce qui transmet sur les bandes radioamateurs (Winlink…) est réservé aux membres cochés « licencié ».
 // - Transfert vers une autre carte : export d'un fichier (nom, équipes, fiches métier des membres), import là-bas.
 //   Jamais de compte, de mot de passe, de condensat ni de jeton : sur la carte d'arrivée chacun crée son compte par
-//   le lien d'invitation, et sa fiche l'attend (rattachée par l'indicatif). Main courante et recherches ne partent pas.
+//   le lien d'invitation, et sa fiche l'attend (rattachée par l'indicatif). Main courante, recherches et relevés
+//   partent aussi (auteurs en texte), sans lien terrain ni diffusion radio ; un second import ne les double pas.
 // Données dans adrasec.json (dossier des données), incluses dans les sauvegardes ; aucune n'apparaît sur la carte
 // publique. Conservation : main courante et relevés effacés au-delà de la durée choisie par l'administrateur.
 
@@ -35,9 +36,14 @@ const COULEURS_EQ = ['#ff8a1f', '#4cc9f0', '#b48cff', '#3ee68a', '#ff5c6c', '#ff
 const FORMAT_TRANSFERT = 'carte-live-adrasec';
 const norme = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 // Ce qui identifie une personne entre deux cartes : son indicatif (radioamateur) ou, à défaut, son numéro d'écouteur
+// Équipe ADRASEC vue d'un secteur d'alerte : « adrasec:43:0a1b2c3d4e5f »
+const cleEquipe = (code, eid) => `adrasec:${code}:${eid}`;
+const estCleEquipe = (v) => typeof v === 'string' && v.startsWith('adrasec:');
 const cleAttente = (x) => (x && x.indicatif ? String(x.indicatif).toUpperCase() : x && x.numeroSwl ? 'SWL:' + String(x.numeroSwl).toUpperCase() : '');
 
-function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positionDe = () => null, nomDe = () => null, radioPoint = null }) {
+// surEquipeSupprimee(cle) : une équipe ADRASEC disparaît (équipe ou section supprimée) ; cle = « adrasec:CODE:ID »,
+// la valeur qu'un secteur d'alerte garde pour la suivre (voir equipeSecteur plus bas)
+function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positionDe = () => null, nomDe = () => null, radioPoint = null, surEquipeSupprimee = () => {} }) {
   // Une carte peut héberger les ADRASEC de plusieurs départements : chacune a ses membres, son président (responsable),
   // ses équipes, sa main courante et ses recherches. L'administrateur de la carte crée les ADRASEC et nomme les présidents.
   const fichier = path.join(path.dirname(config.fichierBase), 'adrasec.json');
@@ -63,7 +69,8 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
   };
   const groupeDeCompte = (cid) => Object.keys(racine.groupes).find((k) => racine.groupes[k].membres[cid]) || null;
   const nomGroupe = (code) => (racine.groupes[code] || {}).nom || 'ADRASEC ' + code;
-  const ctx = { actif: () => racine.actif, sauver, journal, diffuser, positionDe, nomDe, radioPoint, groupeDeCompte, nomGroupe };
+  const signalerSuppression = (code, eid) => { try { surEquipeSupprimee(cleEquipe(code, eid)); } catch (e) { journal('[ADRASEC] secteurs de l’équipe supprimée :', e.message); } };
+  const ctx = { actif: () => racine.actif, sauver, journal, diffuser, positionDe, nomDe, radioPoint, groupeDeCompte, nomGroupe, signalerSuppression };
   const instances = new Map();
   const inst = (code) => {
     const g = racine.groupes[code];
@@ -98,6 +105,7 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
       if (!g) return { groupes: listeGroupes() };
       if (Object.keys(g.membres).length || g.recherches.length || g.mainCourante.length) throw new Error('Cette ADRASEC a encore des membres ou un historique : retirez d’abord les membres et attendez la fin de la conservation');
       delete racine.groupes[c]; instances.delete(c);
+      for (const e of g.equipes || []) signalerSuppression(c, e.id); // secteurs d'alerte qui suivaient ces équipes
       journal(`[ADRASEC] ${g.nom} supprimée par ${auteur}`);
     } else if (g) { if (b.nom !== undefined) g.nom = txt(b.nom, 40) || g.nom; }
     else { racine.groupes[c] = vide(c, txt(b.nom, 40)); journal(`[ADRASEC] ${racine.groupes[c].nom} créée par ${auteur}`); }
@@ -155,11 +163,38 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
     return { ...G.vue(compte, comptesListe), groupes: compte.role === 'admin' ? listeGroupes() : undefined };
   }
 
+  // ---- Équipes ADRASEC suivies par un secteur d'alerte de la carte (crise.js / secteurs.js) ----------------------
+  // Un secteur garde « adrasec:CODE:ID » ; ses nœuds suivis sont, à chaque instant, les nœuds portés par les membres
+  // de cette équipe (un membre qui change de nœud ou d'équipe : le secteur suit). Les fiches en attente (sans compte)
+  // ne comptent pas.
+  function equipeSecteur(cle) {
+    const m = /^adrasec:([0-9AB]{2,3}):([0-9a-f]{6,32})$/i.exec(String(cle || ''));
+    if (!m) return null;
+    const g = racine.groupes[m[1].toUpperCase()];
+    const e = g && (g.equipes || []).find((x) => x.id === m[2]);
+    return e ? { g, e } : null;
+  }
+  const noeudsDe = (g, eid) => [...new Set(Object.values(g.membres).filter((m) => m.equipe === eid && m.noeud).map((m) => m.noeud >>> 0))];
+  // Équipes proposées dans le menu d'un secteur : celles des ADRASEC auxquelles ce compte a accès (un administrateur
+  // de la carte : toutes ; un membre : la sienne ; personne d'autre)
+  function equipesPourSecteurs(compte) {
+    if (!compte || !racine.actif) return [];
+    const codes = compte.role === 'admin' ? Object.keys(racine.groupes).sort() : [groupeDe(compte)].filter(Boolean);
+    return codes.map((c) => racine.groupes[c]).filter(Boolean).map((g) => ({
+      code: g.code, nom: g.nom,
+      equipes: (g.equipes || []).map((e) => ({ id: cleEquipe(g.code, e.id), nom: e.nom, nbMembres: Object.values(g.membres).filter((m) => m.equipe === e.id).length, nbNoeuds: noeudsDe(g, e.id).length })),
+    })).filter((x) => x.equipes.length);
+  }
+  const peutVoirEquipe = (compte, cle) => { const x = equipeSecteur(cle); return !!x && equipesPourSecteurs(compte).some((s) => s.code === x.g.code); };
+
   return {
     actif: () => racine.actif, nom: () => 'ADRASEC', groupes: listeGroupes, groupeDe, groupePour, estMembre, nomGroupe,
     majGroupe, reglagesGlobaux, demander, demandeDe, vue, rolesComptes, roleCompte,
     texteRecu: (evt) => { if (racine.actif) toutes().forEach((i) => i.texteRecu(evt)); },
     vueTerrain: (jeton) => { for (const i of toutes()) { const v = i.vueTerrain(jeton); if (v) return v; } return null; },
+    estCleEquipe, equipesPourSecteurs, peutVoirEquipe,
+    noeudsEquipe: (cle) => { const x = equipeSecteur(cle); return x ? noeudsDe(x.g, x.e.id) : []; },
+    nomEquipe: (cle) => { const x = equipeSecteur(cle); return x ? `${x.e.nom} (${x.g.nom})` : null; },
   };
 }
 
@@ -271,6 +306,7 @@ function creerGroupe(g, ctx) {
       if (b.supprimer) {
         g.equipes = g.equipes.filter((x) => x !== e);
         for (const m of Object.values(g.membres)) if (m.equipe === eid) m.equipe = null;
+        ctx.signalerSuppression(g.code, eid); // secteurs d'alerte qui la suivaient
       } else {
         if (b.nom !== undefined) e.nom = txt(b.nom, 30) || e.nom;
         if (b.couleur !== undefined && /^#[0-9a-f]{6}$/i.test(b.couleur)) e.couleur = b.couleur;
@@ -491,12 +527,16 @@ function creerGroupe(g, ctx) {
 
   // ---- Transfert de la section vers une autre carte (export / import) ----------------------------------------
   // Ce qui part : la DÉFINITION de la section (nom, équipes, et pour chaque membre sa fiche métier : indicatif,
-  // qualité, n° SWL, équipe, fonction, nœud porté). Jamais un compte, un mot de passe, un condensat ni un jeton :
-  // les comptes ne se transfèrent pas d'une carte à l'autre. Sur la carte d'arrivée, chacun crée son compte par le
-  // lien d'invitation (/adrasec) puis demande à rejoindre la section ; sa fiche l'attend et se rattache alors seule.
-  // Ce qui NE part PAS : la main courante, les recherches et les relevés. Ce sont les archives horodatées et
-  // signées d'opérations réelles, propres à la carte qui les a enregistrées (export CSV pour les archiver), pas un
-  // paramétrage à recopier. Le rôle de président ne part pas non plus : seul un administrateur de la carte le donne.
+  // qualité, n° SWL, équipe, fonction, nœud porté), puis son HISTORIQUE : main courante, recherches et relevés de
+  // gisement (auteurs en texte : indicatif ou nom signé, jamais un numéro de compte).
+  // Jamais un compte, un mot de passe, un condensat ni un jeton : les comptes ne se transfèrent pas d'une carte à
+  // l'autre. Sur la carte d'arrivée, chacun crée son compte par le lien d'invitation (/adrasec) puis demande à
+  // rejoindre la section ; sa fiche l'attend et se rattache alors seule.
+  // Ne partent pas : le lien terrain d'une recherche (son jeton donne accès sans compte) et l'état de la diffusion
+  // radio (identifiant du point Meshtastic, canal de la carte d'origine) ; le rôle de président (seul un
+  // administrateur de la carte le donne).
+  // Le format reste en version 1 : les nouvelles listes sont facultatives. Une carte plus ancienne lit le fichier
+  // et ignore simplement l'historique ; un fichier ancien (sans historique) se lit ici comme avant.
   function exporter() {
     const avecId = Object.values(g.membres).filter((m) => m.indicatif || m.numeroSwl);
     return {
@@ -510,7 +550,66 @@ function creerGroupe(g, ctx) {
       // Pour le récapitulatif d'import, sans rien révéler : des membres n'ont ni indicatif ni n° SWL, donc rien
       // pour les reconnaître sur l'autre carte ; ils devront y être saisis à la main.
       membresSansIdentifiant: Object.keys(g.membres).length - avecId.length,
+      // Historique, champ par champ (liste fermée : un champ ajouté un jour dans adrasec.json ne part pas sans le vouloir)
+      mainCourante: g.mainCourante.map((x) => ({ id: x.id, heure: x.heure, auteur: x.auteur || null, type: x.type, equipe: x.equipe || null, texte: x.texte, complete: x.complete || null })),
+      recherches: g.recherches.map((r) => ({ id: r.id, nom: r.nom, frequence: r.frequence, detail: r.detail || null, debut: r.debut, fin: r.fin || null, statut: r.statut,
+        ouvertePar: r.ouvertePar || null, resultat: r.resultat || null, positionFinale: r.positionFinale ? { lat: r.positionFinale.lat, lon: r.positionFinale.lon, locator: r.positionFinale.locator || null } : null })),
+      releves: g.releves.map((x) => ({ id: x.id, recherche: x.recherche, heure: x.heure, auteur: x.auteur || null, equipe: x.equipe || null, lat: x.lat, lon: x.lon, source: x.source || null,
+        gisement: x.gisement, incertitude: x.incertitude, force: x.force || null, note: x.note || null, origine: x.origine || null, retire: x.retire ? { heure: x.retire.heure, par: x.retire.par || null } : null })),
     };
+  }
+  // Historique d'un fichier d'export, vérifié champ par champ. Un identifiant déjà présent ici = déjà importé (les
+  // identifiants sont tirés au hasard sur 48 bits) : rien en double au second import. Ce qui dépasse la durée de
+  // conservation de CETTE carte n'entre pas (il serait effacé à la purge suivante).
+  function lireHistorique(doc, cibleEq) {
+    const limite = Date.now() - Math.max(7, g.conservationJours || 365) * 86400000;
+    const futur = Date.now() + 86400000;
+    const heureOk = (t) => Number.isFinite(Number(t)) && Number(t) > 0 && Number(t) <= futur;
+    const idOk = (v) => (typeof v === 'string' && /^[0-9a-f]{6,32}$/i.test(v) ? v.toLowerCase() : null);
+    const eqLocale = (v) => (v != null && cibleEq.has(String(v)) ? cibleEq.get(String(v)) : null);
+    const r = { mainCourante: { nouvelles: 0, deja: 0, anciennes: 0, illisibles: 0 }, recherches: { nouvelles: 0, deja: 0, anciennes: 0, illisibles: 0, enCours: 0 }, releves: { nouveaux: 0, deja: 0, anciens: 0, illisibles: 0 } };
+    const mcIds = new Set(g.mainCourante.map((x) => x.id)), rIds = new Set(g.recherches.map((x) => x.id)), relIds = new Set(g.releves.map((x) => x.id));
+    const mc = [], rech = [], rel = [], rAnciennes = new Set();
+    for (const x of Array.isArray(doc.mainCourante) ? doc.mainCourante.slice(0, 20000) : []) {
+      const i = x && idOk(x.id), texte = x && txt(x.texte, 1000);
+      if (!i || !texte || !heureOk(x.heure)) { r.mainCourante.illisibles++; continue; }
+      if (mcIds.has(i)) { r.mainCourante.deja++; continue; }
+      if (Number(x.heure) < limite) { r.mainCourante.anciennes++; continue; }
+      mcIds.add(i);
+      mc.push({ id: i, heure: Number(x.heure), auteur: txt(x.auteur, 40) || 'inconnu', type: TYPES_MC.includes(x.type) ? x.type : 'information', equipe: eqLocale(x.equipe), texte, complete: idOk(x.complete), importe: true });
+    }
+    for (const x of Array.isArray(doc.recherches) ? doc.recherches.slice(0, 500) : []) {
+      const i = x && idOk(x.id);
+      if (!i || !heureOk(x.debut)) { r.recherches.illisibles++; continue; }
+      if (rIds.has(i)) { r.recherches.deja++; continue; }
+      const enCours = x.statut === 'en-cours';
+      const fin = !enCours && heureOk(x.fin) ? Number(x.fin) : null;
+      if (!enCours && (fin || Number(x.debut)) < limite) { r.recherches.anciennes++; rAnciennes.add(i); continue; }
+      rIds.add(i);
+      const pf = x.positionFinale && Number.isFinite(Number(x.positionFinale.lat)) && Number.isFinite(Number(x.positionFinale.lon)) && Math.abs(x.positionFinale.lat) <= 90 && Math.abs(x.positionFinale.lon) <= 180
+        ? { lat: Number(x.positionFinale.lat), lon: Number(x.positionFinale.lon), locator: txt(x.positionFinale.locator, 10) || Gonio.versLocator(Number(x.positionFinale.lat), Number(x.positionFinale.lon), 8) } : null;
+      // Recherche en cours sur la carte d'origine : elle reste ouverte ici (les équipes peuvent continuer à y
+      // envoyer leurs relevés), mais sans lien terrain ni diffusion radio : rien n'émet tant qu'un membre de cette
+      // carte ne l'a pas décidé (point Meshtastic et lien terrain à recréer ici).
+      if (enCours) r.recherches.enCours++;
+      rech.push({ id: i, nom: txt(x.nom, 60) || 'Recherche importée', frequence: FREQUENCES.includes(x.frequence) ? x.frequence : 'autre', detail: txt(x.detail, 120) || null,
+        debut: Number(x.debut), fin: enCours ? null : fin || Number(x.debut), statut: enCours ? 'en-cours' : 'terminee', ouvertePar: txt(x.ouvertePar, 40) || null,
+        resultat: txt(x.resultat, 200) || null, positionFinale: pf, importee: true });
+    }
+    for (const x of Array.isArray(doc.releves) ? doc.releves.slice(0, 20000) : []) {
+      const i = x && idOk(x.id), rid = x && idOk(x.recherche);
+      const lat = Number(x && x.lat), lon = Number(x && x.lon), gis = Number(x && x.gisement), inc = Number(x && x.incertitude);
+      if (rid && rAnciennes.has(rid)) { r.releves.anciens++; continue; } // recherche trop ancienne pour cette carte
+      if (!i || !rid || !rIds.has(rid) || !heureOk(x.heure) || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180 || !(gis >= 0 && gis <= 360) || !(inc >= 0.5 && inc <= 45)) { r.releves.illisibles++; continue; }
+      if (relIds.has(i)) { r.releves.deja++; continue; }
+      if (Number(x.heure) < limite) { r.releves.anciens++; continue; }
+      relIds.add(i);
+      rel.push({ id: i, recherche: rid, heure: Number(x.heure), auteur: txt(x.auteur, 40) || 'inconnu', equipe: eqLocale(x.equipe), lat: +lat.toFixed(6), lon: +lon.toFixed(6), source: txt(x.source, 60) || null,
+        gisement: +(gis % 360).toFixed(1), incertitude: +inc.toFixed(1), force: txt(x.force, 20) || null, note: txt(x.note, 200) || null, origine: x.origine === 'radio' ? 'radio' : 'saisie',
+        ...(x.retire && heureOk(x.retire.heure) ? { retire: { heure: Number(x.retire.heure), par: txt(x.retire.par, 40) || null } } : {}), importe: true });
+    }
+    r.mainCourante.nouvelles = mc.length; r.recherches.nouvelles = rech.length; r.releves.nouveaux = rel.length;
+    return { resume: r, mc, rech, rel };
   }
   // Lecture d'un fichier d'export (peut venir de n'importe où : tout est vérifié, rien n'est repris tel quel).
   // appliquer = false : simple récapitulatif, aucune écriture. appliquer = true : équipes et fiches créées.
@@ -589,8 +688,14 @@ function creerGroupe(g, ctx) {
       r.attentes.push({ quoi: cle, equipe: nomEq(fiche.equipe) });
       aAttendre.push(fiche);
     }
+    const h = lireHistorique(doc, cibleEq);
+    Object.assign(r, h.resume);
     if (!appliquer) return r;
     for (const e of aCreer) g.equipes.push(e);
+    // Historique : fusionné puis remis dans l'ordre (main courante et relevés par heure, recherches les plus récentes d'abord)
+    if (h.mc.length) { g.mainCourante.push(...h.mc); g.mainCourante.sort((a, b) => a.heure - b.heure); if (g.mainCourante.length > 20000) g.mainCourante.splice(0, g.mainCourante.length - 20000); }
+    if (h.rech.length) { g.recherches.push(...h.rech); g.recherches.sort((a, b) => b.debut - a.debut); }
+    if (h.rel.length) { g.releves.push(...h.rel); g.releves.sort((a, b) => a.heure - b.heure); }
     for (const [cid, f] of aAjouter) {
       g.membres[cid] = { valide: Date.now(), par: auteur, qualite: f.qualite, licencie: f.qualite === 'radioamateur',
         indicatif: f.indicatif, numeroSwl: f.numeroSwl, equipe: f.equipe, fonction: f.fonction, noeud: f.noeud,
@@ -599,9 +704,11 @@ function creerGroupe(g, ctx) {
     }
     for (const f of aAttendre) g.attentes.push({ id: id(), heure: Date.now(), par: auteur, source: nomSection, ...f });
     sauver(true);
-    journal(`[ADRASEC] import depuis ${nomSection} par ${auteur} : ${r.rattaches.length} rattaché(s), ${r.attentes.length} en attente, ${aCreer.length} équipe(s) créée(s)`);
-    ajouterMc(null, { texte: `Import de la section depuis « ${nomSection} » : ${aCreer.length} équipe(s) créée(s), ${r.rattaches.length} membre(s) rattaché(s) à un compte, ${r.attentes.length} fiche(s) en attente d’activation`, type: 'information' }, { auteur });
+    const hist = `${h.mc.length} entrée(s) de main courante, ${h.rech.length} recherche(s), ${h.rel.length} relevé(s)`;
+    journal(`[ADRASEC] import depuis ${nomSection} par ${auteur} : ${r.rattaches.length} rattaché(s), ${r.attentes.length} en attente, ${aCreer.length} équipe(s) créée(s), ${hist}`);
+    ajouterMc(null, { texte: `Import de la section depuis « ${nomSection} » : ${aCreer.length} équipe(s) créée(s), ${r.rattaches.length} membre(s) rattaché(s) à un compte, ${r.attentes.length} fiche(s) en attente d’activation, ${hist} repris`, type: 'information' }, { auteur });
     diffuser({ genre: 'adrasec', quoi: 'membres' });
+    if (h.mc.length || h.rech.length || h.rel.length) diffuser({ genre: 'adrasec', quoi: 'main-courante' });
     return r;
   }
   function retirerAttente(aid, auteur) {
