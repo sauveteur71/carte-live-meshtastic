@@ -1851,7 +1851,7 @@ test('Résumé d’une modification : les valeurs envoyées, en français et ave
   assert.deepEqual(d.map((x) => `${x.lib} : ${x.valeur}`), ['Fiche du nœud : toutes les 3 h', 'Télémétrie : toutes les 30 min']);
   assert.ok(!resumeDe(t).includes('nodeInfoBroadcastSecs'), 'aucun nom de champ du firmware dans le résumé');
   // Unités : secondes, minutes, heures, dBm, sauts, mètres
-  const t2 = { type: 'modifier', params: { lora: { hopLimit: 4, txPower: 20, txEnabled: true, channelNum: 0, overrideFrequency: 869.618 }, position: { positionBroadcastSecs: 43200, positionBroadcastSmartEnabled: false } } };
+  const t2 = { type: 'modifier', params: { device: { nodeInfoBroadcastSecs: 86400 }, lora: { hopLimit: 4, txPower: 20, txEnabled: true, channelNum: 0, overrideFrequency: 869.618 }, position: { positionBroadcastSecs: 43200, positionBroadcastSmartEnabled: false }, voisinage: { updateInterval: 604800 } } };
   const r2 = resumeDe(t2);
   assert.match(r2, /Sauts : 4(?! sauts)/);
   assert.match(r2, /Puissance d’émission : 20 dBm/);
@@ -1859,6 +1859,11 @@ test('Résumé d’une modification : les valeurs envoyées, en français et ave
   assert.match(r2, /Fréquence forcée : 869\.6180 MHz/);
   assert.match(r2, /Position : toutes les 12 h/);
   assert.match(r2, /Position intelligente : non/);
+  // Durées : jours seulement au-delà de 24 h, pour lire comme les menus déroulants du formulaire
+  assert.match(r2, /Voisinage : toutes les 7 j/);
+  assert.match(r2, /Fiche du nœud : toutes les 24 h/);
+  assert.deepEqual([0, 45, 900, 3600, 43200, 86400, 129600, 172800, 604800].map(resumeOps.toutesLes),
+    ['défaut', 'toutes les 45 s', 'toutes les 15 min', 'toutes les 1 h', 'toutes les 12 h', 'toutes les 24 h', 'toutes les 36 h', 'toutes les 2 j', 'toutes les 7 j']);
   // Rôle et politique de signature : noms lisibles, pas les constantes du protobuf
   const t3 = { type: 'modifier', params: { device: { role: 'ROUTER_LATE' }, securite: { packetSignaturePolicy: 'PACKET_SIGNATURE_POLICY_STRICT' } } };
   assert.match(resumeDe(t3), /Rôle : Routeur tardif/);

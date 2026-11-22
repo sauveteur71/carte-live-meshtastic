@@ -25,7 +25,9 @@ function duree(s) {
   const n = Number(s);
   if (!Number.isFinite(n)) return String(s);
   if (n === 0) return 'défaut';
-  if (n % 3600 === 0) return `${n / 3600} h`; // 7 jours se lisent « 168 h » : une seule unité à traduire
+  // Jours seulement au-delà de 24 h : le formulaire propose « 24 h », l'historique doit lire pareil (7 jours = « 7 j »)
+  if (n % 86400 === 0 && n >= 2 * 86400) return `${n / 86400} j`;
+  if (n % 3600 === 0) return `${n / 3600} h`;
   if (n % 60 === 0) return `${n / 60} min`;
   if (n > 3600) return `${Math.round(n / 360) / 10} h`;
   if (n > 90) return `${Math.round(n / 6) / 10} min`;
