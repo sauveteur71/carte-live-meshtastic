@@ -31,6 +31,10 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 - **Alertes des capteurs visibles hors de la zone** : l'alerte « relevés en retard » et celle d'une mesure hors seuil s'affichent maintenant même si le capteur est hors de la zone de la carte. Un capteur dont on a soi-même réglé le relevé est un nœud qu'on suit, où qu'il soit. Les autres alertes MeshCore (muet, batterie, canal) restent filtrées sur la zone.
 - Rappel affiché dans l'onglet *Capteurs* : le nombre de relevés indiqué sous une mesure est celui de la **période affichée** (1, 7, 30 ou 90 jours), pas un total.
 
+### 🛰️ ADRASEC : secteurs d'alerte sur les équipes de la section, transfert avec l'historique
+- **Secteurs d'alerte → équipes ADRASEC** : la liste *Équipe* d'un secteur propose maintenant, dans une rubrique « Équipes ADRASEC 43 », les équipes des sections ADRASEC auxquelles on a accès (administrateur de la carte : toutes ; membre : la sienne ; personne d'autre). Le secteur suit le **nœud porté** par chaque membre de l'équipe, au fil des changements (nouveau nœud, changement d'équipe). Le lien **Voir les équipes ADRASEC 43** ouvre la page de la section sur l'onglet *👥 Équipes*. Équipe ou section supprimée : le secteur la perd et se désactive s'il ne suivait qu'elle, comme pour une équipe de la carte. Carte sans ADRASEC : rien ne change.
+- **Transfert de la section : la main courante, les recherches et les relevés partent aussi**, avec le nom de leurs auteurs. Importer deux fois le même fichier ne double rien, la durée de conservation de la carte d'arrivée est respectée, et le récapitulatif avant import annonce combien d'entrées, de recherches et de relevés seront repris. Une recherche en cours reste ouverte à l'arrivée, **sans lien terrain ni diffusion radio** (à recréer sur place). Toujours aucun compte, mot de passe, condensat ni jeton dans le fichier, pas même celui d'un lien terrain.
+
 ## 2.29.0
 
 ### 🗺️ Secteurs d'alerte (géorepérage)

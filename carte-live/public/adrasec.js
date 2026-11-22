@@ -18,7 +18,13 @@
   const memo = (k, v) => { try { if (v === undefined) return localStorage.getItem('adrasec-' + k); localStorage.setItem('adrasec-' + k, v); } catch { /* navigateur sans stockage */ } return null; };
 
   // ---- Accès -----------------------------------------------------------------------------------------------
-  groupe = memo('groupe') || null;
+  // Lien direct (ex. depuis un secteur d'alerte de la carte) : /adrasec?g=43&onglet=equipes. Le serveur ne montre
+  // de toute façon que les sections auxquelles le compte a accès (g ignoré sinon).
+  const params = new URLSearchParams(location.search);
+  const gDemande = String(params.get('g') || '').toUpperCase();
+  groupe = (/^(\d{2,3}|2A|2B)$/.test(gDemande) ? gDemande : null) || memo('groupe') || null;
+  if (groupe === gDemande) memo('groupe', groupe);
+  const ongletDemande = ['mc', 'gonio', 'equipes', 'winlink'].includes(params.get('onglet')) ? params.get('onglet') : null;
   const acces = await api('/api/adrasec/acces').catch(() => ({ acces: false }));
   $('#titre').textContent = `Section ${acces.nom || 'ADRASEC'}`;
   document.title = `Section ${acces.nom || 'ADRASEC'}`;
@@ -107,7 +113,7 @@
   const consigne = (t) => { const c = $('#consigne'); c.textContent = t; c.hidden = !t; };
 
   // ---- État ---------------------------------------------------------------------------------------------------
-  let E = null, rechercheChoisie = memo('recherche') || null, ongletActif = memo('onglet') || 'mc';
+  let E = null, rechercheChoisie = memo('recherche') || null, ongletActif = ongletDemande || memo('onglet') || 'mc';
   const equipe = (id) => (E && E.equipes.find((e) => e.id === id)) || null;
   const couleurEquipe = (id) => (equipe(id) || {}).couleur || '#e0115f'; // sans équipe : rouge vif, visible sur tous les fonds
   const nomEquipe = (id) => (equipe(id) || {}).nom || '';
@@ -583,6 +589,18 @@
     const champ = $('#tr-fichier'), zone = $('#tr-apercu');
     if (!champ || !zone) return;
     const ligne = (titre, l, classe = 'note') => (l.length ? `<p class="${classe}"><b>${esc(titre)} (${l.length})</b> : ${l.map((x) => esc(x.quoi) + (x.identifiant ? ' → ' + esc(x.identifiant) : '') + (x.equipe ? ' · ' + esc(x.equipe) : '') + (x.raison ? ' — ' + esc(x.raison) : '')).join(' · ')}</p>` : '');
+    // Historique du fichier (main courante, recherches, relevés) : absent d'un fichier d'une carte plus ancienne
+    const pl = (n, mot) => `<b>${n}</b> ${mot}${n > 1 ? 's' : ''}`;
+    const histo = (r) => {
+      const mc = r.mainCourante, rc = r.recherches, rl = r.releves;
+      if (!mc || !rc || !rl) return '';
+      const total = mc.nouvelles + mc.deja + mc.anciennes + mc.illisibles + rc.nouvelles + rc.deja + rc.anciennes + rc.illisibles + rl.nouveaux + rl.deja + rl.anciens + rl.illisibles;
+      if (!total) return '<p class="note">Le fichier ne contient ni main courante ni recherche.</p>';
+      const reste = (deja, anc, ill) => [deja ? `${deja} déjà ici` : '', anc ? `${anc} au-delà de la conservation de cette carte` : '', ill ? `${ill} illisible${ill > 1 ? 's' : ''}` : ''].filter(Boolean).join(', ');
+      const l = [[pl(mc.nouvelles, 'entrée') + ' de main courante', reste(mc.deja, mc.anciennes, mc.illisibles)], [pl(rc.nouvelles, 'recherche'), reste(rc.deja, rc.anciennes, rc.illisibles)], [pl(rl.nouveaux, 'relevé'), reste(rl.deja, rl.anciens, rl.illisibles)]];
+      return `<p class="note"><b>Historique</b> : ${l.map(([a, b]) => a + (b ? ` (ignorés : ${b})` : '')).join(' · ')}</p>${rc.enCours ? `<p class="note attention">${rc.enCours} recherche${rc.enCours > 1 ? 's' : ''} en cours sur la carte d’origine : elle${rc.enCours > 1 ? 's restent ouvertes' : ' reste ouverte'} ici, sans lien terrain ni diffusion radio.</p>` : ''}`;
+    };
+    const aFaire = (r) => r.rattaches.length + r.attentes.length + r.equipesCreees.length + (r.mainCourante ? r.mainCourante.nouvelles + r.recherches.nouvelles + r.releves.nouveaux : 0);
     const recap = (r) => `<div class="bandeau">
       <h3>Import depuis « ${esc(r.section)} »</h3>
       <p><b>${r.rattaches.length}</b> membre${r.rattaches.length > 1 ? 's' : ''} rattaché${r.rattaches.length > 1 ? 's' : ''} à un compte existant · <b>${r.attentes.length}</b> fiche${r.attentes.length > 1 ? 's' : ''} en attente d’un compte · <b>${r.equipesCreees.length}</b> équipe${r.equipesCreees.length > 1 ? 's' : ''} à créer · <b>${r.dejaMembres.length + r.ambigus.length + r.ignores.length}</b> ignoré${r.dejaMembres.length + r.ambigus.length + r.ignores.length > 1 ? 's' : ''}</p>
@@ -592,10 +610,11 @@
       ${ligne('Déjà membres ici', r.dejaMembres)}
       ${ligne('À rattacher à la main', r.ambigus, 'note attention')}
       ${ligne('Ignorés', r.ignores, 'note attention')}
+      ${histo(r)}
       ${r.presidents ? `<p class="note">${r.presidents} président(s) dans le fichier : le rôle n’est <b>pas</b> repris. Un administrateur de cette carte doit le donner.</p>` : ''}
       ${r.sansIdentifiant ? `<p class="note">${r.sansIdentifiant} membre(s) de la carte d’origine n’avaient ni indicatif ni n° SWL : rien ne permettait de les reconnaître, ils ne sont pas dans le fichier.</p>` : ''}
-      <p class="note">Rien n’est effacé : les membres déjà présents ici restent en place.</p>
-      <div class="ligne-champs"><button class="principal" id="tr-ok" ${r.rattaches.length + r.attentes.length + r.equipesCreees.length ? '' : 'disabled'}>✔ Appliquer l’import</button><button id="tr-non">Annuler</button><span class="erreur" id="tr-err"></span></div></div>`;
+      <p class="note">Rien n’est effacé : les membres, la main courante et les recherches déjà présents ici restent en place.</p>
+      <div class="ligne-champs"><button class="principal" id="tr-ok" ${aFaire(r) ? '' : 'disabled'}>✔ Appliquer l’import</button><button id="tr-non">Annuler</button><span class="erreur" id="tr-err"></span></div></div>`;
     champ.onchange = async () => {
       const f = champ.files && champ.files[0];
       champ.value = '';
@@ -612,7 +631,7 @@
       $('#tr-non').onclick = () => { zone.innerHTML = ''; };
       $('#tr-ok').onclick = async () => {
         $('#tr-ok').disabled = true;
-        try { const fait = await api('/api/adrasec/import', { method: 'POST', body: { fichier: doc, appliquer: true } }); zone.innerHTML = `<div class="bandeau">✔ Import terminé : ${fait.rattaches.length} membre(s) rattaché(s), ${fait.attentes.length} fiche(s) en attente, ${fait.equipesCreees.length} équipe(s) créée(s).</div>`; await charger(); montrer('gestion'); }
+        try { const fait = await api('/api/adrasec/import', { method: 'POST', body: { fichier: doc, appliquer: true } }); zone.innerHTML = `<div class="bandeau">✔ Import terminé : ${fait.rattaches.length} membre(s) rattaché(s), ${fait.attentes.length} fiche(s) en attente, ${fait.equipesCreees.length} équipe(s) créée(s)${fait.mainCourante ? `, ${fait.mainCourante.nouvelles} entrée(s) de main courante, ${fait.recherches.nouvelles} recherche(s), ${fait.releves.nouveaux} relevé(s)` : ''}.</div>`; await charger(); montrer('gestion'); }
         catch (e) { $('#tr-ok').disabled = false; $('#tr-err').textContent = e.message; }
       };
     };
@@ -650,8 +669,8 @@
       <div class="ligne-champs"><label>Nom affiché <input id="ge-nom" value="${esc(E.nom)}" placeholder="ADRASEC 43"></label><label>Conservation (jours) <input id="ge-cons" type="number" min="7" max="3650" value="${E.conservationJours}"></label><button id="ge-ok">Enregistrer</button></div>
       <p class="note">Main courante et relevés plus anciens que la durée choisie sont effacés (données personnelles : indicatifs, positions).</p>
       <h2>🔄 Transférer la section vers une autre carte</h2>
-      <p class="note">Pour installer ${esc(E.nom)} sur une autre carte (celle d’un collègue, un second serveur) : exportez un fichier ici, puis importez-le là-bas. Le fichier contient le <b>nom de la section, les équipes et la fiche de chaque membre</b> (indicatif, qualité, n° SWL, équipe, fonction, nœud porté). Il ne contient <b>aucun compte, aucun mot de passe</b> : sur la carte d’arrivée, chacun crée son compte lui-même avec le lien d’invitation, et sa fiche l’y attend.</p>
-      <p class="note">La <b>main courante</b> et les <b>recherches</b> ne partent pas : ce sont les archives horodatées et signées d’opérations réelles, qui restent sur la carte qui les a enregistrées (bouton « Exporter la main courante » pour les archiver en CSV). Le rôle de <b>président</b> ne part pas non plus : seul un administrateur de la carte d’arrivée peut le donner.</p>
+      <p class="note">Pour installer ${esc(E.nom)} sur une autre carte (celle d’un collègue, un second serveur) : exportez un fichier ici, puis importez-le là-bas. Le fichier contient le <b>nom de la section, les équipes et la fiche de chaque membre</b> (indicatif, qualité, n° SWL, équipe, fonction, nœud porté), ainsi que la <b>main courante</b> et les <b>recherches</b>. Il ne contient <b>aucun compte, aucun mot de passe</b> : sur la carte d’arrivée, chacun crée son compte lui-même avec le lien d’invitation, et sa fiche l’y attend.</p>
+      <p class="note">La <b>main courante</b>, les <b>recherches</b> et leurs <b>relevés</b> partent aussi, avec le nom de leurs auteurs. Un second import du même fichier ne les double pas ; ce qui dépasse la durée de conservation de la carte d’arrivée n’y entre pas. Une recherche en cours reste ouverte là-bas, mais <b>sans lien terrain ni diffusion radio</b> : à recréer sur place si besoin. Le rôle de <b>président</b> ne part pas : seul un administrateur de la carte d’arrivée peut le donner.</p>
       <div class="ligne-champs"><a class="bouton" id="tr-export" href="/api/adrasec/export.json" download>⬇ Exporter la section (fichier .json)</a>
         <label class="bouton">📥 Importer un fichier…<input type="file" id="tr-fichier" accept=".json,application/json" hidden></label></div>
       <div id="tr-apercu"></div>

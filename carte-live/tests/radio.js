@@ -2208,7 +2208,7 @@ test('ADRASEC : le fichier d’export ne contient aucun secret ni aucun identifi
   // Champs autorisés, et eux seuls
   const cles = new Set();
   (function parcourir(x) { if (Array.isArray(x)) x.forEach(parcourir); else if (x && typeof x === 'object') for (const [k, v] of Object.entries(x)) { cles.add(k); parcourir(v); } })(doc);
-  assert.deepEqual([...cles].sort(), ['code', 'couleur', 'date', 'equipe', 'equipes', 'fonction', 'format', 'id', 'indicatif', 'membres', 'membresSansIdentifiant', 'mission', 'noeud', 'nom', 'numeroSwl', 'president', 'qualite', 'section', 'version']);
+  assert.deepEqual([...cles].sort(), ['code', 'couleur', 'date', 'equipe', 'equipes', 'fonction', 'format', 'id', 'indicatif', 'mainCourante', 'membres', 'membresSansIdentifiant', 'mission', 'noeud', 'nom', 'numeroSwl', 'president', 'qualite', 'recherches', 'releves', 'section', 'version']);
   const brut = JSON.stringify(doc);
   for (const interdit of ['hash', 'motDePasse', 'password', 'condensat', 'totp', 'jeton', 'token', 'session', 'cookie', 'psk', 'secret'])
     assert.ok(!new RegExp(interdit, 'i').test(brut), `le mot « ${interdit} » ne doit pas apparaître dans l’export : ${brut.slice(0, 200)}`);
@@ -2275,11 +2275,171 @@ test('ADRASEC : import non destructeur, rattachement par l’indicatif, fiche en
   assert.equal(G.g.equipes.length, 2);
   assert.equal(G.g.attentes.length, 1, 'la fiche SWL reste la seule en attente');
 
-  // 5) Main courante : l'import est tracé, mais aucune main courante n'est venue du fichier
+  // 5) Main courante : l'import est tracé ; le fichier n'avait ni recherche ni relevé, rien n'en apparaît
   assert.ok(G.g.mainCourante.some((x) => /Import de la section/.test(x.texte)), 'l’import est inscrit à la main courante');
-  assert.ok(!G.g.recherches.length && !G.g.releves.length, 'ni recherche ni relevé ne sont importés');
+  assert.ok(!G.g.recherches.length && !G.g.releves.length, 'ni recherche ni relevé inventés');
   fs.rmSync(src.dossier, { recursive: true, force: true });
   fs.rmSync(cible.dossier, { recursive: true, force: true });
+});
+
+// Section de départ avec un historique : main courante, une recherche close (relevé retiré compris), une recherche
+// en cours avec lien terrain et diffusion radio, et une vieille recherche au-delà de la conservation d'arrivée
+function sectionAvecHistorique() {
+  const src = sectionDeDepart();
+  const G = src.G;
+  const chef = { id: 2, identifiant: 'olivier', role: 'membre' }; // F4GLD, équipe Gonio 1
+  G.ajouterMc(chef, { texte: 'Arrivée au PC de Saint-Vincent', type: 'mouvement' });
+  const close = G.majRecherche(null, { nom: 'Balise Mézenc', frequence: '121,5 MHz' }, chef);
+  const r1 = G.ajouterReleve(chef, { recherche: close.id, gisement: 125, incertitude: 5, lat: 45.05, lon: 3.98 });
+  G.ajouterReleve(chef, { recherche: close.id, gisement: 210, incertitude: 5, lat: 44.95, lon: 4.02 });
+  G.retirerReleve(chef, r1.id);
+  G.majRecherche(close.id, { cloturer: true, resultat: 'balise trouvée' }, chef);
+  const enCours = G.majRecherche(null, { nom: 'ELT Yssingeaux', frequence: '406 MHz' }, chef);
+  G.ajouterReleve(chef, { recherche: enCours.id, gisement: 40, incertitude: 3, lat: 45.14, lon: 4.12 });
+  const lien = G.creerLien(enCours.id, chef);
+  G.g.recherches.find((r) => r.id === enCours.id).diffusion = { idPoint: 123456, canal: 2, auto: true, dernier: { lat: 45.2, lon: 4.1, heure: Date.now() } };
+  // Vieille recherche close (2 ans) avec son relevé : au-delà de la conservation (1 an) de la carte d'arrivée
+  const vieux = Date.now() - 730 * 86400000;
+  G.g.recherches.push({ id: 'abcdef123456', nom: 'Archive', frequence: '243 MHz', debut: vieux, fin: vieux + 3600000, statut: 'terminee', ouvertePar: 'F4GLD' });
+  G.g.releves.push({ id: 'abcdef654321', recherche: 'abcdef123456', heure: vieux, auteur: 'F4GLD', equipe: null, lat: 45, lon: 4, source: 'carte', gisement: 10, incertitude: 5, origine: 'saisie' });
+  return { ...src, doc: G.exporter(), jeton: lien.jeton, close, enCours };
+}
+
+test('ADRASEC : main courante, recherches et relevés partent dans l’export, sans jeton ni secret', () => {
+  const src = sectionAvecHistorique();
+  const doc = src.doc, brut = JSON.stringify(doc);
+  assert.ok(doc.mainCourante.some((x) => x.texte === 'Arrivée au PC de Saint-Vincent' && x.auteur === 'F4GLD'), 'la main courante part, auteur en texte');
+  assert.equal(doc.recherches.length, 3);
+  assert.equal(doc.releves.length, 4);
+  assert.ok(!brut.includes(src.jeton), 'le jeton du lien terrain ne part jamais');
+  assert.ok(!doc.recherches.some((r) => 'lien' in r || 'diffusion' in r), 'ni lien terrain ni état de diffusion radio');
+  assert.ok(!brut.includes('123456,') && !/idPoint/.test(brut), 'pas d’identifiant de point Meshtastic');
+  for (const interdit of ['hash', 'motDePasse', 'password', 'condensat', 'totp', 'jeton', 'token', 'session', 'cookie', 'psk', 'secret'])
+    assert.ok(!new RegExp(interdit, 'i').test(brut), `le mot « ${interdit} » ne doit pas apparaître dans l’export`);
+  // Aucun numéro de compte : ni clé « compte », ni « par » de validation
+  assert.ok(!/"compte"|"valide"|"par":"olivier"/.test(brut), 'aucune trace de compte');
+  fs.rmSync(src.dossier, { recursive: true, force: true });
+});
+
+test('ADRASEC : import de l’historique (équipes remappées, conservation, recherche en cours sans balise) et second import sans doublon', () => {
+  const src = sectionAvecHistorique();
+  const cible = sectionArrivee();
+  const G = cible.G;
+  const eqLocale = G.g.equipes.find((e) => e.nom === 'gonio 1').id;
+  // 1) Aperçu : les nombres sont annoncés, rien n'est écrit
+  const vu = G.importer(src.doc, COMPTES_ARRIVEE, { appliquer: false }, 'sebastien');
+  assert.ok(vu.mainCourante.nouvelles >= 8, 'entrées de main courante annoncées : ' + JSON.stringify(vu.mainCourante));
+  assert.deepEqual([vu.recherches.nouvelles, vu.recherches.anciennes, vu.recherches.enCours], [2, 1, 1]);
+  assert.deepEqual([vu.releves.nouveaux, vu.releves.anciens], [3, 1], 'le relevé de la vieille recherche n’entre pas');
+  assert.equal(G.g.mainCourante.length + G.g.recherches.length + G.g.releves.length, 0, 'l’aperçu n’écrit rien');
+  // 2) Application
+  const fait = G.importer(src.doc, COMPTES_ARRIVEE, { appliquer: true }, 'sebastien');
+  assert.equal(fait.mainCourante.nouvelles, vu.mainCourante.nouvelles);
+  assert.equal(G.g.recherches.length, 2);
+  assert.ok(!G.g.recherches.some((r) => r.nom === 'Archive'), 'conservation de la carte d’arrivée respectée');
+  const rc = G.g.recherches.find((r) => r.id === src.enCours.id);
+  assert.equal(rc.statut, 'en-cours', 'la recherche en cours reste ouverte');
+  assert.ok(!rc.lien && !rc.diffusion, 'mais sans lien terrain ni diffusion radio');
+  assert.equal(G.vueTerrain(src.jeton), null, 'l’ancien lien terrain ne donne rien ici');
+  const close = G.g.recherches.find((r) => r.id === src.close.id);
+  assert.equal(close.statut, 'terminee');
+  assert.equal(close.resultat, 'balise trouvée');
+  assert.equal(G.g.releves.length, 3);
+  assert.ok(G.g.releves.every((x) => x.equipe === eqLocale), 'relevés rattachés à l’équipe locale de même nom');
+  assert.equal(G.g.releves.filter((x) => x.retire).length, 1, 'un relevé retiré reste retiré');
+  const mcArrivee = G.g.mainCourante.find((x) => x.texte === 'Arrivée au PC de Saint-Vincent');
+  assert.ok(mcArrivee && mcArrivee.auteur === 'F4GLD' && mcArrivee.equipe === eqLocale, 'auteur gardé en texte, équipe remappée');
+  assert.ok(G.g.mainCourante.every((x, i, l) => !i || l[i - 1].heure <= x.heure), 'main courante remise dans l’ordre des heures');
+  // Une équipe radio continue la recherche ouverte : son relevé est accepté
+  G.ajouterReleve({ id: 1, identifiant: 'sebastien', role: 'admin' }, { recherche: rc.id, gisement: 300, incertitude: 5, lat: 45.1, lon: 4.2 });
+  // 3) Second import du même fichier : rien en double
+  const nb = { mc: G.g.mainCourante.length, r: G.g.recherches.length, rel: G.g.releves.length };
+  const encore = G.importer(src.doc, COMPTES_ARRIVEE, { appliquer: true }, 'sebastien');
+  assert.deepEqual([encore.mainCourante.nouvelles, encore.recherches.nouvelles, encore.releves.nouveaux], [0, 0, 0]);
+  assert.equal(encore.recherches.deja, 2);
+  assert.equal(G.g.mainCourante.length, nb.mc + 1, 'seule la ligne « Import de la section » s’ajoute');
+  assert.equal(G.g.recherches.length, nb.r);
+  assert.equal(G.g.releves.length, nb.rel);
+  fs.rmSync(src.dossier, { recursive: true, force: true });
+  fs.rmSync(cible.dossier, { recursive: true, force: true });
+});
+
+test('ADRASEC : historique trafiqué dans le fichier lu sans plantage ni injection', () => {
+  const cible = sectionArrivee();
+  const G = cible.G;
+  const t = Date.now() - 3600000;
+  const doc = { format: 'carte-live-adrasec', version: 1, section: { code: '43', nom: 'X' }, equipes: [], membres: [],
+    mainCourante: [null, 'texte', { id: '../../etc', heure: t, texte: 'chemin' }, { id: 'aaaaaa111111', heure: 'demain', texte: 'x' }, { id: 'aaaaaa222222', heure: t, texte: '' },
+      { id: 'aaaaaa333333', heure: t, texte: 'ok', type: 'pirate', auteur: 'x'.repeat(500), lien: { jeton: 'f'.repeat(32) } }, { id: 'aaaaaa444444', heure: Date.now() + 10 * 86400000, texte: 'futur' }],
+    recherches: [{ id: 'bbbbbb111111', nom: 'R', debut: t, statut: 'en-cours', lien: { jeton: 'e'.repeat(32), expire: Date.now() + 1e7 }, diffusion: { idPoint: 9, auto: true } }],
+    releves: [{ id: 'cccccc111111', recherche: 'bbbbbb111111', heure: t, lat: 95, lon: 4, gisement: 10, incertitude: 5 }, { id: 'cccccc222222', recherche: 'inconnue000', heure: t, lat: 45, lon: 4, gisement: 10, incertitude: 5 },
+      { id: 'cccccc333333', recherche: 'bbbbbb111111', heure: t, lat: 45, lon: 4, gisement: 10, incertitude: 5, auteur: 'F4ZZZ' }] };
+  const r = G.importer(doc, [], { appliquer: true }, 'sebastien');
+  assert.equal(r.mainCourante.nouvelles, 1);
+  const x = G.g.mainCourante.find((y) => y.id === 'aaaaaa333333');
+  assert.equal(x.type, 'information', 'type inventé remis à « information »');
+  assert.equal(x.auteur.length, 40, 'auteur borné');
+  assert.ok(!('lien' in x), 'champ inconnu ignoré');
+  const rc = G.g.recherches.find((y) => y.id === 'bbbbbb111111');
+  assert.ok(rc && !rc.lien && !rc.diffusion, 'lien terrain et diffusion du fichier ignorés');
+  assert.equal(G.vueTerrain('e'.repeat(32)), null, 'un jeton glissé dans le fichier n’ouvre rien');
+  assert.deepEqual([r.releves.nouveaux, r.releves.illisibles], [1, 2]);
+  fs.rmSync(cible.dossier, { recursive: true, force: true });
+});
+
+// Secteur d'alerte rattaché à une équipe ADRASEC : nœuds portés par ses membres, suivis dynamiquement
+test('Secteurs : une équipe ADRASEC suivie par un secteur (nœuds portés, changement d’équipe, suppression)', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'secteurs-adrasec-'));
+  const config = { fichierBase: path.join(dossier, 'carte-live.db'), departement: { code: '43' } };
+  const { creerAdrasec } = require('../src/adrasec');
+  const { creerSecteurs } = require('../src/secteurs');
+  let S = null;
+  const A = creerAdrasec({ config, surEquipeSupprimee: (cle) => S.equipeSupprimee(cle) });
+  S = creerSecteurs({ config, intervalleMs: 0,
+    membresEquipe: (id) => (A.estCleEquipe(id) ? A.noeudsEquipe(id) : []), nomEquipe: (id) => (A.estCleEquipe(id) ? A.nomEquipe(id) : null) });
+  A.reglagesGlobaux({ actif: true });
+  A.majGroupe('43', { nom: 'ADRASEC 43' }, 'olivier');
+  A.majGroupe('07', { nom: 'ADRASEC 07' }, 'olivier');
+  const admin = { id: 1, identifiant: 'olivier', role: 'admin' };
+  const G = A.groupePour(admin, '43'), G7 = A.groupePour(admin, '07');
+  const eq = G.majEquipe(null, { nom: 'Gonio 1' }).equipes[0];
+  G7.majEquipe(null, { nom: 'Ardèche 1' });
+  G.majMembre(2, { membre: true, indicatif: 'F4GLD', qualite: 'radioamateur', equipe: eq.id, noeud: 0x5a1e0001 }, 'olivier', true);
+  G.majMembre(3, { membre: true, indicatif: 'F4ISE', qualite: 'radioamateur', equipe: eq.id }, 'olivier', true); // sans nœud
+  // Droits : l'administrateur de la carte voit les deux sections, un membre de la 43 seulement la sienne, un autre rien
+  assert.deepEqual(A.equipesPourSecteurs(admin).map((x) => x.code), ['07', '43']);
+  const membre43 = { id: 3, identifiant: 'nicolas', role: 'gestionnaire' };
+  assert.deepEqual(A.equipesPourSecteurs(membre43).map((x) => x.code), ['43']);
+  assert.deepEqual(A.equipesPourSecteurs({ id: 99, identifiant: 'x', role: 'gestionnaire' }), []);
+  const cle = A.equipesPourSecteurs(admin).find((x) => x.code === '43').equipes[0];
+  assert.equal(cle.id, `adrasec:43:${eq.id}`);
+  assert.deepEqual([cle.nbMembres, cle.nbNoeuds], [2, 1], 'un membre sans nœud ne compte pas comme nœud suivi');
+  assert.ok(A.peutVoirEquipe(membre43, cle.id) && !A.peutVoirEquipe({ id: 99, role: 'gestionnaire' }, cle.id));
+  const cle07 = A.equipesPourSecteurs(admin).find((x) => x.code === '07').equipes[0].id;
+  assert.ok(!A.peutVoirEquipe(membre43, cle07), 'pas l’équipe d’une autre ADRASEC');
+  // Création du secteur : nom affiché, nœud porté suivi
+  const s = S.creer({ nom: 'Mézenc', forme: 'cercle', centre: { lat: 44.92, lon: 4.19 }, rayon: 2000, equipe: cle.id }, 'olivier');
+  assert.equal(s.nomEquipe, 'Gonio 1 (ADRASEC 43)');
+  assert.deepEqual(s.membres.map((m) => m.cle), ['mt:' + 0x5a1e0001]);
+  assert.throws(() => S.creer({ nom: 'X', forme: 'cercle', centre: { lat: 44.9, lon: 4.1 }, rayon: 500, equipe: 'adrasec:43:000000000000' }, 'olivier'), /Équipe inconnue/);
+  // Dynamique : le membre sans nœud en reçoit un, l'autre change d'équipe
+  G.majMembre(3, { noeud: 0x5a1e0002 }, 'olivier', true);
+  G.majMembre(2, { equipe: null }, 'olivier', true);
+  assert.deepEqual(S.secteur(s.id).membres.map((m) => m.cle), ['mt:' + 0x5a1e0002], 'le secteur suit les membres du moment');
+  // Modifier le secteur sans toucher à l'équipe : accepté
+  S.modifier(s.id, { equipe: cle.id, marge: 50 }, 'olivier');
+  // Équipe supprimée : le secteur la perd et se désactive (il ne suivait qu'elle)
+  G.majEquipe(eq.id, { supprimer: true });
+  const apres = S.secteur(s.id);
+  assert.equal(apres.equipe, null);
+  assert.equal(apres.actif, false);
+  // Section supprimée : ses équipes aussi (secteur rattaché à l'équipe de la 07)
+  const s7 = S.creer({ nom: 'Ardèche', forme: 'cercle', centre: { lat: 44.9, lon: 4.3 }, rayon: 2000, equipe: cle07, noeuds: [0x5a1e0009] }, 'olivier');
+  A.majGroupe('07', { supprimer: true }, 'olivier');
+  const s7b = S.secteur(s7.id);
+  assert.deepEqual([s7b.equipe, s7b.actif], [null, true], 'équipe retirée, secteur gardé actif pour ses autres nœuds');
+  S.arreter();
+  fs.rmSync(dossier, { recursive: true, force: true });
 });
 
 test('ADRASEC : fichier malformé ou trafiqué refusé sans plantage et sans donner d’accès', () => {

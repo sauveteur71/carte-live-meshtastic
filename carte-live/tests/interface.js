@@ -749,18 +749,35 @@ async function essaiAdrasecTransfert(navig, cookie) {
   try { doc = JSON.parse(brut); } catch { /* illisible */ }
   const cles = new Set();
   if (doc) (function parcourir(x) { if (Array.isArray(x)) x.forEach(parcourir); else if (x && typeof x === 'object') for (const [k, v] of Object.entries(x)) { cles.add(k); parcourir(v); } })(doc);
-  const permis = ['code', 'couleur', 'date', 'equipe', 'equipes', 'fonction', 'format', 'id', 'indicatif', 'membres', 'membresSansIdentifiant', 'mission', 'noeud', 'nom', 'numeroSwl', 'president', 'qualite', 'section', 'version'];
+  // Définition de la section, puis historique (main courante, recherches, relevés) : liste fermée de champs
+  const permis = ['code', 'couleur', 'date', 'equipe', 'equipes', 'fonction', 'format', 'id', 'indicatif', 'membres', 'membresSansIdentifiant', 'mission', 'noeud', 'nom', 'numeroSwl', 'president', 'qualite', 'section', 'version',
+    'mainCourante', 'heure', 'auteur', 'type', 'texte', 'complete', 'recherches', 'frequence', 'detail', 'debut', 'fin', 'statut', 'ouvertePar', 'resultat', 'positionFinale', 'lat', 'lon', 'locator',
+    'releves', 'recherche', 'source', 'gisement', 'incertitude', 'force', 'note', 'origine', 'retire', 'par'];
   const enTrop = [...cles].filter((k) => !permis.includes(k));
   if (rep.status === 200 && /attachment; filename="adrasec-43-/.test(rep.headers.get('content-disposition') || '')) ok('ADRASEC : la section s’exporte en fichier .json téléchargeable'); else ko('export : HTTP ' + rep.status + ' ' + rep.headers.get('content-disposition'));
   if (doc && doc.format === 'carte-live-adrasec' && /ADRASEC 43/.test((doc.section || {}).nom || '') && (doc.membres || []).some((m) => m.indicatif === 'F4XYZ')) ok('export : nom de la section, équipes et fiches des membres'); else ko('export : ' + brut.slice(0, 200));
-  if (!enTrop.length) ok('export : aucun champ en dehors de la définition de la section'); else ko('export : champs inattendus : ' + enTrop.join(', '));
+  if (!enTrop.length) ok('export : aucun champ en dehors de la section et de son historique'); else ko('export : champs inattendus : ' + enTrop.join(', '));
+  // Mots interdits dans la définition (section, équipes, fiches) ; l'historique contient des textes libres
+  // (« session Winlink… ») : on y vérifie les champs (liste fermée ci-dessus) et l'absence du jeton du lien terrain
+  const definition = doc ? JSON.stringify({ section: doc.section, equipes: doc.equipes, membres: doc.membres }) : brut;
   let fuite = null;
-  for (const interdit of ['hash', 'motdepasse', 'password', 'totp', 'jeton', 'token', 'session', 'cookie', 'psk', 'secret', 'maincourante', 'recherches', 'releves', 'demandes']) if (new RegExp(interdit, 'i').test(brut)) { fuite = 'mot « ' + interdit + ' »'; break; }
-  // Aucun identifiant de compte de cette carte ne doit figurer dans le fichier
+  for (const interdit of ['hash', 'motdepasse', 'password', 'totp', 'jeton', 'token', 'session', 'cookie', 'psk', 'secret', 'demandes']) if (new RegExp(interdit, 'i').test(definition)) { fuite = 'mot « ' + interdit + ' »'; break; }
+  // Aucun identifiant de compte de cette carte ne doit figurer dans la définition
   const tousComptes = await (await fetch(BASE + '/api/comptes', { headers: H })).json().catch(() => []);
-  for (const c of Array.isArray(tousComptes) ? tousComptes : []) if (c.identifiant && brut.includes(c.identifiant)) { fuite = 'identifiant de compte « ' + c.identifiant + ' »'; break; }
-  if (!fuite) ok(`export : ni mot de passe, ni condensat, ni jeton, ni compte (${(tousComptes || []).length} comptes vérifiés), ni main courante, ni recherche`);
+  for (const c of Array.isArray(tousComptes) ? tousComptes : []) if (c.identifiant && definition.includes(c.identifiant)) { fuite = 'identifiant de compte « ' + c.identifiant + ' »'; break; }
+  // Le lien terrain de la recherche d'essai (créé plus haut) ne doit pas partir
+  const vueAvant = await appel('GET', '/api/adrasec?g=43');
+  const jetons = (vueAvant.j.recherches || []).map((r) => r.lien && r.lien.jeton).filter(Boolean);
+  if (jetons.some((j) => brut.includes(j))) fuite = 'jeton d’un lien terrain';
+  if (!fuite) ok(`export : ni mot de passe, ni condensat, ni jeton (${jetons.length} lien(s) terrain vérifié(s)), ni compte (${(tousComptes || []).length} comptes vérifiés)`);
   else ko('export : ' + fuite + ' dans le fichier');
+  if (doc && (doc.recherches || []).some((r) => r.nom === 'Balise essai') && (doc.releves || []).length >= 4 && (doc.mainCourante || []).some((x) => /Ouverture de la recherche/.test(x.texte))) ok('export : main courante, recherches et relevés partent aussi');
+  else ko('export sans historique : ' + JSON.stringify({ mc: (doc && doc.mainCourante || []).length, r: (doc && doc.recherches || []).length, rel: (doc && doc.releves || []).length }));
+  // Réimporter sur la même section le fichier qu'elle vient d'exporter : rien en double
+  const reimp = doc ? await appel('POST', '/api/adrasec/import?g=43', { fichier: doc, appliquer: false }) : { j: {} };
+  const rj = reimp.j;
+  if (rj.mainCourante && rj.mainCourante.nouvelles === 0 && rj.recherches.nouvelles === 0 && rj.releves.nouveaux === 0 && rj.mainCourante.deja === doc.mainCourante.length) ok(`aperçu d’import : la main courante (${rj.mainCourante.deja}), les recherches et les relevés déjà présents sont reconnus, rien en double`);
+  else ko('réimport du même fichier : ' + JSON.stringify(rj).slice(0, 300));
   // 2) Réservé au président et aux responsables de la section
   const cx = await fetch(BASE + '/api/connexion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifiant: 'multi-un', motDePasse: 'Multi-compte-2026' }) });
   const HM = { 'Content-Type': 'application/json', Cookie: (cx.headers.get('set-cookie') || '').split(';')[0] };
@@ -2330,8 +2347,11 @@ async function essaiSecteursEquipes(navig, cookie) {
       debordeX: document.documentElement.scrollWidth > innerWidth + 1 };
   });
 
-  // 1) Aucune équipe sur la carte (ordinateur et téléphone 390 px)
+  // 1) Aucune équipe sur la carte (ordinateur et téléphone 390 px) ; section ADRASEC désactivée le temps de
+  //    l'essai : une carte sans ADRASEC doit garder exactement le comportement d'avant
   await vider();
+  const adActif = (await appel('GET', '/api/adrasec/acces')).j.actif;
+  await appel('PUT', '/api/adrasec/reglages', { actif: false });
   for (const [nom, vue, mobile] of [['ordinateur', { width: 1400, height: 900 }, false], ['téléphone 390 px', { width: 390, height: 844 }, true]]) {
     const { ctx, page, erreurs } = await ouvrirSecteurs(vue, mobile);
     const m = await mesurer(page);
@@ -2364,6 +2384,50 @@ async function essaiSecteursEquipes(navig, cookie) {
   if (m2.options.some((o) => /EqLien/.test(o))) ok('l’équipe créée est proposée dans la liste'); else ko('options : ' + JSON.stringify(m2.options));
   bilanErreurs(erreurs, 'secteurs avec une équipe');
   await ctx.close();
+
+  // 3) Équipes ADRASEC : proposées à part (une rubrique par section), lien vers l'onglet Équipes de la section,
+  //    secteur rattaché à une équipe ADRASEC (nœud porté par un membre), puis équipe supprimée
+  await appel('PUT', '/api/adrasec/reglages', { actif: true });
+  const eqA = await appel('POST', '/api/adrasec/equipes?g=43', { nom: 'GonioSecteur' });
+  const idA = eqA.statut === 200 ? (eqA.j.equipes.find((e) => e.nom === 'GonioSecteur') || {}).id : null;
+  const moi = ((await appel('GET', '/api/adrasec?g=43')).j.moi) || {};
+  const comptesL = (await appel('GET', '/api/comptes')).j;
+  const compteMoi = (Array.isArray(comptesL) ? comptesL : []).find((c) => c.identifiant === moi.identifiant);
+  const ancienMoi = ((await appel('GET', '/api/adrasec?g=43')).j.membres || []).find((x) => compteMoi && x.compte === compteMoi.id) || {};
+  if (compteMoi) await appel('PUT', '/api/adrasec/membres/' + compteMoi.id + '?g=43', { membre: true, equipe: idA, noeud: 0x5a1e00a1 });
+  const c3 = await ouvrirSecteurs({ width: 1400, height: 900 }, false);
+  const m3 = await c3.page.evaluate(() => {
+    const z = document.querySelector('.nouveau-sa');
+    const groupes = [...z.querySelectorAll('[data-c="equipe"] optgroup')].map((g) => ({ label: g.label, options: [...g.querySelectorAll('option')].map((o) => ({ t: o.textContent, v: o.value })) }));
+    const l = z.querySelector('[data-vers-adrasec="43"]');
+    return { groupes, lien: l ? { texte: l.textContent.trim(), href: l.getAttribute('href'), cible: l.target } : null, note: (z.querySelector('small.note') || {}).textContent || '' };
+  });
+  const gA = m3.groupes.find((g) => /ADRASEC 43/.test(g.label));
+  const optA = gA && gA.options.find((o) => /GonioSecteur/.test(o.t));
+  if (gA && optA && optA.v === `adrasec:43:${idA}` && /1 nœud/.test(optA.t) && m3.groupes.some((g) => /Équipes de la carte/.test(g.label))) ok('secteurs : équipes ADRASEC proposées dans une rubrique « Équipes ADRASEC 43 », à côté de celles de la carte');
+  else ko('secteurs, équipes ADRASEC : ' + JSON.stringify(m3).slice(0, 400));
+  if (m3.lien && /onglet=equipes/.test(m3.lien.href) && /g=43/.test(m3.lien.href) && /Voir les équipes ADRASEC 43/.test(m3.lien.texte)) ok('secteurs : lien « Voir les équipes ADRASEC 43 » vers l’onglet Équipes de la section');
+  else ko('lien vers les équipes ADRASEC : ' + JSON.stringify(m3.lien));
+  await capture(c3.page, 'secteurs-equipes-adrasec');
+  bilanErreurs(c3.erreurs, 'secteurs avec équipes ADRASEC');
+  // Le lien ouvre bien la page ADRASEC sur l'onglet Équipes
+  const pA = await c3.ctx.newPage();
+  await pA.goto(BASE + m3.lien.href, { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await pA.waitForTimeout(2500);
+  const surEq = await pA.evaluate(() => { const v = document.querySelector('#vue-equipes'); return { actif: !!(v && v.classList.contains('actif')), equipe: !!(v && /GonioSecteur/.test(v.textContent)) }; });
+  if (surEq.actif && surEq.equipe) ok('le lien ouvre la page ADRASEC directement sur l’onglet Équipes'); else ko('page ADRASEC ouverte par le lien : ' + JSON.stringify(surEq));
+  await c3.ctx.close();
+  // Secteur rattaché à l'équipe ADRASEC : nom affiché et nœud porté suivi ; équipe d'une ADRASEC inexistante refusée
+  const sA = await appel('POST', '/api/secteurs', { nom: 'Secteur ADRASEC', forme: 'cercle', centre: { lat: 45.0, lon: 4.0 }, rayon: 1000, equipe: `adrasec:43:${idA}` });
+  const faux = await appel('POST', '/api/secteurs', { nom: 'Faux', forme: 'cercle', centre: { lat: 45.0, lon: 4.0 }, rayon: 1000, equipe: 'adrasec:99:aaaaaaaaaaaa' });
+  if (sA.statut === 200 && /GonioSecteur/.test(sA.j.nomEquipe || '') && /ADRASEC 43/.test(sA.j.nomEquipe || '') && sA.j.membres.some((x) => x.cle === 'mt:' + 0x5a1e00a1) && faux.statut === 400) ok('secteur rattaché à une équipe ADRASEC : nom affiché, nœud porté du membre suivi ; équipe inconnue refusée');
+  else ko('secteur ADRASEC : ' + JSON.stringify({ sA: sA.j, faux: faux.statut }).slice(0, 300));
+  if (idA) await appel('PATCH', '/api/adrasec/equipes/' + idA + '?g=43', { supprimer: true });
+  const apresSup = sA.j.id ? (await appel('GET', '/api/secteurs')).j.secteurs.find((x) => x.id === sA.j.id) : null;
+  if (apresSup && apresSup.equipe === null && apresSup.actif === false) ok('équipe ADRASEC supprimée : le secteur qui ne suivait qu’elle est désactivé, pas supprimé'); else ko('après suppression de l’équipe ADRASEC : ' + JSON.stringify(apresSup).slice(0, 200));
+  if (sA.j.id) await appel('DELETE', '/api/secteurs/' + sA.j.id);
+  if (compteMoi) await appel('PUT', '/api/adrasec/membres/' + compteMoi.id + '?g=43', { membre: true, equipe: ancienMoi.equipe || null, noeud: ancienMoi.noeud || null });
+  if (!adActif) await appel('PUT', '/api/adrasec/reglages', { actif: false });
   await appel('DELETE', '/api/equipes/' + eq.j.id, { retirerDesNoeuds: false });
 }
 

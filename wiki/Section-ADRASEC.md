@@ -40,10 +40,18 @@ Si la carte valide les nouveaux comptes (**inscriptions sur validation**), l'adm
 
 Pour installer la même section sur une autre carte (celle d'un collègue, un second serveur) sans tout ressaisir : **Gestion › 🔄 Transférer la section vers une autre carte** (président, responsable ou administrateur de la carte).
 
-1. **Sur la carte de départ** : **⬇ Exporter la section (fichier .json)**. Le fichier contient le **nom de la section**, les **équipes** (nom, couleur, mission) et, pour chaque membre, sa **fiche métier** : indicatif, qualité (radioamateur licencié / SWL), n° SWL, équipe, fonction et nœud porté sur le terrain.
+1. **Sur la carte de départ** : **⬇ Exporter la section (fichier .json)**. Le fichier contient le **nom de la section**, les **équipes** (nom, couleur, mission), pour chaque membre sa **fiche métier** (indicatif, qualité radioamateur licencié / SWL, n° SWL, équipe, fonction et nœud porté sur le terrain), puis la **main courante**, les **recherches** et les **relevés**.
 2. **Sur la carte d'arrivée** : **📥 Importer un fichier…**. Un **récapitulatif** s'affiche avant toute écriture : combien de membres rattachés à un compte existant, combien de fiches en attente, combien d'équipes créées, combien d'entrées ignorées et pourquoi. Rien n'est enregistré tant que vous n'avez pas cliqué **✔ Appliquer l'import**.
 
-**Ce que le fichier ne contient pas** : aucun compte, aucun mot de passe, aucun condensat, aucun jeton de session. Les comptes **ne se transfèrent pas** d'une carte à l'autre : ce serait une faille. La **main courante**, les **recherches** et les **relevés** ne partent pas non plus — ce sont les archives horodatées et signées d'opérations réelles, qui restent sur la carte qui les a enregistrées (bouton **⬇ Exporter la main courante (CSV)** pour les archiver).
+**L'historique part aussi** : la **main courante**, les **recherches** et leurs **relevés** de gisement (relevés retirés du calcul compris), avec le nom de leurs auteurs en texte (indicatif ou nom signé). À l'import :
+- les entrées sont rattachées aux équipes de la carte d'arrivée (même nom = même équipe) et remises dans l'ordre des heures ;
+- **importer deux fois le même fichier ne double rien** : chaque entrée garde son identifiant, et ce qui est déjà là est reconnu (le récapitulatif l'indique : « 12 déjà ici ») ;
+- ce qui dépasse la **durée de conservation** de la carte d'arrivée n'entre pas ;
+- une recherche **en cours** sur la carte d'origine reste **ouverte** sur la carte d'arrivée (les équipes peuvent continuer à y envoyer leurs relevés), mais **sans lien terrain ni diffusion radio** : rien n'émet tant qu'un membre de la carte d'arrivée ne l'a pas décidé. Recréez le lien terrain et relancez la diffusion sur place si besoin, et clôturez la recherche sur l'une des deux cartes pour éviter les doubles saisies.
+
+Le récapitulatif avant import annonce le nombre d'entrées de main courante, de recherches et de relevés repris, et ce qui est ignoré (déjà là, trop ancien, illisible).
+
+**Ce que le fichier ne contient pas** : aucun compte, aucun mot de passe, aucun condensat, aucun jeton de session, ni le **jeton d'un lien terrain** (il donne accès sans compte) ni l'état de la diffusion radio (point Meshtastic, canal). Les comptes **ne se transfèrent pas** d'une carte à l'autre : ce serait une faille. Une carte d'une version plus ancienne lit le fichier et ignore simplement l'historique.
 
 **Comment les personnes sont rattachées** : par leur **indicatif**, et par lui seul.
 
