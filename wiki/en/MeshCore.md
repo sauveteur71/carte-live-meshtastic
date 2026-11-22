@@ -74,6 +74,14 @@ Sheet of a repeater, room or sensor, **Sensors** tab:
 
 Readings made by hand from the administration also feed the curves. History is kept 90 days.
 
+### If a reading stops going out
+Automatic reading must recover on its own:
+- **node that does not answer**: the map tries again twice, a quarter of an hour apart, then waits for the next interval. An unreachable node no longer deprives the others of their reading;
+- **operation that drags on**: a MeshCore task now has a maximum duration, per node (4 min for a reading, 1 h for the full read of a slow repeater's settings) and in total. Beyond that it is abandoned, with the reason in its steps, so the next tasks start again;
+- **“late readings” alert**: when nothing arrives for three intervals (at least 2 h), a MeshCore alert says so, with the date of the last reading and the possible causes (companion, password or range). A node that has disappeared from the map (purged) is reported separately and resumed if it comes back.
+
+The number shown under each measurement (“36 readings”) is the one of the **displayed period** (1, 7, 30 or 90 days), not the total: changing the period changes that number, no reading is lost.
+
 ## Public observatories (CoreScope)
 MeshCore has no worldwide public MQTT server, but several communities openly publish what their observers hear, using the free [CoreScope](https://github.com/Kpa-clawbot/corescope) software. The map reads their read-only API, with no account or key:
 - **France**: `https://meshstats.serveurperso.in` · **Texas**: `https://analyzer.meshtexas.org` · **Belgium, Netherlands**: `https://analyzer.on8ar.eu`.

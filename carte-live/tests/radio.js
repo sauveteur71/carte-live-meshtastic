@@ -1837,3 +1837,82 @@ test('Calcul partagé par clé : demandes simultanées servies par une seule ex�
   await assert.rejects(c.partager('c', () => Promise.reject(new Error('relief absent'))), /relief absent/);
   assert.equal(c.nombre(), 0);
 });
+
+// ---------- Relevé automatique des capteurs MeshCore : il doit repartir tout seul et se signaler ----------
+// Banc : vrai module de relevé + vraie file de tâches d'administration, avec un faux companion et une horloge
+// simulée (on avance de plusieurs heures en quelques millisecondes).
+function bancCapteursMc(t, { intervalleMin = 180, nb = 3 } = {}) {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'setImmediate', 'Date'], now: Date.parse('2026-11-21T20:00:00Z') });
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-capteurs-'));
+  const { creerStockage } = require('../src/base');
+  const { creerAdministrationMc } = require('../src/meshcore/administration');
+  const { creerCapteursMc } = require('../src/meshcore/capteurs');
+  const st = creerStockage(path.join(dossier, 'x.db'));
+  const config = { fichierBase: path.join(dossier, 'x.db'), meshcore: { supervisionHeures: 0, supervisionMax: 8 } };
+  const CLES = ['A', 'B', 'C', 'D'].slice(0, nb).map((c) => c.repeat(64));
+  const noeuds = new Map(CLES.map((c, i) => [c, { cle: c, nom: 'Capteur ' + i, role: 'capteur', lat: 45, lon: 4, horodatage_annonce: 0 }]));
+  const reseauMc = { q: { noeud: { get: (c) => noeuds.get(String(c).toUpperCase()) } }, noterEtat: () => {}, resoudreChemin: () => [], surveilles: () => [] };
+  const cas = { muets: new Set(), echecs: new Map(), pret: true }; // muets : ne répondent jamais ; echecs : n échecs puis ça marche
+  const lectures = [];
+  const companion = {
+    etat: () => ({ pret: cas.pret, cle: 'FF'.repeat(32), nom: 'companion', connecte: cas.pret }),
+    contacts: () => [],
+    async telemetrie(n) {
+      if (cas.muets.has(n.cle)) return new Promise(() => {}); // aucune réponse, jamais
+      const reste = cas.echecs.get(n.cle) || 0;
+      if (reste > 0) { cas.echecs.set(n.cle, reste - 1); throw new Error('pas de réponse dans le délai (40 s)'); }
+      lectures.push({ cle: n.cle, heure: Date.now() });
+      return [{ type: 'tension', canal: 1, valeur: 4.09, unite: 'V' }];
+    },
+    async connexion() { return { admin: true }; },
+    async cli() { return 'ok'; },
+  };
+  const journal = [];
+  const adminMc = creerAdministrationMc(config, companion, reseauMc, (...a) => journal.push(a.join(' ')));
+  const capteurs = creerCapteursMc({ db: st.db, config, adminMc, companion, journal: (...a) => journal.push(a.join(' ')) });
+  adminMc.ecouterTelemetrie((cle, m) => capteurs.noter(cle, m));
+  for (const c of CLES) capteurs.regler(c, { intervalleMin, nom: noeuds.get(c).nom });
+  const avancer = async (ms) => { for (let k = 0; k < ms; k += 60000) { t.mock.timers.tick(60000); for (let j = 0; j < 40; j++) await Promise.resolve(); } };
+  const releves = (cle) => lectures.filter((l) => l.cle === cle).length;
+  t.after(() => { capteurs.arreter(); fs.rmSync(dossier, { recursive: true, force: true }); });
+  return { capteurs, adminMc, CLES, cas, journal, avancer, releves, lectures };
+}
+
+test('MeshCore capteurs : un nœud qui ne répond jamais ne prive plus les autres de relevé, et son retard est signalé', async (t) => {
+  const b = bancCapteursMc(t);
+  b.cas.muets.add(b.CLES[0]); // sa télémétrie ne rend jamais la main : avant, la tâche ne finissait pas
+  await b.avancer(14 * 3600000);
+  assert.ok(b.releves(b.CLES[1]) >= 4, `nœud sain relevé toutes les 3 h : ${b.releves(b.CLES[1])} relevé(s) en 14 h`);
+  assert.ok(b.releves(b.CLES[2]) >= 4, `nœud sain relevé toutes les 3 h : ${b.releves(b.CLES[2])} relevé(s) en 14 h`);
+  assert.equal(b.releves(b.CLES[0]), 0, 'le nœud muet ne donne rien, c’est normal');
+  // Aucune tâche ne reste « en cours » pour toujours : sinon les relevés s’arrêtent en silence
+  assert.ok(b.adminMc.taches().every((x) => x.fin), 'toutes les tâches sont terminées (heure de fin posée)');
+  const retard = b.capteurs.alertes().filter((a) => a.type === 'releve');
+  assert.equal(retard.length, 1, 'une alerte « relevés en retard », pour le nœud muet seulement');
+  assert.match(retard[0].message, /aucun relevé automatique reçu/);
+  // Un relevé lancé à la main passe toujours (la file n’est pas bloquée)
+  b.adminMc.lancer('telemetrie', [b.CLES[1]], {}, 'olivier');
+  const avant = b.releves(b.CLES[1]);
+  await b.avancer(5 * 60000);
+  assert.equal(b.releves(b.CLES[1]), avant + 1, 'relevé manuel exécuté');
+});
+
+test('MeshCore capteurs : une demande sans réponse est relancée dans le quart d’heure, pas à l’intervalle suivant', async (t) => {
+  const b = bancCapteursMc(t, { intervalleMin: 180, nb: 1 });
+  b.cas.echecs.set(b.CLES[0], 1); // le premier essai échoue, le suivant passe
+  await b.avancer(40 * 60000);
+  assert.equal(b.releves(b.CLES[0]), 1, 'relevé obtenu dans les 40 min, sans attendre les 3 h');
+});
+
+test('MeshCore capteurs : une tâche arrêtée pendant qu’elle attend est marquée terminée (sinon ses nœuds ne sont plus relevés)', async (t) => {
+  const b = bancCapteursMc(t, { nb: 2 });
+  b.cas.muets.add(b.CLES[0]);
+  await b.avancer(60000);
+  const enAttente = b.adminMc.lancer('telemetrie', [b.CLES[1]], {}, 'olivier');
+  assert.equal(enAttente.statut, 'en_attente');
+  b.adminMc.arreter(enAttente.id);
+  assert.ok(b.adminMc.tache(enAttente.id).fin, 'heure de fin posée dès l’arrêt');
+  b.cas.muets.clear();
+  await b.avancer(8 * 3600000);
+  assert.ok(b.releves(b.CLES[1]) >= 2, `le nœud de la tâche arrêtée est relevé de nouveau : ${b.releves(b.CLES[1])}`);
+});

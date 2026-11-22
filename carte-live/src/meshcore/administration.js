@@ -205,6 +205,8 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
           aReprendre.push(t);
         }
       }
+      // Tâche déjà terminée mais sans `fin` (arrêtée par une version précédente) : ses nœuds resteraient « en cours »
+      if (!t.fin && !['en_attente', 'en_cours', 'reprise'].includes(t.statut)) t.fin = t.debut || t.creee || Date.now();
       taches.set(t.id, t);
     }
     if (!aReprendre.length) return;
@@ -369,6 +371,23 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     etape(t, n.cle, `régions :\n${arbre || '(aucune)'}\nattache : ${home} · envois : ${defaut}`);
   }
 
+  // Plafond par nœud. Une opération qui ne rend jamais la main (attente d'une réponse du companion qui n'arrive
+  // jamais et dont la minuterie a été perdue) empêchait les nœuds suivants de la tâche d'être traités, et la tâche
+  // de se terminer : plus aucun relevé automatique ensuite. Les relevés rapides ont un plafond court ; la lecture
+  // complète des réglages d'un répéteur lent est légitimement longue (25 commandes à deux essais de 40 s), d'où 1 h.
+  const PLAFONDS_NOEUD = { telemetrie: 4, statut: 4, chemin: 4, tracer: 5, annonce: 4, horloge: 4, redemarrer: 4 };
+  const plafondNoeudMs = (t) => (PLAFONDS_NOEUD[t.type] || 60) * 60000;
+  async function avecPlafond(t, n, travail) {
+    travail.catch(() => {}); // opération abandonnée : pas de rejet non traité si elle échoue plus tard
+    let limite = null;
+    try {
+      return await Promise.race([travail, new Promise((_, ko) => {
+        limite = setTimeout(() => ko(new Error('pas de réponse dans le délai : nœud passé')), plafondNoeudMs(t));
+        if (limite.unref) limite.unref();
+      })]);
+    } finally { clearTimeout(limite); }
+  }
+
   async function executer(t) {
     const elements = Array.isArray(t.params.elements) && t.params.elements.length ? t.params.elements.filter((e) => ELEMENTS.includes(e)) : ELEMENTS_DEFAUT;
     for (const cle of t.cles) {
@@ -377,6 +396,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
       const n = noeud(cle);
       t.courant = cle;
       try {
+        await avecPlafond(t, n, (async () => {
         // L'état et la découverte de chemin ne demandent pas de connexion admin
         const releve = ['statut', 'telemetrie'].includes(t.type);
         const sessionOuverte = releve && !t.motDePasse && sessions[n.cle] && Date.now() - sessions[n.cle] < SESSION_MS;
@@ -482,6 +502,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
           default: break;
         }
         t.resultats[n.cle] = { ...(t.resultats[n.cle] || {}), ok: true, heure: Date.now() };
+        })());
       } catch (e) {
         // Le nom et le début de la clé dans le message : on sait tout de suite quel répéteur ne répond pas
         const qui = `${n.nom || 'nœud'} [${n.cle.slice(0, 4).toUpperCase()}]`;
@@ -509,14 +530,29 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     };
   }
 
+  // Durée maximale d'une tâche entière : le plafond par nœud multiplié par le nombre de nœuds, plus 10 min, 6 h au plus.
+  // Dernier filet de sécurité : la radio est partagée, une seule tâche à la fois, et une tâche qui ne se terminait
+  // jamais arrêtait toutes les suivantes — supervision, relevé des capteurs — jusqu'au redémarrage, sans rien signaler.
+  const plafondMs = (t) => Math.min(6 * 3600000, (t.cles || []).length * plafondNoeudMs(t) + 10 * 60000);
+
   async function suivante() {
     if (enCours || !file.length) return;
     const t = file.shift();
-    if (t.arret) { t.statut = 'annule'; return suivante(); }
+    // Une tâche arrêtée doit elle aussi être marquée terminée : sans `fin`, ses nœuds restaient « en cours »
+    // pour toujours et n'étaient plus jamais relevés automatiquement.
+    if (t.arret) { t.statut = 'annule'; t.fin = Date.now(); sauverTaches(); return suivante(); }
     enCours = t;
     t.statut = 'en_cours'; t.debut = Date.now();
     journal(`tâche MeshCore ${t.type} sur ${t.cles.length} nœud(s) (${t.auteur})`);
-    try { await executer(t); } catch (e) { etape(t, null, e.message, false); }
+    let limite = null;
+    try {
+      const travail = executer(t);
+      travail.catch(() => {}); // tâche abandonnée : pas de rejet non traité si elle échoue plus tard
+      await Promise.race([travail, new Promise((_, ko) => {
+        limite = setTimeout(() => { t.arret = true; ko(new Error('délai dépassé : tâche abandonnée pour ne pas bloquer les suivantes')); }, plafondMs(t));
+        if (limite.unref) limite.unref();
+      })]);
+    } catch (e) { etape(t, null, e.message, false); } finally { clearTimeout(limite); }
     t.fin = Date.now();
     t.courant = null;
     const res = Object.values(t.resultats);
@@ -645,7 +681,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
     existe: (cle) => !!reseauMc.q.noeud.get(String(cle).toUpperCase()),
     tache: (id) => { const t = taches.get(id); return t ? vue(t) : null; },
     taches: () => [...taches.values()].reverse().slice(0, 30).map((t) => vue(t, false)),
-    arreter(id) { const t = taches.get(id); if (!t) throw new Error('tâche inconnue'); t.arret = true; if (t.statut === 'en_attente' || t.statut === 'reprise') { t.statut = 'annule'; t.prochainEssai = null; t.motDePasse = null; t.secrets = {}; sauverTaches(); } },
+    arreter(id) { const t = taches.get(id); if (!t) throw new Error('tâche inconnue'); t.arret = true; if (t.statut === 'en_attente' || t.statut === 'reprise') { t.statut = 'annule'; t.fin = Date.now(); t.prochainEssai = null; t.motDePasse = null; t.secrets = {}; sauverTaches(); } },
     lecture: (cle) => lectures[String(cle).toUpperCase()] || null,
     memorises: () => Object.keys(motsDePasse),
     lectures: () => Object.fromEntries(Object.entries(lectures).map(([k, v]) => [k, { heure: v.heure, nom: (v.valeurs || {}).name }])),

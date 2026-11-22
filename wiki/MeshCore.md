@@ -74,6 +74,14 @@ Fiche d'un répéteur, salon ou capteur, onglet **Capteurs** :
 
 Les relevés faits à la main depuis l'administration alimentent aussi les courbes. L'historique est gardé 90 jours.
 
+### Si un relevé ne part plus
+Le relevé automatique doit se rétablir tout seul :
+- **nœud qui ne répond pas** : la carte réessaie deux fois, à un quart d'heure d'intervalle, puis attend l'intervalle suivant. Un nœud injoignable ne prive plus les autres de relevé ;
+- **opération qui traîne** : une tâche MeshCore a maintenant une durée maximale, par nœud (4 min pour un relevé, 1 h pour la lecture complète des réglages d'un répéteur lent) et au total. Au-delà, elle est abandonnée, avec la raison dans ses étapes, pour que les tâches suivantes repartent ;
+- **alerte « relevés en retard »** : quand rien n'arrive pendant trois intervalles (2 h au moins), une alerte MeshCore le dit, avec la date du dernier relevé et les causes possibles (companion, mot de passe, portée). Un nœud disparu de la carte (purgé) est signalé à part et repris s'il réapparaît.
+
+Le nombre indiqué sous chaque mesure (« 36 relevés ») est celui de la **période affichée** (1, 7, 30 ou 90 jours), pas le total : changer de période change ce nombre, aucun relevé n'est perdu.
+
 ## Observatoires publics (CoreScope)
 MeshCore n'a pas de serveur MQTT public mondial, mais plusieurs communautés publient en libre accès ce que captent leurs observateurs, avec le logiciel libre [CoreScope](https://github.com/Kpa-clawbot/corescope). La carte lit leur API en lecture seule, sans compte ni clé :
 - **France** : `https://meshstats.serveurperso.in` · **Texas** : `https://analyzer.meshtexas.org` · **Belgique, Pays-Bas** : `https://analyzer.on8ar.eu`.

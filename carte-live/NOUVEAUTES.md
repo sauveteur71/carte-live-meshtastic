@@ -2,6 +2,15 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.29.1
+
+### 🌡️ Relevé des capteurs MeshCore : il repart tout seul
+- **Un nœud qui ne répond pas ne bloque plus les autres** : chaque nœud d'une tâche MeshCore a maintenant une durée maximale (4 min pour un relevé ou un état, 1 h pour la lecture complète des réglages d'un répéteur lent), et chaque tâche aussi. Une opération qui ne rendait jamais la main arrêtait **tous** les relevés automatiques suivants, sans rien signaler, jusqu'au redémarrage de la carte.
+- **Relance rapide** : une demande de relevé restée sans réponse est retentée deux fois, à un quart d'heure d'intervalle, au lieu d'attendre l'intervalle complet (une seule tentative perdue coûtait 3 h de trou pour un relevé toutes les 3 h).
+- **Plus de blocage définitif** : une tâche arrêtée depuis l'interface pendant qu'elle attendait son tour n'était jamais marquée terminée ; ses nœuds n'étaient alors plus jamais relevés automatiquement, même après un redémarrage (le fichier des tâches est réparé au démarrage). Le relevé des capteurs repart de lui-même si une tâche traîne plus d'une heure.
+- **Alerte « relevés en retard »** : elle fonctionne aussi pour un nœud réglé avant l'arrivée de ce suivi et jamais relevé depuis.
+- Rappel affiché dans l'onglet *Capteurs* : le nombre de relevés indiqué sous une mesure est celui de la **période affichée** (1, 7, 30 ou 90 jours), pas un total.
+
 ## 2.29.0
 
 ### 🗺️ Secteurs d'alerte (géorepérage)

@@ -1588,7 +1588,8 @@ async function mcRendreCapteurs(n, z, jours = 7) {
     <div class="actions-prop">${[1, 7, 30, 90].map((j) => `<button class="mini ${j === jours ? 'actif' : ''}" data-cj="${j}">${j} j</button>`).join('')}${r.series.length ? `<a class="mini bouton-lien" href="/api/mc/capteurs/${n.cle}/csv?jours=${jours}" download>⬇ CSV (${jours} j)</a>` : ''}</div>
     ${r.peutRegler ? `<div class="reglage-capteurs"><label>Relever toutes les <select id="cap-int">${r.intervalles.map((m) => `<option value="${m}" ${m === r.intervalleMin ? 'selected' : ''}>${lib(m)}</option>`).join('')}</select></label>
       <button class="mini principal" id="cap-maintenant">Relever maintenant</button></div>
-      <p class="note">Le relevé passe par le companion de la carte (tâche « télémétrie »). Le nœud doit autoriser la télémétrie : mot de passe invité ou admin mémorisé, ou télémétrie ouverte. Chaque relevé envoie un paquet : 1 h ou plus suffit pour un abri ou une batterie.</p>` : ''}
+      <p class="note">Le relevé passe par le companion de la carte (tâche « télémétrie »). Le nœud doit autoriser la télémétrie : mot de passe invité ou admin mémorisé, ou télémétrie ouverte. Chaque relevé envoie un paquet : 1 h ou plus suffit pour un abri ou une batterie.</p>
+      <p class="note">Si le nœud ne répond pas, la carte réessaie deux fois, à un quart d’heure d’intervalle, puis attend l’intervalle suivant.</p>` : ''}
     ${r.dernier ? `<p class="note">Dernier relevé ${ilYa(r.dernier)}.</p>` : ''}
     ${r.series.length ? r.series.filter((sr) => !(r.masquees || []).includes(sr.mesure)).map((sr) => {
       const pts = sr.points.map(([h, v]) => ({ heure: h, v }));
