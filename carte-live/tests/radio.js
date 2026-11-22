@@ -2328,6 +2328,31 @@ test('ADRASEC : fichier malformé ou trafiqué refusé sans plantage et sans don
   fs.rmSync(cible.dossier, { recursive: true, force: true });
 });
 
+test('Sauvegardes : les secrets saisis dans la console ne partent jamais dans une sauvegarde', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'sauve-secrets-'));
+  const { creerStockage } = require('../src/base');
+  const { creerSauvegardes, FICHIERS } = require('../src/sauvegardes');
+  const st = creerStockage(path.join(dossier, 'carte-live.db'));
+  // Une sauvegarde est faite pour être copiée ailleurs (clé USB, pièce jointe) : elle ne doit emporter
+  // ni le mot de passe PostgreSQL ni les identifiants HelloAsso / GitHub saisis dans la console.
+  const SECRETS = {
+    'postgres.json': 'MotDePassePostgres-NePasSauvegarder',
+    'donateurs.json': 'SecretHelloAsso-NePasSauvegarder',
+  };
+  for (const [f, secret] of Object.entries(SECRETS)) fs.writeFileSync(path.join(dossier, f), JSON.stringify({ motDePasse: secret, clientSecret: secret }));
+  for (const f of FICHIERS) { const c = path.join(dossier, f); fs.mkdirSync(path.dirname(c), { recursive: true }); if (!fs.existsSync(c)) fs.writeFileSync(c, `contenu de ${f}`); }
+  const s = creerSauvegardes(dossier, st.db, () => {});
+  const brut = s.lire(s.sauvegarder().nom).toString('utf8');
+  for (const [f, secret] of Object.entries(SECRETS)) {
+    assert.ok(!FICHIERS.includes(f), `${f} ne doit pas figurer dans la liste des fichiers sauvegardés`);
+    assert.ok(!brut.includes(secret), `le secret de ${f} ne doit apparaître nulle part dans la sauvegarde`);
+  }
+  // Le fichier reste bien sur le disque : on ne sauvegarde pas, on ne supprime pas
+  for (const f of Object.keys(SECRETS)) assert.ok(fs.existsSync(path.join(dossier, f)), `${f} doit rester sur le serveur`);
+  st.db.close();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
 test('Sauvegardes : chaque fichier de réglages listé est bien repris, puis remis à l’identique', () => {
   const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'sauve-liste-'));
   const { creerStockage } = require('../src/base');

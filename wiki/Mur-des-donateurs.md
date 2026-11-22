@@ -17,5 +17,8 @@ Les liens **« Faire un don »** et **« GitHub Sponsors »** du bandeau viennen
 
 ## Secrets et fichiers
 - Dans le `.env` : `HELLOASSO_ACTIF`, `HELLOASSO_CLIENT_ID`, `HELLOASSO_CLIENT_SECRET`, `HELLOASSO_ORGANISATION`, `HELLOASSO_FORMULAIRE`, `HELLOASSO_TYPE` (type du formulaire : `Donation` par défaut ; `CrowdFunding`, `Membership`, `Event`, `PaymentForm`, `Checkout`, `Shop`), `GITHUB_SPONSORS_ACTIF`, `GITHUB_SPONSORS_JETON`, `GITHUB_SPONSORS_COMPTE`, `DONATEURS_INTERVALLE_HEURES`.
-- Depuis la page : seul ce qui est **saisi dans la page** est enregistré dans `/data/donateurs.json` (droits 600, repris dans les sauvegardes). Un secret du `.env` n'y est jamais recopié. Un secret saisi prime sur le `.env` jusqu'au bouton **Effacer**, qui lui rend la main. Un champ laissé vide ne change rien.
+- Depuis la page : seul ce qui est **saisi dans la page** est enregistré dans `/data/donateurs.json` (droits 600, **volontairement absent des sauvegardes** :
+  une sauvegarde est faite pour être copiée ailleurs, elle n'emporte pas vos identifiants. Après une restauration, ressaisissez-les ici, ou
+  mettez-les dans le `.env` du serveur — qui, lui, ne quitte jamais la machine — pour qu'ils reviennent seuls. Les dons déjà affichés sont
+  relus chez HelloAsso et GitHub : rien n'est perdu). Un secret du `.env` n'y est jamais recopié. Un secret saisi prime sur le `.env` jusqu'au bouton **Effacer**, qui lui rend la main. Un champ laissé vide ne change rien.
 - Le journal d'audit note l'ajout d'un don sans le nom du donateur.

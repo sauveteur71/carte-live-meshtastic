@@ -13,10 +13,9 @@ const FICHIERS = [
   'configs-noeuds.json', 'lectures-noeuds.json', 'noeuds-administrables.json',
   'meshcore-admin.json', 'meshcore-companion.json', 'meshcore-lectures.json', 'code-agents.txt',
   'federation.json', 'releves/releves.json', 'modules-cles.json', 'passerelle.json', 'equipes.json', 'signalements.json', 'meshcore-capteurs.json', 'maj-auto.json',
-  'donateurs.json', // mur des donateurs : liste saisie à la main et réglages (secrets saisis compris, comme equipes.json : sauvegarde en 600, admin seulement)
   // Section ADRASEC : membres, équipes, main courante et recherches de balise d'une ou plusieurs ADRASEC
   // départementales. Données personnelles (noms, indicatifs, fonctions, opérations réelles) : même soin que
-  // equipes.json et donateurs.json (fichier en 600, sauvegarde en 600, téléchargement réservé aux administrateurs).
+  // equipes.json (fichier en 600, sauvegarde en 600, téléchargement réservé aux administrateurs).
   'adrasec.json',
   'secteurs.json', 'urgence.json', // secteurs d'alerte (géorepérage) et journal des crises : saisis à la main, personnels
   'jeux-canaux.json', // canaux demandés aux membres (clés chiffrées avec la clé maîtresse, comme equipes.json)
@@ -27,9 +26,14 @@ const FICHIERS = [
   'modules-ecoute.json', 'relais-ip.json', // modules en écoute et relais IP déclarés
   'fonctions-masquees.json', 'suivis.json', // fonctions masquées, favoris et « mes nœuds » de chaque compte
   'alertes-bipper.json', // alertes Bipper / GerMaCrise envoyées (numérotation et historique)
-  'postgres.json', // réglages de l'archive PostgreSQL (mot de passe saisi compris, fichier déjà en 600)
 ];
-// Volontairement absents : cle-equipes.bin (clé maîtresse : la mettre à côté des clés chiffrées reviendrait à
+// Volontairement absents : postgres.json et donateurs.json (mot de passe PostgreSQL, identifiants HelloAsso
+// et GitHub saisis dans la console : une sauvegarde est faite pour être copiée ailleurs — clé USB, pièce
+// jointe, stockage en ligne — et emporterait ces secrets en clair. Ils se remettent en deux minutes dans la
+// console d'administration après une restauration, ou reviennent seuls s'ils sont dans le .env du serveur,
+// qui lui ne quitte jamais la machine. Aucune donnée n'est perdue : l'archive PostgreSQL reste dans
+// PostgreSQL, les dons déjà affichés sont relus chez HelloAsso et GitHub),
+// cle-equipes.bin (clé maîtresse : la mettre à côté des clés chiffrées reviendrait à
 // sauvegarder les clés de canal en clair ; equipes.js le dit aussi), secret-session.txt (une sauvegarde volée
 // permettrait de fabriquer des sessions), code-installation.txt et maj-jeton.txt (jetons à usage unique),
 // blocages.json (anti-essais de mot de passe : état du moment), meshcore-taches.json (programmations en cours :
@@ -89,7 +93,7 @@ function creerSauvegardes(dossier, db, journal) {
         fs.mkdirSync(path.dirname(cible), { recursive: true, mode: 0o700 });
         fs.writeFileSync(cible, texte, { mode: 0o600 });
         // writeFileSync n'applique le mode qu'à la création : on le force aussi sur un fichier déjà là
-        // (adrasec.json, equipes.json, donateurs.json… contiennent des données personnelles).
+        // (adrasec.json, equipes.json… contiennent des données personnelles).
         try { fs.chmodSync(cible, 0o600); } catch { /* système de fichiers sans chmod */ }
         n++;
       } catch (e) { rates.push(`${f} (${e.message})`); }
