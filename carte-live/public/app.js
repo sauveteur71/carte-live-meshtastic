@@ -5168,7 +5168,7 @@ async function entreeDepartement(q) {
   const d = (idx.departements || []).find((x) => x.code === code);
   const nom = d ? d.nom : ((listeDepsCarte || []).find((x) => x.code === code) || {}).nom || '';
   return { type: 'Département', nom: nom ? `Nœuds du département ${code} · ${nom}` : `Nœuds du département ${code}`,
-    detail: d ? `${d.nb} nœud(s) d’après la position reçue` : 'aucun nœud positionné ici pour l’instant',
+    detail: d && (d.nb || d.nbMc) ? `${(d.nb || 0) + (d.nbMc || 0)} nœud(s) d’après la position reçue` : 'aucun nœud positionné ici pour l’instant',
     go: () => ficheNoeudsDepartement(code) };
 }
 

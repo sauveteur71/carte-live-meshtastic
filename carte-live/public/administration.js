@@ -1483,68 +1483,128 @@ async function ficheRegistreRelais(memo) {
 // ---- Nœuds d'un département, d'après la position qu'ils ont retransmise -------------------------
 // Recherche par position et non par nom : tous les nœuds dont la position reçue tombe dans le département.
 // Un nœud qui ne donne pas sa position ne peut pas être rangé : il est compté à part, jamais effacé en silence.
+// Meshtastic (position retransmise) et MeshCore (position de la dernière annonce) suivent la même règle ; la liste
+// part du réseau affiché sur la carte (etat.vueReseau) et un sélecteur permet d'en changer sans toucher à la carte.
 async function ficheNoeudsDepartement(code, memo) {
+  const ND_RESEAUX = ['meshtastic', 'meshcore', 'les-deux'];
   const titre = '🧭 Nœuds d’un département';
   $('#fiche').hidden = false; etat.selection = null;
+  if (typeof mc !== 'undefined') mc.selection = null;
   $('#fiche-contenu').innerHTML = `<div class="liste-signalements"><h3>${titre}</h3><p class="note">Chargement…</p></div>`;
   const idx = await indexDepartementsNoeuds().catch(() => null);
   if (!idx) { $('#fiche-contenu').innerHTML = `<div class="liste-signalements"><h3>${titre}</h3><p class="erreur">Liste indisponible : il faut être connecté à la carte.</p></div>`; return; }
-  const deps = (idx.departements || []).slice().sort((a, b) => b.nb - a.nb);
+  // Réseaux listables : MeshCore seulement si la carte le suit (serveur et navigateur) ; carte limitée à un réseau : pas de choix
+  const avecMc = !!(idx.mc && typeof mc !== 'undefined' && mc.actif);
+  const seul = etat.config && etat.config.reseaux && etat.config.reseaux !== 'les-deux' ? etat.config.reseaux : null;
+  let reseau = (memo && memo.reseau) || etat.vueReseau;
+  if (!ND_RESEAUX.includes(reseau)) reseau = 'les-deux'; // réseau affiché inconnu : on montre les deux
+  if (!avecMc) reseau = 'meshtastic';
+  else if (seul && ND_RESEAUX.includes(seul)) reseau = seul;
+  const choixReseau = avecMc && !seul;
+  const idxMc = avecMc ? { parNoeud: idx.mc.parNoeud || {}, sansPosition: idx.mc.sansPosition || [], horsDepartements: idx.mc.horsDepartements || [] } : { parNoeud: {}, sansPosition: [], horsDepartements: [] };
+  const deps = idx.departements || [];
   const sansPos = idx.sansPosition || [], hors = idx.horsDepartements || [];
-  const vue = { quoi: String(code || (memo && memo.code) || (deps[0] || {}).code || (sansPos.length ? 'sans' : 'hors')).toUpperCase(), q: (memo && memo.q) || '' };
+  const vue = { reseau, quoi: '', q: (memo && memo.q) || '' };
+  const voitMt = () => vue.reseau !== 'meshcore', voitMc = () => vue.reseau !== 'meshtastic';
+  const nbDep = (d) => (voitMt() ? d.nb || 0 : 0) + (voitMc() ? d.nbMc || 0 : 0);
+  const nbSans = () => (voitMt() ? sansPos.length : 0) + (voitMc() ? idxMc.sansPosition.length : 0);
+  const nbHors = () => (voitMt() ? hors.length : 0) + (voitMc() ? idxMc.horsDepartements.length : 0);
+  const premier = () => (deps.filter((d) => nbDep(d) > 0).sort((a, b) => nbDep(b) - nbDep(a))[0] || {}).code || (nbSans() ? 'sans' : 'hors');
+  vue.quoi = String(code || (memo && memo.code) || premier()).toUpperCase();
   if (vue.quoi === 'SANS') vue.quoi = 'sans';
   if (vue.quoi === 'HORS') vue.quoi = 'hors';
   const nomDe = (c) => { const d = deps.find((x) => x.code === c); return (d && d.nom) || ''; };
-  const options = `${deps.slice().sort((a, b) => a.code.localeCompare(b.code)).map((d) => `<option value="${esc(d.code)}" ${vue.quoi === d.code ? 'selected' : ''}>${esc(d.code)}${d.nom ? ' · ' + esc(d.nom) : ''} (${d.nb})</option>`).join('')}`
-    + (sansPos.length ? `<option value="sans" ${vue.quoi === 'sans' ? 'selected' : ''}>Sans position reçue (${sansPos.length})</option>` : '')
-    + (hors.length ? `<option value="hors" ${vue.quoi === 'hors' ? 'selected' : ''}>Position connue, hors de France (${hors.length})</option>` : '');
+  // Liste des choix selon le réseau listé : un département sans nœud de ce réseau n'y figure pas (sauf celui affiché)
+  const options = () => `${deps.slice().sort((a, b) => a.code.localeCompare(b.code)).filter((d) => nbDep(d) > 0 || d.code === vue.quoi).map((d) => `<option value="${esc(d.code)}" ${vue.quoi === d.code ? 'selected' : ''}>${esc(d.code)}${d.nom ? ' · ' + esc(d.nom) : ''} (${nbDep(d)})</option>`).join('')}`
+    + (nbSans() || vue.quoi === 'sans' ? `<option value="sans" ${vue.quoi === 'sans' ? 'selected' : ''}>Sans position reçue (${nbSans()})</option>` : '')
+    + (nbHors() || vue.quoi === 'hors' ? `<option value="hors" ${vue.quoi === 'hors' ? 'selected' : ''}>Position connue, hors de France (${nbHors()})</option>` : '');
+  const rien = !(deps.length || sansPos.length || hors.length || idxMc.sansPosition.length || idxMc.horsDepartements.length);
+  const boutonReseau = (r, lib, aide) => `<button type="button" data-nd-reseau="${r}" aria-pressed="${vue.reseau === r}" title="${aide}">${lib}</button>`;
   $('#fiche-contenu').innerHTML = `<div class="liste-signalements noeuds-departement"><h3>${titre}</h3>
-    ${deps.length || sansPos.length || hors.length ? `<div class="registre-filtres">
-      <label>Afficher <select id="nd-dep">${options}</select></label>
+    ${!rien ? `${choixReseau ? `<div class="nd-reseau" role="group" aria-label="Réseau listé"><span>Réseau</span>
+      ${boutonReseau('meshtastic', 'Meshtastic', 'Lister seulement les nœuds Meshtastic')}${boutonReseau('meshcore', 'MeshCore', 'Lister seulement les nœuds MeshCore')}${boutonReseau('les-deux', 'Les deux', 'Lister les nœuds des deux réseaux')}</div>` : ''}
+    <div class="registre-filtres">
+      <label>Afficher <select id="nd-dep"></select></label>
       <input type="search" id="nd-recherche" placeholder="Filtrer : nom, identifiant, rôle…" aria-label="Filtrer la liste des nœuds" autocomplete="off" maxlength="60" value="${esc(vue.q)}">
     </div>
     <p id="nd-compte"></p>
-    <div class="table-defile"><table><thead><tr><th>Nœud</th><th>Identifiant du nœud</th><th>Rôle</th><th>Position</th><th>Dernier paquet</th></tr></thead><tbody id="nd-corps"></tbody></table></div>
+    <div class="table-defile"><table><thead><tr>${avecMc ? '<th>Réseau</th>' : ''}<th>Nœud</th><th>Identifiant du nœud</th><th>Rôle</th><th>Position</th><th>Dernier paquet</th></tr></thead><tbody id="nd-corps"></tbody></table></div>
     <div class="actions-prop"><button type="button" class="mini" id="nd-csv">⬇ Exporter la liste (CSV)</button></div>` : '<p class="note">Aucun nœud connu pour l’instant.</p>'}
     <p class="note">Le département est celui qui contient la position retransmise par le nœud (contours officiels, calcul fait sur le serveur). Une position floutée ou imprécise peut ranger un nœud près d’une limite dans le département voisin : à vérifier au cas par cas.</p>
-    ${sansPos.length ? `<p class="note">${sansPos.length} nœud(s) n’ont envoyé aucune position : ils ne peuvent être rangés dans aucun département. Choisissez « Sans position reçue » pour les voir.</p>` : ''}
-    ${idx.monde ? `<p class="note">Les départements n’existent qu’en France. Sur cette carte du monde, ${hors.length} nœud(s) positionné(s) sont hors de France : ils sont comptés à part, rien n’est deviné.</p>` : ''}
+    ${avecMc ? '<p class="note">Pour un nœud MeshCore, la position est celle de sa dernière annonce (advert). Un nœud qui annonce 0, 0 n’a pas de position.</p>' : ''}
+    <p class="note" id="nd-note-sans" hidden></p>
+    ${idx.monde ? '<p class="note" id="nd-note-monde"></p>' : ''}
     <p class="note">Cliquez sur un nœud pour ouvrir sa fiche ; en la fermant vous revenez ici.</p></div>`;
-  if (!(deps.length || sansPos.length || hors.length)) return;
-  // Numéros rangés par département une fois pour toutes : une frappe dans le filtre ne relit pas tout l'index
-  const parDep = {};
+  if (rien) return;
+  // Numéros (Meshtastic) et clés (MeshCore) rangés par département une fois pour toutes : une frappe dans le filtre ne relit pas tout l'index
+  const parDep = {}, parDepMc = {};
   for (const [num, c] of Object.entries(idx.parNoeud || {})) (parDep[c] = parDep[c] || []).push(Number(num));
+  for (const [cle, c] of Object.entries(idxMc.parNoeud)) (parDepMc[c] = parDepMc[c] || []).push(cle);
   let liste = [];
   const champ = $('#nd-recherche');
+  const texteDe = (x) => (x.r === 'mc' ? [x.n.nom, x.n.id, x.n.cle, x.n.roleFr, 'meshcore']
+    : [x.n.nomLong, x.n.nomCourt, x.n.id, x.n.num, x.n.roleFr, x.n.materiel, x.n.firmware, 'meshtastic']).filter(Boolean).join(' ');
   function rendre() {
-    const nums = vue.quoi === 'sans' ? sansPos : vue.quoi === 'hors' ? hors : parDep[vue.quoi] || [];
+    $('#nd-dep').innerHTML = options();
+    const nums = !voitMt() ? [] : vue.quoi === 'sans' ? sansPos : vue.quoi === 'hors' ? hors : parDep[vue.quoi] || [];
+    const cles = !voitMc() ? [] : vue.quoi === 'sans' ? idxMc.sansPosition : vue.quoi === 'hors' ? idxMc.horsDepartements : parDepMc[vue.quoi] || [];
     const mots = sansAccent(vue.q).split(/\s+/).filter(Boolean);
     let inconnus = 0;
-    liste = nums.map((num) => { const n = etat.noeuds.get(Number(num) >>> 0); if (!n) inconnus++; return n; }).filter(Boolean)
-      .filter((n) => mots.every((m) => sansAccent([n.nomLong, n.nomCourt, n.id, n.num, n.roleFr, n.materiel, n.firmware].filter(Boolean).join(' ')).includes(m)))
-      .sort((a, b) => (b.dernierVu || 0) - (a.dernierVu || 0));
+    const tous = [
+      ...nums.map((num) => { const n = etat.noeuds.get(Number(num) >>> 0); if (!n) inconnus++; return n ? { r: 'mt', n } : null; }),
+      ...cles.map((cle) => { const n = mc.noeuds.get(cle); if (!n) inconnus++; return n ? { r: 'mc', n } : null; }),
+    ].filter(Boolean);
+    liste = tous.filter((x) => mots.every((m) => sansAccent(texteDe(x)).includes(m)))
+      .sort((a, b) => (b.n.dernierVu || 0) - (a.n.dernierVu || 0));
+    const total = nums.length + cles.length;
     const tete = vue.quoi === 'sans' ? `${liste.length} nœud(s) sans position reçue.`
       : vue.quoi === 'hors' ? `${liste.length} nœud(s) positionnés hors de France.`
       : nomDe(vue.quoi) ? `${liste.length} nœud(s) dans le département ${vue.quoi} · ${nomDe(vue.quoi)}.` : `${liste.length} nœud(s) dans le département ${vue.quoi}.`;
-    $('#nd-compte').innerHTML = `${esc(tete)}${mots.length ? ` <span>${esc(`Recherche en cours : ${nums.length} au total.`)}</span>` : ''}${inconnus ? ` <small>${esc(`${inconnus} nœud(s) purgés depuis le calcul ne sont plus affichés.`)}</small>` : ''}`;
-    $('#nd-corps').innerHTML = liste.map((n) => `<tr data-num="${n.num}" class="cliquable">
+    const detail = vue.reseau === 'les-deux' && avecMc ? ` <small>${esc(`Meshtastic : ${liste.filter((x) => x.r === 'mt').length} · MeshCore : ${liste.filter((x) => x.r === 'mc').length}`)}</small>` : '';
+    $('#nd-compte').innerHTML = `${esc(tete)}${detail}${mots.length ? ` <span>${esc(`Recherche en cours : ${total} au total.`)}</span>` : ''}${inconnus ? ` <small>${esc(`${inconnus} nœud(s) purgés depuis le calcul ne sont plus affichés.`)}</small>` : ''}`;
+    const cols = avecMc ? 6 : 5;
+    $('#nd-corps').innerHTML = liste.map(({ r, n }) => r === 'mc'
+      ? `<tr data-mc="${esc(n.cle)}" class="cliquable">
+      ${avecMc ? '<td><span class="tag-reseau mc" title="MeshCore">MC</span></td>' : ''}
+      <td><b>${esc(n.nom || n.id)}</b>${n.observateur ? ' <small>observateur</small>' : ''}</td>
+      <td><small>${esc(n.id)}</small></td>
+      <td>${esc(n.roleFr || '')}</td>
+      <td>${n.lat != null && n.lon != null ? `${Number(n.lat).toFixed(4)}, ${Number(n.lon).toFixed(4)}` : 'inconnue'}</td>
+      <td>${n.dernierVu ? ilYa(n.dernierVu) : '—'}</td></tr>`
+      : `<tr data-num="${n.num}" class="cliquable">
+      ${avecMc ? '<td><span class="tag-reseau mt" title="Meshtastic">MT</span></td>' : ''}
       <td><b>${esc(n.nomLong || n.nomCourt || n.id)}</b>${n.passerelle ? ' <small>passerelle</small>' : ''}</td>
       <td><small>${esc(n.id)}</small></td>
       <td>${esc(n.roleFr || '')}</td>
       <td>${n.lat != null ? `${n.lat.toFixed(4)}, ${n.lon.toFixed(4)}` : 'inconnue'}</td>
-      <td>${n.dernierVu ? ilYa(n.dernierVu) : '—'}</td></tr>`).join('') || '<tr><td colspan="5">Aucun nœud ne correspond.</td></tr>';
+      <td>${n.dernierVu ? ilYa(n.dernierVu) : '—'}</td></tr>`).join('') || `<tr><td colspan="${cols}">Aucun nœud ne correspond.</td></tr>`;
+    const memoire = () => ({ ecran: 'departement', code: vue.quoi, q: vue.q, reseau: vue.reseau });
     $('#nd-corps').querySelectorAll('tr[data-num]').forEach((tr) => (tr.onclick = () => {
-      etat.retourFicheDemande = { ecran: 'departement', code: vue.quoi, q: vue.q };
+      etat.retourFicheDemande = memoire();
       ouvrirFiche(Number(tr.dataset.num));
     }));
+    $('#nd-corps').querySelectorAll('tr[data-mc]').forEach((tr) => (tr.onclick = () => {
+      etat.retourFicheDemande = memoire();
+      mcOuvrirFiche(tr.dataset.mc);
+    }));
+    // Notes qui dépendent du réseau listé
+    const ns = $('#nd-note-sans'), k = nbSans();
+    ns.hidden = !k || vue.quoi === 'sans';
+    ns.textContent = k ? `${k} nœud(s) n’ont envoyé aucune position : ils ne peuvent être rangés dans aucun département. Choisissez « Sans position reçue » pour les voir.` : '';
+    const nm = $('#nd-note-monde');
+    if (nm) nm.textContent = `Les départements n’existent qu’en France. Sur cette carte du monde, ${nbHors()} nœud(s) positionné(s) sont hors de France : ils sont comptés à part, rien n’est deviné.`;
+    document.querySelectorAll('[data-nd-reseau]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.ndReseau === vue.reseau)));
   }
+  document.querySelectorAll('[data-nd-reseau]').forEach((b) => (b.onclick = () => { vue.reseau = b.dataset.ndReseau; rendre(); }));
   $('#nd-dep').onchange = (e) => { vue.quoi = e.target.value; rendre(); };
   champ.oninput = () => { vue.q = champ.value; rendre(); };
   champ.onkeydown = (e) => { if (e.key === 'Escape') { champ.value = ''; vue.q = ''; rendre(); } };
   $('#nd-csv').onclick = () => {
     const c = (x) => { const t = String(x ?? ''); return `"${(typeof x !== 'number' && /^[=+\-@\t\r]/.test(t) ? "'" + t : t).replace(/"/g, '""')}"`; };
-    const entete = ['Nom', 'Nom court', 'Identifiant', 'Numéro', 'Rôle', 'Matériel', 'Firmware', 'Latitude', 'Longitude', 'Département', 'Dernier paquet'];
-    const lignes = liste.map((n) => [n.nomLong, n.nomCourt, n.id, n.num, n.roleFr, n.materiel, n.firmware, n.lat, n.lon, (idx.parNoeud || {})[String(n.num >>> 0)] || '', n.dernierVu ? new Date(n.dernierVu).toISOString() : ''].map(c).join(';'));
+    const entete = ['Réseau', 'Nom', 'Nom court', 'Identifiant', 'Numéro', 'Rôle', 'Matériel', 'Firmware', 'Latitude', 'Longitude', 'Département', 'Dernier paquet'];
+    const lignes = liste.map(({ r, n }) => (r === 'mc'
+      ? ['MeshCore', n.nom, '', n.cle, '', n.roleFr, '', '', n.lat, n.lon, idxMc.parNoeud[n.cle] || '', n.dernierVu ? new Date(n.dernierVu).toISOString() : '']
+      : ['Meshtastic', n.nomLong, n.nomCourt, n.id, n.num, n.roleFr, n.materiel, n.firmware, n.lat, n.lon, (idx.parNoeud || {})[String(n.num >>> 0)] || '', n.dernierVu ? new Date(n.dernierVu).toISOString() : '']).map(c).join(';'));
     telechargerTexte(`noeuds-${vue.quoi}-${new Date().toISOString().slice(0, 10)}.csv`, '﻿' + [entete.map(c).join(';'), ...lignes].join('\r\n'));
   };
   rendre();

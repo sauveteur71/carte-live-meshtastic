@@ -1709,6 +1709,9 @@ async function mcOuvrirQr(q) {
 
 // ---- Fiche d'un nœud MeshCore ------------------------------------------------------------------
 async function mcOuvrirFiche(cle, ongletInitial) {
+  // Comme ouvrirFiche : seul l'écran qui ouvre la fiche juste avant (liste d'un département) demande qu'on y revienne
+  etat.retourFiche = etat.retourFicheDemande || null;
+  etat.retourFicheDemande = null;
   mc.selection = cle;
   etat.selection = null;
   $('#fiche').hidden = false;

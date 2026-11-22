@@ -67,3 +67,5 @@ Le classement se fait sur la **position que chaque nœud a retransmise**, pas su
 - une position floutée ou imprécise (firmware Meshtastic 2.8) peut ranger un nœud proche d'une limite dans le département voisin ; l'écran le rappelle.
 
 La liste se filtre aussi par nom, identifiant ou rôle, et s'exporte en CSV. Cliquer sur un nœud ouvre sa fiche ; en la fermant, on revient à la liste.
+
+**Meshtastic, MeshCore ou les deux.** La liste suit le réseau affiché sur la carte (bouton *Réseau* en haut du panneau) : Meshtastic seul, MeshCore seul, ou les deux. Un petit sélecteur **Meshtastic / MeshCore / Les deux** en haut de l'écran permet d'en changer sans toucher à la carte ; une pastille **MT** ou **MC** indique le réseau de chaque nœud. Un nœud MeshCore est rangé d'après la position de sa **dernière annonce** (advert), avec les mêmes contours ; une annonce à 0, 0 compte comme « sans position ». Cliquer sur un nœud MeshCore ouvre sa fiche MeshCore ; en la fermant, on revient à la liste, sur le même réseau. Une carte limitée à un seul réseau (ou sans MeshCore) n'affiche pas le sélecteur.

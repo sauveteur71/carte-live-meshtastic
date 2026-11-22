@@ -67,3 +67,5 @@ Worth knowing:
 - a blurred or imprecise position (Meshtastic 2.8 firmware) can file a node close to a boundary under the neighbouring department; the screen says so.
 
 The list can also be filtered by name, identifier or role, and exported as CSV. Clicking a node opens its page; closing it brings you back to the list.
+
+**Meshtastic, MeshCore or both.** The list follows the network shown on the map (*Network* buttons at the top of the panel): Meshtastic only, MeshCore only, or both. A small **Meshtastic / MeshCore / Both** selector at the top of the screen changes it without touching the map; an **MT** or **MC** tag shows each node's network. A MeshCore node is filed by the position of its **latest advert**, with the same boundaries; an advert at 0, 0 counts as “no position”. Clicking a MeshCore node opens its MeshCore page; closing it brings you back to the list, on the same network. A map limited to a single network (or without MeshCore) does not show the selector.

@@ -1611,6 +1611,11 @@ async function essaiRegistreAvance(navig, cookie) {
     [MON, '43 Relais Monistrol', 'MON', 45.29, 4.17], [PIL, '42 Relais du Pilat', 'PIL', 45.294, 4.4],
     [SPO, '43 Relais sans position', 'SPO', null, null], [LDN, 'London test node', 'LDN', 51.5, -0.12],
   ]) ins.run(num, '!' + num.toString(16).padStart(8, '0'), nom, court, 'ROUTER', 'HELTEC_V3', '2.7.11', lat, lon, lat == null ? null : 1100, lat == null ? null : vu, vu, vu);
+  // Nœuds MeshCore : un au Puy-en-Velay (43, position de son annonce), un qui annonce 0, 0 (donc sans position)
+  const MC43 = 'C43A' + '0'.repeat(56) + '0001', MC00 = 'C000' + '0'.repeat(56) + '0002';
+  const insMc = db.prepare('INSERT OR REPLACE INTO mc_noeuds (cle, nom, role, lat, lon, heure_position, premier_vu, dernier_vu, derniere_annonce, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  insMc.run(MC43, 'MC Companion du Puy', 'companion', 45.0434, 3.8855, vu, vu, vu, vu, 'essai');
+  insMc.run(MC00, 'MC Sans GPS', 'companion', 0, 0, vu, vu, vu, vu, 'essai');
   db.close();
   // La liste complète des nœuds est gardée 10 s par le serveur : on attend qu'elle contienne les nouveaux relais,
   // sinon la page chargée juste après recevrait l'ancienne liste et ne les verrait pas de la visite entière.
@@ -1631,6 +1636,11 @@ async function essaiRegistreAvance(navig, cookie) {
     && (idx.j.sansPosition || []).includes(SPO) && (idx.j.horsDepartements || []).includes(LDN)
     && d43 && d43.nom === 'Haute-Loire' && d43.nb >= 3 && anon === 401) ok(`départements des nœuds : 43 (${d43.nb}), 42 pour le Pilat, sans position et hors de France à part, refusé sans compte`);
   else ko('départements des nœuds : ' + JSON.stringify({ statut: idx.statut, anon, d43, mez: pn[String(MEZ)], pil: pn[String(PIL)], sans: (idx.j.sansPosition || []).includes(SPO), hors: (idx.j.horsDepartements || []).includes(LDN) }));
+  // Même index pour MeshCore : rangé à part, par clé publique ; 0, 0 = sans position ; les compteurs MT restent ceux de Meshtastic
+  const imc = idx.j.mc || {};
+  if (imc.parNoeud && imc.parNoeud[MC43] === '43' && (imc.sansPosition || []).includes(MC00) && !(imc.horsDepartements || []).includes(MC00)
+    && d43 && d43.nbMc >= 1 && !pn[MC43]) ok(`départements MeshCore : le companion du Puy rangé dans le 43 (${d43.nbMc} nœud(s) MC), l’annonce 0, 0 comptée sans position`);
+  else ko('départements MeshCore : ' + JSON.stringify({ mc: imc.parNoeud && imc.parNoeud[MC43], sans: imc.sansPosition, d43 }));
 
   // ---- Route de l'autorisation seule : droits, validation, reste de la fiche gardé, rien de privé en retour
   const mauvais = await appel('POST', `/api/noeuds/${CHD}/autorisation`, { autorisation: 'n’importe-quoi' });
@@ -1795,6 +1805,63 @@ async function essaiRegistreAvance(navig, cookie) {
     && /position flout.e ou impr.cise/.test(dep.note)) ok(`liste par position : ${dep.en43.length} nœuds dans le 43, le Pilat et Londres exclus, « sans position » et « hors de France » à part, incertitude signalée`);
   else ko('liste par département : ' + JSON.stringify({ en43: dep.en43, compte43: dep.compte43, choix: dep.choix, sans: dep.sans.slice(0, 4), hors: dep.hors.slice(0, 4) }));
   await capture(page, 'registre-departement');
+
+  // 4 bis) Liste du département selon le réseau affiché : Meshtastic seul, MeshCore seul, les deux, réseau inconnu
+  await page.waitForFunction((cle) => typeof mc !== 'undefined' && mc.noeuds && mc.noeuds.has(cle), MC43, { timeout: 20000 }).catch(() => null);
+  const parReseau = await page.evaluate(async ({ MC43, MC00, MEZ }) => {
+    const avant = etat.vueReseau;
+    const lire = () => ({
+      mt: [...document.querySelectorAll('#nd-corps tr[data-num]')].map((t) => Number(t.dataset.num)),
+      mc: [...document.querySelectorAll('#nd-corps tr[data-mc]')].map((t) => t.dataset.mc),
+      tags: [...document.querySelectorAll('#nd-corps .tag-reseau')].map((t) => t.textContent),
+      presse: (document.querySelector('[data-nd-reseau][aria-pressed="true"]') || {}).dataset?.ndReseau || null,
+    });
+    const ouvrir = async (r) => { etat.vueReseau = r; await ficheNoeudsDepartement('43'); await new Promise((x) => setTimeout(x, 200)); return lire(); };
+    const res = { mt: await ouvrir('meshtastic'), mc: await ouvrir('meshcore'), deux: await ouvrir('les-deux'), inconnu: await ouvrir(undefined) };
+    // Sélecteur dans l'écran : MeshCore seul, puis « sans position »
+    etat.vueReseau = 'les-deux';
+    await ficheNoeudsDepartement('43');
+    document.querySelector('[data-nd-reseau="meshcore"]').click();
+    res.bouton = lire();
+    res.global = etat.vueReseau; // le sélecteur de l'écran ne change pas le réseau de la carte
+    const s = document.querySelector('#nd-dep'); s.value = 'sans'; s.dispatchEvent(new Event('change'));
+    res.sans = lire();
+    // Clic sur un nœud MeshCore : sa fiche MeshCore, puis retour à la liste (réseau et département gardés)
+    s.value = '43'; s.dispatchEvent(new Event('change'));
+    document.querySelector(`#nd-corps tr[data-mc="${MC43}"]`).click();
+    for (let k = 0; k < 50 && !/MC Companion du Puy/.test((document.querySelector('#fiche-contenu h2') || {}).textContent || ''); k++) await new Promise((x) => setTimeout(x, 100));
+    res.fiche = (document.querySelector('#fiche-contenu h2') || {}).textContent || '';
+    res.ficheMc = /MeshCore/.test((document.querySelector('#fiche-contenu .ident') || {}).textContent || '');
+    document.querySelector('#fermer-fiche').click();
+    for (let k = 0; k < 50 && !document.querySelector('#nd-corps tr'); k++) await new Promise((x) => setTimeout(x, 100));
+    res.retour = { ...lire(), dep: (document.querySelector('#nd-dep') || {}).value };
+    document.querySelector('#fermer-fiche').click();
+    etat.vueReseau = avant;
+    return res;
+  }, { MC43, MC00, MEZ });
+  const P = parReseau;
+  const aMt = (x) => x.mt.includes(MEZ), aMc = (x) => x.mc.includes(MC43);
+  if (aMt(P.mt) && !P.mt.mc.length && P.mt.presse === 'meshtastic'
+    && aMc(P.mc) && !P.mc.mt.length && P.mc.presse === 'meshcore'
+    && aMt(P.deux) && aMc(P.deux) && P.deux.tags.includes('MT') && P.deux.tags.includes('MC') && P.deux.presse === 'les-deux'
+    && aMt(P.inconnu) && aMc(P.inconnu) && P.inconnu.presse === 'les-deux') ok('liste du département selon le réseau affiché : Meshtastic → MT seuls, MeshCore → MC seuls, les deux → MT et MC avec leur pastille, réseau inconnu → les deux');
+  else ko('liste du département selon le réseau : ' + JSON.stringify(P));
+  if (aMc(P.bouton) && !P.bouton.mt.length && P.global === 'les-deux' && P.sans.mc.includes(MC00) && !P.sans.mt.length) ok('sélecteur MT / MC de l’écran : MeshCore seul sans changer la carte, l’annonce 0, 0 rangée « sans position »');
+  else ko('sélecteur MT / MC de l’écran : ' + JSON.stringify({ bouton: P.bouton, global: P.global, sans: P.sans }));
+  if (/MC Companion du Puy/.test(P.fiche) && P.ficheMc && aMc(P.retour) && !P.retour.mt.length && P.retour.dep === '43' && P.retour.presse === 'meshcore') ok('clic sur un nœud MeshCore : sa fiche MeshCore, et retour à la liste du 43 en MeshCore à la fermeture');
+  else ko('fiche MeshCore depuis la liste : ' + JSON.stringify({ fiche: P.fiche, ficheMc: P.ficheMc, retour: P.retour }));
+  // Captures : liste des deux réseaux, sur ordinateur puis au format téléphone (le sélecteur doit tenir dans la largeur)
+  await page.evaluate(async () => { etat.vueReseau = 'les-deux'; await ficheNoeudsDepartement('43'); });
+  await page.waitForSelector('#nd-corps tr[data-mc]', { timeout: 5000 }).catch(() => null);
+  await capture(page, 'departement-deux-reseaux');
+  const tailleAvant = page.viewportSize();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(300);
+  const debord = await page.evaluate(() => { const g = document.querySelector('.nd-reseau'); return g ? [...g.querySelectorAll('button')].some((b) => b.getBoundingClientRect().right > window.innerWidth + 1) : null; });
+  await capture(page, 'departement-deux-reseaux-telephone');
+  if (debord === false) ok('sélecteur MT / MC : tient dans un écran de téléphone (390 px)'); else ko('sélecteur MT / MC au téléphone : ' + debord);
+  await page.setViewportSize(tailleAvant);
+  await page.evaluate(() => { document.querySelector('#fermer-fiche').click(); });
   for (const terme of ['43', 'Haute-Loire']) {
     await page.fill('#recherche-lieu', terme);
     const trouve = await page.waitForFunction(() => [...document.querySelectorAll('#resultats-lieu li')].some((li) => /N.uds du d.partement 43/.test(li.textContent)), null, { timeout: 8000 }).then(() => true).catch(() => false);

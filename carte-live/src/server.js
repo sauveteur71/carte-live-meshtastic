@@ -2320,7 +2320,11 @@ app.get('/api/departements', (req, res) => res.json(listeDepartements));
 // reçoit que le code du département de chaque nœud. Le département d'un nœud n'est recalculé que si sa position
 // change, et la réponse entière est gardée 30 s (une frappe dans la recherche ne relance aucun calcul).
 const depDeNoeud = new Map(); // num -> { lat, lon, dep }
+const depDeNoeudMc = new Map(); // clé publique MeshCore -> { lat, lon, dep }
 let cacheDepNoeuds = null;
+// Position MeshCore exploitable : une annonce sans GPS donne souvent 0,0 (ou rien) ; hors bornes = paquet abîmé
+const positionMcValide = (n) => n.lat != null && n.lon != null && Number.isFinite(n.lat) && Number.isFinite(n.lon)
+  && Math.abs(n.lat) <= 90 && Math.abs(n.lon) <= 180 && (Math.abs(n.lat) > 0.0001 || Math.abs(n.lon) > 0.0001);
 app.get('/api/noeuds-par-departement', (req, res) => {
   if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
   if (!cacheDepNoeuds || Date.now() - cacheDepNoeuds.heure > 30000) {
@@ -2335,8 +2339,27 @@ app.get('/api/noeuds-par-departement', (req, res) => {
       parNoeud[num] = c.dep;
       nb[c.dep] = (nb[c.dep] || 0) + 1;
     }
-    const departements = Object.keys(nb).sort().map((code) => ({ code, nom: (listeDepartements.find((d) => d.code === code) || {}).nom || code, nb: nb[code] }));
-    cacheDepNoeuds = { heure: Date.now(), corps: { monde: false, departements, parNoeud, sansPosition, horsDepartements } };
+    // Nœuds MeshCore : même règle, d'après la position de leur dernière annonce (advert). Rangés à part, par clé
+    // publique : le navigateur choisit d'afficher Meshtastic, MeshCore ou les deux.
+    let mcIdx = null;
+    const nbMc = {};
+    if (config.meshcore.actif) {
+      if (depDeNoeudMc.size > 100000) depDeNoeudMc.clear();
+      mcIdx = { parNoeud: {}, sansPosition: [], horsDepartements: [] };
+      for (const n of reseauMc.q.noeuds.all()) {
+        if (!n.cle) continue;
+        if (!positionMcValide(n)) { mcIdx.sansPosition.push(n.cle); continue; }
+        let c = depDeNoeudMc.get(n.cle);
+        if (!c || c.lat !== n.lat || c.lon !== n.lon) { c = { lat: n.lat, lon: n.lon, dep: departementDuPoint(n.lat, n.lon) }; depDeNoeudMc.set(n.cle, c); }
+        if (!c.dep) { mcIdx.horsDepartements.push(n.cle); continue; }
+        mcIdx.parNoeud[n.cle] = c.dep;
+        nbMc[c.dep] = (nbMc[c.dep] || 0) + 1;
+      }
+    }
+    // nb = nœuds Meshtastic (inchangé pour le registre des relais), nbMc = nœuds MeshCore
+    const departements = [...new Set([...Object.keys(nb), ...Object.keys(nbMc)])].sort()
+      .map((code) => ({ code, nom: (listeDepartements.find((d) => d.code === code) || {}).nom || code, nb: nb[code] || 0, nbMc: nbMc[code] || 0 }));
+    cacheDepNoeuds = { heure: Date.now(), corps: { monde: false, departements, parNoeud, sansPosition, horsDepartements, mc: mcIdx } };
   }
   res.set('Cache-Control', 'private, no-cache').json(cacheDepNoeuds.corps);
 });

@@ -31,6 +31,9 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 - **Alertes des capteurs visibles hors de la zone** : l'alerte « relevés en retard » et celle d'une mesure hors seuil s'affichent maintenant même si le capteur est hors de la zone de la carte. Un capteur dont on a soi-même réglé le relevé est un nœud qu'on suit, où qu'il soit. Les autres alertes MeshCore (muet, batterie, canal) restent filtrées sur la zone.
 - Rappel affiché dans l'onglet *Capteurs* : le nombre de relevés indiqué sous une mesure est celui de la **période affichée** (1, 7, 30 ou 90 jours), pas un total.
 
+### 🧭 Nœuds d'un département : Meshtastic, MeshCore ou les deux
+- L'écran *Nœuds d'un département* (recherche « 43 », « Haute-Loire »…) liste aussi les **nœuds MeshCore**, rangés d'après la position de leur dernière annonce. Il part du réseau affiché sur la carte (Meshtastic, MeshCore ou les deux) et un sélecteur **Meshtastic / MeshCore / Les deux** permet d'en changer sur place ; pastille **MT** / **MC** sur chaque ligne, colonne *Réseau* dans l'export CSV. Un clic sur un nœud MeshCore ouvre sa fiche MeshCore, et la fermer ramène à la liste.
+
 ## 2.29.0
 
 ### 🗺️ Secteurs d'alerte (géorepérage)
