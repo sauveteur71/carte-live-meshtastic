@@ -140,10 +140,13 @@ function ipPrivee(req) {
 }
 
 const tentatives = new Map();
-function limiter(ip) {
+// Seules les tentatives ENREGISTREES comptent. Une connexion reussie n'en enregistre pas : plusieurs
+// personnes derriere la meme connexion internet (caserne, local ADRASEC) doivent pouvoir se connecter
+// a la suite sans etre bloquees. La protection contre la force brute porte sur les echecs (voir blocages.js).
+function limiter(ip, enregistrer = true) {
   const maintenant = Date.now();
   const t = (tentatives.get(ip) || []).filter((x) => maintenant - x < 15 * 60000);
-  t.push(maintenant);
+  if (enregistrer) t.push(maintenant);
   tentatives.set(ip, t);
   return t.length > 8;
 }
@@ -2115,7 +2118,7 @@ app.post('/api/connexion', (req, res) => {
     audit.noter(String(b0.identifiant || '').slice(0, 32) || null, req.ip, 'connexion refusée', `bloqué (${bl.type === 'ip' ? 'adresse' : 'compte'}) jusqu’à ${heureBlocage(bl.jusqua)}`, false);
     return res.status(429).json({ erreur: `Trop d’échecs de connexion : ${bl.type === 'ip' ? 'cette adresse est bloquée' : 'ce compte est suspendu'} jusqu’à ${heureBlocage(bl.jusqua)}. Un administrateur peut débloquer.`, bloqueJusqua: bl.jusqua });
   }
-  if (limiter(req.ip)) return res.status(429).json({ erreur: 'Trop de tentatives, réessayez dans 15 minutes' });
+  if (limiter(req.ip, false)) return res.status(429).json({ erreur: 'Trop de tentatives, réessayez dans 15 minutes' });
   try {
     const b = req.body || {};
     const c = comptes.connecter(b.identifiant, b.motDePasse, b.code);
@@ -2130,6 +2133,7 @@ app.post('/api/connexion', (req, res) => {
     if (!(e.codeRequis && !b.code)) audit.noter(String(b.identifiant || '').slice(0, 32) || null, req.ip, 'connexion refusée', e.message, false);
     // Mauvais mot de passe ou mauvais code : un échec compté (un code simplement demandé ne compte pas)
     if (/incorrect/i.test(e.message)) {
+      limiter(req.ip); // seuls les échecs remplissent le compteur des 15 minutes
       const r = blocages.echec(req.ip, b.identifiant);
       if (r.blocage) {
         audit.noter(String(b.identifiant || '').slice(0, 32) || null, req.ip, 'blocage', `${r.blocage.type === 'ip' ? 'adresse bloquée' : 'compte suspendu'} ${Math.round(r.blocage.duree / 60000)} min après ${blocages.MAX_ECHECS} échecs`, false);

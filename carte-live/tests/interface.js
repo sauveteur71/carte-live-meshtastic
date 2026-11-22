@@ -2150,6 +2150,28 @@ async function essaiFenetres(navig, cookie) {
   }
 }
 
+// Anti-force-brute : seuls les ECHECS remplissent le compteur des 15 minutes. Plusieurs personnes derriere
+// la meme connexion internet (caserne, local ADRASEC) doivent pouvoir se connecter a la suite.
+async function essaiConnexionsRepetees(navig, cookie) {
+  console.log('Connexions répétées depuis la même adresse');
+  const post = (corps) => fetch(BASE + '/api/connexion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
+  const MDP = 'Essai-rep-2026!!';
+  const r = await fetch(BASE + '/api/comptes', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: `${cookie.name}=${cookie.value}` }, body: JSON.stringify({ identifiant: 'Repetition', motDePasse: MDP, role: 'membre' }) });
+  if (!r.ok) { ko('connexions répétées : compte d’essai non créé (' + r.status + ')'); return; }
+  let refus = 0, sansCookie = 0;
+  for (let k = 0; k < 12; k++) {
+    const x = await post({ identifiant: 'Repetition', motDePasse: MDP });
+    if (x.status === 429) refus++;
+    else if (!(x.headers.get('set-cookie') || '').includes('=')) sansCookie++;
+  }
+  if (!refus && !sansCookie) ok('12 connexions réussies de suite depuis la même adresse : aucune refusée');
+  else ko(`connexions réussies refusées à tort : ${refus} en 429, ${sansCookie} sans cookie`);
+  // La protection doit rester entière sur les mauvais mots de passe
+  let bloque = 0;
+  for (let k = 0; k < 12; k++) { const x = await post({ identifiant: 'Repetition', motDePasse: 'FauxMotDePasse!!' }); if (x.status === 429) bloque++; }
+  if (bloque > 0) ok(`mauvais mot de passe répété : toujours bloqué (${bloque} refus sur 12)`); else ko('mauvais mot de passe répété 12 fois sans jamais être bloqué');
+}
+
 async function essaiPagesPubliques(navig) {
   for (const [url, nom, attendu] of [['/publique.html', 'carte publique', '#carte .leaflet-pane, .leaflet-pane'], ['/topologie.html', 'graphe des liens', 'svg, canvas']]) {
     console.log(nom[0].toUpperCase() + nom.slice(1) + ' (visiteur)');
@@ -2462,6 +2484,7 @@ async function essaiSuggestionsNoeuds(navig, cookie) {
 
     await essaiBoutonsOutils(navigateur, cookie);
     await essaiFenetres(navigateur, cookie);
+    await essaiConnexionsRepetees(navigateur, cookie);
     await essaiPagesPubliques(navigateur);
     await essaiTopologieFiche(navigateur);
     await essaiRapportArchives(navigateur, cookie);
