@@ -37,4 +37,33 @@ Typical values around 870 MHz; check the cable datasheet. A short, thick cable o
 
 Relays without a written permission and those not visited for over a year are counted at the top. **Export the register (CSV)** opens it in a spreadsheet; the site owner and the contact are included only for an administrator.
 
+### Finding a relay
+The **Search** field at the top of the register filters the list as you type, ignoring accents and case: node name, identifier, site, owner, contact, notes, permission, department. The counter and the indicators (“without written permission”, “not visited for over a year”) always cover what is shown, and so does the CSV export.
+
+The **Department** list files relays by the position they broadcast. A relay that does not give its position, or that is outside France, appears under “No department”.
+
+Clicking a row opens the relay's page; **closing that page brings you back to the register**, with the same search and the same department. A page opened from the map or from the search closes as before.
+
+### Ticking several relays at once
+For the relays you manage, a tick box appears in front of each row. Tick several of them: a bar opens with the number of relays ticked and the **Site permission** list (“Not needed (own land)” by default). **Apply to the ticked relays** asks for confirmation, stating how many relays are involved, then writes the same permission into each page — the rest of each page is kept.
+
+Each relay is saved separately, with the same checks as the whole page: a sector manager can only touch their own relays, and every change leaves its line in the audit log. If a relay is refused, the report says so (“✗ 1 relay not changed”), the relay stays ticked and its page is unchanged.
+
+Relays that are ticked but hidden by the search are never changed: the confirmation says so.
+
+### Suggested dates
+On the installation page, the three date fields (commissioning, permission date, last on-site visit) **suggest today's date** as soon as you enter an empty field — it is almost always right for a visit. The suggestion is flagged under the field: keep it, change it, or clear the field (it does not come back). Nothing is saved until **Save the page** is used; a suggested date kept as is is named in the confirmation message. A date already filled in is never overwritten.
+
 This information is entered on the node's sheet, **Installation** section › *Site*. See also [[Coverage and sites|Couverture-et-sites]]: a high point is not an authorised site.
+
+## Nodes of a department (search by position)
+*Tools › 🗂️ Relay register* only shows relays. To get **the list of every node in a department**, type the department number or name in the map's search bar (“43”, “dep 43”, “Haute-Loire”): the first suggestion is **Nodes of department 43**, with the number of nodes. The same screen opens from *Search for a feature* › “Nodes of a department (by position)”.
+
+Filing is based on the **position each node broadcast**, not on its name: the point-in-polygon test uses the official department boundaries and runs on the server (the browser never downloads the boundary file). The result is kept for one minute.
+
+Worth knowing:
+- a node that has never sent a position cannot be filed anywhere: it is counted separately, under “No position received”;
+- a node positioned outside France appears under “Position known, outside France” (departments only exist in France: on the world edition, nothing is guessed for the rest of the planet);
+- a blurred or imprecise position (Meshtastic 2.8 firmware) can file a node close to a boundary under the neighbouring department; the screen says so.
+
+The list can also be filtered by name, identifier or role, and exported as CSV. Clicking a node opens its page; closing it brings you back to the list.

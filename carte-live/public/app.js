@@ -213,7 +213,8 @@ function rendreJournal(...a) { return administration('rendreJournal', a); }
 function rendreComptes(...a) { return administration('rendreComptes', a); }
 function rendreReglages(...a) { return administration('rendreReglages', a); }
 function rendreFrequentation(...a) { return administration('rendreFrequentation', a); }
-for (const n of ['rendreFrequentation', 'ficheRegistreRelais', 'ficheAutresPresets', 'ouvrirBroker', 'ouvrirPasserelle', 'ficheMaj', 'editeurReglages', 'ficheFrance', 'ficheModeles', 'ficheV28', 'formulaireAction', 'rapportVerif', 'rendreSauvegardes', 'rendreJournal', 'rendreComptes', 'rendreReglages']) window[n].relais = true;
+function ficheNoeudsDepartement(...a) { return administration('ficheNoeudsDepartement', a); }
+for (const n of ['rendreFrequentation', 'ficheNoeudsDepartement', 'ficheRegistreRelais', 'ficheAutresPresets', 'ouvrirBroker', 'ouvrirPasserelle', 'ficheMaj', 'editeurReglages', 'ficheFrance', 'ficheModeles', 'ficheV28', 'formulaireAction', 'rapportVerif', 'rendreSauvegardes', 'rendreJournal', 'rendreComptes', 'rendreReglages']) window[n].relais = true;
 
 // ---- Carte -----------------------------------------------------------------
 let carte;
@@ -1839,6 +1840,7 @@ const CATALOGUE_REGLAGES = [
   ['Serveur MQTT (broker)', 'Compte › Réglages', 'mqtt url broker adresse serveur connexion', 'admin', () => ouvrirDlg('reglages', '[name=mqttUrl]')],
   ['Réglages avancés', 'Réglages', 'env fichier seuils alerte tension batterie canal fond tuiles meshmonitor export jeton postgres lsa saf meteosat passerelle variables', 'admin', () => ficheReglagesAvances()],
   ['Registre des relais', 'Outils', 'registre relais site autorisation propriétaire visite inventaire export csv', 'membre', () => ficheRegistreRelais()],
+  ['Nœuds d’un département (par position)', 'Outils', 'departement position liste noeuds 43 recherche par position', 'membre', () => ficheNoeudsDepartement()],
   ['Nœuds à inviter (autre preset)', 'Outils', 'longfast preset autre inviter recruter sentinelle longmoderate', 'admin', () => ficheAutresPresets()],
   ['Brokers MQTT supplémentaires', 'Réseau › Broker MQTT', 'mqtt broker plusieurs autre bulle voisine supplementaire', 'admin', () => ouvrirBroker()],
   ['Sujet racine MQTT', 'Compte › Réglages', 'mqtt topic racine msh', 'admin', () => ouvrirDlg('reglages', '[name=mqttRacine]')],
@@ -2749,16 +2751,55 @@ function ajouterCalculettePertes(racine) {
     };
   });
 }
+// Dates de la fiche d'installation : un champ de date vide propose la date du jour dès qu'on entre dedans
+// (c'est presque toujours la bonne, surtout pour « dernière visite sur place »). Ce n'est qu'une aide à la saisie :
+// la proposition est signalée sous le champ, elle s'efface si on vide le champ (et ne revient pas toute seule),
+// et rien n'est écrit sur le serveur tant que la fiche n'est pas enregistrée.
+function dateDuJourIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function proposerDatesDuJour(formulaire) {
+  const iso = dateDuJourIso();
+  for (const champ of formulaire.querySelectorAll('input[type="date"]')) {
+    const oublier = () => {
+      champ.classList.remove('date-proposee');
+      const m = champ.parentElement && champ.parentElement.querySelector('.date-proposee-marque');
+      if (m) m.remove();
+    };
+    champ.addEventListener('focus', () => {
+      if (champ.value || champ.dataset.dejaPropose) return; // jamais une date déjà saisie, et une seule fois par champ
+      champ.dataset.dejaPropose = '1';
+      champ.value = iso;
+      champ.classList.add('date-proposee');
+      const m = document.createElement('small');
+      m.className = 'date-proposee-marque';
+      m.textContent = 'Date du jour proposée : gardez-la, changez-la, ou videz le champ.';
+      champ.insertAdjacentElement('afterend', m);
+    });
+    // L'utilisateur reprend la main (saisie, calendrier, champ vidé) : ce n'est plus une proposition
+    champ.addEventListener('input', oublier);
+    champ.addEventListener('change', oublier);
+  }
+}
 function brancherInstallation(n) {
   const fo = $('#f-install');
   if (!fo) return;
   ajouterCalculettePertes(fo);
+  proposerDatesDuJour(fo);
   fo.onsubmit = async (e) => {
     e.preventDefault();
     const nums = ['hauteur', 'gain', 'pertesCable', 'puissance', 'batterieAh', 'panneauW'];
     const corps = Object.fromEntries([...new FormData(fo).entries()].map(([k, x]) => [k, nums.includes(k) ? String(x).replace(',', '.').trim() : String(x).trim()]));
-    try { await postJson(`/api/noeuds/${n.num}/installation`, corps, 'PUT'); $('#install-retour').textContent = '✔ Fiche enregistrée.'; $('#install-retour').classList.add('ok'); }
-    catch (err) { $('#install-retour').textContent = err.message; }
+    // Dates du jour proposées et gardées telles quelles : enregistrées, mais nommées dans le retour (jamais en silence)
+    const gardees = [...fo.querySelectorAll('input[type="date"].date-proposee')].filter((c) => c.value)
+      .map((c) => String(((c.closest('label') || {}).textContent || c.name)).trim());
+    try {
+      await postJson(`/api/noeuds/${n.num}/installation`, corps, 'PUT');
+      $('#install-retour').textContent = '✔ Fiche enregistrée.' + (gardees.length ? ` Date du jour enregistrée pour : ${gardees.join(', ')}.` : '');
+      $('#install-retour').classList.add('ok');
+      fo.querySelectorAll('input[type="date"].date-proposee').forEach((c) => { c.classList.remove('date-proposee'); const m = c.parentElement && c.parentElement.querySelector('.date-proposee-marque'); if (m) m.remove(); });
+    } catch (err) { $('#install-retour').textContent = err.message; }
   };
 }
 // ---- Responsable d'un nœud : la personne qui en répond (membres connectés seulement) ----
@@ -2806,6 +2847,10 @@ async function dlgResponsable(num) {
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-resp]'); if (b) { e.preventDefault(); dlgResponsable(Number(b.dataset.resp)); } });
 
 async function ouvrirFiche(num) {
+  // D'où vient cette fiche : seul l'écran qui l'ouvre juste avant (registre des relais, liste d'un département)
+  // demande qu'on y revienne en la fermant. Ouverte depuis la carte, la recherche ou une autre fiche : retour à la carte.
+  etat.retourFiche = etat.retourFicheDemande || null;
+  etat.retourFicheDemande = null;
   etat.selection = num;
   const fiche = $('#fiche');
   fiche.hidden = false;
@@ -5057,6 +5102,51 @@ async function rendreModules(force) {
   };
 }
 
+// ---- Nœuds par département, d'après la position qu'ils ont retransmise -------------------------
+// Le test « ce point tombe-t-il dans le département ? » se fait sur le serveur (contours nationaux, plus de
+// 500 ko de GeoJSON) : la carte ne reçoit que le code du département de chaque nœud, une fois par minute au plus.
+let indexDeps = null, indexDepsHeure = 0, indexDepsEnCours = null;
+function indexDepartementsNoeuds(force) {
+  if (!etat.membre) return Promise.resolve(null);
+  if (indexDeps && !force && Date.now() - indexDepsHeure < 60000) return Promise.resolve(indexDeps);
+  if (indexDepsEnCours) return indexDepsEnCours;
+  indexDepsEnCours = api('/api/noeuds-par-departement')
+    .then((r) => { indexDeps = r; indexDepsHeure = Date.now(); return r; })
+    .catch(() => null)
+    .finally(() => { indexDepsEnCours = null; });
+  return indexDepsEnCours;
+}
+// Liste des départements (code et nom) : fichier de référence du serveur, chargé une seule fois
+let listeDepsCarte = null;
+function listeDepartementsCarte() {
+  if (listeDepsCarte) return Promise.resolve(listeDepsCarte);
+  return api('/api/departements').then((l) => (listeDepsCarte = Array.isArray(l) ? l : [])).catch(() => (listeDepsCarte = []));
+}
+const nomNu = (s) => sansAccent(s).replace(/[-’']/g, ' ').replace(/\s+/g, ' ').trim();
+// « 43 », « dep 43 », « département 2A », « Haute-Loire » : code du département demandé, sinon null
+function departementDemande(q, liste) {
+  const t = nomNu(String(q).replace(/\./g, ' '));
+  const m = /^(?:dep|dept|departement|departements)?\s*(\d{2}|2a|2b)$/.exec(t);
+  if (m) return m[1].toUpperCase();
+  const nom = t.replace(/^(?:dep|dept|departement|departements)\s+/, '');
+  if (nom.length < 3) return null;
+  const d = (liste || []).find((x) => nomNu(x.nom) === nom) || (liste || []).find((x) => nomNu(x.nom).startsWith(nom));
+  return d ? d.code : null;
+}
+// Entrée « Nœuds du département XX » de la recherche : une liste de nœuds, pas un recentrage de la carte
+async function entreeDepartement(q) {
+  if (!etat.membre) return null;
+  const code = departementDemande(q, await listeDepartementsCarte());
+  if (!code) return null;
+  const idx = await indexDepartementsNoeuds();
+  if (!idx) return null;
+  const d = (idx.departements || []).find((x) => x.code === code);
+  const nom = d ? d.nom : ((listeDepsCarte || []).find((x) => x.code === code) || {}).nom || '';
+  return { type: 'Département', nom: nom ? `Nœuds du département ${code} · ${nom}` : `Nœuds du département ${code}`,
+    detail: d ? `${d.nb} nœud(s) d’après la position reçue` : 'aucun nœud positionné ici pour l’instant',
+    go: () => ficheNoeudsDepartement(code) };
+}
+
 // ---- Recherche d'un lieu (nœuds, points hauts, lieux et adresses) ------------------------------
 let marqueurRecherche = null;
 let contourRecherche = null;
@@ -5119,6 +5209,12 @@ function brancherRecherche() {
     try { for (const e of indexReglages()) { if (sansAccent(`${e.t} ${e.m}`).includes(sansAccent(q))) fonctions.push({ type: 'Fonction', nom: e.t, detail: e.ch, go: e.go }); if (fonctions.length >= 3) break; } } catch { /* catalogue indisponible */ }
     locaux.unshift(...fonctions);
     resultats = locaux.slice(0, 6); index = -1; afficher();
+    // Recherche par position et non par nom : « 43 » ou « Haute-Loire » donne la liste des nœuds du département
+    try {
+      const d = await entreeDepartement(q);
+      if (n !== demande) return;
+      if (d) { locaux.unshift(d); resultats = locaux.slice(0, 6); afficher(); }
+    } catch { /* index des départements indisponible */ }
     try {
       const c = carte.getCenter();
       const r = await api(`/api/recherche?q=${encodeURIComponent(q)}&lat=${c.lat.toFixed(4)}&lon=${c.lng.toFixed(4)}`);
@@ -6266,7 +6362,15 @@ function brancherInterface() {
   $('#replier').onclick = () => { $('#panneau').classList.add('replie'); $('#deplier').hidden = false; document.body.classList.add('panneau-replie'); };
   $('#deplier').onclick = () => { $('#panneau').classList.remove('replie'); $('#deplier').hidden = true; document.body.classList.remove('panneau-replie'); };
   installerDetachement();
-  $('#fermer-fiche').onclick = () => { $('#fiche').hidden = true; etat.selection = null; if (etat.trajet) { etat.trajet.remove(); etat.trajet = null; } if (etat.cerclePrec) { etat.cerclePrec.remove(); etat.cerclePrec = null; } };
+  $('#fermer-fiche').onclick = () => {
+    const retour = etat.retourFiche; etat.retourFiche = null; // consommé une seule fois : jamais de va-et-vient sans fin
+    $('#fiche').hidden = true; etat.selection = null;
+    if (etat.trajet) { etat.trajet.remove(); etat.trajet = null; }
+    if (etat.cerclePrec) { etat.cerclePrec.remove(); etat.cerclePrec = null; }
+    // Fiche ouverte depuis le registre ou depuis la liste d'un département : on y revient, avec la recherche en cours
+    if (retour && retour.ecran === 'registre') ficheRegistreRelais(retour);
+    else if (retour && retour.ecran === 'departement') ficheNoeudsDepartement(retour.code, retour);
+  };
   document.body.addEventListener('click', (e) => {
     const el = e.target.closest('.ligne[data-num], .alerte[data-num], .paquet[data-num]');
     if (!el || el.closest('#fiche')) return;

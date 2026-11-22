@@ -37,4 +37,33 @@ Valeurs typiques autour de 870 MHz ; vérifier la fiche du câble. Un câble cou
 
 Les relais sans autorisation écrite et ceux non visités depuis plus d'un an sont comptés en tête. **Exporter le registre (CSV)** l'ouvre dans un tableur ; le propriétaire du site et le contact n'y figurent que pour un administrateur.
 
+### Retrouver un relais
+Le champ **Chercher** en haut du registre filtre la liste au fur et à mesure de la frappe, sans tenir compte des accents ni des majuscules : nom du nœud, identifiant, site, propriétaire, contact, notes, autorisation, département. Le compteur et les indicateurs (« sans autorisation écrite », « sans visite depuis plus d'un an ») portent toujours sur ce qui est affiché, et l'export CSV aussi.
+
+La liste **Département** range les relais d'après la position qu'ils ont retransmise. Un relais qui ne donne pas sa position, ou qui est hors de France, se trouve sous « Sans département ».
+
+Cliquer sur une ligne ouvre la fiche du relais ; **en fermant la fiche, on revient au registre**, avec la même recherche et le même département. Une fiche ouverte depuis la carte ou depuis la recherche se ferme comme avant.
+
+### Cocher plusieurs relais d'un coup
+Pour les relais que l'on gère, une case apparaît devant chaque ligne. Cochez-en plusieurs : une barre s'ouvre avec le nombre de relais cochés et la liste **Autorisation du site** (« Pas nécessaire (terrain à soi) » par défaut). **Appliquer aux relais cochés** demande confirmation, en disant combien de relais sont concernés, puis écrit la même autorisation dans chaque fiche — le reste de chaque fiche est gardé.
+
+Chaque relais est enregistré séparément, avec les mêmes contrôles que la fiche entière : un gestionnaire de secteur ne peut toucher que ses relais, et chaque modification laisse sa ligne dans le journal d'audit. Si un relais est refusé, le compte rendu le dit (« ✗ 1 relais non modifié »), le relais reste coché et sa fiche est inchangée.
+
+Les relais cochés mais masqués par la recherche ne sont jamais modifiés : la confirmation le rappelle.
+
+### Dates proposées
+Dans la fiche d'installation, les trois champs de date (mise en service, date de l'autorisation, dernière visite sur place) **proposent la date du jour** dès qu'on entre dans un champ vide — c'est presque toujours la bonne pour une visite. La proposition est signalée sous le champ : gardez-la, changez-la, ou videz le champ (elle ne revient pas). Rien n'est enregistré tant que le bouton **Enregistrer la fiche** n'a pas été utilisé ; une date du jour gardée telle quelle est nommée dans le message de confirmation. Une date déjà saisie n'est jamais remplacée.
+
 Ces informations se saisissent dans la fiche du nœud, rubrique **Installation** › *Site*. Voir aussi [[Couverture et sites]] : un point haut n'est pas un site autorisé.
+
+## Nœuds d'un département (recherche par position)
+*Outils › 🗂️ Registre des relais* ne montre que les relais. Pour avoir **la liste de tous les nœuds d'un département**, tapez le numéro ou le nom du département dans la barre de recherche de la carte (« 43 », « dep 43 », « Haute-Loire ») : la première proposition est **Nœuds du département 43**, avec le nombre de nœuds. Le même écran s'ouvre depuis *Chercher une fonction* › « Nœuds d'un département (par position) ».
+
+Le classement se fait sur la **position que chaque nœud a retransmise**, pas sur son nom : le test du point dans le polygone utilise les contours officiels des départements et il est fait sur le serveur (le navigateur ne télécharge pas le fichier des contours). Le résultat est gardé une minute.
+
+À savoir :
+- un nœud qui n'a jamais envoyé de position ne peut être rangé nulle part : il est compté à part, sous « Sans position reçue » ;
+- un nœud positionné hors de France apparaît sous « Position connue, hors de France » (les départements n'existent qu'en France : sur l'édition monde, rien n'est deviné pour le reste de la planète) ;
+- une position floutée ou imprécise (firmware Meshtastic 2.8) peut ranger un nœud proche d'une limite dans le département voisin ; l'écran le rappelle.
+
+La liste se filtre aussi par nom, identifiant ou rôle, et s'exporte en CSV. Cliquer sur un nœud ouvre sa fiche ; en la fermant, on revient à la liste.

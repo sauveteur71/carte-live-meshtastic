@@ -1632,6 +1632,34 @@ body.theme-clair .badge.licencie { color: #4b2a9a; background: rgba(120, 80, 220
 .registre-relais .etat-ok { color: #3ee68a; } .registre-relais .etat-attention, .registre-relais .attention { color: #ffb547; }
 .registre-relais .etat-ko, .registre-relais .ko { color: #ff6b6b; } .registre-relais .etat-inconnu { color: var(--doux, #c3d0dc); }
 body.theme-clair .registre-relais .etat-ok { color: #0a7a45; } body.theme-clair .registre-relais .etat-attention, body.theme-clair .registre-relais .attention { color: #a35a00; } body.theme-clair .registre-relais .etat-ko, body.theme-clair .registre-relais .ko { color: #b42318; }
+/* Registre : recherche libre, filtre par département, cases à cocher et modification groupée */
+.registre-filtres { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0 8px; }
+.registre-filtres input[type="search"] { flex: 1 1 220px; min-width: 150px; background: var(--surface-2); color: var(--texte); border: 1px solid var(--bord); border-radius: 8px; padding: 7px 10px; }
+.registre-filtres input[type="search"]:focus { border-color: var(--accent); outline: none; }
+.registre-filtres label { display: flex; align-items: center; gap: 6px; color: var(--doux); font-size: 12px; flex: 1 1 200px; min-width: 0; }
+.registre-filtres select { flex: 1 1 auto; min-width: 0; max-width: 100%; }
+.registre-groupe { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 8px; background: rgba(62, 230, 196, 0.08); }
+.registre-groupe b { color: var(--texte); }
+.registre-groupe label { display: flex; align-items: center; gap: 6px; color: var(--doux); font-size: 12px; min-width: 0; }
+.registre-groupe select { min-width: 0; max-width: 100%; }
+.registre-groupe .principal { background: var(--accent); color: #062019; border: 1px solid var(--accent); border-radius: 7px; padding: 6px 12px; font-weight: 600; cursor: pointer; }
+.registre-groupe .mini { background: var(--fond); border: 1px solid var(--bord); border-radius: 7px; padding: 6px 10px; cursor: pointer; color: var(--texte); }
+.registre-relais th.col-case, .registre-relais td.col-case { width: 30px; text-align: center; }
+.registre-relais input[type="checkbox"], .registre-groupe input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+/* Liste des nœuds d'un département (recherche par position) */
+.noeuds-departement table { width: 100%; border-collapse: collapse; font-size: 0.92em; min-width: 560px; }
+.noeuds-departement th, .noeuds-departement td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--bord); }
+.noeuds-departement th { white-space: nowrap; }
+.noeuds-departement tr.cliquable { cursor: pointer; }
+.noeuds-departement tr.cliquable:hover { background: rgba(62, 230, 196, 0.06); }
+@media (min-width: 1100px) { .fiche:has(.noeuds-departement) { width: min(900px, calc(100vw - 440px)); } }
+/* Date du jour proposée dans une fiche d'installation : bien visible, et ce n'est qu'une proposition */
+input.date-proposee { border-color: var(--attention) !important; box-shadow: inset 0 0 0 1px var(--attention); }
+.date-proposee-marque { display: block; margin-top: 3px; color: var(--attention); font-size: 11px; }
+body.theme-clair .registre-groupe { background: rgba(10, 122, 69, 0.08); border-color: #0a7a45; }
+body.theme-clair .registre-groupe .principal { background: #0a7a45; color: #fff; border-color: #0a7a45; }
+body.theme-clair .date-proposee-marque { color: #a35a00; }
+body.theme-clair input.date-proposee { border-color: #a35a00 !important; box-shadow: inset 0 0 0 1px #a35a00; }
 
 /* Stations APRS */
 /* Stations APRS : carré blanc à coins arrondis marqué « A » (bleu : APRS VHF/Internet, violet épais : LoRa APRS) */
