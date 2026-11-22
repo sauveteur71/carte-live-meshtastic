@@ -11,7 +11,8 @@ Un bandeau discret sur la carte (et sur la carte publique) remercie ceux qui ont
 Les liens **« Faire un don »** et **« GitHub Sponsors »** du bandeau viennent de ces réglages (organisation et formulaire HelloAsso, compte GitHub) ; une source désactivée n'affiche pas son lien.
 
 ## Ce que voit le public
-- Le nom est toujours abrégé : au plus la moitié des caractères (1 seul pour un nom de 3 caractères ou moins, 6 au plus), le reste en `***`. « 42BARBE » → « 42B*** », « Jo » → « J*** ».
+- **HelloAsso** : le nom s'affiche **tel que vous le saisissez**. À vous de l'abréger si vous le souhaitez (par exemple « 42B*** » au lieu de « 42BARBE »).
+- **GitHub Sponsors** (lus automatiquement) : le nom est toujours abrégé, au plus la moitié des caractères (1 seul pour un nom de 3 caractères ou moins, 6 au plus), le reste en `***`. « F4ABC » → « F4*** ».
 - Le montant est masqué, sauf si la case « Montant des dons affiché » est cochée.
 - Pas de date, pas d'e-mail, pas d'adresse, jamais de clé.
 

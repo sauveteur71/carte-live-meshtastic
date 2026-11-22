@@ -26,7 +26,7 @@ Carte en temps réel, supervision et **administration à distance** d'un réseau
 - [[Équipes]] : canal chiffré par équipe, posé ou retiré à distance sur les nœuds des intervenants, nouvelle clé, équivalent en ligne de commande.
 - [[MeshCore]] : companion, répéteurs, traces, régions, republication MQTT.
 - [[Comptes et sécurité]] : rôles, gestionnaires de secteur, double authentification, journal.
-- [[Mur des donateurs|Mur-des-donateurs]] : remercier ceux qui soutiennent le projet (HelloAsso saisi à la main, GitHub Sponsors publics), noms abrégés, secrets jamais exposés.
+- [[Mur des donateurs|Mur-des-donateurs]] : remercier ceux qui soutiennent le projet (HelloAsso saisi à la main, GitHub Sponsors publics, noms de ces derniers abrégés), secrets jamais exposés.
 - [[Archive PostgreSQL]] : historique complet, conservation, taille maximale.
 - [[Domotique et supervision]] : Home Assistant, Node-RED (y compris envoyer un message LoRa), Prometheus / Grafana pour surveiller les relais, modules Wi-Fi retrouvés par mDNS.
 - [[Radioamateurs, APRS, ATAK|Radioamateurs-APRS-ATAK]] : stations LoRa APRS, nœuds en mode licencié, export KML pour ATAK, calculette des pertes de câble, registre des relais (recherche, départements, autorisations groupées), nœuds d’un département.

@@ -1743,7 +1743,9 @@ test('Mur des donateurs : fusion HelloAsso (manuel, consenti) + GitHub Sponsors 
   await don.rafraichir();
   const l = don.liste();
   assert.equal(l.length, 2);
-  assert.ok(l.every((x) => !x.nom.includes('Dupont') && x.nom.endsWith('***') || x.nom === 'Un donateur'));
+  // HelloAsso (saisi à la main) : nom affiché tel que saisi ; GitHub Sponsors (lu automatiquement) : toujours abrégé
+  assert.equal(l.find((x) => x.source === 'helloasso').nom, '42BARBE');
+  assert.equal(l.find((x) => x.source === 'github').nom, 'F4***');
   assert.ok(l.some((x) => x.source === 'helloasso' && x.pays === 'FR'));
   assert.ok(l.some((x) => x.source === 'github'));
   // Montant masqué par défaut (seul l'administrateur l'active)

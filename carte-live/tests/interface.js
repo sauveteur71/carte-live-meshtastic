@@ -1459,8 +1459,8 @@ async function essaiDonateurs(navig, cookie) {
   // Liens « Faire un don » : seulement quand la source est activée, tirés des réglages
   await poster('/api/donateurs/reglages', { helloasso: { actif: true, organisation: 'asso-essai', formulaire: 'form-1' }, githubSponsors: { actif: false } });
   const pub = await (await fetch(BASE + '/api/donateurs')).json();
-  const nomsOk = (pub.liste || []).length === 1 && pub.liste[0].nom === '42B***' && pub.liste[0].montant == null && !('date' in pub.liste[0]);
-  if (nomsOk) ok('liste publique : nom abrégé (42B***), montant masqué, pas de date'); else ko('liste publique : ' + JSON.stringify(pub));
+  const nomsOk = (pub.liste || []).length === 1 && pub.liste[0].nom === '42BARBE' && pub.liste[0].montant == null && !('date' in pub.liste[0]);
+  if (nomsOk) ok('liste publique : nom HelloAsso tel que saisi (42BARBE), montant masqué, pas de date'); else ko('liste publique : ' + JSON.stringify(pub));
   if (pub.liens && pub.liens.helloasso === 'https://www.helloasso.com/associations/asso-essai/formulaires/form-1' && pub.liens.github === null) ok('liens tirés des réglages, GitHub absent (source désactivée)'); else ko('liens : ' + JSON.stringify(pub.liens));
   // Journal d'audit : le nom du donateur n'y figure pas
   const audit = await (await fetch(BASE + '/api/audit', { headers: entetes })).json().catch(() => []);

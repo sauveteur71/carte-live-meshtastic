@@ -4170,7 +4170,7 @@ async function rendreDonateursAdmin() {
       ${secret('don-ha-secret', 'Clé secrète (API)', h.clientSecretDefini, h.clientSecretSaisi)}
     </div>
     ${erreur('HelloAsso', erreurs.helloasso)}
-    <p class="note">HelloAsso ne dit pas si un donateur a accepté d’être montré publiquement : ajoutez chaque don à la main, après son accord. Le nom est toujours abrégé sur la carte (au plus la moitié des caractères : « 42BARBE » devient « 42B*** »).</p>
+    <p class="note">HelloAsso ne dit pas si un donateur a accepté d’être montré publiquement : ajoutez chaque don à la main, après son accord. Le nom s’affiche tel que vous le saisissez : abrégez-le vous-même si besoin (« 42B*** »). Les parrains GitHub Sponsors restent abrégés.</p>
     <div id="don-ha-liste">${(r.manuel || []).map((m) => `<div class="ligne sans-pastille"><span class="titre">${esc(m.nom)}${m.pays ? ' · ' + esc(m.pays) : ''}${m.montant != null ? ' · ' + esc(String(m.montant)) + ' €' : ''}<small>ajouté ${ilYa(new Date(m.date).getTime())}</small></span><span class="meta"><button class="mini" data-don-retirer="${esc(m.id)}">✕</button></span></div>`).join('') || '<div class="vide">Aucun don saisi.</div>'}</div>
     ${plein ? `<p class="erreur">Liste pleine (${r.maxManuel || 200} dons) : retirez d’anciennes entrées avant d’en ajouter.</p>` : ''}
     <form id="f-don-manuel" class="parametres compact">

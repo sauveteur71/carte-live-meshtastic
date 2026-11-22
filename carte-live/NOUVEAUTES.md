@@ -4,6 +4,9 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## 2.30.1
 
+### 💜 Mur des donateurs : noms HelloAsso affichés tels que saisis
+- Les dons HelloAsso, ajoutés à la main par l'administrateur, s'affichent maintenant **avec le nom exactement tel qu'il a été saisi** : plus d'abréviation automatique (« 42BARBE » ne devient plus « 42B*** »). À l'administrateur de l'abréger lui-même s'il le souhaite. Les parrains GitHub Sponsors, lus automatiquement, restent abrégés.
+
 ### 🧰 Menus du haut toujours accessibles jusqu'en bas
 - Sur ordinateur, le menu **Outils** (surtout avec « Les deux » réseaux affichés) pouvait être plus haut que la fenêtre : les dernières entrées (Carte publique et exports, Mode urgence, Rapport hebdomadaire…) sortaient de l'écran sans moyen de les atteindre. Les menus Outils, Couches et Couverture radio s'arrêtent maintenant en bas de la fenêtre et **défilent**.
 

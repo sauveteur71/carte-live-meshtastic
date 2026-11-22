@@ -45,7 +45,8 @@ const TYPES_HELLOASSO = ['CrowdFunding', 'Membership', 'Event', 'Donation', 'Pay
 const PAGES_GITHUB_MAX = 5; // 100 parrainages par page : au-delà de 500, les plus anciens ne sont pas lus (plafond documenté)
 const RE_SLUG = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
 
-// Nom affiché : jamais le nom complet. Règle : au plus la moitié des caractères est gardée (1 seul pour un nom
+// Dons HelloAsso saisis à la main : nom affiché tel que l'administrateur l'a saisi (à lui de l'abréger s'il le veut,
+// choix d'Olivier). Parrains GitHub Sponsors (lus automatiquement) : jamais le nom complet. Règle : au plus la moitié des caractères est gardée (1 seul pour un nom
 // de 3 caractères ou moins, 6 au plus), le reste devient « *** ». Compté en caractères Unicode (un émoji n'est
 // jamais coupé en deux). Exemples : « 42BARBE » → « 42B*** », « Jo » → « J*** », « F4GLD » → « F4*** ».
 function anonymiser(nom) {
@@ -183,7 +184,7 @@ function creerDonateurs({ config, journal = () => {}, fetch: fetchInjecte } = {}
     const gh = r.githubSponsors.actif ? etat.github : [];
     return [...ha, ...gh]
       .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
-      .map((x) => ({ nom: anonymiser(x.nom), pays: x.pays, montant: r.montantVisible && Number.isFinite(x.montant) ? x.montant : null, devise: x.devise, source: x.source }));
+      .map((x) => ({ nom: x.source === 'helloasso' ? (String(x.nom || '').trim() || 'Un donateur') : anonymiser(x.nom), pays: x.pays, montant: r.montantVisible && Number.isFinite(x.montant) ? x.montant : null, devise: x.devise, source: x.source }));
   }
   // Liens « Faire un don » affichés sur la carte : tirés des réglages, absents si la source est désactivée
   function liens() {
