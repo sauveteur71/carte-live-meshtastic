@@ -23,6 +23,26 @@ On each node to administer, add the **public key of the map's node** in *Securit
 - **Retry**: “Retry on failure” box in the forms, or **🔁 Retry for 2 h** button on a finished operation. Failed nodes are retried **every 10 min for 2 h**, useful for a mobile or a distant relay. Real refusals (key not authorised) are not retried.
 - Each node shows the **time** of its success or failure.
 
+
+## Recent operations: what was sent
+Every finished operation keeps the **record of what was sent to the node**, setting by setting, with units:
+
+```
+Settings change                  07:31:34 · F4GLD · retries finished
+Node sheet: every 3 h
+  · measured over 24 h: every 6 min
+Telemetry: every 30 min
+  · measured over 24 h: every 4 min
+43BouchetLM8RoN                                        succeeded at 07:40:06
+```
+
+- The **previous value** is shown when it is really known:
+  - “before: every 15 min (read 20 min ago)”: value **read from the node** before the send, with the age of that reading;
+  - “measured over 24 h: every 4 min”: interval **measured on the traffic** (fix started from *🚦 Traffic control*). It is a measurement, not the setting stored in the node.
+  - With neither a reading nor a measurement, only the sent value is shown: nothing is guessed.
+- **Keys are never shown**: a changed channel shows “key sent (not shown)”. Same for admin keys, passwords and tokens.
+- A long summary (several sections, several channels) shows the first lines and folds the rest under “and N other settings”: nothing is removed.
+
 ## Understanding a failure
 | Message | Cause |
 |---|---|

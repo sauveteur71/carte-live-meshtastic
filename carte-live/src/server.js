@@ -1475,14 +1475,16 @@ app.post('/api/trafic/corriger', (req, res) => {
   const taches = [], refus = [];
   for (const num of nums) {
     try {
-      let params;
+      let params, mesures = null;
       if (b.ignorerMqtt) params = { lora: { ignoreMqtt: true } };
       else {
         const e = r.bavards.find((x) => x.num === num);
         if (!e) { refus.push({ num, raison: 'plus trop bavard sur 24 h' }); continue; }
         params = obtenirControle().correctifs(e);
+        // Intervalles mesurés avant la correction : le résumé de l'opération affichera « avant → après »
+        mesures = obtenirControle().mesures(e, 24);
       }
-      taches.push(administration.lancer('modifier', [num], params, u.identifiant, { insister: true }).id);
+      taches.push(administration.lancer('modifier', [num], params, u.identifiant, { insister: true, mesures }).id);
     } catch (e) { refus.push({ num, raison: e.message }); }
   }
   res.json({ taches, refus });

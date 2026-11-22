@@ -103,7 +103,17 @@ function creerControleTrafic({ stockage, config, administration }) {
     return p;
   }
 
-  return { analyser, correctifs, SEUILS };
+  // Intervalles MESURÉS avant la correction (médiane sur la fenêtre d'analyse), par réglage du firmware.
+  // Sert uniquement à écrire « mesuré sur 24 h : toutes les 4 min » dans le résumé de l'opération :
+  // ce n'est pas le réglage lu dans le nœud, et ces valeurs ne sont jamais envoyées au module.
+  const CHAMP_DU_PORT = { position: 'position.positionBroadcastSecs', telemetrie: 'telemetrie.deviceUpdateInterval', nodeinfo: 'device.nodeInfoBroadcastSecs' };
+  function mesures(e, heures = 24) {
+    const valeurs = {};
+    for (const pb of (e && e.problemes) || []) if (CHAMP_DU_PORT[pb.port] && pb.medianS > 0) valeurs[CHAMP_DU_PORT[pb.port]] = pb.medianS;
+    return Object.keys(valeurs).length ? { heures, valeurs } : null;
+  }
+
+  return { analyser, correctifs, mesures, SEUILS };
 }
 
 module.exports = { creerControleTrafic, SEUILS };

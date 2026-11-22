@@ -1825,6 +1825,122 @@ async function essaiPagesPubliques(navig) {
   }
 }
 
+// Opérations récentes : la carte d'une opération doit dire CE QUI A ÉTÉ ENVOYÉ au relais (valeurs et unités),
+// rester lisible sur téléphone, et ne jamais laisser voir une clé de canal.
+// Les opérations d'essai sont mises en forme par le vrai module du serveur : l'écran et le serveur ne peuvent pas divergir.
+async function essaiResumeOperations(navig, cookie) {
+  console.log('Opérations récentes : résumé de ce qui a été envoyé');
+  const ops = require('../src/resume-operations');
+  const PSK_ESSAI = 'c2VjcmV0ZGVjYW5hbDEyMzQ1Njc4OTBhYmNk';
+  const vue = (id, t) => ({
+    id, type: t.type, nom: t.nom || 'Modification des réglages', auteur: 'F4GLD', debut: Date.now() - 600000, fin: Date.now() - 60000, insister: true,
+    resume: ops.resumeOperation(t), details: ops.detailsOperation(t), principal: ops.toucheCanalPrincipal(t),
+    noeuds: [{ num: 0x43ab1234, statut: 'echec', detail: 'pas de réponse du nœud', finNoeud: Date.now() - 60000 }],
+  });
+  const operations = [
+    // Le cas d'Olivier : correction lancée depuis « Contrôle du trafic » (intervalles mesurés sur 24 h)
+    vue('e1', { type: 'modifier', params: { device: { nodeInfoBroadcastSecs: 10800 }, telemetrie: { deviceUpdateInterval: 1800 } }, mesures: { heures: 24, valeurs: { 'device.nodeInfoBroadcastSecs': 360, 'telemetrie.deviceUpdateInterval': 240 } } }),
+    // Résumé long : plusieurs sections et plusieurs canaux, dont une clé de canal qui ne doit jamais s'afficher
+    vue('e2', {
+      type: 'modifier',
+      params: {
+        nom: { nomLong: 'Le Bouchet', nomCourt: 'BCH' }, device: { role: 'ROUTER' }, lora: { hopLimit: 4, txPower: 20 },
+        position: { positionBroadcastSecs: 43200 }, voisinage: { enabled: true, updateInterval: 21600 }, trafic: { rateLimitWindowSecs: 60 },
+        canaux: [{ index: 0, nom: 'LongFast', psk: 'AQ==', precision: 16, montant: true, descendant: true }, { index: 2, nom: 'Secours', psk: PSK_ESSAI, precision: 32 }],
+      },
+      avant: { heure: Date.now() - 20 * 60000, valeurs: { 'lora.hopLimit': 3, 'position.positionBroadcastSecs': 900 } },
+    }),
+  ];
+  for (const [nom, vueFenetre, mobile] of [['ordinateur', { width: 1400, height: 900 }, false], ['téléphone', { width: 390, height: 844 }, true]]) {
+    const ctx = await navig.newContext({ viewport: vueFenetre, locale: 'fr-FR', isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 2 : 1 });
+    await ctx.addCookies([cookie]);
+    await ctx.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+    const { page, erreurs } = await ouvrir(ctx, '/');
+    const pose = await page.evaluate(async (l) => {
+      document.querySelectorAll('dialog[open]').forEach((d) => d.close());
+      const o = document.querySelector('.onglets button[data-onglet="gestion"]');
+      if (o) o.click();
+      for (let k = 0; k < 40 && !document.querySelector('#taches-gestion'); k++) await new Promise((r) => setTimeout(r, 150));
+      await new Promise((r) => setTimeout(r, 800)); // l'écran Gérer se reconstruit : attendre qu'il soit posé
+      if (typeof gestion === 'object' && gestion.suivi) clearInterval(gestion.suivi); // plus de rafraîchissement automatique
+      let z = null;
+      for (let k = 0; k < 5; k++) {
+        z = document.querySelector('#taches-gestion');
+        if (!z) return null;
+        z.innerHTML = rendreTaches(l);
+        brancherArrets();
+        await new Promise((r) => setTimeout(r, 500)); // laisser la traduction de l'interface passer
+        z = document.querySelector('#taches-gestion');
+        if (z && z.querySelector('.tache')) break;
+      }
+      const t1 = z && z.querySelector('.tache');
+      if (!t1) return null;
+      const couleur = (s) => { const e = z.querySelector(s); return e ? getComputedStyle(e).color : null; };
+      const details = [...z.querySelectorAll('details.reste-resume')].map((d) => ({ resume: d.querySelector('summary').textContent.trim(), caches: d.querySelectorAll('.ligne-resume').length }));
+      const deborde = [...z.querySelectorAll('.tache')].filter((e) => e.scrollWidth > e.clientWidth + 1).length;
+      return {
+        texte: z.textContent, html: z.innerHTML,
+        lignes: [...t1.querySelectorAll('.ligne-resume')].map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
+        couleurValeur: couleur('.val-resume'), couleurLib: couleur('.lib-resume'),
+        couleurTexte: getComputedStyle(document.body).getPropertyValue('--texte').trim(),
+        details, deborde, pageDeborde: document.documentElement.scrollWidth > innerWidth + 1,
+        principal: [...z.querySelectorAll('[data-relancer-tache]')].map((b) => b.dataset.principal),
+      };
+    }, operations).catch((e) => ({ erreur: e.message }));
+    if (!pose || pose.erreur) { ko(`opérations récentes (${nom}) : écran non obtenu ${pose ? pose.erreur : ''}`); await ctx.close(); continue; }
+    // 1. Les valeurs envoyées, pas les noms de champs du firmware
+    if (/Fiche du nœud/.test(pose.texte) && /toutes les 3 h/.test(pose.texte) && !/nodeInfoBroadcastSecs/.test(pose.texte)) ok(`${nom} : le résumé donne le réglage en français et sa valeur`); else ko(`${nom} : résumé ` + JSON.stringify(pose.lignes));
+    // 2. Valeur d'avant : mesure sur 24 h, et valeur lue datée
+    if (/mesuré sur 24 h : toutes les 6 min/.test(pose.texte)) ok(`${nom} : intervalle mesuré avant la correction affiché comme une mesure`); else ko(`${nom} : mesure absente ` + JSON.stringify(pose.lignes));
+    if (/avant : 3 \(lu il y a 20 min\)/.test(pose.texte)) ok(`${nom} : valeur précédente lue sur le nœud, avec l’âge de la lecture`); else ko(`${nom} : « avant » absent`);
+    // 3. Aucune clé de canal à l'écran ni dans le HTML
+    if (!pose.html.includes(PSK_ESSAI) && !pose.html.includes('AQ==') && /clé envoyée \(non affichée\)/.test(pose.texte)) ok(`${nom} : aucune clé de canal affichée`); else ko(`${nom} : clé visible dans la carte d’opération`);
+    // 4. Contraste : la valeur est écrite dans la couleur de texte pleine, le libellé en couleur douce
+    if (pose.couleurValeur && pose.couleurValeur !== pose.couleurLib) ok(`${nom} : valeur bien contrastée (${pose.couleurValeur}), libellé plus doux`); else ko(`${nom} : valeur et libellé de même couleur (${pose.couleurValeur})`);
+    // 5. Résumé long : les lignes en trop sont repliées, pas perdues
+    if (pose.details.length === 1 && /autres réglages/.test(pose.details[0].resume) && pose.details[0].caches >= 3) ok(`${nom} : résumé long replié (« ${pose.details[0].resume} »), rien de supprimé`); else ko(`${nom} : repli du résumé long ` + JSON.stringify(pose.details));
+    // 6. Le bouton « Réessayer » sait qu'un canal principal est réécrit (sans deviner d'après le texte)
+    if (pose.principal.includes('1') && pose.principal.includes('0')) ok(`${nom} : relance d’une opération touchant le canal principal signalée`); else ko(`${nom} : drapeau canal principal ` + JSON.stringify(pose.principal));
+    // 7. Téléphone : rien ne dépasse
+    if (nom === 'téléphone') {
+      if (!pose.deborde && !pose.pageDeborde) ok('téléphone 390 px : les lignes du résumé tiennent dans la carte, sans défilement horizontal'); else ko(`téléphone 390 px : ${pose.deborde} carte(s) débordent, page ${pose.pageDeborde}`);
+    }
+    await page.evaluate(() => { const z = document.querySelector('#taches-gestion'); if (z) z.scrollIntoView({ block: 'start' }); document.querySelectorAll('details.reste-resume').forEach((d) => (d.open = true)); });
+    await page.waitForTimeout(300);
+    await capture(page, 'resume-operations-' + (nom === 'téléphone' ? 'telephone' : 'ordinateur'));
+    bilanErreurs(erreurs, 'opérations récentes (' + nom + ')');
+    await ctx.close();
+  }
+  // Autre langue : les libellés, les unités et la mention « mesuré » sont traduits (édition monde : 16 langues)
+  const ctxEn = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'en-GB' });
+  await ctxEn.addCookies([cookie]);
+  await ctxEn.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'en'); } catch { /* */ } });
+  const { page: pEn, erreurs: errEn } = await ouvrir(ctxEn, '/');
+  const texteEn = await pEn.evaluate(async (l) => {
+    document.querySelectorAll('dialog[open]').forEach((d) => d.close());
+    const o = document.querySelector('.onglets button[data-onglet="gestion"]');
+    if (o) o.click();
+    for (let k = 0; k < 40 && !document.querySelector('#taches-gestion'); k++) await new Promise((r) => setTimeout(r, 150));
+    await new Promise((r) => setTimeout(r, 800));
+    if (typeof gestion === 'object' && gestion.suivi) clearInterval(gestion.suivi);
+    let z = null;
+    for (let k = 0; k < 5; k++) {
+      z = document.querySelector('#taches-gestion');
+      if (!z) return '';
+      z.innerHTML = rendreTaches(l);
+      await new Promise((r) => setTimeout(r, 600));
+      z = document.querySelector('#taches-gestion');
+      if (z && z.querySelector('.tache')) break;
+    }
+    return z ? z.textContent : '';
+  }, operations).catch(() => '');
+  if (/Node sheet/.test(texteEn) && /every 3 h/.test(texteEn) && /measured over 24 h: every 6 min/.test(texteEn)) ok('anglais : libellés, unités et mention « mesuré » traduits'); else ko('anglais : ' + String(texteEn).replace(/\s+/g, ' ').slice(0, 220));
+  if (/Secours/.test(texteEn)) ok('anglais : les noms de canaux restent tels quels (translate="no")'); else ko('anglais : nom de canal perdu');
+  await capture(pEn, 'resume-operations-anglais');
+  bilanErreurs(errEn, 'opérations récentes (anglais)');
+  await ctxEn.close();
+}
+
 (async () => {
   let code = 0;
   try {
@@ -1861,6 +1977,8 @@ async function essaiPagesPubliques(navig) {
     await essaiDonateurs(navigateur, cookie);
     await essaiPartager(navigateur, cookie);
     await essaiRegistreAvance(navigateur, cookie);
+
+    await essaiResumeOperations(navigateur, cookie);
     await essaiPagesPubliques(navigateur);
     await essaiTopologieFiche(navigateur);
     await essaiRapportArchives(navigateur, cookie);

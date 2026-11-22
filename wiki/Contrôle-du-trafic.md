@@ -18,6 +18,8 @@ Intervalles médians mesurés sur 6, 24 ou 72 h, comparés à ces seuils :
 
 **Corriger les nœuds cochés** (nœuds programmables par la carte) : position toutes les 12 h pour un relais (position fixe, sans « smart position »), 15 min pour un mobile ; télémétrie 30 min ; fiche 3 h. Pour les autres, prévenez leur propriétaire.
 
+Après la correction, *Programmer › Opérations récentes* indique pour chaque nœud ce qui a été envoyé et l'intervalle qui avait été mesuré : « Fiche du nœud : toutes les 3 h · mesuré sur 24 h : toutes les 6 min ».
+
 ## Réinjection MQTT → radio
 Paquets venus d'internet (drapeau « via MQTT ») puis émis en radio par une passerelle dont le canal a la **descente MQTT** activée, avec la passerelle qui les réinjecte. À faire sur ces passerelles : couper la descente sur le canal public, ou ne la garder que sur un canal privé.
 

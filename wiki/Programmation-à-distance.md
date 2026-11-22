@@ -23,6 +23,26 @@ Sur chaque nœud à administrer, ajoutez la **clé publique du module de la cart
 - **Insister** : case « Insister en cas d'échec » dans les formulaires, ou bouton **🔁 Insister 2 h** sur une opération terminée. Les nœuds en échec sont repris **toutes les 10 min pendant 2 h**, utile pour un mobile ou un relais lointain. Les vrais refus (clé non autorisée) ne sont pas retentés.
 - Chaque nœud affiche l'**heure** de sa réussite ou de son échec.
 
+
+## Opérations récentes : ce qui a été envoyé
+Chaque opération terminée garde la **trace de ce qui a été envoyé au nœud**, réglage par réglage, en français et avec les unités :
+
+```
+Modification des réglages        07:31:34 · F4GLD · insistance terminée
+Fiche du nœud : toutes les 3 h
+  · mesuré sur 24 h : toutes les 6 min
+Télémétrie : toutes les 30 min
+  · mesuré sur 24 h : toutes les 4 min
+43BouchetLM8RoN                                        réussi à 07:40:06
+```
+
+- La **valeur d'avant** est affichée quand elle est connue :
+  - « avant : toutes les 15 min (lu il y a 20 min) » : valeur **lue sur le nœud** avant l'envoi, avec l'âge de la lecture ;
+  - « mesuré sur 24 h : toutes les 4 min » : intervalle **mesuré sur le trafic** (correction lancée depuis *🚦 Contrôle du trafic*). C'est une mesure, pas le réglage qui était enregistré dans le nœud.
+  - Sans lecture ni mesure, seule la valeur envoyée est affichée : rien n'est deviné.
+- Les **clés ne sont jamais affichées** : un canal modifié indique « clé envoyée (non affichée) ». Même chose pour les clés d'administration, les mots de passe et les jetons.
+- Un résumé long (plusieurs sections, plusieurs canaux) montre les premières lignes et replie le reste sous « et N autres réglages » : rien n'est supprimé.
+
 ## Comprendre un échec
 | Message | Cause |
 |---|---|
