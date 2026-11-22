@@ -1486,6 +1486,331 @@ async function essaiRapportArchives(navig, cookie) {
   await contexte.close();
 }
 
+
+// Registre des relais : date du jour proposée, retour au registre en fermant une fiche, recherche libre,
+// liste des nœuds d'un département (d'après la position reçue) et modification groupée de l'autorisation.
+async function essaiRegistreAvance(navig, cookie) {
+  console.log('Registre des relais : dates proposées, retour au registre, recherche, départements, autorisations groupées');
+  const H = { 'Content-Type': 'application/json', Cookie: `${cookie.name}=${cookie.value}` };
+  const appel = async (m, url, b, h = H) => { const r = await fetch(BASE + url, { method: m, headers: h, body: b ? JSON.stringify(b) : undefined }); return { statut: r.status, j: await r.json().catch(() => ({})) }; };
+  // Relais écrits directement dans la base : trois en Haute-Loire (43), un dans la Loire (42) mais dans le
+  // rectangle de la carte, un sans aucune position, un à Londres (position connue, hors de France).
+  const MEZ = 0x43000001, CHD = 0x43000002, MON = 0x43000003, PIL = 0x42000004, SPO = 0x43000005, LDN = 0x44000006;
+  const Database = require('better-sqlite3');
+  const db = new Database(path.join(donnees, 'carte-live.db'));
+  db.pragma('busy_timeout = 5000');
+  const vu = Date.now() - 300000;
+  const ins = db.prepare('INSERT INTO noeuds (num, id, nom_long, nom_court, role, materiel, firmware, lat, lon, alt, heure_position, premier_vu, dernier_vu) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(num) DO UPDATE SET nom_long = excluded.nom_long, nom_court = excluded.nom_court, role = excluded.role, lat = excluded.lat, lon = excluded.lon');
+  for (const [num, nom, court, lat, lon] of [
+    [MEZ, '43 Relais Mézenc', 'MEZ', 45.0433, 3.8853], [CHD, '43 Relais Chaise-Dieu', 'CHD', 45.32, 3.69],
+    [MON, '43 Relais Monistrol', 'MON', 45.29, 4.17], [PIL, '42 Relais du Pilat', 'PIL', 45.294, 4.4],
+    [SPO, '43 Relais sans position', 'SPO', null, null], [LDN, 'London test node', 'LDN', 51.5, -0.12],
+  ]) ins.run(num, '!' + num.toString(16).padStart(8, '0'), nom, court, 'ROUTER', 'HELTEC_V3', '2.7.11', lat, lon, lat == null ? null : 1100, lat == null ? null : vu, vu, vu);
+  db.close();
+  // La liste complète des nœuds est gardée 10 s par le serveur : on attend qu'elle contienne les nouveaux relais,
+  // sinon la page chargée juste après recevrait l'ancienne liste et ne les verrait pas de la visite entière.
+  for (let k = 0; k < 40; k++) {
+    const l = await (await fetch(BASE + '/api/noeuds', { headers: H })).json().catch(() => []);
+    if (Array.isArray(l) && l.some((n) => (n.num >>> 0) === MEZ)) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  // Fiche d'installation de départ : site accentué, propriétaire, notes, hauteur (ne doit jamais être perdue)
+  const pose = await appel('PUT', `/api/noeuds/${MEZ}/installation`, { site: 'Château d’eau de Saint-Vincent', proprietaire: 'Commune de Saint-Vincent', contact: 'mairie@exemple.fr', notes: 'Accès par le chemin du stade', hauteur: 8 });
+  if (pose.statut !== 200) ko('fiche d’installation de départ : ' + pose.statut);
+
+  // ---- Nœuds rangés par département, d'après la position retransmise
+  const idx = await appel('GET', '/api/noeuds-par-departement');
+  const anon = (await fetch(BASE + '/api/noeuds-par-departement')).status;
+  const pn = idx.j.parNoeud || {}, d43 = (idx.j.departements || []).find((x) => x.code === '43');
+  if (idx.statut === 200 && pn[String(MEZ)] === '43' && pn[String(MON)] === '43' && pn[String(PIL)] === '42'
+    && (idx.j.sansPosition || []).includes(SPO) && (idx.j.horsDepartements || []).includes(LDN)
+    && d43 && d43.nom === 'Haute-Loire' && d43.nb >= 3 && anon === 401) ok(`départements des nœuds : 43 (${d43.nb}), 42 pour le Pilat, sans position et hors de France à part, refusé sans compte`);
+  else ko('départements des nœuds : ' + JSON.stringify({ statut: idx.statut, anon, d43, mez: pn[String(MEZ)], pil: pn[String(PIL)], sans: (idx.j.sansPosition || []).includes(SPO), hors: (idx.j.horsDepartements || []).includes(LDN) }));
+
+  // ---- Route de l'autorisation seule : droits, validation, reste de la fiche gardé, rien de privé en retour
+  const mauvais = await appel('POST', `/api/noeuds/${CHD}/autorisation`, { autorisation: 'n’importe-quoi' });
+  const sansCompte = await fetch(BASE + `/api/noeuds/${CHD}/autorisation`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"autorisation":"non-necessaire"}' });
+  const bon = await appel('POST', `/api/noeuds/${MEZ}/autorisation`, { autorisation: 'ecrite' });
+  const fiches = (await appel('GET', '/api/installations')).j;
+  const fm = fiches[String(MEZ)] || {};
+  if (mauvais.statut === 400 && sansCompte.status === 401 && bon.statut === 200 && !JSON.stringify(bon.j).includes('Commune')
+    && fm.autorisation === 'ecrite' && fm.site === 'Château d’eau de Saint-Vincent' && fm.hauteur === 8 && fm.proprietaire === 'Commune de Saint-Vincent') ok('autorisation seule : valeur inconnue refusée, refusée sans compte, reste de la fiche gardé, propriétaire jamais renvoyé');
+  else ko('autorisation seule : ' + JSON.stringify({ mauvais: mauvais.statut, sansCompte: sansCompte.status, bon: bon.statut, fm }));
+
+  // ---- Gestionnaire de secteur : un nœud hors de son secteur est refusé par le serveur
+  const gest = await appel('POST', '/api/comptes', { identifiant: 'Gestion 43', motDePasse: 'Essai-gest-2026!!', role: 'gestionnaire', noeuds: [String(MEZ), String(CHD)] });
+  const cx = await fetch(BASE + '/api/connexion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifiant: 'Gestion 43', motDePasse: 'Essai-gest-2026!!' }) });
+  const brut = (cx.headers.get('set-cookie') || '').split(';')[0];
+  const HG = { 'Content-Type': 'application/json', Cookie: brut };
+  const dedans = await appel('POST', `/api/noeuds/${CHD}/autorisation`, { autorisation: 'convention' }, HG);
+  const dehors = await appel('POST', `/api/noeuds/${MON}/autorisation`, { autorisation: 'convention' }, HG);
+  const apresGest = (await appel('GET', '/api/installations')).j;
+  if (gest.statut === 200 && dedans.statut === 200 && dehors.statut === 403 && (apresGest[String(CHD)] || {}).autorisation === 'convention' && !apresGest[String(MON)]) ok('gestionnaire de secteur : son relais accepté, un relais hors secteur refusé (403) et non modifié');
+  else ko('gestionnaire de secteur : ' + JSON.stringify({ gest: gest.statut, dedans: dedans.statut, dehors: dehors.statut, chd: apresGest[String(CHD)], mon: apresGest[String(MON)] }));
+  // On remet CHD sans autorisation pour la suite (modification groupée)
+  await appel('POST', `/api/noeuds/${CHD}/autorisation`, { autorisation: '' });
+
+  // ---- Interface, administrateur, ordinateur
+  const ctx = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
+  await ctx.addCookies([cookie]);
+  await ctx.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(ctx, '/');
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  const lignes = () => page.locator('#reg-corps tr[data-num]').count();
+  const chercher = async (t) => { await page.fill('#reg-recherche', t); await page.waitForTimeout(150); return lignes(); };
+  // La liste des nœuds arrive par /api/noeuds : on attend qu'elle soit là avant d'ouvrir le registre
+  await page.waitForFunction((num) => typeof etat !== 'undefined' && etat.noeuds && etat.noeuds.has(num), MEZ, { timeout: 20000 });
+  await page.evaluate(() => ficheRegistreRelais());
+  const pret = await page.waitForSelector('#reg-corps tr[data-num]', { timeout: 10000 }).then(() => true).catch(() => false);
+  if (!pret) { ko('registre : aucune ligne affichée — ' + (await page.locator('#fiche-contenu').innerText()).slice(0, 300).replace(/\s+/g, ' ')); await capture(page, 'registre-vide'); await ctx.close(); return; }
+  const total = await lignes();
+
+  // 3) Recherche libre : nom, site accentué, propriétaire, rien qui corresponde
+  const parNom = await chercher('mezenc');
+  const parSite = await chercher('chateau d eau');
+  const parProprio = await chercher('COMMUNE de saint vincent');
+  const rien = await chercher('zzzz-introuvable');
+  const vide = await page.locator('#reg-corps').innerText();
+  const compteRien = await page.locator('#reg-compte').innerText();
+  if (total >= 5 && parNom === 1 && parSite === 1 && parProprio === 1 && rien === 0 && /Aucun relais ne correspond/.test(vide) && new RegExp(`0 relais affich.s sur ${total}`).test(compteRien)) ok(`recherche du registre : ${total} relais, 1 par nom (accents ignorés), 1 par site, 1 par propriétaire, 0 pour un mot absent, compteur cohérent`);
+  else ko('recherche du registre : ' + JSON.stringify({ total, parNom, parSite, parProprio, rien, compteRien, vide: vide.slice(0, 80) }));
+  // Indicateurs recalculés sur ce qui est affiché
+  const indic = await (async () => { await chercher('monistrol'); return page.locator('#reg-compte').innerText(); })();
+  if (/1 relais affich.s sur/.test(indic) && /1 sans autorisation/.test(indic)) ok('indicateurs du registre : « sans autorisation » compté sur les relais affichés seulement');
+  else ko('indicateurs du registre : ' + indic);
+
+  // 4) Filtre par département dans le registre
+  const dep42 = await page.evaluate(async () => {
+    document.querySelector('#reg-recherche').value = ''; document.querySelector('#reg-recherche').dispatchEvent(new Event('input'));
+    const s = document.querySelector('#reg-dep');
+    if (!s) return null;
+    const codes = [...s.options].map((o) => o.value);
+    s.value = '42'; s.dispatchEvent(new Event('change'));
+    const noms = [...document.querySelectorAll('#reg-corps tr[data-num] b')].map((b) => b.textContent);
+    s.value = 'sans'; s.dispatchEvent(new Event('change'));
+    const sans = [...document.querySelectorAll('#reg-corps tr[data-num] b')].map((b) => b.textContent);
+    s.value = ''; s.dispatchEvent(new Event('change'));
+    return { codes, noms, sans };
+  });
+  if (dep42 && dep42.codes.includes('42') && dep42.codes.includes('43') && dep42.codes.includes('sans')
+    && JSON.stringify(dep42.noms) === JSON.stringify(['42 Relais du Pilat']) && dep42.sans.includes('43 Relais sans position')) ok('filtre par département du registre : 42 → le Pilat seul, « sans département » → le relais sans position');
+  else ko('filtre par département du registre : ' + JSON.stringify(dep42));
+  await capture(page, 'registre-recherche');
+
+  // 2) Fermer une fiche ouverte depuis le registre = revenir au registre, avec la recherche
+  const retour = await (async () => {
+    await chercher('mezenc');
+    await page.click('#reg-corps tr[data-num]');
+    await page.waitForSelector('#fiche-contenu h2', { timeout: 8000 });
+    const titre = await page.locator('#fiche-contenu h2').innerText();
+    await page.click('#fermer-fiche');
+    await page.waitForSelector('#reg-recherche', { timeout: 8000 });
+    const q = await page.inputValue('#reg-recherche');
+    const n = await lignes();
+    // Deuxième fermeture : on quitte le registre, sans y revenir sans fin
+    await page.click('#fermer-fiche');
+    const ferme = await page.evaluate(() => document.querySelector('#fiche').hidden);
+    // Fiche ouverte depuis la carte : la fermeture ne ramène pas au registre
+    await page.evaluate((num) => ouvrirFiche(num), MEZ);
+    await page.waitForSelector('#fiche-contenu h2', { timeout: 8000 });
+    await page.click('#fermer-fiche');
+    const fermeCarte = await page.evaluate(() => document.querySelector('#fiche').hidden && !document.querySelector('#reg-recherche'));
+    return { titre, q, n, ferme, fermeCarte };
+  })();
+  if (/Mézenc/.test(retour.titre) && retour.q === 'mezenc' && retour.n === 1 && retour.ferme && retour.fermeCarte) ok('retour au registre : la fiche fermée rend la liste et la recherche « mezenc » ; une fiche ouverte depuis la carte ne ramène pas au registre, et le registre se ferme normalement');
+  else ko('retour au registre : ' + JSON.stringify(retour));
+
+  // 1) Date du jour proposée dans la fiche d'installation
+  const dates = await page.evaluate(async (num) => {
+    const d = new Date();
+    const aujourdhui = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    await ouvrirFiche(num);
+    await new Promise((r) => setTimeout(r, 400));
+    document.querySelector('#fiche-contenu [data-of="install"]').click();
+    const visite = document.querySelector('#f-install input[name="derniereVisite"]');
+    const avant = visite.value;
+    visite.focus();
+    const propose = { valeur: visite.value, marque: visite.classList.contains('date-proposee'), texte: (visite.parentElement.querySelector('.date-proposee-marque') || {}).textContent || '' };
+    // On efface : le champ reste vide, la marque disparaît et rien ne se re-remplit tout seul
+    visite.value = ''; visite.dispatchEvent(new Event('input', { bubbles: true }));
+    visite.blur(); visite.focus();
+    const apresEffacement = { valeur: visite.value, marque: visite.classList.contains('date-proposee'), reste: !!visite.parentElement.querySelector('.date-proposee-marque') };
+    return { aujourdhui, avant, propose, apresEffacement };
+  }, MEZ);
+  const ficheAvant = (await appel('GET', '/api/installations')).j[String(MEZ)] || {};
+  if (dates.avant === '' && dates.propose.valeur === dates.aujourdhui && dates.propose.marque && /Date du jour propos/.test(dates.propose.texte)
+    && dates.apresEffacement.valeur === '' && !dates.apresEffacement.marque && !dates.apresEffacement.reste
+    && !ficheAvant.derniereVisite) ok(`date du jour : proposée au premier passage dans « Dernière visite » (${dates.aujourdhui}), signalée, effaçable sans revenir, et non enregistrée tant que la fiche n’est pas validée`);
+  else ko('date du jour proposée : ' + JSON.stringify({ dates, enregistre: ficheAvant.derniereVisite }));
+  await capture(page, 'registre-date-proposee');
+  // Fiche enregistrée : la date proposée et gardée est écrite, et nommée dans le retour
+  const enreg = await page.evaluate(async () => {
+    const autor = document.querySelector('#f-install input[name="dateAutorisation"]');
+    autor.focus();
+    const propose = autor.value;
+    document.querySelector('#f-install button[type="submit"]').click();
+    for (let k = 0; k < 40 && !/enregistr/i.test(document.querySelector('#install-retour').textContent); k++) await new Promise((r) => setTimeout(r, 100));
+    return { propose, retour: document.querySelector('#install-retour').textContent };
+  });
+  const apres = (await appel('GET', '/api/installations')).j[String(MEZ)] || {};
+  if (apres.dateAutorisation === dates.aujourdhui && !apres.derniereVisite && apres.site === 'Château d’eau de Saint-Vincent' && apres.hauteur === 8 && /Date du jour enregistr/.test(enreg.retour)) ok('date du jour : enregistrée seulement avec la fiche, nommée dans le message de retour, le champ effacé reste vide');
+  else ko('date du jour enregistrée : ' + JSON.stringify({ enreg, apres }));
+  // Une date déjà saisie n'est jamais remplacée
+  const dejaSaisie = await page.evaluate(async (num) => {
+    await ouvrirFiche(num);
+    await new Promise((r) => setTimeout(r, 400));
+    document.querySelector('#fiche-contenu [data-of="install"]').click();
+    const autor = document.querySelector('#f-install input[name="dateAutorisation"]');
+    const avant = autor.value;
+    autor.focus();
+    return { avant, apres: autor.value, marque: autor.classList.contains('date-proposee') };
+  }, MEZ);
+  if (dejaSaisie.avant === dates.aujourdhui && dejaSaisie.apres === dejaSaisie.avant && !dejaSaisie.marque) ok('date du jour : un champ déjà rempli n’est pas touché');
+  else ko('date déjà saisie : ' + JSON.stringify(dejaSaisie));
+  await page.click('#fermer-fiche');
+
+  // 4) Liste des nœuds d'un département, et entrée « Nœuds du département » dans la recherche de lieu
+  const dep = await page.evaluate(async () => {
+    await ficheNoeudsDepartement('43');
+    await new Promise((r) => setTimeout(r, 300));
+    const noms = () => [...document.querySelectorAll('#nd-corps tr[data-num] b')].map((b) => b.textContent);
+    const en43 = noms(), compte43 = document.querySelector('#nd-compte').textContent;
+    const choix = [...document.querySelectorAll('#nd-dep option')].map((o) => o.value);
+    const s = document.querySelector('#nd-dep');
+    s.value = 'sans'; s.dispatchEvent(new Event('change'));
+    const sans = noms();
+    s.value = 'hors'; s.dispatchEvent(new Event('change'));
+    const hors = noms();
+    return { en43, compte43, choix, sans, hors, note: document.querySelector('.noeuds-departement').textContent };
+  });
+  const attendus43 = ['43 Relais Mézenc', '43 Relais Chaise-Dieu', '43 Relais Monistrol'];
+  if (attendus43.every((n) => dep.en43.includes(n)) && !dep.en43.includes('42 Relais du Pilat') && !dep.en43.includes('London test node')
+    && /dans le d.partement 43 . Haute-Loire/.test(dep.compte43) && dep.choix.includes('42') && dep.choix.includes('sans') && dep.choix.includes('hors')
+    && dep.sans.includes('43 Relais sans position') && dep.hors.includes('London test node')
+    && /position flout.e ou impr.cise/.test(dep.note)) ok(`liste par position : ${dep.en43.length} nœuds dans le 43, le Pilat et Londres exclus, « sans position » et « hors de France » à part, incertitude signalée`);
+  else ko('liste par département : ' + JSON.stringify({ en43: dep.en43, compte43: dep.compte43, choix: dep.choix, sans: dep.sans.slice(0, 4), hors: dep.hors.slice(0, 4) }));
+  await capture(page, 'registre-departement');
+  for (const terme of ['43', 'Haute-Loire']) {
+    await page.fill('#recherche-lieu', terme);
+    const trouve = await page.waitForFunction(() => [...document.querySelectorAll('#resultats-lieu li')].some((li) => /N.uds du d.partement 43/.test(li.textContent)), null, { timeout: 8000 }).then(() => true).catch(() => false);
+    if (trouve) ok(`recherche de lieu : « ${terme} » propose « Nœuds du département 43 »`); else ko(`recherche de lieu : « ${terme} » ne propose pas la liste du département`);
+  }
+  await page.evaluate(() => { const c = document.querySelector('#recherche-lieu'); c.value = ''; const l = document.querySelector('#resultats-lieu'); if (l) l.hidden = true; });
+
+  // 5) Modification groupée de l'autorisation (administrateur) : trois relais cochés d'un coup
+  const groupe = await page.evaluate(async (nums) => {
+    await ficheRegistreRelais();
+    await new Promise((r) => setTimeout(r, 400));
+    for (const num of nums) { const c = document.querySelector(`input[data-case="${num}"]`); c.checked = true; c.dispatchEvent(new Event('change')); }
+    const avant = { libelle: document.querySelector('#reg-coches').textContent, visible: !document.querySelector('#reg-groupe').hidden, valeur: document.querySelector('#reg-aut').value };
+    document.querySelector('#reg-appliquer').click();
+    await new Promise((r) => setTimeout(r, 200));
+    const demande = (document.querySelector('#dlg-confirmer p') || {}).textContent || '';
+    document.querySelector('#dlg-confirmer [data-r="1"]').click();
+    for (let k = 0; k < 60 && !/mis . jour|non modifi/.test(document.querySelector('#reg-retour').textContent); k++) await new Promise((r) => setTimeout(r, 100));
+    return { avant, demande, retour: document.querySelector('#reg-retour').textContent, coches: document.querySelectorAll('#reg-corps input[data-case]:checked').length, groupe: document.querySelector('#reg-groupe').hidden };
+  }, [MEZ, CHD, MON]);
+  const apresGroupe = (await appel('GET', '/api/installations')).j;
+  const toutes = [MEZ, CHD, MON].every((num) => (apresGroupe[String(num)] || {}).autorisation === 'non-necessaire');
+  const gardee = (apresGroupe[String(MEZ)] || {}).site === 'Château d’eau de Saint-Vincent' && (apresGroupe[String(MEZ)] || {}).hauteur === 8;
+  if (groupe.avant.visible && /3 relais coch/.test(groupe.avant.libelle) && groupe.avant.valeur === 'non-necessaire'
+    && /3 relais/.test(groupe.demande) && /Pas n.cessaire/.test(groupe.demande) && /3 relais mis . jour/.test(groupe.retour)
+    && toutes && gardee && groupe.coches === 0 && groupe.groupe) ok('modification groupée : 3 relais cochés, confirmation qui dit combien, « Pas nécessaire » enregistré pour les trois, reste des fiches gardé, cases remises à zéro');
+  else ko('modification groupée : ' + JSON.stringify({ groupe, toutes, gardee, mez: apresGroupe[String(MEZ)] }));
+  // Journal d'audit : une ligne par relais
+  const audit = await (await fetch(BASE + '/api/audit?limite=200', { headers: H })).json().catch(() => []);
+  const lignesAudit = (audit || []).filter((a) => /\/autorisation$/.test(a.action || '')).length;
+  if (lignesAudit >= 3) ok(`journal d’audit : ${lignesAudit} lignes « /autorisation », une par relais modifié`); else ko('journal d’audit : ' + lignesAudit + ' ligne(s) /autorisation');
+  await capture(page, 'registre-groupe');
+  // Téléphone : les filtres et la barre groupée tiennent dans l'écran
+  const ctxTel = await navig.newContext({ viewport: { width: 390, height: 844 }, locale: 'fr-FR', isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  await ctxTel.addCookies([cookie]);
+  await ctxTel.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const tel = await ouvrir(ctxTel, '/');
+  await tel.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  await tel.page.waitForFunction((num) => typeof etat !== 'undefined' && etat.noeuds && etat.noeuds.has(num), MEZ, { timeout: 20000 });
+  await tel.page.evaluate(async (num) => { await ficheRegistreRelais(); await new Promise((r) => setTimeout(r, 400)); const c = document.querySelector(`input[data-case="${num}"]`); if (c) { c.checked = true; c.dispatchEvent(new Event('change')); } }, MEZ);
+  await tel.page.waitForSelector('#reg-recherche', { timeout: 8000 });
+  const mesuresTel = await tel.page.evaluate(() => {
+    const r = document.querySelector('#reg-recherche').getBoundingClientRect(), g = document.querySelector('#reg-groupe');
+    const b = g && !g.hidden ? g.getBoundingClientRect() : null;
+    // Tous les réglages du registre doivent tenir dans la largeur de l'écran, listes déroulantes comprises
+    const dehors = [...document.querySelectorAll('.registre-filtres select, .registre-filtres input, .registre-groupe select, .registre-groupe button')]
+      .filter((e) => { const x = e.getBoundingClientRect(); return x.width && (x.left < -1 || x.right > innerWidth + 1); }).length;
+    return { champ: r.width > 120 && r.left >= 0 && r.right <= innerWidth + 1, barre: !!b && b.left >= 0 && b.right <= innerWidth + 1, dehors, deborde: document.documentElement.scrollWidth > innerWidth + 1 };
+  });
+  if (mesuresTel.champ && mesuresTel.barre && !mesuresTel.dehors && !mesuresTel.deborde) ok('téléphone : champ de recherche, listes déroulantes et barre « relais cochés » entiers dans l’écran, pas de débordement');
+  else ko('téléphone : ' + JSON.stringify(mesuresTel));
+  await capture(tel.page, 'registre-telephone');
+  bilanErreurs(tel.erreurs, 'registre (téléphone)');
+  await ctxTel.close();
+
+  // 5 bis) Échec partiel : un gestionnaire de secteur dont la page a été trafiquée pour cocher un relais
+  // hors de son secteur. Le serveur refuse ce relais seul : le compte rendu doit le dire.
+  const [cn, cv] = brut.split('=');
+  const ctxG = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
+  await ctxG.addCookies([{ name: cn, value: cv, domain: '127.0.0.1', path: '/' }]);
+  await ctxG.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const g = await ouvrir(ctxG, '/');
+  await g.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  await g.page.waitForFunction((num) => typeof etat !== 'undefined' && etat.noeuds && etat.noeuds.has(num), MEZ, { timeout: 20000 });
+  const partiel = await g.page.evaluate(async (nums) => {
+    const [mez, chd, mon] = nums;
+    await ficheRegistreRelais();
+    await new Promise((r) => setTimeout(r, 400));
+    const cases = () => [...document.querySelectorAll('#reg-corps input[data-case]')].map((c) => Number(c.dataset.case));
+    const secteur = cases();
+    // Page trafiquée : le gestionnaire se donne un relais qui n'est pas dans son secteur
+    etat.secteur = [...etat.secteur, String(mon)];
+    await ficheRegistreRelais();
+    await new Promise((r) => setTimeout(r, 400));
+    for (const num of [mez, chd, mon]) { const c = document.querySelector(`input[data-case="${num}"]`); c.checked = true; c.dispatchEvent(new Event('change')); }
+    document.querySelector('#reg-aut').value = 'orale';
+    document.querySelector('#reg-appliquer').click();
+    await new Promise((r) => setTimeout(r, 200));
+    document.querySelector('#dlg-confirmer [data-r="1"]').click();
+    for (let k = 0; k < 80 && !/non modifi/.test(document.querySelector('#reg-retour').textContent); k++) await new Promise((r) => setTimeout(r, 100));
+    return { secteur, retour: document.querySelector('#reg-retour').textContent, restees: [...document.querySelectorAll('#reg-corps input[data-case]:checked')].map((c) => Number(c.dataset.case)) };
+  }, [MEZ, CHD, MON]);
+  const apresPartiel = (await appel('GET', '/api/installations')).j;
+  const bons = [MEZ, CHD].every((num) => (apresPartiel[String(num)] || {}).autorisation === 'orale');
+  const refuse = (apresPartiel[String(MON)] || {}).autorisation === 'non-necessaire';
+  if (JSON.stringify(partiel.secteur.sort()) === JSON.stringify([MEZ, CHD].sort()) && /2 relais mis . jour/.test(partiel.retour)
+    && /1 relais non modifi/.test(partiel.retour) && /Monistrol/.test(partiel.retour) && /secteur/.test(partiel.retour)
+    && bons && refuse && JSON.stringify(partiel.restees) === JSON.stringify([MON])) ok('échec partiel : cases du gestionnaire limitées à son secteur, 2 relais modifiés et 1 refusé par le serveur, dit clairement, le relais refusé reste coché et inchangé');
+  else ko('échec partiel : ' + JSON.stringify({ partiel, bons, refuse, mon: apresPartiel[String(MON)] }));
+  await capture(g.page, 'registre-echec-partiel');
+  bilanErreurs(g.erreurs, 'registre (gestionnaire de secteur)');
+  await ctxG.close();
+  // Anglais : les écrans du registre et des départements sont traduits (pas de reste de français)
+  const ctxEn = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'en-GB' });
+  await ctxEn.addCookies([cookie]);
+  await ctxEn.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'en'); } catch { /* */ } });
+  const en = await ouvrir(ctxEn, '/');
+  await en.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  await en.page.waitForFunction((num) => typeof etat !== 'undefined' && etat.noeuds && etat.noeuds.has(num), MEZ, { timeout: 20000 });
+  const texteEn = await en.page.evaluate(async (num) => {
+    await ficheRegistreRelais();
+    await new Promise((r) => setTimeout(r, 600));
+    const c = document.querySelector(`input[data-case="${num}"]`);
+    if (c) { c.checked = true; c.dispatchEvent(new Event('change')); }
+    await new Promise((r) => setTimeout(r, 400));
+    const registre = document.querySelector('#fiche-contenu').innerText;
+    await ficheNoeudsDepartement('43');
+    await new Promise((r) => setTimeout(r, 600));
+    return { registre, departement: document.querySelector('#fiche-contenu').innerText, placeholder: '' };
+  }, MEZ);
+  const resteFr = /relais et passerelles|Appliquer aux|Tout décocher|Nœuds du département|relais coché/.test(texteEn.registre + texteEn.departement);
+  if (/Relay register/.test(texteEn.registre) && /relays and gateways/.test(texteEn.registre) && /Apply to the ticked relays/.test(texteEn.registre)
+    && /Untick everything/.test(texteEn.registre) && /relay\(s\) ticked/.test(texteEn.registre)
+    && /Nodes of a department/.test(texteEn.departement) && /node\(s\) in department 43/.test(texteEn.departement) && !resteFr) ok('anglais : registre et liste par département entièrement traduits');
+  else ko('anglais : ' + JSON.stringify({ registre: texteEn.registre.replace(/\s+/g, ' ').slice(0, 260), departement: texteEn.departement.replace(/\s+/g, ' ').slice(0, 200) }));
+  await capture(en.page, 'registre-anglais');
+  bilanErreurs(en.erreurs, 'registre (anglais)');
+  await ctxEn.close();
+  bilanErreurs(erreurs, 'registre des relais');
+  await ctx.close();
+}
 async function essaiPagesPubliques(navig) {
   for (const [url, nom, attendu] of [['/publique.html', 'carte publique', '#carte .leaflet-pane, .leaflet-pane'], ['/topologie.html', 'graphe des liens', 'svg, canvas']]) {
     console.log(nom[0].toUpperCase() + nom.slice(1) + ' (visiteur)');
@@ -1535,6 +1860,7 @@ async function essaiPagesPubliques(navig) {
     await essaiBandeauMonde(navigateur, cookie);
     await essaiDonateurs(navigateur, cookie);
     await essaiPartager(navigateur, cookie);
+    await essaiRegistreAvance(navigateur, cookie);
     await essaiPagesPubliques(navigateur);
     await essaiTopologieFiche(navigateur);
     await essaiRapportArchives(navigateur, cookie);

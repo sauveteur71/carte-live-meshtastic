@@ -29,7 +29,7 @@ Carte en temps réel, supervision et **administration à distance** d'un réseau
 - [[Mur des donateurs|Mur-des-donateurs]] : remercier ceux qui soutiennent le projet (HelloAsso saisi à la main, GitHub Sponsors publics), noms abrégés, secrets jamais exposés.
 - [[Archive PostgreSQL]] : historique complet, conservation, taille maximale.
 - [[Domotique et supervision]] : Home Assistant, Node-RED (y compris envoyer un message LoRa), Prometheus / Grafana pour surveiller les relais, modules Wi-Fi retrouvés par mDNS.
-- [[Radioamateurs, APRS, ATAK|Radioamateurs-APRS-ATAK]] : stations LoRa APRS, nœuds en mode licencié, export KML pour ATAK, calculette des pertes de câble, registre des relais.
+- [[Radioamateurs, APRS, ATAK|Radioamateurs-APRS-ATAK]] : stations LoRa APRS, nœuds en mode licencié, export KML pour ATAK, calculette des pertes de câble, registre des relais (recherche, départements, autorisations groupées), nœuds d’un département.
 - [[Rivières et alerte crue|Rivières-et-alerte-crue]] : hauteurs d'eau des stations publiques (Hub'Eau, comme Vigicrues), alertes de montée rapide et de seuil.
 - [[Capteurs LoRaWAN|Capteurs-LoRaWAN]] : capteurs d'une application The Things Network ou ChirpStack (niveau, météo, pluie…), courbes et alertes sur seuil.
 

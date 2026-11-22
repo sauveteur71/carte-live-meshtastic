@@ -383,6 +383,20 @@ app.put('/api/noeuds/:num/installation', (req, res) => {
     res.json({ ok: true, installation: r });
   } catch (e) { res.status(400).json({ erreur: e.message }); }
 });
+// Autorisation du site seule : le reste de la fiche d'installation est gardé. Sert au registre des relais pour
+// cocher plusieurs relais et leur mettre la même autorisation d'un coup, sans ouvrir chaque fiche.
+// Mêmes droits, même validation et une ligne de journal d'audit par nœud que la fiche entière.
+app.post('/api/noeuds/:num/autorisation', (req, res) => {
+  if (!estGestion(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });
+  if (!peutGerer(req, req.params.num)) return refuserSecteur(res);
+  const v = String((req.body || {}).autorisation || '').trim();
+  if (v && !installations.AUTORISATIONS.includes(v)) return res.status(400).json({ erreur: 'Autorisation inconnue' });
+  try {
+    const c = utilisateur(req);
+    installations.completer(Number(req.params.num) >>> 0, { autorisation: v }, c ? c.indicatif || c.identifiant : null);
+    res.json({ ok: true, autorisation: v || null }); // jamais la fiche entière : propriétaire et contact sont privés
+  } catch (e) { res.status(400).json({ erreur: e.message }); }
+});
 app.get('/api/installations', (req, res) => {
   if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
   const admin = estAdmin(req), t = installations.toutes();
@@ -2294,6 +2308,31 @@ try {
     .map((f) => ({ code: f.properties.code, nom: f.properties.nom, bbox: emprise(f.geometry) })).sort((a, b) => a.code.localeCompare(b.code));
 } catch { /* liste indisponible */ }
 app.get('/api/departements', (req, res) => res.json(listeDepartements));
+// Nœuds rangés par département, d'après la position que chacun a retransmise (test du point dans le polygone,
+// contours nationaux). Le GeoJSON des départements pèse plus de 500 ko : le calcul reste ici, le navigateur ne
+// reçoit que le code du département de chaque nœud. Le département d'un nœud n'est recalculé que si sa position
+// change, et la réponse entière est gardée 30 s (une frappe dans la recherche ne relance aucun calcul).
+const depDeNoeud = new Map(); // num -> { lat, lon, dep }
+let cacheDepNoeuds = null;
+app.get('/api/noeuds-par-departement', (req, res) => {
+  if (!estMembre(req)) return res.status(401).json({ erreur: 'Connexion requise' });
+  if (!cacheDepNoeuds || Date.now() - cacheDepNoeuds.heure > 30000) {
+    if (depDeNoeud.size > 100000) depDeNoeud.clear(); // nœuds supprimés depuis longtemps : on repart de zéro
+    const parNoeud = {}, sansPosition = [], horsDepartements = [], nb = {};
+    for (const n of stockage.q.noeuds.all()) {
+      const num = n.num >>> 0;
+      if (n.lat == null || n.lon == null) { sansPosition.push(num); continue; }
+      let c = depDeNoeud.get(num);
+      if (!c || c.lat !== n.lat || c.lon !== n.lon) { c = { lat: n.lat, lon: n.lon, dep: departementDuPoint(n.lat, n.lon) }; depDeNoeud.set(num, c); }
+      if (!c.dep) { horsDepartements.push(num); continue; } // position connue, mais hors de France
+      parNoeud[num] = c.dep;
+      nb[c.dep] = (nb[c.dep] || 0) + 1;
+    }
+    const departements = Object.keys(nb).sort().map((code) => ({ code, nom: (listeDepartements.find((d) => d.code === code) || {}).nom || code, nb: nb[code] }));
+    cacheDepNoeuds = { heure: Date.now(), corps: { monde: false, departements, parNoeud, sansPosition, horsDepartements } };
+  }
+  res.set('Cache-Control', 'private, no-cache').json(cacheDepNoeuds.corps);
+});
 
 // ---- Fond de carte hors ligne (PMTiles OpenStreetMap) et relief ombré calculé sur place ----------------------
 const fondsHorsLigne = require('./fonds').creerFonds({ config, departements: () => listeDepartements, journal });

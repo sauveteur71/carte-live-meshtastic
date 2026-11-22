@@ -1315,45 +1315,240 @@ async function rendrePasserelle(complet) {
 }
 
 // ---- Registre des relais : sites, autorisations, visites, matériel, firmware --------------------------
-async function ficheRegistreRelais() {
+// Recherche libre (nom, site, commune, propriétaire, notes…), filtre par département d'après la position
+// retransmise, et modification groupée de l'autorisation du site (cases à cocher).
+// « memo » : état à retrouver en revenant d'une fiche de nœud (recherche, département, cases cochées).
+async function ficheRegistreRelais(memo) {
   $('#fiche').hidden = false; etat.selection = null;
   $('#fiche-contenu').innerHTML = '<div class="liste-signalements"><h3>🗂️ Registre des relais</h3><p class="note">Chargement…</p></div>';
   let inst = {};
   try { inst = await api('/api/installations'); } catch (e) { $('#fiche-contenu').innerHTML = `<div class="liste-signalements"><h3>🗂️ Registre des relais</h3><p class="erreur">${esc(e.message)}</p></div>`; return; }
+  // Département de chaque nœud : calculé par le serveur (contours nationaux), pas dans le navigateur
+  const idx = await indexDepartementsNoeuds().catch(() => null);
   // Relais et passerelles de la zone de la carte (département et voisins), plus tout nœud qui a une fiche d'installation
   const relais = [...etat.noeuds.values()].filter((n) => ((n.infrastructure || n.passerelle) && dansZone(n)) || inst[n.num]).sort((a, b) => (a.nomLong || a.nomCourt || '').localeCompare(b.nomLong || b.nomCourt || ''));
   const jours = (d) => (d ? Math.floor((Date.now() - Date.parse(d)) / 86400000) : null);
+  const reg = { q: (memo && memo.q) || '', dep: (memo && memo.dep) || '', coches: new Set((memo && memo.coches) || []) };
+  const depDe = (n) => (idx && idx.parNoeud ? idx.parNoeud[String(n.num >>> 0)] || null : null);
+  const nomDep = (c) => { const d = idx && (idx.departements || []).find((x) => x.code === c); return (d && d.nom) || ''; };
+  const peutCocher = relais.some((n) => gerable(n.num));
+  // Texte où l'on cherche, accents et majuscules mis de côté : gardé par nœud (la frappe ne le recalcule pas)
+  const texteCache = new Map();
+  const texteCherchable = (n) => {
+    let t = texteCache.get(n.num);
+    if (t == null) {
+      const f = inst[n.num] || {}, c = depDe(n);
+      t = sansAccent([n.nomLong, n.nomCourt, n.id, n.num, n.roleFr, n.materiel, n.firmware, f.site, f.proprietaire, f.contact, f.notes, f.aFaire,
+        LIB_AUTORISATION[f.autorisation], LIB_ZONE_PROTEGEE[f.zoneProtegee], LIB_ALIM[f.alimentation], c, nomDep(c)]
+        .filter((x) => x != null && x !== '').join(' '));
+      texteCache.set(n.num, t);
+    }
+    return t;
+  };
+  let mots = [], affiches = [];
+  const garder = (n) => {
+    const c = depDe(n);
+    if (reg.dep === 'sans' ? c != null : reg.dep && c !== reg.dep) return false;
+    return mots.every((m) => texteCherchable(n).includes(m));
+  };
   const ligne = (n) => {
     const f = inst[n.num] || {};
     const aut = f.autorisation;
     const autCls = !aut ? 'inconnu' : ['ecrite', 'convention', 'non-necessaire'].includes(aut) ? 'ok' : aut === 'aucune' ? 'ko' : 'attention';
     const jv = jours(f.derniereVisite);
     const visCls = jv == null ? 'inconnu' : jv > 365 ? 'ko' : jv > 180 ? 'attention' : 'ok';
+    const c = depDe(n);
     return `<tr data-num="${n.num}" class="cliquable">
-      <td><b>${esc(n.nomLong || n.nomCourt || n.id)}</b><br><small>${esc(n.roleFr || '')}${n.materiel ? ' · ' + esc(n.materiel) : ''}</small></td>
+      ${peutCocher ? `<td class="col-case">${gerable(n.num) ? `<input type="checkbox" data-case="${n.num}" ${reg.coches.has(n.num) ? 'checked' : ''} aria-label="Cocher ce relais">` : ''}</td>` : ''}
+      <td><b>${esc(n.nomLong || n.nomCourt || n.id)}</b><br><small>${esc(n.roleFr || '')}${n.materiel ? ' · ' + esc(n.materiel) : ''}${c ? ' · ' + esc(c) : ''}</small></td>
       <td>${esc(f.site || '—')}${f.zoneProtegee && f.zoneProtegee !== 'aucune' ? `<br><small class="ko">⚠ ${esc(LIB_ZONE_PROTEGEE[f.zoneProtegee])}</small>` : ''}</td>
       <td class="etat-${autCls}">${esc(LIB_AUTORISATION[aut] || 'Non renseignée')}${f.dateAutorisation ? `<br><small>${esc(f.dateAutorisation)}</small>` : ''}</td>
       <td class="etat-${visCls}">${f.derniereVisite ? esc(f.derniereVisite) : 'Jamais notée'}${jv != null ? `<br><small>${ilYa(Date.parse(f.derniereVisite))}</small>` : ''}</td>
       <td>${esc(LIB_ALIM[f.alimentation] || '—')}${f.batterieAh ? `<br><small>${f.batterieAh} Ah${f.panneauW ? ' · ' + f.panneauW + ' W' : ''}</small>` : ''}</td>
       <td>${esc(n.firmware || '—')}<br><small>${n.dernierVu ? ilYa(n.dernierVu) : ''}</small></td></tr>`;
   };
-  const sansAut = relais.filter((n) => !inst[n.num] || !['ecrite', 'convention', 'non-necessaire'].includes(inst[n.num].autorisation)).length;
-  const aVisiter = relais.filter((n) => { const j = jours((inst[n.num] || {}).derniereVisite); return j == null || j > 365; }).length;
+  // Choix du département : seulement s'il y a de quoi choisir
+  const nbParDep = {};
+  for (const n of relais) { const c = depDe(n); if (c) nbParDep[c] = (nbParDep[c] || 0) + 1; }
+  const codes = Object.keys(nbParDep).sort();
+  const sansDep = relais.filter((n) => depDe(n) == null).length;
+  const optionsDep = idx && (codes.length > 1 || (codes.length === 1 && sansDep))
+    ? `<option value="">Tous les départements</option>${codes.map((c) => `<option value="${esc(c)}" ${reg.dep === c ? 'selected' : ''}>${esc(c)}${nomDep(c) ? ' · ' + esc(nomDep(c)) : ''} (${nbParDep[c]})</option>`).join('')}${sansDep ? `<option value="sans" ${reg.dep === 'sans' ? 'selected' : ''}>Sans département, position inconnue ou hors de France (${sansDep})</option>` : ''}`
+    : '';
+  const colonnes = peutCocher ? 7 : 6;
   $('#fiche-contenu').innerHTML = `<div class="liste-signalements registre-relais"><h3>🗂️ Registre des relais</h3>
-    <p>${relais.length} relais et passerelles. ${sansAut ? `<b class="ko">${sansAut} sans autorisation écrite enregistrée</b> · ` : ''}${aVisiter ? `<b class="attention">${aVisiter} sans visite depuis plus d’un an</b>` : ''}</p>
+    <div class="registre-filtres">
+      <input type="search" id="reg-recherche" placeholder="Chercher : nom, site, commune…" aria-label="Chercher dans le registre des relais" autocomplete="off" maxlength="60" value="${esc(reg.q)}">
+      ${optionsDep ? `<label>Département <select id="reg-dep">${optionsDep}</select></label>` : ''}
+    </div>
+    <p id="reg-compte"></p>
     ${avertissementSites()}
-    <div class="table-defile"><table><thead><tr><th>Relais</th><th>Site</th><th>Autorisation</th><th>Dernière visite</th><th>Énergie</th><th>Firmware · vu</th></tr></thead>
-    <tbody>${relais.map(ligne).join('') || '<tr><td colspan="6">Aucun relais connu.</td></tr>'}</tbody></table></div>
+    ${peutCocher ? `<div class="registre-groupe" id="reg-groupe" hidden>
+      <b id="reg-coches"></b>
+      <label>Autorisation du site <select id="reg-aut">${Object.entries(LIB_AUTORISATION).map(([k, v]) => `<option value="${esc(k)}" ${k === 'non-necessaire' ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
+      <button type="button" class="principal" id="reg-appliquer">Appliquer aux relais cochés</button>
+      <button type="button" class="mini" id="reg-vider">Tout décocher</button>
+    </div>` : ''}
+    <p id="reg-retour" class="note"></p>
+    <div class="table-defile"><table><thead><tr>${peutCocher ? '<th class="col-case"><input type="checkbox" id="reg-tous" title="Cocher tous les relais affichés" aria-label="Cocher tous les relais affichés"></th>' : ''}<th>Relais</th><th>Site</th><th>Autorisation</th><th>Dernière visite</th><th>Énergie</th><th>Firmware · vu</th></tr></thead>
+    <tbody id="reg-corps"></tbody></table></div>
     <div class="actions-prop"><button type="button" class="mini" id="registre-csv">⬇ Exporter le registre (CSV)</button></div>
-    <p class="note">Cliquez sur un relais pour ouvrir sa fiche et compléter la rubrique « Installation » (site, autorisation, zone protégée, dernière visite). ${etat.admin ? 'Le propriétaire du site et le contact figurent dans l’export.' : 'Le propriétaire du site et le contact ne sont visibles que des administrateurs.'}</p></div>`;
-  document.querySelectorAll('.registre-relais tr[data-num]').forEach((tr) => (tr.onclick = () => ouvrirFiche(Number(tr.dataset.num))));
+    <p class="note">Cliquez sur un relais pour ouvrir sa fiche et compléter la rubrique « Installation » (site, autorisation, zone protégée, dernière visite) ; en fermant la fiche vous revenez ici, avec la même recherche. L’export reprend les relais affichés. ${etat.admin ? 'Le propriétaire du site et le contact figurent dans l’export.' : 'Le propriétaire du site et le contact ne sont visibles que des administrateurs.'}</p>
+    ${idx ? '<p class="note">Le département vient de la position que le nœud a retransmise : un relais proche d’une limite, ou qui floute sa position, peut être rangé dans le département voisin. Un relais qui ne donne pas sa position ne peut pas être rangé du tout.</p>' : ''}
+    ${peutCocher ? '<p class="note">Les cases servent à mettre la même autorisation à plusieurs relais d’un coup : cochez-les, choisissez l’autorisation, puis « Appliquer ». Le reste de chaque fiche est gardé.</p>' : ''}</div>`;
+  function majGroupe() {
+    const g = $('#reg-groupe');
+    if (!g) return;
+    const k = reg.coches.size;
+    g.hidden = !k;
+    const masques = [...reg.coches].filter((num) => !affiches.some((x) => x.num === num)).length;
+    $('#reg-coches').textContent = masques ? `${k} relais coché(s), dont ${masques} hors de la recherche qui ne seront pas modifiés` : `${k} relais coché(s)`;
+    const tous = $('#reg-tous');
+    if (tous) { const cochables = affiches.filter((x) => gerable(x.num)); tous.checked = cochables.length > 0 && cochables.every((x) => reg.coches.has(x.num)); }
+  }
+  function brancherLignes() {
+    $('#reg-corps').querySelectorAll('tr[data-num]').forEach((tr) => {
+      const num = Number(tr.dataset.num);
+      tr.onclick = (e) => {
+        if (e.target.closest('.col-case')) return; // cocher une case n'ouvre pas la fiche
+        etat.retourFicheDemande = { ecran: 'registre', q: reg.q, dep: reg.dep, coches: [...reg.coches] };
+        ouvrirFiche(num);
+      };
+      const c = tr.querySelector('input[type="checkbox"]');
+      if (c) c.onchange = () => { if (c.checked) reg.coches.add(num); else reg.coches.delete(num); majGroupe(); };
+    });
+  }
+  function rendre() {
+    mots = sansAccent(reg.q).split(/\s+/).filter(Boolean);
+    affiches = relais.filter(garder);
+    const sansAut = affiches.filter((n) => !inst[n.num] || !['ecrite', 'convention', 'non-necessaire'].includes(inst[n.num].autorisation)).length;
+    const aVisiter = affiches.filter((n) => { const j = jours((inst[n.num] || {}).derniereVisite); return j == null || j > 365; }).length;
+    const filtre = mots.length > 0 || !!reg.dep;
+    const tete = filtre ? `${affiches.length} relais affichés sur ${relais.length}.` : `${affiches.length} relais et passerelles.`;
+    $('#reg-compte').innerHTML = `${esc(tete)} ${sansAut ? `<b class="ko">${sansAut} sans autorisation écrite enregistrée</b> · ` : ''}${aVisiter ? `<b class="attention">${aVisiter} sans visite depuis plus d’un an</b>` : ''}`;
+    $('#reg-corps').innerHTML = affiches.map(ligne).join('') || `<tr><td colspan="${colonnes}">${relais.length ? 'Aucun relais ne correspond à cette recherche.' : 'Aucun relais connu.'}</td></tr>`;
+    brancherLignes();
+    majGroupe();
+  }
+  const champ = $('#reg-recherche');
+  champ.oninput = () => { reg.q = champ.value; rendre(); };
+  champ.onkeydown = (e) => { if (e.key === 'Escape') { champ.value = ''; reg.q = ''; rendre(); } };
+  { const sd = $('#reg-dep'); if (sd) sd.onchange = () => { reg.dep = sd.value; rendre(); }; }
+  { const tous = $('#reg-tous'); if (tous) tous.onchange = () => { for (const n of affiches) if (gerable(n.num)) { if (tous.checked) reg.coches.add(n.num); else reg.coches.delete(n.num); } rendre(); }; }
+  { const v = $('#reg-vider'); if (v) v.onclick = () => { reg.coches.clear(); rendre(); }; }
+  // Modification groupée : même route que la fiche entière, un appel et une ligne de journal par relais
+  { const b = $('#reg-appliquer'); if (b) b.onclick = async () => {
+    const retour = $('#reg-retour');
+    const choisis = [...reg.coches], cibles = choisis.filter((num) => affiches.some((x) => x.num === num));
+    const masques = choisis.length - cibles.length;
+    retour.className = 'note';
+    if (!cibles.length) { retour.textContent = 'Aucun relais coché parmi ceux qui sont affichés.'; return; }
+    const v = $('#reg-aut').value;
+    const texte = masques
+      ? `Enregistrer « ${LIB_AUTORISATION[v]} » comme autorisation du site de ${cibles.length} relais ? ${masques} relais coché(s) hors de la recherche ne seront pas modifiés. Le reste de chaque fiche d’installation est gardé.`
+      : `Enregistrer « ${LIB_AUTORISATION[v]} » comme autorisation du site de ${cibles.length} relais ? Le reste de chaque fiche d’installation est gardé.`;
+    if (!(await confirmer(texte, { ok: 'Enregistrer' }))) return;
+    b.disabled = true;
+    retour.textContent = 'Enregistrement…';
+    let faits = 0;
+    const rates = [];
+    for (const num of cibles) {
+      const n = etat.noeuds.get(num);
+      try {
+        await postJson(`/api/noeuds/${num}/autorisation`, { autorisation: v });
+        inst[num] = { ...(inst[num] || {}), autorisation: v };
+        texteCache.delete(num);
+        reg.coches.delete(num); // les relais en échec restent cochés : on peut réessayer
+        faits++;
+      } catch (e) { rates.push(`${(n && (n.nomLong || n.nomCourt)) || num} : ${e.message}`); }
+    }
+    b.disabled = false;
+    rendre();
+    const r = $('#reg-retour');
+    r.className = 'note';
+    r.classList.add(rates.length ? 'erreur' : 'ok');
+    r.innerHTML = `${faits ? esc(`✔ ${faits} relais mis à jour.`) : ''}${rates.length ? ` <b class="ko">${esc(`✗ ${rates.length} relais non modifié(s) :`)}</b> ${esc(rates.join(' ; '))}` : ''}`;
+  }; }
   $('#registre-csv').onclick = () => {
     // Un nom de nœud vient de la radio : s'il commence comme une formule (= + - @), le tableur ne doit pas l'exécuter
     const c = (x) => { const t = String(x ?? ''); return `"${(typeof x !== 'number' && /^[=+\-@\t\r]/.test(t) ? "'" + t : t).replace(/"/g, '""')}"`; };
-    const entete = ['Nom', 'Identifiant', 'Rôle', 'Matériel', 'Firmware', 'Latitude', 'Longitude', 'Dernier paquet', 'Site', 'Propriétaire du site', 'Contact', 'Autorisation', 'Date autorisation', 'Zone protégée', 'Mise en service', 'Dernière visite', 'Alimentation', 'Batterie (Ah)', 'Panneau (W)', 'Antenne', 'Hauteur (m)', 'Gain (dBi)', 'Pertes câble (dB)', 'Notes'];
-    const lignes = relais.map((n) => { const f = inst[n.num] || {}; return [n.nomLong || n.nomCourt, n.id, n.roleFr, n.materiel, n.firmware, n.lat, n.lon, n.dernierVu ? new Date(n.dernierVu).toISOString() : '', f.site, f.proprietaire, f.contact, LIB_AUTORISATION[f.autorisation] || '', f.dateAutorisation, LIB_ZONE_PROTEGEE[f.zoneProtegee] || '', f.miseEnService, f.derniereVisite, LIB_ALIM[f.alimentation] || '', f.batterieAh, f.panneauW, f.antenne, f.hauteur, f.gain, f.pertesCable, f.notes].map(c).join(';'); });
-    telechargerTexte(`registre-relais-${new Date().toISOString().slice(0, 10)}.csv`, '\ufeff' + [entete.map(c).join(';'), ...lignes].join('\r\n'));
+    const entete = ['Nom', 'Identifiant', 'Rôle', 'Matériel', 'Firmware', 'Latitude', 'Longitude', 'Département', 'Dernier paquet', 'Site', 'Propriétaire du site', 'Contact', 'Autorisation', 'Date autorisation', 'Zone protégée', 'Mise en service', 'Dernière visite', 'Alimentation', 'Batterie (Ah)', 'Panneau (W)', 'Antenne', 'Hauteur (m)', 'Gain (dBi)', 'Pertes câble (dB)', 'Notes'];
+    const lignes = affiches.map((n) => { const f = inst[n.num] || {}; return [n.nomLong || n.nomCourt, n.id, n.roleFr, n.materiel, n.firmware, n.lat, n.lon, depDe(n), n.dernierVu ? new Date(n.dernierVu).toISOString() : '', f.site, f.proprietaire, f.contact, LIB_AUTORISATION[f.autorisation] || '', f.dateAutorisation, LIB_ZONE_PROTEGEE[f.zoneProtegee] || '', f.miseEnService, f.derniereVisite, LIB_ALIM[f.alimentation] || '', f.batterieAh, f.panneauW, f.antenne, f.hauteur, f.gain, f.pertesCable, f.notes].map(c).join(';'); });
+    telechargerTexte(`registre-relais-${new Date().toISOString().slice(0, 10)}.csv`, '﻿' + [entete.map(c).join(';'), ...lignes].join('\r\n'));
   };
+  rendre();
+  if (reg.q) champ.focus();
+}
+
+// ---- Nœuds d'un département, d'après la position qu'ils ont retransmise -------------------------
+// Recherche par position et non par nom : tous les nœuds dont la position reçue tombe dans le département.
+// Un nœud qui ne donne pas sa position ne peut pas être rangé : il est compté à part, jamais effacé en silence.
+async function ficheNoeudsDepartement(code, memo) {
+  const titre = '🧭 Nœuds d’un département';
+  $('#fiche').hidden = false; etat.selection = null;
+  $('#fiche-contenu').innerHTML = `<div class="liste-signalements"><h3>${titre}</h3><p class="note">Chargement…</p></div>`;
+  const idx = await indexDepartementsNoeuds().catch(() => null);
+  if (!idx) { $('#fiche-contenu').innerHTML = `<div class="liste-signalements"><h3>${titre}</h3><p class="erreur">Liste indisponible : il faut être connecté à la carte.</p></div>`; return; }
+  const deps = (idx.departements || []).slice().sort((a, b) => b.nb - a.nb);
+  const sansPos = idx.sansPosition || [], hors = idx.horsDepartements || [];
+  const vue = { quoi: String(code || (memo && memo.code) || (deps[0] || {}).code || (sansPos.length ? 'sans' : 'hors')).toUpperCase(), q: (memo && memo.q) || '' };
+  if (vue.quoi === 'SANS') vue.quoi = 'sans';
+  if (vue.quoi === 'HORS') vue.quoi = 'hors';
+  const nomDe = (c) => { const d = deps.find((x) => x.code === c); return (d && d.nom) || ''; };
+  const options = `${deps.slice().sort((a, b) => a.code.localeCompare(b.code)).map((d) => `<option value="${esc(d.code)}" ${vue.quoi === d.code ? 'selected' : ''}>${esc(d.code)}${d.nom ? ' · ' + esc(d.nom) : ''} (${d.nb})</option>`).join('')}`
+    + (sansPos.length ? `<option value="sans" ${vue.quoi === 'sans' ? 'selected' : ''}>Sans position reçue (${sansPos.length})</option>` : '')
+    + (hors.length ? `<option value="hors" ${vue.quoi === 'hors' ? 'selected' : ''}>Position connue, hors de France (${hors.length})</option>` : '');
+  $('#fiche-contenu').innerHTML = `<div class="liste-signalements noeuds-departement"><h3>${titre}</h3>
+    ${deps.length || sansPos.length || hors.length ? `<div class="registre-filtres">
+      <label>Afficher <select id="nd-dep">${options}</select></label>
+      <input type="search" id="nd-recherche" placeholder="Filtrer : nom, identifiant, rôle…" aria-label="Filtrer la liste des nœuds" autocomplete="off" maxlength="60" value="${esc(vue.q)}">
+    </div>
+    <p id="nd-compte"></p>
+    <div class="table-defile"><table><thead><tr><th>Nœud</th><th>Identifiant du nœud</th><th>Rôle</th><th>Position</th><th>Dernier paquet</th></tr></thead><tbody id="nd-corps"></tbody></table></div>
+    <div class="actions-prop"><button type="button" class="mini" id="nd-csv">⬇ Exporter la liste (CSV)</button></div>` : '<p class="note">Aucun nœud connu pour l’instant.</p>'}
+    <p class="note">Le département est celui qui contient la position retransmise par le nœud (contours officiels, calcul fait sur le serveur). Une position floutée ou imprécise peut ranger un nœud près d’une limite dans le département voisin : à vérifier au cas par cas.</p>
+    ${sansPos.length ? `<p class="note">${sansPos.length} nœud(s) n’ont envoyé aucune position : ils ne peuvent être rangés dans aucun département. Choisissez « Sans position reçue » pour les voir.</p>` : ''}
+    ${idx.monde ? `<p class="note">Les départements n’existent qu’en France. Sur cette carte du monde, ${hors.length} nœud(s) positionné(s) sont hors de France : ils sont comptés à part, rien n’est deviné.</p>` : ''}
+    <p class="note">Cliquez sur un nœud pour ouvrir sa fiche ; en la fermant vous revenez ici.</p></div>`;
+  if (!(deps.length || sansPos.length || hors.length)) return;
+  // Numéros rangés par département une fois pour toutes : une frappe dans le filtre ne relit pas tout l'index
+  const parDep = {};
+  for (const [num, c] of Object.entries(idx.parNoeud || {})) (parDep[c] = parDep[c] || []).push(Number(num));
+  let liste = [];
+  const champ = $('#nd-recherche');
+  function rendre() {
+    const nums = vue.quoi === 'sans' ? sansPos : vue.quoi === 'hors' ? hors : parDep[vue.quoi] || [];
+    const mots = sansAccent(vue.q).split(/\s+/).filter(Boolean);
+    let inconnus = 0;
+    liste = nums.map((num) => { const n = etat.noeuds.get(Number(num) >>> 0); if (!n) inconnus++; return n; }).filter(Boolean)
+      .filter((n) => mots.every((m) => sansAccent([n.nomLong, n.nomCourt, n.id, n.num, n.roleFr, n.materiel, n.firmware].filter(Boolean).join(' ')).includes(m)))
+      .sort((a, b) => (b.dernierVu || 0) - (a.dernierVu || 0));
+    const tete = vue.quoi === 'sans' ? `${liste.length} nœud(s) sans position reçue.`
+      : vue.quoi === 'hors' ? `${liste.length} nœud(s) positionnés hors de France.`
+      : nomDe(vue.quoi) ? `${liste.length} nœud(s) dans le département ${vue.quoi} · ${nomDe(vue.quoi)}.` : `${liste.length} nœud(s) dans le département ${vue.quoi}.`;
+    $('#nd-compte').innerHTML = `${esc(tete)}${mots.length ? ` <span>${esc(`Recherche en cours : ${nums.length} au total.`)}</span>` : ''}${inconnus ? ` <small>${esc(`${inconnus} nœud(s) purgés depuis le calcul ne sont plus affichés.`)}</small>` : ''}`;
+    $('#nd-corps').innerHTML = liste.map((n) => `<tr data-num="${n.num}" class="cliquable">
+      <td><b>${esc(n.nomLong || n.nomCourt || n.id)}</b>${n.passerelle ? ' <small>passerelle</small>' : ''}</td>
+      <td><small>${esc(n.id)}</small></td>
+      <td>${esc(n.roleFr || '')}</td>
+      <td>${n.lat != null ? `${n.lat.toFixed(4)}, ${n.lon.toFixed(4)}` : 'inconnue'}</td>
+      <td>${n.dernierVu ? ilYa(n.dernierVu) : '—'}</td></tr>`).join('') || '<tr><td colspan="5">Aucun nœud ne correspond.</td></tr>';
+    $('#nd-corps').querySelectorAll('tr[data-num]').forEach((tr) => (tr.onclick = () => {
+      etat.retourFicheDemande = { ecran: 'departement', code: vue.quoi, q: vue.q };
+      ouvrirFiche(Number(tr.dataset.num));
+    }));
+  }
+  $('#nd-dep').onchange = (e) => { vue.quoi = e.target.value; rendre(); };
+  champ.oninput = () => { vue.q = champ.value; rendre(); };
+  champ.onkeydown = (e) => { if (e.key === 'Escape') { champ.value = ''; vue.q = ''; rendre(); } };
+  $('#nd-csv').onclick = () => {
+    const c = (x) => { const t = String(x ?? ''); return `"${(typeof x !== 'number' && /^[=+\-@\t\r]/.test(t) ? "'" + t : t).replace(/"/g, '""')}"`; };
+    const entete = ['Nom', 'Nom court', 'Identifiant', 'Numéro', 'Rôle', 'Matériel', 'Firmware', 'Latitude', 'Longitude', 'Département', 'Dernier paquet'];
+    const lignes = liste.map((n) => [n.nomLong, n.nomCourt, n.id, n.num, n.roleFr, n.materiel, n.firmware, n.lat, n.lon, (idx.parNoeud || {})[String(n.num >>> 0)] || '', n.dernierVu ? new Date(n.dernierVu).toISOString() : ''].map(c).join(';'));
+    telechargerTexte(`noeuds-${vue.quoi}-${new Date().toISOString().slice(0, 10)}.csv`, '﻿' + [entete.map(c).join(';'), ...lignes].join('\r\n'));
+  };
+  rendre();
+  if (vue.q) champ.focus();
 }
 async function ficheAutresPresets() {
   $('#fiche').hidden = false;
