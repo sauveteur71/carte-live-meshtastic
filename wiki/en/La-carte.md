@@ -10,6 +10,7 @@
 - **＋ button** on the map: tap ＋ then a point on the map to report an event, see the coverage from this point, share it or draw a profile (no right-click needed, handy on a phone).
 - **“?”** to the right of the sections: help for the current screen opens in the map (pages of this wiki). **Guided tour** on the first visit, to take again from Settings.
 - **Comfort and accessibility**: confirmations and messages inside the interface (no more browser pop-ups), **Large text** option, light theme, keyboard navigation (Tab, Enter, Esc), labels for screen readers, larger buttons on touch screens.
+- **Roomier windows**: on a wide screen, settings windows open wider and lists switch to **two columns** (everything is visible without scrolling). The **⤢** button, next to the close cross, widens them further; the choice is kept for the next visit and applies to every window. **Clicking next to a window closes it**, just like the ✕ or the Esc key — unless something has been typed in it: the window then stays open and says so, nothing is lost.
 
 ![Overview](https://raw.githubusercontent.com/sauveteur71/carte-live-meshtastic/main/docs/captures/en-carte.jpg)
 

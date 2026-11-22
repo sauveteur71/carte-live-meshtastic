@@ -1889,3 +1889,32 @@ body.theme-clair .evt-crise.critique span, body.theme-clair .evt-sa.sortie span,
 body.theme-clair .evt-crise.attention span, body.theme-clair .evt-sa.silence span { color: #854d0e; }
 body.theme-clair .sa-dehors { color: #9a3412; }
 @media (max-width: 700px) { #bandeau-urgence { margin-left: 4px; padding: 3px 7px; max-width: 40vw; } #bandeau-urgence .u-motif { display: none; } }
+
+/* ---- Fenêtres : largeur et élargissement -----------------------------------------------------------------
+   Sur un grand écran, les fenêtres de réglages tenaient dans une colonne étroite avec une barre de
+   défilement alors qu'il restait de la place à gauche et à droite. Trois réponses, cumulées :
+   1. largeur de départ plus généreuse à partir de 1000 px (et pas au-delà : une ligne de texte de 1800 px
+      est pénible à lire) ;
+   2. un bouton ⤢ à côté de la croix, qui élargit toutes les fenêtres d'un coup (choix gardé) ;
+   3. les listes de réglages passent sur deux colonnes dès qu'il y a la place.
+   Téléphone et tablette ne changent pas : toutes les largeurs restent bornées en vw, et le bouton ⤢ est
+   masqué en dessous de 1000 px (il n'y a rien à gagner). */
+dialog > .elargir { position: absolute; right: 52px; top: 17px; border: 0; background: none; padding: 2px 4px; font-size: 17px; line-height: 1; color: var(--texte); opacity: .75; cursor: pointer; }
+dialog > .elargir:hover, dialog > .elargir:focus-visible { opacity: 1; }
+@media (max-width: 999px) { dialog > .elargir { display: none; } }
+@media (min-width: 1000px) {
+  dialog.large { width: min(1040px, 94vw); }
+  dialog.large.elargie { width: min(1480px, 97vw); }
+  dialog.tres-large.elargie { width: min(1800px, 98vw); }
+  /* Texte courant : largeur de lecture raisonnable même dans une fenêtre très large */
+  dialog.elargie > p, dialog.elargie > .note, dialog.elargie > h3 + p { max-width: 110ch; }
+}
+/* Listes de réglages (Fonctions de la carte…) : deux colonnes quand la fenêtre est assez large, pour tout
+   voir sans faire défiler */
+.grille-fonctions { display: grid; grid-template-columns: 1fr; align-items: start; gap: 8px; margin: 8px 0; }
+.grille-fonctions .carte-fonction { margin: 0; }
+@media (min-width: 1000px) { dialog.large .grille-fonctions { grid-template-columns: 1fr 1fr; } }
+/* Bouton d'outil proposé mais inutilisable ici (USB ou Bluetooth sans HTTPS, ou hors Chrome / Edge) :
+   signalé, mais toujours cliquable — le clic explique pourquoi, un bouton grisé ne dirait rien. */
+.bascule.indispo { opacity: .72; }
+.bascule.indispo::after { content: ' ⚠'; font-size: 11px; }

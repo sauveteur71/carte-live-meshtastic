@@ -1916,6 +1916,240 @@ async function essaiRegistreAvance(navig, cookie) {
   bilanErreurs(erreurs, 'registre des relais');
   await ctx.close();
 }
+
+// Boutons du menu Outils : chacun doit déclencher SON action. Le gestionnaire générique des couches était
+// posé sur tous les éléments .bascule (y compris ceux du menu Outils, qui n'ont pas de data-couche) et
+// écrasait leur vrai gestionnaire : le clic ne faisait plus rien. Essai dans le contexte d'Olivier, carte
+// ouverte en HTTP via une adresse Tailscale : Chrome n'expose alors ni navigator.serial ni navigator.bluetooth.
+async function essaiBoutonsOutils(navig, cookie) {
+  console.log('Menu Outils : chaque bouton garde son action (contexte non sécurisé)');
+  const contexte = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
+  await contexte.addCookies([cookie]);
+  await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  // Carte en http:// hors de ce PC : ni Web Serial ni Web Bluetooth, et isSecureContext faux
+  await contexte.addInitScript(() => {
+    delete Navigator.prototype.serial;
+    delete Navigator.prototype.bluetooth;
+    Object.defineProperty(window, 'isSecureContext', { get: () => false });
+  });
+  const { page, erreurs } = await ouvrir(contexte, '/');
+
+  // 1. Aucun bouton sans data-couche ne doit porter le gestionnaire des couches
+  const etatBoutons = await page.evaluate(() => {
+    const l = [];
+    document.querySelectorAll('.bascule').forEach((b) => {
+      const src = b.onclick ? b.onclick.toString() : null;
+      l.push({
+        cle: b.id ? '#' + b.id : (b.getAttribute('href') || '').slice(0, 40) || (b.textContent || '').trim().slice(0, 36),
+        couche: b.dataset.couche || null, tag: b.tagName,
+        href: b.getAttribute('href'), action: !!src,
+        couchier: !!(src && /dataset\.couche/.test(src)),
+      });
+    });
+    return l;
+  });
+  const avecCouche = etatBoutons.filter((b) => b.couche);
+  const sansCouche = etatBoutons.filter((b) => !b.couche);
+  const voles = sansCouche.filter((b) => b.couchier);
+  if (!voles.length) ok(`boutons d’outils : aucun n’a hérité du gestionnaire des couches (${sansCouche.length} boutons vérifiés)`);
+  else ko(`${voles.length} bouton(s) d’outils déclenchent la bascule des couches au lieu de leur action : ` + voles.map((b) => b.cle).join(', '));
+  // Les vraies bascules de couche, elles, doivent toutes l'avoir gardé
+  const perdues = avecCouche.filter((b) => !b.couchier);
+  if (avecCouche.length >= 15 && !perdues.length) ok(`bascules de couche : les ${avecCouche.length} conservent leur gestionnaire`);
+  else ko('bascules de couche perdues : ' + JSON.stringify(perdues.map((b) => b.couche)) + ` (${avecCouche.length} trouvées)`);
+  // Aucun bouton muet : soit un gestionnaire, soit un lien
+  const muets = sansCouche.filter((b) => !b.action && !b.href);
+  if (!muets.length) ok('boutons d’outils : aucun sans action ni lien');
+  else ko('boutons sans aucune action : ' + muets.map((b) => b.cle).join(', '));
+
+  // 2. Les 13 boutons signalés par Olivier : chacun a bien son action propre ou un lien utilisable
+  const ATTENDUS = ['#outil-usb', '#outil-ble', '#lien-client', '#lien-flasher', '#outil-passerelle', '#outil-theme', '#outil-installer', '#outil-adrasec'];
+  const manque = await page.evaluate((ids) => ids.filter((id) => {
+    const b = document.querySelector(id);
+    if (!b) return false; // bouton absent de cette édition
+    const src = b.onclick ? b.onclick.toString() : null;
+    if (src && /dataset\.couche/.test(src)) return true;
+    return !src && !b.getAttribute('href');
+  }), ATTENDUS);
+  if (!manque.length) ok('boutons nommés par Olivier : tous rendus à leur action (' + ATTENDUS.length + ' vérifiés)');
+  else ko('boutons toujours inertes : ' + manque.join(', '));
+
+  // 3. Un clic sur « Module USB de ce PC » doit TOUJOURS répondre, même ici où l’USB est impossible
+  const messageApresClic = async (sel) => {
+    await page.evaluate(() => { const z = document.getElementById('annonces'); if (z) z.innerHTML = ''; const m = document.querySelector('.menu-outils'); if (m) m.open = true; });
+    await page.evaluate((s) => document.querySelector(s).click(), sel);
+    await page.waitForTimeout(500);
+    return page.evaluate(() => { const z = document.getElementById('annonces'); return z ? z.textContent.trim() : ''; });
+  };
+  const mUsb = await messageApresClic('#outil-usb');
+  if (/HTTPS|Chrome ou Edge/i.test(mUsb)) ok('clic « Module USB de ce PC » en HTTP : message visible (« ' + mUsb.slice(0, 48) + '… »)');
+  else ko('clic « Module USB de ce PC » : aucun message visible (« ' + mUsb.slice(0, 60) + ' »)');
+  const mBle = await messageApresClic('#outil-ble');
+  if (/HTTPS|Chrome ou Edge/i.test(mBle)) ok('clic « Module Bluetooth » en HTTP : message visible');
+  else ko('clic « Module Bluetooth » : aucun message visible (« ' + mBle.slice(0, 60) + ' »)');
+  // Les deux boutons sont signalés comme inutilisables ici, mais restent cliquables
+  const marques = await page.evaluate(() => ['#outil-usb', '#outil-ble'].map((s) => {
+    const b = document.querySelector(s);
+    return { indispo: b.classList.contains('indispo'), desactive: b.disabled, titre: (b.title || '').slice(0, 20) };
+  }));
+  if (marques.every((m) => m.indispo && !m.desactive)) ok('USB et Bluetooth : signalés inutilisables ici, mais toujours cliquables');
+  else ko('marquage des boutons inutilisables : ' + JSON.stringify(marques));
+
+  // 4. Aucune clé parasite dans les couches après ces clics
+  const parasites = await page.evaluate(() => Object.keys(etat.couches).filter((k) => k === 'undefined' || k === 'null'));
+  if (!parasites.length) ok('couches : aucune clé parasite après les clics d’outils');
+  else ko('clé parasite dans etat.couches : ' + JSON.stringify(parasites));
+
+  // 5. Le bouton « Thème clair » agit vraiment
+  await page.evaluate(() => { const m = document.querySelector('.menu-outils'); if (m) m.open = true; document.querySelector('#outil-theme').click(); });
+  await page.waitForTimeout(300);
+  const clair = await page.evaluate(() => document.body.classList.contains('theme-clair'));
+  if (clair) ok('clic « Thème clair » : le thème change'); else ko('clic « Thème clair » : aucun effet');
+  await page.evaluate(() => { const m = document.querySelector('.menu-outils'); if (m) m.open = true; document.querySelector('#outil-theme').click(); });
+
+  // 6. Une clé parasite déjà enregistrée par une ancienne version est purgée, les choix légitimes gardés
+  await page.evaluate(() => localStorage.setItem('gaulix_couches', JSON.stringify({ rf: false, aprs: true, undefined: true })));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(3000);
+  const apres = await page.evaluate(() => ({ ls: JSON.parse(localStorage.getItem('gaulix_couches') || '{}'), rf: etat.couches.rf, aprs: etat.couches.aprs }));
+  if (!('undefined' in apres.ls) && apres.rf === false && apres.aprs === true) ok('couches mémorisées : clé parasite purgée, choix légitimes gardés (rf, aprs)');
+  else ko('purge des couches mémorisées : ' + JSON.stringify(apres));
+
+  await capture(page, 'outils-non-securise');
+  bilanErreurs(erreurs, 'menu Outils');
+  await contexte.close();
+}
+
+// Fenêtres (<dialog>) : largeur sur grand écran, bouton ⤢, fermeture par un clic à côté, protection
+// d'une saisie en cours, Échap toujours actif.
+async function essaiFenetres(navig, cookie) {
+  console.log('Fenêtres : largeur, élargissement et fermeture par un clic à côté');
+  const prep = async (vue) => {
+    const ctx = await navig.newContext({ viewport: vue, locale: 'fr-FR', isMobile: vue.width < 500, hasTouch: vue.width < 500, deviceScaleFactor: vue.width < 500 ? 2 : 1 });
+    await ctx.addCookies([cookie]);
+    await ctx.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+    const r = await ouvrir(ctx, '/');
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    return { ctx, ...r };
+  };
+  const ouvrirFonctions = async (page) => {
+    await page.evaluate(() => dlgFonctionsCarte());
+    await page.waitForFunction(() => { const d = document.getElementById('dlg-fonctions-carte'); return d && d.open && !d.querySelector('.vide'); }, null, { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(400);
+  };
+  const mesurer = (page) => page.evaluate(() => {
+    const d = document.getElementById('dlg-fonctions-carte');
+    const b = d.querySelector('.elargir');
+    return {
+      largeur: Math.round(d.getBoundingClientRect().width),
+      defile: d.scrollHeight > d.clientHeight + 1,
+      manquant: d.scrollHeight - d.clientHeight,
+      elargirVisible: !!b && getComputedStyle(b).display !== 'none',
+      debordement: document.documentElement.scrollWidth > window.innerWidth + 1,
+      colonnes: (getComputedStyle(d.querySelector('.grille-fonctions')).gridTemplateColumns.match(/px/g) || []).length,
+    };
+  });
+
+  // Grand écran : tout doit tenir sans barre de défilement, sur deux colonnes
+  {
+    const { ctx, page, erreurs } = await prep({ width: 1920, height: 1080 });
+    await ouvrirFonctions(page);
+    const m = await mesurer(page);
+    if (!m.defile) ok(`« Fonctions de la carte » en 1920 px : tout tient sans défilement (largeur ${m.largeur} px)`);
+    else ko(`« Fonctions de la carte » en 1920 px : encore ${m.manquant} px à faire défiler (largeur ${m.largeur} px)`);
+    if (m.largeur >= 900 && m.largeur <= 1200) ok('largeur de départ dans la plage lisible (900–1200 px)');
+    else ko('largeur de départ hors de la plage lisible : ' + m.largeur + ' px');
+    if (m.colonnes === 2) ok('réglages sur deux colonnes quand la fenêtre est large');
+    else ko('réglages : ' + m.colonnes + ' colonne(s) au lieu de 2');
+    // Bouton ⤢ : élargit, et le choix est gardé d'une fenêtre à l'autre
+    if (m.elargirVisible) ok('bouton ⤢ présent à côté de la croix'); else ko('bouton ⤢ absent sur grand écran');
+    await page.click('#dlg-fonctions-carte .elargir');
+    await page.waitForTimeout(300);
+    const m2 = await mesurer(page);
+    const garde = await page.evaluate(() => localStorage.getItem('gaulix_fenetres_larges'));
+    if (m2.largeur > m.largeur && m2.largeur <= 1800) ok(`⤢ élargit la fenêtre (${m.largeur} → ${m2.largeur} px) sans dépasser 1800 px`);
+    else ko(`⤢ : largeur ${m.largeur} → ${m2.largeur} px`);
+    if (garde === 'true') ok('largeur élargie gardée pour la prochaine visite'); else ko('largeur élargie non mémorisée : ' + garde);
+    await page.click('#dlg-fonctions-carte .elargir');
+    await page.waitForTimeout(200);
+    // Clic DANS la fenêtre (titre, puis zone vide près du bord) : ne ferme jamais
+    await page.click('#dlg-fonctions-carte h3');
+    await page.waitForTimeout(200);
+    let ouverte = await page.evaluate(() => document.getElementById('dlg-fonctions-carte').open);
+    if (ouverte) ok('clic sur le titre de la fenêtre : elle reste ouverte'); else ko('clic intérieur : la fenêtre s’est fermée');
+    await page.evaluate(() => {
+      const r = document.getElementById('dlg-fonctions-carte').getBoundingClientRect();
+      document.elementFromPoint(Math.round(r.left + 3), Math.round(r.top + 3)).dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: r.left + 3, clientY: r.top + 3 }));
+      document.elementFromPoint(Math.round(r.left + 3), Math.round(r.top + 3)).dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: r.left + 3, clientY: r.top + 3 }));
+    });
+    await page.waitForTimeout(200);
+    ouverte = await page.evaluate(() => document.getElementById('dlg-fonctions-carte').open);
+    if (ouverte) ok('clic sur le bord intérieur de la fenêtre : elle reste ouverte'); else ko('clic sur le bord intérieur : la fenêtre s’est fermée');
+    // Clic À CÔTÉ : ferme
+    await page.mouse.click(6, 540);
+    await page.waitForTimeout(300);
+    const fermee = await page.evaluate(() => !document.getElementById('dlg-fonctions-carte').open);
+    if (fermee) ok('clic à côté de la fenêtre : elle se ferme'); else ko('clic à côté : la fenêtre reste ouverte');
+    await capture(page, 'fenetres-1920');
+    bilanErreurs(erreurs, 'fenêtres (1920 px)');
+    await ctx.close();
+  }
+
+  // Tablette et téléphone : rien ne doit déborder, le bouton ⤢ disparaît, le clic à côté marche toujours
+  for (const vue of [{ width: 1024, height: 768 }, { width: 390, height: 844 }]) {
+    const { ctx, page, erreurs } = await prep(vue);
+    await ouvrirFonctions(page);
+    const m = await mesurer(page);
+    if (!m.debordement && m.largeur <= vue.width - 8) ok(`${vue.width} px : la fenêtre tient dans l’écran (${m.largeur} px, pas de défilement horizontal)`);
+    else ko(`${vue.width} px : largeur ${m.largeur} px, débordement horizontal : ${m.debordement}`);
+    if (vue.width === 390) {
+      if (!m.elargirVisible) ok('téléphone : bouton ⤢ masqué'); else ko('téléphone : bouton ⤢ affiché à tort');
+      if (m.colonnes === 1) ok('téléphone : réglages sur une seule colonne'); else ko('téléphone : ' + m.colonnes + ' colonnes');
+      const croix = await page.locator('#dlg-fonctions-carte .fermer').isVisible();
+      if (croix) ok('téléphone : la croix de fermeture reste présente'); else ko('téléphone : croix de fermeture absente');
+    }
+    await page.mouse.click(Math.round(vue.width / 2), vue.height - 6);
+    await page.waitForTimeout(300);
+    const fermee = await page.evaluate(() => !document.getElementById('dlg-fonctions-carte').open);
+    if (fermee) ok(`${vue.width} px : clic à côté = fenêtre fermée`); else ko(`${vue.width} px : clic à côté sans effet`);
+    await capture(page, 'fenetres-' + vue.width);
+    bilanErreurs(erreurs, `fenêtres (${vue.width} px)`);
+    await ctx.close();
+  }
+
+  // Saisie en cours : un clic à côté ne doit rien perdre ; la croix et Échap restent disponibles
+  {
+    const { ctx, page, erreurs } = await prep({ width: 1400, height: 900 });
+    await page.evaluate(() => $('#dlg-profil').showModal());
+    await page.waitForTimeout(300);
+    await page.fill('#dlg-profil input[name="ha"]', '12');
+    await page.mouse.click(6, 450);
+    await page.waitForTimeout(400);
+    const etatSaisie = await page.evaluate(() => ({
+      ouverte: document.getElementById('dlg-profil').open,
+      valeur: document.querySelector('#dlg-profil input[name="ha"]').value,
+      message: (document.getElementById('annonces') || { textContent: '' }).textContent.trim(),
+    }));
+    if (etatSaisie.ouverte && etatSaisie.valeur === '12') ok('saisie en cours : le clic à côté ne ferme pas et ne perd rien');
+    else ko('saisie en cours : ' + JSON.stringify(etatSaisie));
+    if (/saisie/i.test(etatSaisie.message)) ok('saisie en cours : l’utilisateur est prévenu (« ' + etatSaisie.message.slice(0, 44) + '… »)');
+    else ko('saisie en cours : aucun message (« ' + etatSaisie.message.slice(0, 60) + ' »)');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    if (await page.evaluate(() => !document.getElementById('dlg-profil').open)) ok('Échap ferme toujours la fenêtre');
+    else ko('Échap ne ferme plus la fenêtre');
+    // Fenêtre sans saisie : le clic à côté ferme bien
+    await page.evaluate(() => $('#dlg-profil').showModal());
+    await page.waitForTimeout(250);
+    await page.mouse.click(6, 450);
+    await page.waitForTimeout(300);
+    if (await page.evaluate(() => !document.getElementById('dlg-profil').open)) ok('sans saisie commencée : le clic à côté ferme');
+    else ko('sans saisie commencée : le clic à côté ne ferme pas');
+    bilanErreurs(erreurs, 'fenêtres (saisie en cours)');
+    await ctx.close();
+  }
+}
+
 async function essaiPagesPubliques(navig) {
   for (const [url, nom, attendu] of [['/publique.html', 'carte publique', '#carte .leaflet-pane, .leaflet-pane'], ['/topologie.html', 'graphe des liens', 'svg, canvas']]) {
     console.log(nom[0].toUpperCase() + nom.slice(1) + ' (visiteur)');
@@ -2225,6 +2459,9 @@ async function essaiSuggestionsNoeuds(navig, cookie) {
     await essaiRegistreAvance(navigateur, cookie);
 
     await essaiResumeOperations(navigateur, cookie);
+
+    await essaiBoutonsOutils(navigateur, cookie);
+    await essaiFenetres(navigateur, cookie);
     await essaiPagesPubliques(navigateur);
     await essaiTopologieFiche(navigateur);
     await essaiRapportArchives(navigateur, cookie);

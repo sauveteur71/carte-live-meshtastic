@@ -20,6 +20,9 @@ The broker address is misspelled (for example `mqttexample.org` instead of `mqtt
 ### “host unreachable” (EHOSTUNREACH) for a Wi-Fi node
 The server is not on the same network as the node. Use *Connect a node* with **agent 1.6** running on a PC on that network, or Bluetooth or USB from the browser.
 
+### “This PC's USB node” or “Bluetooth node”: the button explains why it is not possible
+Chrome only opens USB and Bluetooth on a **secure** page. If the map is opened over `http://` from another PC (a Tailscale `100.x.x.x` address, for instance), the click shows *“USB is not possible here: open the map over HTTPS (…ts.net address) or from the PC running the map (localhost)”*, and both buttons are marked **⚠**. This is normal: open the map over HTTPS (a `…ts.net` address), or from the machine running it (`http://localhost:…`, which counts as secure). Same message outside Chrome or Edge (Firefox and Safari support neither browser USB nor browser Bluetooth).
+
 ### Bluetooth doesn't find the node
 Map over **HTTPS**, **Chrome or Edge**, phone app disconnected. On a Meshtastic ESP32, Bluetooth is off when Wi-Fi is on. Pair the node in Windows if needed (code shown or `123456`).
 
