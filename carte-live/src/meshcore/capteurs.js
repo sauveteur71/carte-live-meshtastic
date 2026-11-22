@@ -11,7 +11,9 @@ const path = require('path');
 const INTERVALLES = [0, 15, 30, 60, 180, 360, 720, 1440]; // minutes, 0 = jamais
 // Une tâche « télémétrie » qui n'est pas terminée au bout de ce délai est considérée perdue : ses nœuds sont
 // redemandés au lieu d'attendre une fin qui ne viendra peut-être jamais (le relevé se rétablit tout seul).
-const PLAFOND_TACHE_MS = 60 * 60000; // au-delà du plafond de l'administration (10 nœuds × 4 min + 10 min)
+// Dérivé du plafond par nœud réglé dans Module MeshCore : un lot compte 10 nœuds au plus, plus 20 min de marge,
+// jamais moins d'une demi-heure. Pas de réglage de plus à l'écran pour ça : il suit le premier tout seul.
+const plafondTacheMs = (config) => Math.max(30 * 60000, (10 * Math.min(30, Math.max(1, Number((config.meshcore || {}).plafondReleveMin) || 4)) + 20) * 60000);
 // Demande restée sans réponse : nouvelle tentative au bout de 15 min, deux fois au plus. Sans cela, une seule
 // tentative perdue coûtait un intervalle entier (3 h de trou pour un relevé toutes les 3 h).
 const RELANCE_MS = 15 * 60000;
@@ -149,13 +151,14 @@ function creerCapteursMc({ db, config, adminMc, companion, journal }) {
       // Les nœuds d'une tâche en cours ne sont pas redemandés — sauf si cette tâche traîne depuis plus que le
       // plafond : une tâche qui ne se termine jamais arrêtait les relevés automatiques définitivement, en silence.
       const taches = adminMc.taches().filter((t) => !t.fin && t.type === 'telemetrie');
-      const perdue = (t) => maintenant - (t.debut || t.creee || maintenant) > PLAFOND_TACHE_MS;
+      const plafond = plafondTacheMs(config);
+      const perdue = (t) => maintenant - (t.debut || t.creee || maintenant) > plafond;
       const enCours = new Set(taches.filter((t) => !perdue(t)).flatMap((t) => t.cles));
       for (const t of taches) {
         if (!perdue(t) || tachesPerdues.has(t.id)) continue;
         tachesPerdues.add(t.id);
         if (tachesPerdues.size > 50) tachesPerdues.delete(tachesPerdues.values().next().value);
-        journal(`relevé des capteurs : tâche ${t.id} sans fin depuis plus de ${Math.round(PLAFOND_TACHE_MS / 60000)} min, relevés relancés sans l’attendre`);
+        journal(`relevé des capteurs : tâche ${t.id} sans fin depuis plus de ${Math.round(plafond / 60000)} min, relevés relancés sans l’attendre`);
       }
       const dus = Object.entries(reglages).filter(([cle, r]) => {
         if (!(r.intervalleMin > 0) || enCours.has(cle)) return false;

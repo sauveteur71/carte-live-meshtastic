@@ -373,10 +373,15 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
 
   // Plafond par nœud. Une opération qui ne rend jamais la main (attente d'une réponse du companion qui n'arrive
   // jamais et dont la minuterie a été perdue) empêchait les nœuds suivants de la tâche d'être traités, et la tâche
-  // de se terminer : plus aucun relevé automatique ensuite. Les relevés rapides ont un plafond court ; la lecture
-  // complète des réglages d'un répéteur lent est légitimement longue (25 commandes à deux essais de 40 s), d'où 1 h.
-  const PLAFONDS_NOEUD = { telemetrie: 4, statut: 4, chemin: 4, tracer: 5, annonce: 4, horloge: 4, redemarrer: 4 };
-  const plafondNoeudMs = (t) => (PLAFONDS_NOEUD[t.type] || 60) * 60000;
+  // de se terminer : plus aucun relevé automatique ensuite. Deux durées, réglables dans Module MeshCore : les relevés
+  // rapides (4 min par défaut) et tout le reste, dont la lecture complète des réglages d'un répéteur lent, légitimement
+  // longue (25 commandes à deux essais de 40 s), d'où 1 h par défaut. Borné ici aussi : un réglage abîmé ne casse rien.
+  const RELEVES_RAPIDES = new Set(['telemetrie', 'statut', 'chemin', 'tracer', 'annonce', 'horloge', 'redemarrer']);
+  const borne = (v, mn, mx, def) => Math.min(mx, Math.max(mn, Number.isFinite(Number(v)) ? Number(v) : def));
+  const plafondNoeudMs = (t) => {
+    const mc = config.meshcore || {};
+    return (RELEVES_RAPIDES.has(t.type) ? borne(mc.plafondReleveMin, 1, 30, 4) : borne(mc.plafondLectureMin, 5, 240, 60)) * 60000;
+  };
   async function avecPlafond(t, n, travail) {
     travail.catch(() => {}); // opération abandonnée : pas de rejet non traité si elle échoue plus tard
     let limite = null;

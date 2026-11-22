@@ -77,8 +77,11 @@ Les relevés faits à la main depuis l'administration alimentent aussi les courb
 ### Si un relevé ne part plus
 Le relevé automatique doit se rétablir tout seul :
 - **nœud qui ne répond pas** : la carte réessaie deux fois, à un quart d'heure d'intervalle, puis attend l'intervalle suivant. Un nœud injoignable ne prive plus les autres de relevé ;
-- **opération qui traîne** : une tâche MeshCore a maintenant une durée maximale, par nœud (4 min pour un relevé, 1 h pour la lecture complète des réglages d'un répéteur lent) et au total. Au-delà, elle est abandonnée, avec la raison dans ses étapes, pour que les tâches suivantes repartent ;
-- **alerte « relevés en retard »** : quand rien n'arrive pendant trois intervalles (2 h au moins), une alerte MeshCore le dit, avec la date du dernier relevé et les causes possibles (companion, mot de passe, portée). Un nœud disparu de la carte (purgé) est signalé à part et repris s'il réapparaît.
+- **opération qui traîne** : chaque nœud d'une tâche MeshCore a une durée maximale, et la tâche entière aussi. Au-delà, le nœud est déclaré sans réponse (la raison est écrite dans les étapes de la tâche) et la carte passe au suivant, pour que les tâches suivantes repartent. Les deux durées se règlent dans **MeshCore › Companion › Module MeshCore** :
+  - *Délai maximal d'un relevé, par nœud* : 1 à 30 min, **4 min par défaut** (télémétrie, état, chemin, trace, annonce, horloge, redémarrage) ;
+  - *Délai maximal d'une lecture complète, par nœud* : 5 à 240 min, **60 min par défaut** (lecture de tous les réglages, programmation, mise en service, console). Trop bas, un répéteur lent est déclaré sans réponse avant la fin : la lecture complète demande 25 commandes, chacune réessayée une fois.
+  - La durée maximale de la tâche entière et le délai au bout duquel le relevé des capteurs repart sans attendre une tâche en suivent le premier réglage : rien de plus à régler. Dans le `.env` : `MESHCORE_PLAFOND_RELEVE_MIN`, `MESHCORE_PLAFOND_LECTURE_MIN` ;
+- **alerte « relevés en retard »** : quand rien n'arrive pendant trois intervalles (2 h au moins), une alerte MeshCore le dit, avec la date du dernier relevé et les causes possibles (companion, mot de passe, portée). Un nœud disparu de la carte (purgé) est signalé à part et repris s'il réapparaît. Cette alerte et celle d'une mesure hors seuil s'affichent **même si le capteur est hors de la zone de la carte** : un capteur dont vous avez vous-même réglé le relevé est un nœud que vous suivez, où qu'il soit.
 
 Le nombre indiqué sous chaque mesure (« 36 relevés ») est celui de la **période affichée** (1, 7, 30 ou 90 jours), pas le total : changer de période change ce nombre, aucun relevé n'est perdu.
 

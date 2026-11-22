@@ -186,6 +186,11 @@ const config = {
       maxParMinute: Math.min(600, Math.max(5, nombre('MESHCORE_CORESCOPE_MAX_MINUTE', 60))),
     },
     supervisionMax: nombre('MESHCORE_SUPERVISION_MAX', 8),
+    // Durée maximale accordée à un nœud dans une tâche MeshCore (src/meshcore/administration.js). Au-delà, le nœud
+    // est déclaré sans réponse et la tâche passe au suivant, au lieu de bloquer toute la file (relevés, supervision).
+    // Relevé rapide : télémétrie, état, chemin, trace, annonce, horloge, redémarrage. Lecture : tout le reste.
+    plafondReleveMin: Math.min(30, Math.max(1, nombre('MESHCORE_PLAFOND_RELEVE_MIN', 4))),
+    plafondLectureMin: Math.min(240, Math.max(5, nombre('MESHCORE_PLAFOND_LECTURE_MIN', 60))),
   },
   // Mur des donateurs (voir src/donateurs.js) : tout est désactivé par défaut, rien n'est codé en dur.
   // Ces réglages peuvent aussi être faits depuis la page d'administration (enregistrés alors dans donateurs.json).
@@ -253,6 +258,8 @@ function appliquerReglages(r) {
     if (Array.isArray(m.iataVoisins)) config.meshcore.iataVoisins = m.iataVoisins.map((x) => String(x).toUpperCase()).filter((x) => /^[A-Z0-9]{2,8}$/.test(x));
     if (Array.isArray(m.canaux) && m.canaux.length) config.meshcore.canaux = m.canaux.map(String);
     if (Number.isInteger(m.supervisionHeures) && m.supervisionHeures >= 0 && m.supervisionHeures <= 48) config.meshcore.supervisionHeures = m.supervisionHeures;
+    if (Number.isInteger(m.plafondReleveMin) && m.plafondReleveMin >= 1 && m.plafondReleveMin <= 30) config.meshcore.plafondReleveMin = m.plafondReleveMin;
+    if (Number.isInteger(m.plafondLectureMin) && m.plafondLectureMin >= 5 && m.plafondLectureMin <= 240) config.meshcore.plafondLectureMin = m.plafondLectureMin;
     if (m.corescope && typeof m.corescope === 'object') {
       const c = m.corescope;
       if (Array.isArray(c.sources)) config.meshcore.corescope.sources = require('./meshcore/corescope').lireSources(c.sources);

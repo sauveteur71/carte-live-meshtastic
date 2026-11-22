@@ -1841,14 +1841,14 @@ test('Calcul partagé par clé : demandes simultanées servies par une seule ex�
 // ---------- Relevé automatique des capteurs MeshCore : il doit repartir tout seul et se signaler ----------
 // Banc : vrai module de relevé + vraie file de tâches d'administration, avec un faux companion et une horloge
 // simulée (on avance de plusieurs heures en quelques millisecondes).
-function bancCapteursMc(t, { intervalleMin = 180, nb = 3 } = {}) {
+function bancCapteursMc(t, { intervalleMin = 180, nb = 3, reglagesMc = null } = {}) {
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'setImmediate', 'Date'], now: Date.parse('2026-11-21T20:00:00Z') });
   const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-capteurs-'));
   const { creerStockage } = require('../src/base');
   const { creerAdministrationMc } = require('../src/meshcore/administration');
   const { creerCapteursMc } = require('../src/meshcore/capteurs');
   const st = creerStockage(path.join(dossier, 'x.db'));
-  const config = { fichierBase: path.join(dossier, 'x.db'), meshcore: { supervisionHeures: 0, supervisionMax: 8 } };
+  const config = { fichierBase: path.join(dossier, 'x.db'), meshcore: { supervisionHeures: 0, supervisionMax: 8, ...(reglagesMc || {}) } };
   const CLES = ['A', 'B', 'C', 'D'].slice(0, nb).map((c) => c.repeat(64));
   const noeuds = new Map(CLES.map((c, i) => [c, { cle: c, nom: 'Capteur ' + i, role: 'capteur', lat: 45, lon: 4, horodatage_annonce: 0 }]));
   const reseauMc = { q: { noeud: { get: (c) => noeuds.get(String(c).toUpperCase()) } }, noterEtat: () => {}, resoudreChemin: () => [], surveilles: () => [] };
@@ -1915,4 +1915,27 @@ test('MeshCore capteurs : une tâche arrêtée pendant qu’elle attend est marq
   b.cas.muets.clear();
   await b.avancer(8 * 3600000);
   assert.ok(b.releves(b.CLES[1]) >= 2, `le nœud de la tâche arrêtée est relevé de nouveau : ${b.releves(b.CLES[1])}`);
+});
+
+// Le délai maximal par nœud se règle dans Module MeshCore : un plafond court lâche vite un nœud muet,
+// un plafond long le garde. (Une horloge simulée par test : un banc par test.)
+test('MeshCore capteurs : délai maximal réglé à 1 min, le nœud muet est lâché tout de suite', async (t) => {
+  const b = bancCapteursMc(t, { nb: 2, reglagesMc: { plafondReleveMin: 1 } });
+  b.cas.muets.add(b.CLES[0]);
+  await b.avancer(4 * 60000);
+  assert.equal(b.releves(b.CLES[1]), 1, 'le nœud sain est relevé dans les 4 min');
+});
+
+test('MeshCore capteurs : délai maximal réglé à 30 min, la carte laisse sa chance à un répéteur lent', async (t) => {
+  const b = bancCapteursMc(t, { nb: 2, reglagesMc: { plafondReleveMin: 30 } });
+  b.cas.muets.add(b.CLES[0]);
+  await b.avancer(4 * 60000);
+  assert.equal(b.releves(b.CLES[1]), 0, 'au bout de 4 min, le nœud sain attend encore son tour');
+});
+
+test('MeshCore capteurs : un délai maximal absurde dans le fichier de réglages est borné, jamais nul', async (t) => {
+  const b = bancCapteursMc(t, { nb: 2, reglagesMc: { plafondReleveMin: 0 } });
+  b.cas.muets.add(b.CLES[0]);
+  await b.avancer(4 * 60000);
+  assert.equal(b.releves(b.CLES[1]), 1, 'réglage à 0 : ramené à 1 min');
 });
