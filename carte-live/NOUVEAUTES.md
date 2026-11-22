@@ -2,6 +2,11 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.30.1
+
+### 🧰 Menus du haut toujours accessibles jusqu'en bas
+- Sur ordinateur, le menu **Outils** (surtout avec « Les deux » réseaux affichés) pouvait être plus haut que la fenêtre : les dernières entrées (Carte publique et exports, Mode urgence, Rapport hebdomadaire…) sortaient de l'écran sans moyen de les atteindre. Les menus Outils, Couches et Couverture radio s'arrêtent maintenant en bas de la fenêtre et **défilent**.
+
 ## 2.30.0
 
 ### 🖱️ Les boutons du menu Outils marchent de nouveau

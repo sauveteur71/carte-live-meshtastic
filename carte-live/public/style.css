@@ -292,7 +292,8 @@ svg.profil .obstacle { fill: #ff5c6c; }
 .menu-couches summary { list-style: none; cursor: pointer; color: var(--doux); padding: 5px 10px; border-radius: 7px; border: 1px solid var(--bord); }
 .menu-couches summary::-webkit-details-marker { display: none; }
 .menu-couches[open] summary { color: var(--texte); }
-.menu-couches .menu { position: absolute; right: 0; top: calc(100% + 6px); background: var(--surface); border: 1px solid var(--bord); border-radius: var(--rayon); padding: 6px; display: flex; flex-direction: column; gap: 4px; min-width: 160px; z-index: 1003; }
+/* Ordinateur : un menu plus haut que la fenêtre défile au lieu de dépasser en bas (hauteur ajustée en JS à l'ouverture) */
+.menu-couches .menu { position: absolute; right: 0; top: calc(100% + 6px); max-height: calc(100vh - 180px); overflow-y: auto; overscroll-behavior: contain; background: var(--surface); border: 1px solid var(--bord); border-radius: var(--rayon); padding: 6px; display: flex; flex-direction: column; gap: 4px; min-width: 160px; z-index: 1003; }
 .menu-couches .menu button { text-align: left; }
 .ligne .sous-ligne.meta-longue { grid-column: 2 / 4; color: var(--doux); }
 

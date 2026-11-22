@@ -6513,6 +6513,14 @@ function brancherInterface() {
   { const bi = $('#outil-inviter'); if (bi) { bi.hidden = !etat.admin || !!etat.consultation; bi.onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheAutresPresets(); }; } }
   $('#outil-portee').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; testPortee(null); };
   $('#outil-terrain').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; ficheTerrain(); };
+  // Menus du haut (Couches, Couverture radio, Outils) : jamais plus hauts que la place sous leur bouton, pour
+  // qu'on puisse toujours faire défiler jusqu'à la dernière entrée (Outils est long en « Les deux » réseaux)
+  document.querySelectorAll('details.menu-couches').forEach((d) => d.addEventListener('toggle', () => {
+    const m = d.open && d.querySelector(':scope > .menu');
+    if (!m || getComputedStyle(m).position === 'fixed') return; // téléphone : déjà borné par la feuille de style
+    m.style.maxHeight = '';
+    m.style.maxHeight = Math.max(160, Math.floor(window.innerHeight - m.getBoundingClientRect().top - 12)) + 'px';
+  }));
   $('#outil-partager').onclick = () => { const m = document.querySelector('.menu-outils'); if (m) m.open = false; fichePartager(); };
   $('#btn-simulation').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; simulation(); };
   $('#btn-plan-menu').onclick = () => { const mr = $('#menu-radio'); if (mr) mr.open = false; allerPlan(); };
