@@ -544,4 +544,4 @@ function formaterDuree(minutes) {
   return Math.round(minutes / 1440) + ' jours';
 }
 
-module.exports = { creerReseau, distanceKm };
+module.exports = { creerReseau, distanceKm, ROLES_FR };

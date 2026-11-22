@@ -5724,18 +5724,33 @@ async function rendreGestion() {
   if (i.taches.some((t) => !t.fin)) suivreTaches();
 }
 
+// Résumé d'une opération : une ligne par réglage envoyé (libellé, valeur, et la valeur d'avant si connue).
+// Chaque morceau est un élément à part : la traduction de l'interface le reconnaît ligne à ligne.
+// Les valeurs « brutes » (nom de nœud, nom de canal, coordonnées) portent translate="no".
+function ligneResume(d) {
+  return `<div class="ligne-resume">${d.lib ? `<span class="lib-resume">${esc(d.lib)}</span>` : ''}<span class="val-resume"${d.brut ? ' translate="no"' : ''}>${esc(d.valeur)}</span>${(d.notes || []).map((n) => `<span class="note-resume">${esc(n)}</span>`).join('')}</div>`;
+}
+function rendreResumeTache(t) {
+  const l = (t.details || []).filter((d) => d && d.valeur != null);
+  if (!l.length) return t.resume ? `<div class="resume-tache"><div class="ligne-resume"><span class="val-resume">${esc(t.resume)}</span></div></div>` : '';
+  // Résumé long (plusieurs sections, plusieurs canaux) : les premières lignes restent visibles,
+  // le reste est replié mais complet — rien n'est perdu.
+  const tete = l.slice(0, 5).map(ligneResume).join('');
+  const reste = l.slice(5);
+  return `<div class="resume-tache">${tete}${reste.length ? `<details class="reste-resume"><summary>et ${reste.length} autres réglages</summary>${reste.map(ligneResume).join('')}</details>` : ''}</div>`;
+}
 function rendreTaches(liste) {
   if (!liste || !liste.length) return '<div class="vide">Aucune.</div>';
   return liste.slice(0, 8).map((t) => `<div class="tache">
-    <div class="entete-tache"><b>${esc(t.nom)}</b><small>${heure(t.debut)} · ${esc(t.auteur)}${t.fin ? '' : t.prochainEssai ? ` · insiste : prochain essai à ${heure(t.prochainEssai)}` : ' · en cours'}${t.insister && t.fin ? ' · insistance terminée' : ''}</small>${!t.fin && !t.arret ? `<button class="mini arreter" data-arreter-tache="${t.id}" title="Arrêter cette opération">■ Arrêter</button>` : ''}${t.fin && t.noeuds.some((x) => x.statut === 'echec' || x.statut === 'annule') ? `<button class="mini" data-relancer-tache="${t.id}" data-resume="${esc(t.resume || '')}" data-nb="${t.noeuds.filter((x) => x.statut === 'echec' || x.statut === 'annule').length}" title="Relancer avec les mêmes réglages, sur les nœuds en échec">↻ Réessayer</button><button class="mini" data-relancer-tache="${t.id}" data-insister="1" data-resume="${esc(t.resume || '')}" data-nb="${t.noeuds.filter((x) => x.statut === 'echec' || x.statut === 'annule').length}" title="Relancer, puis reprendre automatiquement les nœuds en échec toutes les 10 min pendant 2 h">🔁 Insister 2 h</button>` : ''}${(t.type === 'verifier' || (t.type === 'lire' && (!t.fin || t.noeuds.some((x) => x.statut === 'ok' || x.partiel)))) ? `<button class="mini" data-voir-tache="${t.id}">${t.fin ? 'Voir' : 'Suivre'}</button>` : ''}</div>
-    ${t.resume ? `<div class="resume-tache">${esc(t.resume)}</div>` : ''}
+    <div class="entete-tache"><b>${esc(t.nom)}</b><small>${heure(t.debut)} · ${esc(t.auteur)}${t.fin ? '' : t.prochainEssai ? ` · insiste : prochain essai à ${heure(t.prochainEssai)}` : ' · en cours'}${t.insister && t.fin ? ' · insistance terminée' : ''}</small>${!t.fin && !t.arret ? `<button class="mini arreter" data-arreter-tache="${t.id}" title="Arrêter cette opération">■ Arrêter</button>` : ''}${t.fin && t.noeuds.some((x) => x.statut === 'echec' || x.statut === 'annule') ? `<button class="mini" data-relancer-tache="${t.id}" data-resume="${esc((t.resume || '').slice(0, 160))}" data-principal="${t.principal ? 1 : 0}" data-nb="${t.noeuds.filter((x) => x.statut === 'echec' || x.statut === 'annule').length}" title="Relancer avec les mêmes réglages, sur les nœuds en échec">↻ Réessayer</button><button class="mini" data-relancer-tache="${t.id}" data-insister="1" data-resume="${esc((t.resume || '').slice(0, 160))}" data-principal="${t.principal ? 1 : 0}" data-nb="${t.noeuds.filter((x) => x.statut === 'echec' || x.statut === 'annule').length}" title="Relancer, puis reprendre automatiquement les nœuds en échec toutes les 10 min pendant 2 h">🔁 Insister 2 h</button>` : ''}${(t.type === 'verifier' || (t.type === 'lire' && (!t.fin || t.noeuds.some((x) => x.statut === 'ok' || x.partiel)))) ? `<button class="mini" data-voir-tache="${t.id}">${t.fin ? 'Voir' : 'Suivre'}</button>` : ''}</div>
+    ${rendreResumeTache(t)}
     ${t.noeuds.map((n) => `<div class="etape ${n.statut}"><span>${esc(nomNoeud(n.num))}</span><span>${STATUTS_TACHE[n.statut]}${n.finNoeud && (n.statut === 'ok' || n.statut === 'echec') ? ` <small class="heure-etape">à ${heure(n.finNoeud)}</small>` : ''}${n.detail && n.statut !== 'ok' ? ' · ' + esc(n.detail) : ''}</span></div>`).join('')}
   </div>`).join('');
 }
 
 function brancherArrets() {
   $('#taches-gestion').querySelectorAll('[data-relancer-tache]').forEach((b) => (b.onclick = async () => {
-    const principal = /\(principal\)/.test(b.dataset.resume || '');
+    const principal = b.dataset.principal === '1';
     if (principal && !(await confirmer(`Réessayer « ${b.dataset.resume} » sur ${b.dataset.nb} nœud(s) ?\nLe canal PRINCIPAL sera réécrit (mêmes garde-fous : contrôle de fréquence et vérification).`))) return;
     b.disabled = true; b.textContent = '↻ …';
     try {
@@ -5832,7 +5847,7 @@ function suiviModif(t) {
   const n = t.noeuds[0] || {};
   const defil = $('#fiche').scrollTop;
   $('#fiche').hidden = false;
-  $('#fiche-contenu').innerHTML = `<h2>Modification · ${esc(nomNoeud(n.num))}</h2><div class="ident">${esc(t.resume || '')}</div>
+  $('#fiche-contenu').innerHTML = `<h2>Modification · ${esc(nomNoeud(n.num))}</h2>${rendreResumeTache(t)}
     ${!t.fin ? `<div class="alerte info-lecture"><span class="sablier"></span> ${esc(n.detail || 'en cours…')} <button class="mini arreter" data-arreter-tache="${t.id}">■ Arrêter</button></div>` : n.statut === 'ok' ? '<div class="alerte info-lecture">✔ Modifications appliquées et relues.</div>' : `<div class="alerte attention">✖ ${esc(STATUTS_TACHE[n.statut])} : ${esc(n.detail || '')}</div>`}
     <ol class="etapes-modif">${(n.etapes || []).map((e) => `<li>${esc(e)}</li>`).join('')}</ol>
     ${t.fin ? `<div class="actions-prop"><button id="ed-retour-editeur" class="principal">Revenir à l’éditeur</button></div>` : ''}`;

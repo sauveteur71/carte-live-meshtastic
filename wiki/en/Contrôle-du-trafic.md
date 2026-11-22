@@ -18,6 +18,8 @@ Median intervals measured over 6, 24 or 72 h, compared with these thresholds:
 
 **Fix ticked nodes** (nodes the map can program): position every 12 h for a relay (fixed position, no “smart position”), 15 min for a mobile; telemetry 30 min; node info 3 h. For the others, notify their owner.
 
+After the fix, *Program › Recent operations* shows, for each node, what was sent and the interval that had been measured: “Node sheet: every 3 h · measured over 24 h: every 6 min”.
+
 ## MQTT → radio re-injection
 Packets from the internet (“via MQTT” flag) then transmitted over radio by a gateway whose channel has **MQTT downlink** on, with the gateway re-injecting them. To do on these gateways: turn off downlink on the public channel, or only keep it on a private channel.
 

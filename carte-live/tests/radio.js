@@ -1837,3 +1837,157 @@ test('Calcul partagé par clé : demandes simultanées servies par une seule ex�
   await assert.rejects(c.partager('c', () => Promise.reject(new Error('relief absent'))), /relief absent/);
   assert.equal(c.nombre(), 0);
 });
+
+// ---------- Résumé des opérations de programmation (Gérer › Programmer › Opérations récentes) ----------
+// Ce résumé est la seule trace de ce qui a été envoyé à un relais : il doit dire les valeurs, en français,
+// avec les unités, sans jamais laisser sortir une clé.
+const resumeOps = require('../src/resume-operations');
+const resumeDe = (t) => resumeOps.resumeOperation(t, { canaux: 'Canaux (noms, clés, ordre)', frequence: 'Région, slot et fréquence' });
+
+test('Résumé d’une modification : les valeurs envoyées, en français et avec les unités', () => {
+  // Le cas d'Olivier : avant, l'historique n'affichait que « télémétrie · device (nodeInfoBroadcastSecs) »
+  const t = { type: 'modifier', params: { device: { nodeInfoBroadcastSecs: 10800 }, telemetrie: { deviceUpdateInterval: 1800 } } };
+  const d = resumeOps.detailsOperation(t);
+  assert.deepEqual(d.map((x) => `${x.lib} : ${x.valeur}`), ['Fiche du nœud : toutes les 3 h', 'Télémétrie : toutes les 30 min']);
+  assert.ok(!resumeDe(t).includes('nodeInfoBroadcastSecs'), 'aucun nom de champ du firmware dans le résumé');
+  // Unités : secondes, minutes, heures, dBm, sauts, mètres
+  const t2 = { type: 'modifier', params: { lora: { hopLimit: 4, txPower: 20, txEnabled: true, channelNum: 0, overrideFrequency: 869.618 }, position: { positionBroadcastSecs: 43200, positionBroadcastSmartEnabled: false } } };
+  const r2 = resumeDe(t2);
+  assert.match(r2, /Sauts : 4(?! sauts)/);
+  assert.match(r2, /Puissance d’émission : 20 dBm/);
+  assert.match(r2, /Slot : auto/);
+  assert.match(r2, /Fréquence forcée : 869\.6180 MHz/);
+  assert.match(r2, /Position : toutes les 12 h/);
+  assert.match(r2, /Position intelligente : non/);
+  // Rôle et politique de signature : noms lisibles, pas les constantes du protobuf
+  const t3 = { type: 'modifier', params: { device: { role: 'ROUTER_LATE' }, securite: { packetSignaturePolicy: 'PACKET_SIGNATURE_POLICY_STRICT' } } };
+  assert.match(resumeDe(t3), /Rôle : Routeur tardif/);
+  assert.match(resumeDe(t3), /Signature des paquets : Stricte \(signés seulement\)/);
+  assert.ok(!resumeDe(t3).includes('PACKET_SIGNATURE_POLICY'));
+});
+
+test('Résumé : aucun secret ne sort (clé de canal, clé d’administration, mot de passe, jeton)', () => {
+  const pskCanal = 'c2VjcmV0ZGVjYW5hbDEyMzQ1Njc4OTBhYmNk';
+  const t = {
+    type: 'modifier',
+    params: {
+      canaux: [{ index: 0, nom: 'LongFast', psk: 'AQ==', precision: 16, montant: true, descendant: true }, { index: 2, nom: 'Secours', psk: pskCanal, precision: 32 }],
+      securite: { adminKey: 'Q0xFREFETUlOMTIzNDU2Nzg5MA==', privateKey: 'cHJpdmVlMTIzNDU2Nzg5MGFiY2RlZg==' },
+      lora: { wifiPsk: 'motDePasseWifi123', hopLimit: 3 },
+      device: { motDePasse: 'secret-du-relais', jetonMqtt: 'jeton-abcdef' },
+      // Champ inconnu dont la valeur ressemble à une clé en base64 : masqué par précaution
+      inventeDemain: { quelqueChose: 'QUJDREVGR0hJSktMTU5PUFFSUw==' },
+    },
+  };
+  const r = resumeDe(t);
+  for (const secret of [pskCanal, 'Q0xFREFETUlOMTIzNDU2Nzg5MA==', 'cHJpdmVlMTIzNDU2Nzg5MGFiY2RlZg==', 'motDePasseWifi123', 'secret-du-relais', 'jeton-abcdef', 'QUJDREVGR0hJSktMTU5PUFFSUw==', 'AQ=='].sort()) {
+    assert.ok(!r.includes(secret), `« ${secret} » ne doit pas apparaître dans le résumé`);
+  }
+  assert.match(r, /canal 0 : LongFast/);
+  assert.match(r, /clé envoyée \(non affichée\)/);
+  assert.match(r, /Sauts : 3/, 'les réglages non sensibles de la même section restent lisibles');
+  assert.match(r, /\(masqué\)/, 'un champ sensible est signalé comme masqué, pas oublié en silence');
+  // Le détail renvoyé au navigateur ne contient aucun secret non plus
+  assert.ok(!JSON.stringify(resumeOps.detailsOperation(t)).includes(pskCanal));
+  // La fonction de détection reconnaît les noms de champs sensibles usuels
+  for (const nom of ['psk', 'adminKey', 'wifiPsk', 'motDePasse', 'jeton', 'mqttPassword', 'privateKey', 'cleCanal', 'authToken']) {
+    assert.ok(resumeOps.sensible(nom, 'x'), `${nom} doit être traité comme sensible`);
+  }
+  // …et ne masque aucun réglage normal (sinon le résumé perdrait de l'information)
+  for (const cle of resumeOps.CHAMPS_CONNUS) assert.ok(!resumeOps.sensible(cle, 1), `${cle} ne doit pas être pris pour un secret`);
+});
+
+test('Résumé : valeur mesurée avant correction (Contrôle du trafic) affichée comme une mesure, pas comme un réglage', () => {
+  const t = {
+    type: 'modifier',
+    params: { device: { nodeInfoBroadcastSecs: 10800 }, telemetrie: { deviceUpdateInterval: 1800 } },
+    mesures: { heures: 24, valeurs: { 'device.nodeInfoBroadcastSecs': 360, 'telemetrie.deviceUpdateInterval': 240 } },
+  };
+  const d = resumeOps.detailsOperation(t);
+  assert.deepEqual(d[0].notes, ['mesuré sur 24 h : toutes les 6 min']);
+  assert.deepEqual(d[1].notes, ['mesuré sur 24 h : toutes les 4 min']);
+  assert.match(resumeDe(t), /Fiche du nœud : toutes les 3 h · mesuré sur 24 h : toutes les 6 min/);
+  // Le mot « mesuré » est obligatoire : ce n'est pas le réglage précédent du nœud
+  assert.ok(!resumeDe(t).includes('avant :'));
+});
+
+test('Résumé : valeur précédente réellement lue sur le nœud, avec l’âge de la lecture', () => {
+  const t = {
+    type: 'modifier',
+    params: { lora: { hopLimit: 4 }, position: { positionBroadcastSecs: 43200 }, nom: { nomLong: 'Bouchet' } },
+    avant: { heure: Date.now() - 20 * 60000, valeurs: { 'lora.hopLimit': 3, 'position.positionBroadcastSecs': 900, 'nom.nomLong': '43Bouchet' } },
+  };
+  const r = resumeDe(t);
+  assert.match(r, /Sauts : 4 · avant : 3 \(lu il y a 20 min\)/);
+  assert.match(r, /Position : toutes les 12 h · avant : toutes les 15 min \(lu il y a 20 min\)/);
+  assert.match(r, /Nom long : Bouchet · avant : 43Bouchet \(lu il y a 20 min\)/);
+  // Valeur identique : pas de « avant → après » inutile
+  const t2 = { type: 'modifier', params: { lora: { hopLimit: 3 } }, avant: { heure: Date.now(), valeurs: { 'lora.hopLimit': 3 } } };
+  assert.equal(resumeDe(t2), 'Sauts : 3');
+  // Sans lecture précédente ni mesure : seule la valeur envoyée, rien d'inventé
+  const t3 = { type: 'modifier', params: { lora: { hopLimit: 4 } } };
+  assert.equal(resumeDe(t3), 'Sauts : 4');
+});
+
+test('Résumé : canaux, nom, position fixe, équipe, firmware, favoris et vérification', () => {
+  const canal = { type: 'canal', params: { index: 0, nom: 'LongFast', psk: 'AQ==', precision: 16, montant: true, descendant: false, role: 'PRIMARY' } };
+  assert.equal(resumeDe(canal), 'canal 0 : LongFast · principal · clé envoyée (non affichée) · ≈ 364 m · MQTT ↑');
+  assert.equal(resumeOps.toucheCanalPrincipal(canal), true);
+  const suppr = { type: 'canal', params: { index: 3, role: 'DISABLED' } };
+  assert.equal(resumeDe(suppr), 'canal 3 : supprimé');
+  assert.equal(resumeOps.toucheCanalPrincipal(suppr), false);
+  assert.equal(resumeDe({ type: 'nom', params: { nomLong: 'Le Bouchet', nomCourt: 'BCH' } }), 'Nom long : Le Bouchet · Nom court : BCH');
+  assert.equal(resumeDe({ type: 'position', params: { lat: 45.12345, lon: 3.98765, alt: 1120 } }), 'Position fixe : 45.12345, 3.98765 · 1120 m');
+  assert.equal(resumeDe({ type: 'position', params: { retirer: true } }), 'Position fixe : retirée (retour au GPS)');
+  assert.equal(resumeDe({ type: 'equipe', params: { action: 'cle', nom: 'SDIS43' } }), 'Canal d’équipe : SDIS43 · nouvelle clé du canal');
+  assert.equal(resumeDe({ type: 'firmware', params: { version: '2.8.1' } }), 'Firmware : 2.8.1');
+  assert.equal(resumeDe({ type: 'favoris', params: { plan: { 1: { ajouter: [2, 3] }, 4: { ajouter: [5] } } } }), '3 favori(s) à poser sur 2 relais');
+  assert.equal(resumeDe({ type: 'verifier', params: { reference: 0x43abcdef, elements: ['canaux', 'frequence'] } }), 'Référence : !43abcdef · Canaux (noms, clés, ordre) · Région, slot et fréquence');
+  // Réglage rapide (Autres actions) : mêmes libellés que l'éditeur complet
+  assert.equal(resumeDe({ type: 'config', params: { section: 'voisinage', valeurs: { enabled: true, updateInterval: 21600 } } }), 'Voisinage : activé · Voisinage : toutes les 6 h');
+  // Opération sans réglage : résumé vide (la carte d'opération n'affiche alors rien)
+  assert.equal(resumeDe({ type: 'redemarrer', params: {} }), '');
+});
+
+test('Résumé : tous les réglages modifiables à distance ont un libellé lisible', () => {
+  // Liste à tenir à jour avec CHAMPS / CHAMPS_TRAFIC / valeursVoisinage / valeursTelemetrie de src/administration.js
+  const attendus = [
+    'device.role', 'device.nodeInfoBroadcastSecs', 'device.rebroadcastMode',
+    'lora.hopLimit', 'lora.modemPreset', 'lora.txPower', 'lora.txEnabled', 'lora.region', 'lora.channelNum', 'lora.usePreset',
+    'lora.sx126xRxBoostedGain', 'lora.configOkToMqtt', 'lora.ignoreMqtt', 'lora.overrideFrequency',
+    'position.positionBroadcastSecs', 'position.positionBroadcastSmartEnabled', 'position.fixedPosition',
+    'voisinage.enabled', 'voisinage.transmitOverLora', 'voisinage.updateInterval',
+    'telemetrie.deviceUpdateInterval', 'telemetrie.deviceTelemetryEnabled',
+    'trafic.positionMinIntervalSecs', 'trafic.nodeinfoDirectResponseMaxHops', 'trafic.rateLimitWindowSecs', 'trafic.rateLimitMaxPackets', 'trafic.unknownPacketThreshold',
+    'securite.packetSignaturePolicy', 'nom.nomLong', 'nom.nomCourt',
+  ];
+  for (const cle of attendus) {
+    assert.ok(resumeOps.CHAMPS[cle], `pas de libellé lisible pour ${cle}`);
+    const lib = resumeOps.CHAMPS[cle].lib;
+    assert.ok(/^[A-ZÀ-Ý]/.test(lib) && lib !== cle.slice(cle.indexOf('.') + 1), `le libellé de ${cle} doit être du français, pas un nom de champ`);
+  }
+  // Un champ inconnu garde son nom technique plutôt qu'une traduction inventée
+  const d = resumeOps.detailsOperation({ type: 'modifier', params: { device: { champPasEncoreConnu: 7 } } });
+  assert.deepEqual(d, [{ lib: 'champPasEncoreConnu', valeur: '7', brut: true }]);
+});
+
+test('Contrôle du trafic : la correction et la mesure d’avant portent sur les mêmes réglages', () => {
+  const fausseDb = { prepare: () => ({ all: () => [], get: () => ({ n: 0 }), iterate: () => [] }) };
+  const ct = require('../src/trafic').creerControleTrafic({ stockage: { db: fausseDb }, config: { zone: [44, 3, 46, 5] }, administration: null });
+  const e = { num: 1, fixe: true, problemes: [{ port: 'nodeinfo', medianS: 360 }, { port: 'telemetrie', medianS: 240 }, { port: 'position', medianS: 120 }] };
+  const params = ct.correctifs(e);
+  const mesures = ct.mesures(e, 24);
+  assert.deepEqual(mesures, { heures: 24, valeurs: { 'device.nodeInfoBroadcastSecs': 360, 'telemetrie.deviceUpdateInterval': 240, 'position.positionBroadcastSecs': 120 } });
+  // Chaque réglage corrigé a bien sa mesure d'avant
+  for (const cle of Object.keys(mesures.valeurs)) {
+    const [sec, champ] = [cle.slice(0, cle.indexOf('.')), cle.slice(cle.indexOf('.') + 1)];
+    assert.ok(params[sec] && params[sec][champ] != null, `${cle} corrigé`);
+  }
+  const r = resumeDe({ type: 'modifier', params, mesures });
+  assert.match(r, /Fiche du nœud : toutes les 3 h · mesuré sur 24 h : toutes les 6 min/);
+  assert.match(r, /Télémétrie : toutes les 30 min · mesuré sur 24 h : toutes les 4 min/);
+  assert.match(r, /Position : toutes les 12 h · mesuré sur 24 h : toutes les 2 min/);
+  // Une mesure n'est jamais envoyée au module : elle ne doit pas se retrouver dans les paramètres
+  assert.ok(!JSON.stringify(params).includes('360'));
+  assert.equal(ct.mesures({ problemes: [] }, 24), null);
+});

@@ -2,6 +2,14 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.29.1
+
+### 🧾 Opérations récentes : ce qui a vraiment été envoyé
+- *Gérer › Programmer › Opérations récentes* affichait les **noms de champs du firmware** (« télémétrie · device (nodeInfoBroadcastSecs) ») et jamais les valeurs. Chaque opération montre maintenant, **réglage par réglage et en français**, ce qui est parti vers le nœud, avec les unités : « Fiche du nœud : toutes les 3 h », « Puissance d'émission : 20 dBm », « Rôle : Routeur tardif ».
+- **Valeur d'avant** quand elle est réellement connue : « avant : toutes les 15 min (lu il y a 20 min) » à partir de la dernière configuration lue sur le nœud avant l'envoi. Une correction lancée depuis *🚦 Contrôle du trafic* affiche l'intervalle **mesuré** : « mesuré sur 24 h : toutes les 4 min » — c'est une mesure du trafic, pas le réglage enregistré dans le nœud. Sans lecture ni mesure, seule la valeur envoyée est affichée.
+- **Aucune clé n'est affichée** : un canal modifié indique « clé envoyée (non affichée) ». Les clés d'administration, mots de passe et jetons sont masqués, y compris pour un réglage que la carte ne connaît pas encore. Les paramètres d'une opération ne sortent plus du serveur, même pour le suivi d'une modification.
+- Résumé long replié sous « et N autres réglages » (rien n'est supprimé), lisible sur téléphone, valeurs en texte bien contrasté.
+
 ## 2.29.0
 
 ### 🗺️ Secteurs d'alerte (géorepérage)

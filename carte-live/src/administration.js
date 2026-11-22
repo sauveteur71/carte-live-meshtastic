@@ -7,6 +7,7 @@
 const crypto = require('crypto');
 const { ecrireSur, lireJson } = require('./fichiers');
 const { racine, idNoeud, ERREURS_ROUTAGE } = require('./decodeur');
+const { detailsOperation, resumeOperation, toucheCanalPrincipal, CHAMPS_CONNUS } = require('./resume-operations');
 
 const AdminMessage = racine.lookupType('meshtastic.AdminMessage');
 const Routing = racine.lookupType('meshtastic.Routing');
@@ -913,6 +914,27 @@ function creerAdministration(radio, stockage) {
     equipe: { nom: 'Canal d’équipe', f: (d, p, j) => appliquerEquipe(d, p, j) },
     echanger: { nom: 'Envoi de la fiche du module', f: async (d) => { await enFile(async () => { echangerInfos(d); await new Promise((r) => setTimeout(r, 3000)); }); } },
   };
+  // Valeurs lues sur le nœud AVANT la modification. Prises dans la dernière lecture enregistrée, au moment du
+  // lancement : jamais après l'envoi (une relecture postérieure donnerait un faux « avant »). Liste blanche de
+  // réglages simples : aucune clé de canal, aucune clé d'administration.
+  const SOURCES_AVANT = {
+    nom: (l) => l.proprietaire, device: (l) => l.device, lora: (l) => l.lora, position: (l) => l.position,
+    voisinage: (l) => l.voisinage, telemetrie: (l) => l.telemetrie, trafic: (l) => l.trafic,
+    securite: (l) => (l.securite ? { packetSignaturePolicy: l.securite.signature } : null),
+  };
+  function avantModification(num) {
+    const l = lectures.get(num >>> 0);
+    if (!l || !l.heure) return null;
+    const valeurs = {};
+    for (const cle of CHAMPS_CONNUS) {
+      const i = cle.indexOf('.');
+      const src = SOURCES_AVANT[cle.slice(0, i)] ? SOURCES_AVANT[cle.slice(0, i)](l) : null;
+      const v = src ? src[cle.slice(i + 1)] : undefined;
+      if (v !== undefined && v !== null && typeof v !== 'object') valeurs[cle] = v;
+    }
+    return Object.keys(valeurs).length ? { heure: l.heure, valeurs } : null;
+  }
+
   function lancer(type, cibles, params, auteur, options = {}) {
     const op = OPERATIONS[type];
     if (!op) throw new Error('Opération inconnue');
@@ -930,7 +952,11 @@ function creerAdministration(radio, stockage) {
     }
     if (type === 'favoris') params = { ...(params || {}), auteur };
     const id = crypto.randomBytes(6).toString('hex');
-    const tache = { id, type, nom: op.nom, auteur, debut: Date.now(), fin: null, params, insister: !!options.insister && type !== 'firmware', noeuds: cibles.map((num) => ({ num, statut: 'en_attente', detail: null, resultat: null })) };
+    // `avant` et `mesures` ne servent QU'À l'affichage : ils restent sur l'opération, jamais dans `params`,
+    // pour qu'aucune donnée d'affichage ne puisse partir vers le module radio.
+    const avant = options.avant !== undefined ? options.avant
+      : (['modifier', 'config', 'nom'].includes(type) && cibles.length === 1 ? avantModification(cibles[0]) : null);
+    const tache = { id, type, nom: op.nom, auteur, debut: Date.now(), fin: null, params, insister: !!options.insister && type !== 'firmware', avant, mesures: options.mesures || null, noeuds: cibles.map((num) => ({ num, statut: 'en_attente', detail: null, resultat: null })) };
     taches.set(id, tache);
     if (taches.size > 50) taches.delete(taches.keys().next().value);
     journal(`${op.nom} lancée par ${auteur} sur ${cibles.length} nœud(s)`);
@@ -1145,19 +1171,12 @@ function creerAdministration(radio, stockage) {
     }
   } catch { /* aucune tâche enregistrée */ }
 
-  function resumeParams(t) {
-    const p = t.params || {};
-    if (t.type === 'canal') return p.role === 'DISABLED' ? `suppression du canal ${p.index}` : `canal ${p.index} « ${p.nom || ''} »${Number(p.index) === 0 ? ' (principal)' : ''}`;
-    if (t.type === 'config') return `${p.section} : ${Object.entries(p.valeurs || {}).map(([k, v]) => k + '=' + v).join(', ')}`;
-    if (t.type === 'nom') return [p.nomLong, p.nomCourt].filter(Boolean).join(' / ');
-    if (t.type === 'modifier') return [p.modele ? `modèle « ${p.modele} »` : '', p.nom ? 'nom' : '', p.voisinage ? 'voisinage (' + Object.keys(p.voisinage).join(', ') + ')' : '', p.telemetrie ? 'télémétrie' : '', p.trafic ? 'gestion du trafic' : '', p.securite ? 'signature' : '', ...['device', 'lora', 'position'].filter((k) => p[k] && Object.keys(p[k]).length).map((k) => k + ' (' + Object.keys(p[k]).join(', ') + ')'), p.canaux && p.canaux.length ? 'canaux ' + p.canaux.map((c) => c.index).join(', ') : ''].filter(Boolean).join(' · ');
-    if (t.type === 'verifier') return `référence ${idNoeud(p.reference)} · ${(p.elements || []).map((k) => (ELEMENTS[k] || {}).nom || k).join(', ')}`;
-    if (t.type === 'firmware') return `vers ${p.version}`;
-    if (t.type === 'favoris') { const v = Object.values(p.plan || {}); return `${v.reduce((a, x) => a + (x.ajouter || []).length, 0)} favori(s) à poser sur ${v.length} relais`; }
-    if (t.type === 'equipe') return `${{ ajouter: 'ajout au', retirer: 'retrait du', cle: 'nouvelle clé du' }[p.action] || ''} canal d’équipe « ${p.nom || ''} »`;
-    if (t.type === 'position') return p.retirer ? 'retrait de la position fixe' : `${p.lat}, ${p.lon}`;
-    return '';
-  }
+  // Résumé d'une opération : réglage par réglage, en français, avec les valeurs envoyées (src/resume-operations.js).
+  // Les paramètres eux-mêmes ne sortent jamais vers le navigateur (clés de canal) : le résumé est la seule trace.
+  const nomsElements = () => Object.fromEntries(Object.entries(ELEMENTS).map(([k, v]) => [k, v.nom]));
+  const resumeParams = (t) => resumeOperation(t, nomsElements());
+  // Vue d'une opération pour le navigateur : paramètres retirés, résumé et détail lisibles ajoutés
+  const vueTache = (t) => ({ ...t, params: undefined, avant: undefined, mesures: undefined, resume: resumeParams(t), details: detailsOperation(t, nomsElements()), principal: toucheCanalPrincipal(t) });
 
   // Nouvel essai d'une opération terminée, avec les mêmes réglages, sur les nœuds en échec ou arrêtés seulement.
   // Une lecture reprend là où elle s'était arrêtée.
@@ -1168,7 +1187,9 @@ function creerAdministration(radio, stockage) {
     const cibles = t.noeuds.filter((n) => n.statut === 'echec' || n.statut === 'annule').map((n) => n.num);
     if (!cibles.length) throw new Error('Aucun nœud en échec à relancer');
     const params = t.type === 'lire' ? { ...(t.params || {}), reprendre: true } : t.params;
-    return lancer(t.type, cibles, params, auteur, options);
+    // Même opération : on garde la valeur d'avant et la mesure de l'opération d'origine (une nouvelle lecture
+    // serait postérieure à la première modification, donc fausse)
+    return lancer(t.type, cibles, params, auteur, { ...options, avant: t.avant || null, mesures: t.mesures || null });
   }
 
   // Arrêt d'une opération en cours : la demande radio en attente est abandonnée tout de suite,
@@ -1249,8 +1270,8 @@ function creerAdministration(radio, stockage) {
     tache: (id) => {
       const t = taches.get(id);
       if (!t) return null;
-      if (t.type !== 'lire' || t.fin) return t;
-      return { ...t, noeuds: t.noeuds.map((n) => (n.statut === 'en_cours' && lectures.has(n.num >>> 0) ? { ...n, resultat: construireResultat(n.num >>> 0, lectures.get(n.num >>> 0)) } : n)) };
+      if (t.type !== 'lire' || t.fin) return vueTache(t);
+      return vueTache({ ...t, noeuds: t.noeuds.map((n) => (n.statut === 'en_cours' && lectures.has(n.num >>> 0) ? { ...n, resultat: construireResultat(n.num >>> 0, lectures.get(n.num >>> 0)) } : n)) });
     },
     arreter,
     relancer,
@@ -1270,7 +1291,7 @@ function creerAdministration(radio, stockage) {
     etatCles,
     modulesCles: () => modulesCles,
     lecturesConnues: () => [...lectures.entries()].map(([num, l]) => ({ num, heure: l.heure, complete: !!(l.canauxFin && l.lora && l.device) })),
-    taches: () => [...taches.values()].reverse().map((t) => ({ ...t, params: undefined, resume: resumeParams(t), noeuds: t.noeuds.map(({ resultat, etapes, ...n }) => ({ ...n, partiel: !!resultat })) })),
+    taches: () => [...taches.values()].reverse().map((t) => ({ ...vueTache(t), noeuds: t.noeuds.map(({ resultat, etapes, ...n }) => ({ ...n, partiel: !!resultat })) })),
     infoModuleIp: (hote) => ota.infoModule(hote),
     utiliserAgents: (a) => ota.utiliserAgents(a),
     conformite: () => { resumerConformite(); return { ...conf, ciblesEffectives: ciblesConf() }; },
