@@ -1487,7 +1487,7 @@ async function essaiDonateurs(navig, cookie) {
     await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
     await attendre(page);
     const m = await mesurer(page, CARTE);
-    if (m.visible && m.dedans && /42B\*\*\* 🇫🇷 a donné pour soutenir le projet/.test(m.texte || '') && m.croix) ok(`${nom} : bandeau des donateurs visible (« ${m.texte} »)`); else ko(`${nom} : bandeau ` + JSON.stringify(m));
+    if (m.visible && m.dedans && /42BARBE 🇫🇷 a donné pour soutenir le projet/.test(m.texte || '') && m.croix) ok(`${nom} : bandeau des donateurs visible (« ${m.texte} »)`); else ko(`${nom} : bandeau ` + JSON.stringify(m));
     if (m.visible && !m.chevauche.length) ok(`${nom} : bandeau sans chevauchement de la barre du haut, de la recherche, du panneau, de la légende ni des boutons`); else ko(`${nom} : bandeau chevauche ` + JSON.stringify(m.chevauche));
     if (nom === 'ordinateur') {
       if (m.liens.length === 1 && m.liens[0][0] === 'Faire un don' && m.liens[0][1] === 'https://www.helloasso.com/associations/asso-essai/formulaires/form-1' && m.liens[0][2] === '_blank' && m.liens[0][3] === 'noopener') ok('ordinateur : lien « Faire un don » des réglages, nouvel onglet, pas de lien GitHub'); else ko('ordinateur : liens ' + JSON.stringify(m.liens));
@@ -1512,7 +1512,7 @@ async function essaiDonateurs(navig, cookie) {
     const { page, erreurs } = await ouvrir(ctx, '/publique.html');
     await attendre(page);
     const m = await mesurer(page, ['.bandeau', '.legende', '.leaflet-control', '#bandeau-monde']);
-    if (m.visible && m.dedans && m.style === 'fixed' && m.largeur > 150 && /42B\*\*\*/.test(m.texte || '')) ok(`page publique (${nom}) : bandeau stylé et visible`); else ko(`page publique (${nom}) : bandeau ` + JSON.stringify(m));
+    if (m.visible && m.dedans && m.style === 'fixed' && m.largeur > 150 && /42BARBE/.test(m.texte || '')) ok(`page publique (${nom}) : bandeau stylé et visible`); else ko(`page publique (${nom}) : bandeau ` + JSON.stringify(m));
     if (m.visible && !m.chevauche.length) ok(`page publique (${nom}) : sans chevauchement`); else ko(`page publique (${nom}) : chevauche ` + JSON.stringify(m.chevauche));
     await capture(page, 'donateurs-publique-' + (nom === 'téléphone' ? 'telephone' : 'ordinateur'));
     if (nom === 'ordinateur') {
