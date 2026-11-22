@@ -1405,6 +1405,87 @@ async function essaiDonateurs(navig, cookie) {
   await poster('/api/donateurs/reglages', { helloasso: { actif: false } });
 }
 
+// Page Topologie : dans l'onglet Analyse, un clic sur le nom d'un nœud ouvre sa fiche (vue « noeud »).
+// Avant, la ligne ne faisait que le sélectionner dans le graphe : rien ne semblait se passer.
+async function essaiTopologieFiche(navig) {
+  console.log('Topologie : le nom d’un nœud ouvre sa fiche');
+  const Database = require('better-sqlite3');
+  const db = new Database(path.join(donnees, 'carte-live.db'));
+  db.pragma('busy_timeout = 5000');
+  const h = Date.now() - 600000;
+  // Une passerelle avec position, un relais, et deux nœuds sans position dont une feuille (un seul voisin)
+  const noeud = db.prepare('INSERT INTO noeuds (num, id, nom_long, nom_court, role, est_passerelle, lat, lon, premier_vu, dernier_vu) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(num) DO UPDATE SET nom_long = excluded.nom_long, role = excluded.role, lat = excluded.lat, lon = excluded.lon, dernier_vu = excluded.dernier_vu');
+  noeud.run(0x7a000001, '!7a000001', 'Passerelle Mézenc', 'PMEZ', 'ROUTER', 1, 44.92, 4.18, h, h);
+  noeud.run(0x7a000002, '!7a000002', 'Relais Bouchet', 'BOUC', 'ROUTER', 0, 44.91, 4.19, h, h);
+  noeud.run(0x7a000003, '!7a000003', 'Client sans position', 'SPOS', 'CLIENT', 0, null, null, h, h);
+  noeud.run(0x7a000004, '!7a000004', 'Feuille isolée', 'FEUI', 'CLIENT', 0, null, null, h, h);
+  const lien = db.prepare('INSERT INTO liens (a, b, source, snr, nb, premier_vu, dernier_vu) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(a, b, source) DO UPDATE SET dernier_vu = excluded.dernier_vu');
+  lien.run(0x7a000001, 0x7a000002, 'rf', 8, 5, h, h);
+  lien.run(0x7a000002, 0x7a000001, 'rf', 7, 5, h, h);
+  lien.run(0x7a000002, 0x7a000003, 'rf', 5, 3, h, h);
+  lien.run(0x7a000003, 0x7a000002, 'rf', 4, 3, h, h);
+  lien.run(0x7a000002, 0x7a000004, 'rf', 2, 2, h, h);
+  db.close();
+  const contexte = await navig.newContext({ viewport: { width: 1280, height: 800 }, locale: 'fr-FR' });
+  await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(contexte, '/topologie.html');
+  await page.waitForFunction(() => document.querySelectorAll('#vue-analyse [data-fiche]').length > 0, null, { timeout: 15000 }).catch(() => {});
+  const nb = await page.locator('#vue-analyse [data-fiche]').count();
+  if (nb > 0) ok(`onglet Analyse : ${nb} nom(s) de nœud cliquables`); else ko('onglet Analyse : aucun nom de nœud cliquable (données d’essai absentes ?)');
+  if (nb > 0) {
+    const attendu = await page.evaluate(() => document.querySelector('#vue-analyse [data-fiche]').textContent.trim());
+    const vueAvant = await page.evaluate(() => (document.querySelector('.vue.actif') || {}).id || null);
+    await page.locator('#vue-analyse [data-fiche]').first().click();
+    await page.waitForTimeout(800);
+    const apres = await page.evaluate(() => ({ vue: (document.querySelector('.vue.actif') || {}).id || null, contenu: (document.querySelector('#vue-noeud') || {}).textContent || '' }));
+    if (apres.vue === 'vue-noeud') ok('clic sur le nom : la fiche du nœud s’ouvre'); else ko(`clic sur le nom : vue « ${apres.vue} » au lieu de « vue-noeud » (avant : ${vueAvant})`);
+    if (apres.contenu.includes(attendu)) ok(`la fiche ouverte est bien celle du nœud cliqué (${attendu})`); else ko(`fiche d’un autre nœud : « ${attendu} » absent de ${apres.contenu.slice(0, 120)}`);
+    if (/Ouvrir sur la carte|Simuler/.test(apres.contenu)) ok('fiche renseignée (actions du nœud présentes)'); else ko('fiche vide : ' + apres.contenu.slice(0, 120));
+    // La ligne elle-même garde son rôle : sélection sans quitter l'analyse
+    await page.evaluate(() => { const b = [...document.querySelectorAll('nav.onglets button')].find((x) => x.dataset.vue === 'analyse'); if (b) b.click(); });
+    await page.waitForTimeout(400);
+    await page.evaluate(() => { const l = document.querySelector('#vue-analyse .ligne[data-n]'); const e = new MouseEvent('click', { bubbles: true }); l.dispatchEvent(e); });
+    await page.waitForTimeout(600);
+    const vue2 = await page.evaluate(() => (document.querySelector('.vue.actif') || {}).id || null);
+    if (vue2 === 'vue-analyse') ok('clic ailleurs sur la ligne : on reste sur l’analyse'); else ko('clic sur la ligne : vue ' + vue2);
+  }
+  await capture(page, 'topologie-fiche');
+  bilanErreurs(erreurs, 'topologie (fiche du nœud)');
+  await contexte.close();
+}
+
+// Rapport hebdomadaire : les archives s'affichaient « S.. », le titre étant coincé dans la colonne de pastille
+async function essaiRapportArchives(navig, cookie) {
+  console.log('Rapport hebdomadaire (archives)');
+  const fs2 = require('fs');
+  const dossier = path.join(donnees, 'rapports');
+  try { fs2.mkdirSync(dossier, { recursive: true }); } catch { /* existe */ }
+  for (const nom of ['rapport-2026-11-09.html', 'rapport-2026-11-16.html']) fs2.writeFileSync(path.join(dossier, nom), '<!doctype html><title>Essai</title><p>Rapport d’essai</p>');
+  const contexte = await navig.newContext({ viewport: { width: 1280, height: 800 }, locale: 'fr-FR' });
+  await contexte.addCookies([cookie]);
+  await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(contexte, '/');
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  await page.evaluate(() => { const b = document.querySelector('#outil-rapport'); if (b) b.click(); });
+  await page.waitForTimeout(1500);
+  const n = await page.locator('#fiche-contenu .ligne > .titre:first-child').count();
+  if (n > 0) ok(`archives listées (${n})`); else ko('aucune archive listée (fichiers d’essai non vus ?)');
+  // Titres écrasés : une ligne qui commence par son titre ne doit pas le coincer dans la colonne de pastille
+  // (« Semaine du 16/11/2026 » s'affichait « S.. » dans les archives du rapport hebdomadaire)
+  const etroits = await page.evaluate(() => {
+    const l = [];
+    document.querySelectorAll('#fiche-contenu .ligne > .titre:first-child').forEach((t) => {
+      const r = t.getBoundingClientRect();
+      if (r.width > 0 && r.width < 60 && t.textContent.trim().length > 3) l.push({ texte: t.textContent.trim().slice(0, 40), largeur: Math.round(r.width) });
+    });
+    return l;
+  });
+  if (!etroits.length) ok('rapport hebdomadaire : titres des archives entiers'); else ko('titres écrasés : ' + JSON.stringify(etroits));
+  await capture(page, 'rapport-archives');
+  bilanErreurs(erreurs, 'rapport hebdomadaire');
+  await contexte.close();
+}
+
 async function essaiPagesPubliques(navig) {
   for (const [url, nom, attendu] of [['/publique.html', 'carte publique', '#carte .leaflet-pane, .leaflet-pane'], ['/topologie.html', 'graphe des liens', 'svg, canvas']]) {
     console.log(nom[0].toUpperCase() + nom.slice(1) + ' (visiteur)');
@@ -1455,6 +1536,8 @@ async function essaiPagesPubliques(navig) {
     await essaiDonateurs(navigateur, cookie);
     await essaiPartager(navigateur, cookie);
     await essaiPagesPubliques(navigateur);
+    await essaiTopologieFiche(navigateur);
+    await essaiRapportArchives(navigateur, cookie);
     code = echecs ? 1 : 0;
     console.log(echecs ? `\n${echecs} problème(s) : captures et journal dans tests/resultats/` : '\nTout est bon ✓');
   } catch (e) {

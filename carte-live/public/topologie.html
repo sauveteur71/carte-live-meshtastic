@@ -45,6 +45,8 @@
     .ligne { display: flex; align-items: baseline; gap: 8px; padding: 5px 6px; border-radius: 6px; cursor: pointer; }
     .ligne:hover { background: var(--surface-2); }
     .ligne .titre { flex: 1; min-width: 0; }
+    .nom-fiche { background: none; border: 0; padding: 0; font: inherit; color: var(--accent, #3ee6c4); text-decoration: underline dotted; text-underline-offset: 2px; cursor: pointer; }
+    .nom-fiche:hover, .nom-fiche:focus-visible { text-decoration-style: solid; outline-offset: 2px; }
     .ligne small { color: var(--doux); }
     .ligne .val { font-variant-numeric: tabular-nums; font-weight: 650; white-space: nowrap; }
     .barre { display: flex; align-items: center; gap: 6px; margin: 3px 0; }

@@ -390,7 +390,8 @@ function rendreAnalyse() {
   const maxH = Math.max(1, ...hist.values());
   const loin = etat.noeuds.filter((n) => A.dist.get(n.num) > H);
   const top = [...A.inter.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  const ligne = (num, droite, attrs = '') => `<div class="ligne" data-n="${num}" ${attrs}><span class="titre">${esc(nomDe(num))} <small>${esc(libRole(etat.parNum.get(num).role))}</small></span><span class="val">${droite}</span></div>`;
+  // Le nom ouvre la fiche du nœud ; le reste de la ligne garde son rôle (sélection dans le graphe, nœuds coupés en rouge)
+  const ligne = (num, droite, attrs = '') => `<div class="ligne" data-n="${num}" ${attrs}><span class="titre"><button type="button" class="nom-fiche" data-fiche="${num}" title="Ouvrir la fiche de ce nœud">${esc(nomDe(num))}</button> <small>${esc(libRole(etat.parNum.get(num).role))}</small></span><span class="val">${droite}</span></div>`;
   $('#vue-analyse').innerHTML = `
     <div class="grille">
       <div class="mesure"><span>Nœuds</span><b>${etat.noeuds.length}</b></div>
@@ -418,6 +419,8 @@ function rendreAnalyse() {
     ${sansPos.length ? `<h2>Nœuds sans position</h2>${sansPos.map((n) => ligne(n.num, etat.voisins.get(n.num).length + ' liaison(s)')).join('')}<p class="note">Ils n’apparaissent pas sur la carte : donnez-leur une position fixe (Programmer › Position fixe).</p>` : ''}`;
   $('#a-rupture').onchange = (e) => { etat.montrerRupture = e.target.checked; dessiner(); };
   document.querySelectorAll('#vue-analyse [data-n]').forEach((el) => (el.onclick = () => { const n = Number(el.dataset.n); choisir(n, false); centrerSur(n); if (el.dataset.coupes) montrerCoupes(el.dataset.coupes.split(',').map(Number)); }));
+  // Clic sur le nom : la fiche du nœud s'ouvre (sans ce raccourci, la ligne ne faisait que le sélectionner dans le graphe)
+  document.querySelectorAll('#vue-analyse [data-fiche]').forEach((el) => (el.onclick = (e) => { e.stopPropagation(); const n = Number(el.dataset.fiche); choisir(n); centrerSur(n); }));
   document.querySelectorAll('#vue-analyse [data-lien]').forEach((el) => (el.onclick = () => {
     const [a, b] = el.dataset.lien.split('-').map(Number);
     montrerCoupes(el.dataset.coupes.split(',').map(Number));
