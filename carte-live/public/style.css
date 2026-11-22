@@ -1410,6 +1410,13 @@ body[data-niveau="simple"] .niv-op, body[data-niveau="simple"] .niv-exp, body[da
 .actions-confirmer button.danger { background: #dc2626; color: #fff; border-color: #dc2626; }
 .dlg-confirmer { width: min(440px, calc(100vw - 32px)); padding: 16px; border-radius: 12px; border: 1px solid var(--bord); background: var(--fond, #0b1220); color: var(--texte); }
 .dlg-confirmer::backdrop { background: rgba(0,0,0,.6); }
+/* Propositions au fil de la frappe dans la boîte de saisie (nœuds, destinataires…) : clavier et souris */
+.propositions-saisir { display: flex; flex-direction: column; gap: 2px; margin: 6px 0 2px; max-height: 42vh; overflow-y: auto; border: 1px solid var(--bord); border-radius: 8px; background: var(--surface, rgba(255,255,255,.04)); }
+.propositions-saisir button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; text-align: left; padding: 8px 10px; min-height: 40px; border: 0; border-radius: 6px; background: none; color: var(--texte); cursor: pointer; font: inherit; }
+.propositions-saisir button b { font-weight: 650; }
+.propositions-saisir button small { color: var(--doux); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.propositions-saisir button.vise, .propositions-saisir button:hover { background: var(--accent); color: #062019; }
+.propositions-saisir button.vise small, .propositions-saisir button:hover small { color: #06382c; }
 .dlg-confirmer p { margin: 0 0 14px; line-height: 1.5; white-space: pre-line; font-size: 15px; }
 .fab-plus { position: fixed; left: 50%; transform: translateX(-50%); bottom: 28px; z-index: 900; width: 52px; height: 52px; border-radius: 50%; border: 2px solid #062019; background: var(--accent); color: #062019; font-size: 28px; font-weight: 700; line-height: 1; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.55); }
 body.choix-point #carte, body.choix-point .leaflet-interactive { cursor: crosshair !important; }

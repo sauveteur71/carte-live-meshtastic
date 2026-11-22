@@ -14,6 +14,9 @@
 //   position la plus probable par moindres carrés (public/gonio.js). Un relevé arrive aussi par radio : message
 //   « GONIO 125 » ou « GIS 125/5 » envoyé par le nœud d'un membre (position = celle du nœud).
 // - Ce qui transmet sur les bandes radioamateurs (Winlink…) est réservé aux membres cochés « licencié ».
+// - Transfert vers une autre carte : export d'un fichier (nom, équipes, fiches métier des membres), import là-bas.
+//   Jamais de compte, de mot de passe, de condensat ni de jeton : sur la carte d'arrivée chacun crée son compte par
+//   le lien d'invitation, et sa fiche l'attend (rattachée par l'indicatif). Main courante et recherches ne partent pas.
 // Données dans adrasec.json (dossier des données), incluses dans les sauvegardes ; aucune n'apparaît sur la carte
 // publique. Conservation : main courante et relevés effacés au-delà de la durée choisie par l'administrateur.
 
@@ -27,6 +30,12 @@ const FREQUENCES = ['121,5 MHz', '243 MHz', '406 MHz', 'autre'];
 const INDICATIF = /^[A-Z0-9]{1,3}[0-9][A-Z0-9]{0,4}[A-Z](\/[A-Z0-9]{1,4})?$/;
 const id = () => crypto.randomBytes(6).toString('hex');
 const txt = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b-\u001f]/g, '').trim().slice(0, max);
+const COULEURS_EQ = ['#ff8a1f', '#4cc9f0', '#b48cff', '#3ee68a', '#ff5c6c', '#ffd23f', '#e07bff', '#80ed99'];
+// Transfert d'une section d'une carte à une autre (voir « exporter » / « importer » plus bas)
+const FORMAT_TRANSFERT = 'carte-live-adrasec';
+const norme = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+// Ce qui identifie une personne entre deux cartes : son indicatif (radioamateur) ou, à défaut, son numéro d'écouteur
+const cleAttente = (x) => (x && x.indicatif ? String(x.indicatif).toUpperCase() : x && x.numeroSwl ? 'SWL:' + String(x.numeroSwl).toUpperCase() : '');
 
 function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positionDe = () => null, nomDe = () => null, radioPoint = null }) {
   // Une carte peut héberger les ADRASEC de plusieurs départements : chacune a ses membres, son président (responsable),
@@ -47,7 +56,9 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
   let minuterie = null;
   const sauver = (vite) => {
     clearTimeout(minuterie);
-    const f = () => { try { ecrireSur(fichier, JSON.stringify(racine)); } catch (e) { journal('[ADRASEC] enregistrement impossible :', e.message); } };
+    // Données personnelles (noms, indicatifs, fonctions, main courante d'opérations réelles) : fichier lisible du
+    // seul service, comme equipes.json et donateurs.json.
+    const f = () => { try { ecrireSur(fichier, JSON.stringify(racine), { mode: 0o600 }); } catch (e) { journal('[ADRASEC] enregistrement impossible :', e.message); } };
     if (vite) f(); else minuterie = setTimeout(f, 1500);
   };
   const groupeDeCompte = (cid) => Object.keys(racine.groupes).find((k) => racine.groupes[k].membres[cid]) || null;
@@ -156,7 +167,7 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
 function creerGroupe(g, ctx) {
   const { sauver, journal, diffuser, positionDe, nomDe, radioPoint } = ctx;
   for (const k of ['membres', 'demandes']) g[k] = g[k] || {};
-  for (const k of ['equipes', 'mainCourante', 'recherches', 'releves']) g[k] = g[k] || [];
+  for (const k of ['equipes', 'mainCourante', 'recherches', 'releves', 'attentes']) g[k] = g[k] || [];
   const purger = () => {
     const limite = Date.now() - Math.max(7, g.conservationJours || 365) * 86400000;
     const n = g.mainCourante.length + g.releves.length;
@@ -191,6 +202,7 @@ function creerGroupe(g, ctx) {
       return { ok: true };
     }
     if (!g.membres[cid]) { const ailleurs = ctx.groupeDeCompte(cid); if (ailleurs && ailleurs !== g.code) throw new Error(`Ce compte est déjà membre de ${ctx.nomGroupe(ailleurs)}`); }
+    const nouveau = !g.membres[cid];
     const m = g.membres[cid] || { valide: Date.now(), par: auteur };
     // Qualité : radioamateur licencié (indicatif vérifié) ou SWL (écouteur, sans émission sur les bandes amateurs)
     if (b.qualite !== undefined) { m.qualite = ['radioamateur', 'swl'].includes(b.qualite) ? b.qualite : null; b.licencie = m.qualite === 'radioamateur'; }
@@ -208,6 +220,23 @@ function creerGroupe(g, ctx) {
     if (b.responsable !== undefined && !!b.responsable !== !!m.responsable) {
       if (!parAdmin) throw new Error('Seul un administrateur de la carte peut nommer un responsable de la section');
       m.responsable = !!b.responsable;
+    }
+    // Fiche en attente venue d'une autre carte (import) : reprise quand la personne a enfin son compte ici.
+    // Ce qui n'a pas été saisi dans ce formulaire est repris de la fiche ; jamais le rôle de président.
+    if (nouveau) {
+      const cle = cleAttente(m);
+      const i = cle ? g.attentes.findIndex((a) => cleAttente(a) === cle) : -1;
+      if (i >= 0) {
+        const a = g.attentes[i];
+        if (b.qualite === undefined && !m.qualite && a.qualite && (a.qualite !== 'radioamateur' || m.indicatif)) { m.qualite = a.qualite; m.licencie = a.qualite === 'radioamateur'; }
+        if (b.numeroSwl === undefined && !m.numeroSwl && a.numeroSwl) m.numeroSwl = a.numeroSwl;
+        if (b.equipe === undefined && a.equipe && g.equipes.some((e) => e.id === a.equipe)) m.equipe = a.equipe;
+        if (b.fonction === undefined && a.fonction) m.fonction = a.fonction;
+        if (b.noeud === undefined && a.noeud) m.noeud = a.noeud;
+        m.importe = { de: a.source, heure: a.heure };
+        g.attentes.splice(i, 1);
+        journal(`[ADRASEC] fiche en attente « ${cle} » rattachée au compte ${cid} (importée de ${a.source})`);
+      }
     }
     g.membres[cid] = m;
     if (g.demandes) delete g.demandes[cid]; // demande d'adhésion satisfaite
@@ -250,8 +279,7 @@ function creerGroupe(g, ctx) {
     } else {
       const nom = txt(b.nom, 30);
       if (!nom) throw new Error('Nom d’équipe manquant');
-      const couleurs = ['#ff8a1f', '#4cc9f0', '#b48cff', '#3ee68a', '#ff5c6c', '#ffd23f', '#e07bff', '#80ed99'];
-      g.equipes.push({ id: id(), nom, couleur: couleurs[g.equipes.length % couleurs.length], mission: txt(b.mission, 120) || null });
+      g.equipes.push({ id: id(), nom, couleur: COULEURS_EQ[g.equipes.length % COULEURS_EQ.length], mission: txt(b.mission, 120) || null });
     }
     sauver(true);
     return { equipes: g.equipes };
@@ -461,6 +489,130 @@ function creerGroupe(g, ctx) {
     };
   }
 
+  // ---- Transfert de la section vers une autre carte (export / import) ----------------------------------------
+  // Ce qui part : la DÉFINITION de la section (nom, équipes, et pour chaque membre sa fiche métier : indicatif,
+  // qualité, n° SWL, équipe, fonction, nœud porté). Jamais un compte, un mot de passe, un condensat ni un jeton :
+  // les comptes ne se transfèrent pas d'une carte à l'autre. Sur la carte d'arrivée, chacun crée son compte par le
+  // lien d'invitation (/adrasec) puis demande à rejoindre la section ; sa fiche l'attend et se rattache alors seule.
+  // Ce qui NE part PAS : la main courante, les recherches et les relevés. Ce sont les archives horodatées et
+  // signées d'opérations réelles, propres à la carte qui les a enregistrées (export CSV pour les archiver), pas un
+  // paramétrage à recopier. Le rôle de président ne part pas non plus : seul un administrateur de la carte le donne.
+  function exporter() {
+    const avecId = Object.values(g.membres).filter((m) => m.indicatif || m.numeroSwl);
+    return {
+      format: FORMAT_TRANSFERT, version: 1, date: new Date().toISOString(),
+      section: { code: g.code, nom: g.nom },
+      equipes: g.equipes.map((e) => ({ id: e.id, nom: e.nom, couleur: e.couleur || null, mission: e.mission || null })),
+      membres: avecId.map((m) => ({
+        indicatif: m.indicatif || null, qualite: m.qualite || (m.licencie ? 'radioamateur' : null), numeroSwl: m.numeroSwl || null,
+        equipe: m.equipe || null, fonction: m.fonction || null, president: !!m.responsable, noeud: m.noeud || null,
+      })),
+      // Pour le récapitulatif d'import, sans rien révéler : des membres n'ont ni indicatif ni n° SWL, donc rien
+      // pour les reconnaître sur l'autre carte ; ils devront y être saisis à la main.
+      membresSansIdentifiant: Object.keys(g.membres).length - avecId.length,
+    };
+  }
+  // Lecture d'un fichier d'export (peut venir de n'importe où : tout est vérifié, rien n'est repris tel quel).
+  // appliquer = false : simple récapitulatif, aucune écriture. appliquer = true : équipes et fiches créées.
+  function importer(doc, comptesListe = [], { appliquer = false } = {}, auteur = 'carte') {
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc) || doc.format !== FORMAT_TRANSFERT) throw new Error('Ce fichier n’est pas l’export d’une section ADRASEC (bouton « Exporter la section » d’une autre carte)');
+    if (Number(doc.version) !== 1) throw new Error(`Ce fichier est en version ${txt(doc.version, 10) || '?'} : cette carte lit la version 1`);
+    const eqSource = Array.isArray(doc.equipes) ? doc.equipes.slice(0, 200) : [];
+    const mbSource = Array.isArray(doc.membres) ? doc.membres.slice(0, 2000) : [];
+    const nomSection = txt((doc.section || {}).nom, 40) || 'une autre carte';
+    // Équipes : rapprochées par leur nom (accents et casse ignorés) ; une équipe déjà là n'est pas dupliquée
+    const parNom = new Map(g.equipes.map((e) => [norme(e.nom), e]));
+    const cibleEq = new Map(); // identifiant dans le fichier -> identifiant sur cette carte
+    const aCreer = [];
+    for (const e of eqSource) {
+      const nom = txt(e && e.nom, 30);
+      if (!nom || !e.id) continue;
+      const deja = parNom.get(norme(nom));
+      if (deja) { cibleEq.set(String(e.id), deja.id); continue; }
+      const neuve = { id: id(), nom, couleur: /^#[0-9a-f]{6}$/i.test(e.couleur) ? e.couleur : COULEURS_EQ[(g.equipes.length + aCreer.length) % COULEURS_EQ.length], mission: txt(e.mission, 120) || null };
+      cibleEq.set(String(e.id), neuve.id);
+      parNom.set(norme(nom), neuve);
+      aCreer.push(neuve);
+    }
+    // Comptes de cette carte, par indicatif : c'est le seul rapprochement sûr entre radioamateurs
+    const parIndicatif = new Map();
+    const nomDeCompte = new Map();
+    for (const c of comptesListe) {
+      if (!c) continue;
+      nomDeCompte.set(Number(c.id), c.identifiant);
+      if (c.statut !== 'actif' || !c.indicatif) continue;
+      const k = String(c.indicatif).trim().toUpperCase();
+      if (!parIndicatif.has(k)) parIndicatif.set(k, []);
+      parIndicatif.get(k).push(c);
+    }
+    // Membres déjà là, reconnus comme dans le fichier (indicatif ou n° SWL) : un second import ne les double pas,
+    // même s'ils n'ont pas de compte portant leur indicatif sur cette carte.
+    const membresParCle = new Map();
+    for (const [cid, m] of Object.entries(g.membres)) { const k = cleAttente(m); if (k) membresParCle.set(k, nomDeCompte.get(Number(cid)) || '(compte supprimé)'); }
+    const nomEq = (idLocal) => { const e = [...parNom.values()].find((x) => x.id === idLocal); return e ? e.nom : null; };
+    const r = { section: nomSection, appliquer, equipesCreees: aCreer.map((e) => e.nom), equipesExistantes: [...cibleEq.values()].length - aCreer.length,
+      rattaches: [], attentes: [], dejaMembres: [], ambigus: [], ignores: [], presidents: 0, sansIdentifiant: Math.max(0, Math.round(Number(doc.membresSansIdentifiant) || 0)) };
+    const vues = new Set();
+    const aAjouter = [], aAttendre = [];
+    for (const src of mbSource) {
+      if (!src || typeof src !== 'object') continue;
+      let ind = txt(src.indicatif, 12).toUpperCase();
+      if (ind && !INDICATIF.test(ind)) { r.ignores.push({ quoi: ind, raison: 'indicatif illisible' }); continue; }
+      const swl = txt(src.numeroSwl, 20).toUpperCase() || null;
+      const fiche = {
+        indicatif: ind || null, numeroSwl: swl,
+        qualite: ['radioamateur', 'swl'].includes(src.qualite) ? src.qualite : null,
+        equipe: src.equipe != null && cibleEq.has(String(src.equipe)) ? cibleEq.get(String(src.equipe)) : null,
+        fonction: txt(src.fonction, 40) || null,
+        noeud: Number.isInteger(Number(src.noeud)) && Number(src.noeud) > 0 && Number(src.noeud) <= 0xffffffff ? Number(src.noeud) >>> 0 : null,
+      };
+      if (fiche.qualite === 'radioamateur' && !fiche.indicatif) fiche.qualite = null; // licencié sans indicatif : impossible
+      if (src.president) r.presidents++;
+      const cle = cleAttente(fiche);
+      if (!cle) { r.ignores.push({ quoi: fiche.fonction || '(sans nom)', raison: 'ni indicatif ni n° SWL : rien pour reconnaître la personne' }); continue; }
+      if (vues.has(cle)) { r.ignores.push({ quoi: cle, raison: 'en double dans le fichier' }); continue; }
+      vues.add(cle);
+      if (membresParCle.has(cle)) { r.dejaMembres.push({ quoi: cle, identifiant: membresParCle.get(cle) }); continue; }
+      const comptes = fiche.indicatif ? parIndicatif.get(fiche.indicatif) || [] : [];
+      if (comptes.length > 1) { r.ambigus.push({ quoi: fiche.indicatif, raison: `${comptes.length} comptes portent cet indicatif sur cette carte : à rattacher à la main` }); continue; }
+      if (comptes.length === 1) {
+        const c = comptes[0];
+        if (g.membres[c.id]) { r.dejaMembres.push({ quoi: fiche.indicatif, identifiant: c.identifiant }); continue; }
+        const ailleurs = ctx.groupeDeCompte(c.id);
+        if (ailleurs && ailleurs !== g.code) { r.ignores.push({ quoi: fiche.indicatif, raison: `ce compte est déjà membre de ${ctx.nomGroupe(ailleurs)}` }); continue; }
+        r.rattaches.push({ quoi: fiche.indicatif, identifiant: c.identifiant, equipe: nomEq(fiche.equipe) });
+        aAjouter.push([c.id, fiche]);
+        continue;
+      }
+      if (g.attentes.some((a) => cleAttente(a) === cle)) { r.ignores.push({ quoi: cle, raison: 'une fiche en attente existe déjà' }); continue; }
+      if (g.attentes.length + aAttendre.length >= 2000) { r.ignores.push({ quoi: cle, raison: 'trop de fiches en attente' }); continue; }
+      r.attentes.push({ quoi: cle, equipe: nomEq(fiche.equipe) });
+      aAttendre.push(fiche);
+    }
+    if (!appliquer) return r;
+    for (const e of aCreer) g.equipes.push(e);
+    for (const [cid, f] of aAjouter) {
+      g.membres[cid] = { valide: Date.now(), par: auteur, qualite: f.qualite, licencie: f.qualite === 'radioamateur',
+        indicatif: f.indicatif, numeroSwl: f.numeroSwl, equipe: f.equipe, fonction: f.fonction, noeud: f.noeud,
+        importe: { de: nomSection, heure: Date.now() } };
+      delete g.demandes[cid]; // demande d'adhésion éventuelle satisfaite
+    }
+    for (const f of aAttendre) g.attentes.push({ id: id(), heure: Date.now(), par: auteur, source: nomSection, ...f });
+    sauver(true);
+    journal(`[ADRASEC] import depuis ${nomSection} par ${auteur} : ${r.rattaches.length} rattaché(s), ${r.attentes.length} en attente, ${aCreer.length} équipe(s) créée(s)`);
+    ajouterMc(null, { texte: `Import de la section depuis « ${nomSection} » : ${aCreer.length} équipe(s) créée(s), ${r.rattaches.length} membre(s) rattaché(s) à un compte, ${r.attentes.length} fiche(s) en attente d’activation`, type: 'information' }, { auteur });
+    diffuser({ genre: 'adrasec', quoi: 'membres' });
+    return r;
+  }
+  function retirerAttente(aid, auteur) {
+    const i = g.attentes.findIndex((a) => a.id === aid);
+    if (i < 0) throw new Error('Fiche en attente inconnue');
+    const [a] = g.attentes.splice(i, 1);
+    sauver(true);
+    journal(`[ADRASEC] fiche en attente « ${cleAttente(a)} » retirée par ${auteur}`);
+    return { ok: true };
+  }
+
   // ---- Vue complète pour la page ADRASEC --------------------------------------------------------------------
   function vue(compte, comptesListe) {
     const admin = estResponsable(compte);
@@ -481,13 +633,20 @@ function creerGroupe(g, ctx) {
       comptes: admin ? comptesListe.filter((c) => c.statut === 'actif').map((c) => ({ id: c.id, identifiant: c.identifiant, indicatif: c.indicatif || null, role: c.role, adrasec: !!g.membres[c.id], autre: g.membres[c.id] ? null : ctx.groupeDeCompte(c.id) })) : undefined,
       demandes: admin ? Object.entries(g.demandes || {}).map(([cid, x]) => { const c = comptesListe.find((y) => y.id === Number(cid) && y.statut === 'actif'); return c && !g.membres[cid] ? { compte: c.id, identifiant: c.identifiant, indicatifCompte: c.indicatif || null, ...x } : null; }).filter(Boolean) : undefined,
       comptesEnAttente: compte.role === 'admin' ? comptesListe.filter((c) => c.statut === 'en_attente').length : undefined,
+      // Fiches importées d'une autre carte, en attente du compte de la personne (président et responsables)
+      attentes: admin ? g.attentes.map((a) => {
+        const homonymes = a.indicatif ? comptesListe.filter((c) => c.statut === 'actif' && String(c.indicatif || '').toUpperCase() === a.indicatif) : [];
+        return { id: a.id, heure: a.heure, source: a.source || null, indicatif: a.indicatif || null, numeroSwl: a.numeroSwl || null,
+          qualite: a.qualite || null, fonction: a.fonction || null, equipe: a.equipe || null, noeud: a.noeud || null,
+          compte: homonymes.length === 1 ? homonymes[0].id : null, identifiant: homonymes.length === 1 ? homonymes[0].identifiant : null, homonymes: homonymes.length };
+      }) : undefined,
     };
   }
 
   return {
     g, purger, membre, estMembre, estResponsable, estLicencie, signature, demander, refuserDemande, demandeDe,
     reglages, majMembre, majEquipe, ajouterMc, csvMc, majRecherche, ajouterReleve, majReleve, retirerReleve, localiser, texteRecu, vue,
-    diffuserBalise, creerLien, couperLien, vueTerrain,
+    diffuserBalise, creerLien, couperLien, vueTerrain, exporter, importer, retirerAttente,
   };
 }
 

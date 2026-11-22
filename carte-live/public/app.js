@@ -832,9 +832,32 @@ function porteeRecevoir(m) {
   if (m.de === portee.num) { portee.recs.push({ passerelle: m.passerelle, snr: m.snr, rssi: m.rssi, sauts: m.sauts, relais: m.relais, port: m.port, heure: m.heure || Date.now() }); rendrePortee(); }
   else if (m.relais === portee.num) { portee.relaye.push({ de: m.de, passerelle: m.passerelle, heure: m.heure || Date.now() }); rendrePortee(); }
 }
+// Propositions de nœuds au fil de la frappe, pour la boîte « nœud à écouter ».
+// Nœuds Meshtastic seulement : c'est ce que l'écoute en direct sait suivre (porteeRecevoir compare des numéros
+// Meshtastic, et /api/noeuds/<num> relit leur historique) ; les nœuds MeshCore n'ont pas de numéro de ce genre.
+// L'index normalisé (sans accents, en minuscules) est construit une fois par ouverture de la boîte, pas à chaque
+// touche ; au plus 8 propositions, les noms qui commencent par ce qui est tapé d'abord.
+function proposerNoeudsMt(limite = 8) {
+  let index = null;
+  return (q) => {
+    const s = sansAccent(String(q || '')).trim().replace(/^!/, '');
+    if (!s) return [];
+    if (!index) index = [...etat.noeuds.values()].map((n) => ({ num: n.num, id: n.id, nom: n.nomLong || n.nomCourt || n.id, court: n.nomCourt || '',
+      debut: sansAccent(`${n.nomCourt || ''}|${n.nomLong || ''}|${String(n.id || '').replace('!', '')}`), tout: sansAccent(`${n.id} ${n.nomCourt || ''} ${n.nomLong || ''}`) }));
+    const debuts = [], dedans = [];
+    for (const x of index) {
+      if (x.debut.split('|').some((p) => p.startsWith(s))) { if (debuts.length < limite) debuts.push(x); }
+      else if (x.tout.includes(s) && dedans.length < limite) dedans.push(x);
+      if (debuts.length >= limite) break;
+    }
+    return [...debuts, ...dedans].slice(0, limite)
+      .map((x) => ({ valeur: x.id, libelle: x.nom, detail: x.id + (x.court && x.court !== x.nom ? ' · ' + x.court : '') }));
+  };
+}
 async function testPortee(num) {
   if (num == null) {
-    const t = (await saisir('Identifiant du nœud à écouter (!xxxxxxxx, ou son nom) :'));
+    // Le champ reste libre : on peut écouter un nœud que la carte ne connaît pas encore (c'est tout l'intérêt)
+    const t = (await saisir('Identifiant du nœud à écouter (!xxxxxxxx, ou son nom) :', '', { suggestions: proposerNoeudsMt() }));
     if (!t) return;
     const s = t.trim().toLowerCase();
     const n = [...etat.noeuds.values()].find((x) => x.id.toLowerCase() === (s.startsWith('!') ? s : '!' + s) || (x.nomLong || '').toLowerCase().includes(s) || (x.nomCourt || '').toLowerCase() === s);

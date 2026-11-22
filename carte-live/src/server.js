@@ -162,7 +162,8 @@ app.use(require('compression')({ threshold: 1024 })); // gzip : pages et API 5 �
 // Corps JSON : 10 ko, sauf la restauration d'une sauvegarde
 const jsonPetit = express.json({ limit: '10kb' }), jsonGros = express.json({ limit: '30mb' });
 const jsonPhoto = express.json({ limit: '5mb' });
-app.use((req, res, next) => (req.path === '/api/sauvegardes/restaurer' ? jsonGros : req.path === '/api/releves' ? jsonPhoto : jsonPetit)(req, res, next));
+const jsonImport = express.json({ limit: '2mb' }); // export d'une section ADRASEC (jusqu'à 2 000 fiches)
+app.use((req, res, next) => (req.path === '/api/sauvegardes/restaurer' ? jsonGros : req.path === '/api/releves' ? jsonPhoto : req.path === '/api/adrasec/import' ? jsonImport : jsonPetit)(req, res, next));
 // Journal d'audit : toute action (hors lecture) d'un utilisateur connecté, avec son résultat
 const SANS_AUDIT = new Set(['/api/connexion', '/api/deconnexion', '/api/installation', '/api/inscription', '/api/releves']);
 // Champs masqués dans le journal d'audit pour une route donnée (le nom d'un donateur n'y a rien à faire)
@@ -4130,6 +4131,26 @@ app.get('/api/adrasec/main-courante.csv', (req, res) => {
   if (!G) return res.status(403).json({ erreur: 'Réservé à la section' });
   res.set('Content-Type', 'text/csv; charset=utf-8').set('Content-Disposition', `attachment; filename="main-courante-${G.g.code}-${new Date().toISOString().slice(0, 10)}.csv"`).send(G.csvMc());
 });
+// Transfert de la section vers une autre carte : export d'un fichier ici, import là-bas (président, responsable
+// ou administrateur de la carte). Aucun compte, mot de passe, condensat ni jeton dans le fichier : chacun crée son
+// compte sur la carte d'arrivée par le lien d'invitation, et sa fiche métier l'y attend.
+app.get('/api/adrasec/export.json', (req, res) => {
+  const u = utilisateur(req);
+  const G = u && (u.role === 'admin' || adrasec.estMembre(u)) ? adrasec.groupePour(u, String(req.query.g || '').slice(0, 3) || null) : null;
+  if (!G) return res.status(403).json({ erreur: 'Réservé à la section' });
+  if (!G.estResponsable(u)) return res.status(403).json({ erreur: `Réservé au président et aux responsables de ${G.g.nom}` });
+  const doc = G.exporter();
+  audit.noter(nomCompte(u), req.ip, 'ADRASEC : section exportée', `${G.g.nom} · ${doc.membres.length} fiche(s), ${doc.equipes.length} équipe(s)`, true);
+  res.set('Content-Type', 'application/json; charset=utf-8').set('Cache-Control', 'no-store')
+    .set('Content-Disposition', `attachment; filename="adrasec-${G.g.code}-${new Date().toISOString().slice(0, 10)}.json"`)
+    .send(JSON.stringify(doc, null, 1));
+});
+app.post('/api/adrasec/import', routeAdrasec((req, b, u, G) => {
+  const r = G.importer(b.fichier, comptes.lister(), { appliquer: !!b.appliquer }, nomCompte(u));
+  if (b.appliquer) audit.noter(nomCompte(u), req.ip, 'ADRASEC : section importée', `${G.g.nom} ← ${r.section} · ${r.rattaches.length} rattaché(s), ${r.attentes.length} en attente, ${r.equipesCreees.length} équipe(s)`, true);
+  return r;
+}, { admin: true }));
+app.delete('/api/adrasec/attentes/:id', routeAdrasec((req, b, u, G) => G.retirerAttente(String(req.params.id), nomCompte(u)), { admin: true }));
 app.post('/api/adrasec/recherches', routeAdrasec((req, b, u, G) => G.majRecherche(null, b, u)));
 app.patch('/api/adrasec/recherches/:id', routeAdrasec((req, b, u, G) => G.majRecherche(req.params.id, b, u)));
 app.post('/api/adrasec/releves', routeAdrasec((req, b, u, G) => G.ajouterReleve(u, b)));

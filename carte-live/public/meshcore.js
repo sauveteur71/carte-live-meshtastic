@@ -483,7 +483,19 @@ async function mcRendreMessages() {
   ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#mc-envoi').requestSubmit(); } };
   $('#mc-dest').onchange = async (e) => {
     if (e.target.value === 'choisir') {
-      const q = (await saisir('Nom (ou début) du destinataire MeshCore :'));
+      // Mêmes propositions au fil de la frappe que pour l'écoute d'un nœud, ici sur les nœuds MeshCore connus
+      const proposerMc = (t) => {
+        const s = sansAccent(String(t || '')).trim();
+        if (!s) return [];
+        const l = [];
+        for (const x of mc.noeuds.values()) {
+          if (!x.nom || !sansAccent(x.nom).includes(s)) continue;
+          l.push({ valeur: x.nom, libelle: x.nom, detail: mcRole(x.role).un + ' · ' + String(x.cle || '').slice(0, 8).toUpperCase() });
+          if (l.length >= 8) break;
+        }
+        return l;
+      };
+      const q = (await saisir('Nom (ou début) du destinataire MeshCore :', '', { suggestions: proposerMc }));
       const n = q && [...mc.noeuds.values()].find((x) => (x.nom || '').toLowerCase().includes(q.toLowerCase().trim()));
       if (q && !n) alert('Aucun nœud MeshCore de ce nom sur la carte.');
       if (n) mc.destMessage = 'direct:' + n.cle;

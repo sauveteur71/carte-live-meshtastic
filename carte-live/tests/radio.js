@@ -2100,3 +2100,255 @@ test('MeshCore capteurs : un délai maximal absurde dans le fichier de réglages
   await b.avancer(4 * 60000);
   assert.equal(b.releves(b.CLES[1]), 1, 'réglage à 0 : ramené à 1 min');
 });
+
+// ---------- Sauvegardes des réglages : rien d'important ne doit manquer à la liste ----------
+// Section ADRASEC : membres, équipes, main courante et recherches de balise. Une restauration qui l'oublierait
+// effacerait en silence le travail d'une association de sécurité civile.
+const SECTION_ADRASEC = {
+  actif: true,
+  groupes: {
+    43: {
+      code: '43', nom: 'ADRASEC 43', conservationJours: 365,
+      membres: { 7: { valide: 1764000000000, par: 'olivier', qualite: 'radioamateur', indicatif: 'F4GLD', licencie: true, equipe: 'eq-1', fonction: 'chef d’équipe', responsable: true, noeud: 1518338049 } },
+      demandes: {},
+      equipes: [{ id: 'eq-1', nom: 'Gonio 1', couleur: '#ff8a1f', mission: 'Secteur Mézenc' }],
+      mainCourante: [{ id: 'mc-1', heure: 1764000001000, auteur: 'F4GLD', type: 'decision', texte: 'Ouverture de la recherche « Balise 121,5 »', equipe: 'eq-1', complete: null }],
+      recherches: [{ id: 'r-1', nom: 'Balise 121,5', frequence: '121,5 MHz', detail: null, debut: 1764000001000, fin: 1764000900000, statut: 'terminee', ouvertePar: 'F4GLD' }],
+      releves: [{ id: 'rl-1', recherche: 'r-1', heure: 1764000002000, auteur: 'F4GLD', equipe: 'eq-1', lat: 45.05, lon: 3.9, source: 'GPS', gisement: 120.5, incertitude: 5, force: null, note: null, origine: 'saisie' }],
+    },
+  },
+};
+
+test('Sauvegardes : la section ADRASEC survit à une sauvegarde puis une restauration', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'sauve-adrasec-'));
+  const { creerStockage } = require('../src/base');
+  const { creerSauvegardes } = require('../src/sauvegardes');
+  const st = creerStockage(path.join(dossier, 'carte-live.db'));
+  const fAdrasec = path.join(dossier, 'adrasec.json');
+  fs.writeFileSync(fAdrasec, JSON.stringify(SECTION_ADRASEC), { mode: 0o600 });
+  fs.writeFileSync(path.join(dossier, 'reglages.json'), JSON.stringify({ nom: 'Carte d’essai' }));
+  const s = creerSauvegardes(dossier, st.db, () => {});
+
+  const faite = s.sauvegarder();
+  const copie = JSON.parse(s.lire(faite.nom).toString('utf8'));
+  assert.ok(copie.fichiers['adrasec.json'], 'adrasec.json doit figurer dans la sauvegarde');
+  assert.ok(copie.fichiers['reglages.json'], 'reglages.json doit figurer dans la sauvegarde');
+
+  // La section est écrasée (panne, mauvaise manipulation) : la restauration doit la rendre intacte
+  fs.writeFileSync(fAdrasec, JSON.stringify({ actif: false, groupes: {} }));
+  s.restaurer(copie);
+  const relu = JSON.parse(fs.readFileSync(fAdrasec, 'utf8'));
+  assert.deepEqual(relu, SECTION_ADRASEC, 'membres, équipes, main courante, recherches et relevés doivent revenir à l’identique');
+  assert.equal(fs.statSync(fAdrasec).mode & 0o777, 0o600, 'données personnelles : fichier restauré lisible du seul service');
+  st.db.close();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('Sauvegardes : un fichier dans un sous-dossier absent n’interrompt pas la restauration', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'sauve-sous-'));
+  const { creerStockage } = require('../src/base');
+  const { creerSauvegardes } = require('../src/sauvegardes');
+  const st = creerStockage(path.join(dossier, 'carte-live.db'));
+  const s = creerSauvegardes(dossier, st.db, () => {});
+  // Sauvegarde venue d'une autre carte : le sous-dossier « releves » n'existe pas encore ici
+  const copie = { format: 'carte-live-sauvegarde', version: 1, date: new Date().toISOString(),
+    fichiers: { 'releves/releves.json': '[]', 'adrasec.json': JSON.stringify(SECTION_ADRASEC) }, comptes: [] };
+  const r = s.restaurer(copie);
+  assert.equal(r.fichiers, 2, 'les deux fichiers doivent être écrits');
+  assert.ok(fs.existsSync(path.join(dossier, 'releves', 'releves.json')), 'le sous-dossier doit être créé');
+  assert.ok(fs.existsSync(path.join(dossier, 'adrasec.json')), 'les fichiers suivants ne doivent pas être perdus');
+  st.db.close();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+// ---------- Transfert d'une section ADRASEC d'une carte à une autre ----------
+// Le fichier d'export ne doit contenir AUCUN secret : ni compte, ni mot de passe, ni condensat, ni jeton.
+// L'import ne doit rien effacer et ne doit jamais donner d'accès à quelqu'un qui ne s'est pas authentifié.
+function sectionDeDepart() {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'adrasec-source-'));
+  const { creerAdrasec } = require('../src/adrasec');
+  const A = creerAdrasec({ config: { fichierBase: path.join(dossier, 'carte-live.db'), departement: { code: '43' } }, journal: () => {} });
+  A.reglagesGlobaux({ actif: true });
+  A.majGroupe('43', { nom: 'ADRASEC 43' }, 'olivier');
+  const admin = { id: 1, identifiant: 'olivier', role: 'admin' };
+  const G = A.groupePour(admin, '43');
+  const eq = G.majEquipe(null, { nom: 'Gonio 1', mission: 'Secteur Mézenc' }).equipes[0];
+  G.majEquipe(null, { nom: 'Transmissions' });
+  G.majMembre(2, { membre: true, qualite: 'radioamateur', indicatif: 'F4GLD', equipe: eq.id, fonction: 'chef d’équipe', noeud: 1518338049, responsable: true }, 'olivier', true);
+  G.majMembre(3, { membre: true, qualite: 'radioamateur', indicatif: 'F4ISE', equipe: eq.id }, 'olivier', true);
+  G.majMembre(4, { membre: true, qualite: 'radioamateur', indicatif: 'F4ASS', fonction: 'opérateur gonio' }, 'olivier', true);
+  G.majMembre(5, { membre: true, qualite: 'swl', numeroSwl: 'F-12345', equipe: eq.id }, 'olivier', true);
+  G.majMembre(6, { membre: true, qualite: 'radioamateur', indicatif: 'F1ABC' }, 'olivier', true);
+  G.majMembre(7, { membre: true, qualite: '' }, 'olivier', true); // ni indicatif ni n° SWL
+  return { dossier, G, doc: G.exporter() };
+}
+function sectionArrivee() {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'adrasec-cible-'));
+  const { creerAdrasec } = require('../src/adrasec');
+  const A = creerAdrasec({ config: { fichierBase: path.join(dossier, 'carte-live.db'), departement: { code: '43' } }, journal: () => {} });
+  A.reglagesGlobaux({ actif: true });
+  A.majGroupe('43', { nom: 'ADRASEC 43 (Saint-Appo)' }, 'sebastien');
+  const G = A.groupePour({ id: 1, identifiant: 'sebastien', role: 'admin' }, '43');
+  G.majEquipe(null, { nom: 'gonio 1' }); // même équipe, écrite autrement : à réutiliser, pas à dupliquer
+  G.majMembre(15, { membre: true, qualite: 'radioamateur', indicatif: 'F1ABC' }, 'sebastien', true); // déjà là
+  return { dossier, G };
+}
+// Comptes de la carte d'arrivée (comme comptes.lister())
+const COMPTES_ARRIVEE = [
+  { id: 11, identifiant: 'olivier', indicatif: 'F4GLD', role: 'membre', statut: 'actif', hash: '$2b$10$condensatsecret', totp: 'SECRETTOTP' },
+  { id: 12, identifiant: 'nicolas', indicatif: 'F4ISE', role: 'membre', statut: 'actif' },
+  { id: 13, identifiant: 'nicolas-bis', indicatif: 'F4ISE', role: 'membre', statut: 'actif' }, // deux comptes, même indicatif
+  { id: 14, identifiant: 'dormant', indicatif: 'F4ASS', role: 'membre', statut: 'en_attente' }, // pas encore validé : ne compte pas
+  { id: 15, identifiant: 'bernard', indicatif: 'F1ABC', role: 'membre', statut: 'actif' },
+];
+
+test('ADRASEC : le fichier d’export ne contient aucun secret ni aucun identifiant de compte', () => {
+  const src = sectionDeDepart();
+  const doc = src.doc;
+  // Champs autorisés, et eux seuls
+  const cles = new Set();
+  (function parcourir(x) { if (Array.isArray(x)) x.forEach(parcourir); else if (x && typeof x === 'object') for (const [k, v] of Object.entries(x)) { cles.add(k); parcourir(v); } })(doc);
+  assert.deepEqual([...cles].sort(), ['code', 'couleur', 'date', 'equipe', 'equipes', 'fonction', 'format', 'id', 'indicatif', 'membres', 'membresSansIdentifiant', 'mission', 'noeud', 'nom', 'numeroSwl', 'president', 'qualite', 'section', 'version']);
+  const brut = JSON.stringify(doc);
+  for (const interdit of ['hash', 'motDePasse', 'password', 'condensat', 'totp', 'jeton', 'token', 'session', 'cookie', 'psk', 'secret'])
+    assert.ok(!new RegExp(interdit, 'i').test(brut), `le mot « ${interdit} » ne doit pas apparaître dans l’export : ${brut.slice(0, 200)}`);
+  // Les identifiants de compte de la carte d'origine (clés de « membres ») ne doivent pas sortir
+  assert.ok(Array.isArray(doc.membres), 'les membres sortent en liste, sans leur numéro de compte');
+  assert.ok(!doc.membres.some((m) => 'compte' in m || 'par' in m || 'valide' in m), 'ni numéro de compte, ni qui a validé, ni quand');
+  assert.equal(doc.membres.length, 5, 'les 5 membres identifiables partent ; celui sans indicatif ni n° SWL reste');
+  assert.equal(doc.membresSansIdentifiant, 1);
+  assert.equal(doc.format, 'carte-live-adrasec');
+  assert.deepEqual(doc.membres.find((m) => m.indicatif === 'F4GLD'), { indicatif: 'F4GLD', qualite: 'radioamateur', numeroSwl: null, equipe: doc.equipes[0].id, fonction: 'chef d’équipe', president: true, noeud: 1518338049 });
+  fs.rmSync(src.dossier, { recursive: true, force: true });
+});
+
+test('ADRASEC : import non destructeur, rattachement par l’indicatif, fiche en attente, récapitulatif juste', () => {
+  const src = sectionDeDepart();
+  const cible = sectionArrivee();
+  const G = cible.G;
+  const avant = { membres: Object.keys(G.g.membres).length, equipes: G.g.equipes.length };
+
+  // 1) Récapitulatif seul : rien ne doit être écrit
+  const vu = G.importer(src.doc, COMPTES_ARRIVEE, { appliquer: false }, 'sebastien');
+  assert.equal(Object.keys(G.g.membres).length, avant.membres, 'l’aperçu n’ajoute aucun membre');
+  assert.equal(G.g.equipes.length, avant.equipes, 'l’aperçu ne crée aucune équipe');
+  assert.equal(G.g.attentes.length, 0, 'l’aperçu ne crée aucune fiche en attente');
+  assert.deepEqual(vu.rattaches.map((x) => x.quoi), ['F4GLD'], 'un seul compte rapprochable de façon certaine');
+  assert.deepEqual(vu.rattaches[0].identifiant, 'olivier');
+  assert.deepEqual(vu.attentes.map((x) => x.quoi).sort(), ['F4ASS', 'SWL:F-12345'], 'indicatif sans compte actif et SWL : fiches en attente');
+  assert.deepEqual(vu.ambigus.map((x) => x.quoi), ['F4ISE'], 'deux comptes au même indicatif : à la main');
+  assert.deepEqual(vu.dejaMembres.map((x) => x.quoi), ['F1ABC']);
+  assert.deepEqual(vu.equipesCreees, ['Transmissions'], '« Gonio 1 » existe déjà sous la forme « gonio 1 »');
+  assert.equal(vu.equipesExistantes, 1);
+  assert.equal(vu.presidents, 1, 'le président de la carte d’origine est signalé, pas repris');
+  assert.equal(vu.sansIdentifiant, 1);
+
+  // 2) Application : non destructeur
+  const fait = G.importer(src.doc, COMPTES_ARRIVEE, { appliquer: true }, 'sebastien');
+  assert.deepEqual([fait.rattaches.length, fait.attentes.length, fait.equipesCreees.length], [1, 2, 1]);
+  assert.ok(G.g.membres[15] && G.g.membres[15].indicatif === 'F1ABC', 'le membre déjà présent n’est pas touché');
+  assert.equal(G.g.equipes.length, 2, 'l’équipe homonyme est réutilisée');
+  assert.equal(G.g.equipes.filter((e) => /gonio/i.test(e.nom)).length, 1);
+  const m11 = G.g.membres[11];
+  assert.ok(m11, 'le compte rapproché par l’indicatif devient membre');
+  assert.equal(m11.indicatif, 'F4GLD');
+  assert.equal(m11.fonction, 'chef d’équipe');
+  assert.equal(m11.noeud, 1518338049);
+  assert.equal(m11.equipe, G.g.equipes.find((e) => /gonio/i.test(e.nom)).id, 'rattaché à l’équipe locale de même nom');
+  assert.ok(!m11.responsable, 'le rôle de président n’est jamais importé');
+  assert.ok(!G.g.membres[14], 'un compte encore en attente de validation ne devient pas membre');
+  assert.ok(!G.g.membres[12] && !G.g.membres[13], 'indicatif en double : aucun compte n’est rattaché au hasard');
+
+  // 3) La personne sans compte crée le sien puis demande à rejoindre : sa fiche se rattache seule
+  const att = G.g.attentes.find((a) => a.indicatif === 'F4ASS');
+  assert.ok(att && att.fonction === 'opérateur gonio');
+  G.majMembre(16, { membre: true, qualite: 'radioamateur', indicatif: 'F4ASS' }, 'sebastien', false);
+  const m16 = G.g.membres[16];
+  assert.equal(m16.fonction, 'opérateur gonio', 'la fiche en attente complète le nouveau membre');
+  assert.ok(!m16.responsable, 'toujours pas de président par import');
+  assert.ok(m16.importe && /ADRASEC 43/.test(m16.importe.de), 'la provenance est notée');
+  assert.ok(!G.g.attentes.some((a) => a.indicatif === 'F4ASS'), 'la fiche en attente est consommée');
+
+  // 4) Deuxième import du même fichier : rien en double
+  const encore = G.importer(src.doc, COMPTES_ARRIVEE, { appliquer: true }, 'sebastien');
+  assert.deepEqual([encore.rattaches.length, encore.attentes.length, encore.equipesCreees.length], [0, 0, 0]);
+  assert.equal(G.g.equipes.length, 2);
+  assert.equal(G.g.attentes.length, 1, 'la fiche SWL reste la seule en attente');
+
+  // 5) Main courante : l'import est tracé, mais aucune main courante n'est venue du fichier
+  assert.ok(G.g.mainCourante.some((x) => /Import de la section/.test(x.texte)), 'l’import est inscrit à la main courante');
+  assert.ok(!G.g.recherches.length && !G.g.releves.length, 'ni recherche ni relevé ne sont importés');
+  fs.rmSync(src.dossier, { recursive: true, force: true });
+  fs.rmSync(cible.dossier, { recursive: true, force: true });
+});
+
+test('ADRASEC : fichier malformé ou trafiqué refusé sans plantage et sans donner d’accès', () => {
+  const cible = sectionArrivee();
+  const G = cible.G;
+  for (const [mauvais, motif] of [
+    [null, /export d’une section ADRASEC/],
+    ['pas un objet', /export d’une section ADRASEC/],
+    [[1, 2, 3], /export d’une section ADRASEC/],
+    [{ format: 'autre-chose', version: 1 }, /export d’une section ADRASEC/],
+    [{ format: 'carte-live-adrasec', version: 2 }, /version 2/],
+  ]) assert.throws(() => G.importer(mauvais, COMPTES_ARRIVEE, { appliquer: true }, 'sebastien'), motif);
+
+  // Champs du mauvais type : ignorés, pas de plantage
+  const bizarre = { format: 'carte-live-adrasec', version: 1, section: 42, equipes: 'pas un tableau', membres: { a: 1 }, membresSansIdentifiant: 'beaucoup' };
+  const r = G.importer(bizarre, COMPTES_ARRIVEE, { appliquer: true }, 'sebastien');
+  assert.deepEqual([r.rattaches.length, r.attentes.length, r.equipesCreees.length, r.sansIdentifiant], [0, 0, 0, 0]);
+
+  // Fichier trafiqué : on essaie de se faire nommer président, de se faire passer pour un compte, d'injecter des champs
+  const truque = { format: 'carte-live-adrasec', version: 1, section: { code: '43', nom: 'ADRASEC 43' },
+    equipes: [{ id: 'e', nom: 'Gonio 1' }],
+    membres: [
+      { indicatif: 'F4GLD', president: true, responsable: true, licencie: true, compte: 15, valide: 1, par: 'pirate', hash: '$2b$10$x', totp: 'ABC', role: 'admin', equipe: 'e' },
+      { indicatif: '<script>alert(1)</script>', qualite: 'radioamateur' },
+      { indicatif: 'F4GLD' }, // en double dans le fichier
+      { qualite: 'radioamateur', numeroSwl: null }, // rien pour reconnaître la personne
+      { indicatif: 'F4ZZZ', equipe: 'equipe-qui-nexiste-pas', noeud: -3, qualite: 'president' },
+    ] };
+  const t = G.importer(truque, COMPTES_ARRIVEE, { appliquer: true }, 'sebastien');
+  const m11 = G.g.membres[11];
+  assert.ok(m11, 'F4GLD est rattaché à son compte, par son indicatif seulement');
+  assert.ok(!m11.responsable, 'pas de président par import, même demandé dans le fichier');
+  assert.equal(m11.par, 'sebastien', 'c’est celui qui importe qui signe, pas le fichier');
+  for (const k of ['hash', 'totp', 'role', 'compte']) assert.ok(!(k in m11), `le champ « ${k} » du fichier est ignoré`);
+  assert.ok(t.ignores.some((x) => /illisible/.test(x.raison)), 'indicatif illisible refusé');
+  assert.ok(t.ignores.some((x) => /double/.test(x.raison)), 'doublon du fichier signalé');
+  assert.ok(t.ignores.some((x) => /ni indicatif ni/.test(x.raison)), 'membre sans identifiant signalé');
+  const zzz = G.g.attentes.find((a) => a.indicatif === 'F4ZZZ');
+  assert.ok(zzz && zzz.equipe === null && zzz.noeud === null && zqualite(zzz) === null, 'équipe inconnue, nœud invalide et qualité inventée mis à zéro');
+  function zqualite(a) { return a.qualite; }
+  // Trop de fiches : le fichier est borné, la carte ne gonfle pas sans fin
+  const enorme = { format: 'carte-live-adrasec', version: 1, section: { code: '43', nom: 'X' }, equipes: [],
+    membres: Array.from({ length: 2500 }, (_, i) => ({ indicatif: 'F4A' + String(i).padStart(2, '0') + 'B' })) };
+  const e = G.importer(enorme, [], { appliquer: false }, 'sebastien');
+  assert.ok(e.attentes.length <= 2000, 'au plus 2 000 fiches lues dans un fichier : ' + e.attentes.length);
+  fs.rmSync(cible.dossier, { recursive: true, force: true });
+});
+
+test('Sauvegardes : chaque fichier de réglages listé est bien repris, puis remis à l’identique', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'sauve-liste-'));
+  const { creerStockage } = require('../src/base');
+  const { creerSauvegardes, FICHIERS } = require('../src/sauvegardes');
+  const st = creerStockage(path.join(dossier, 'carte-live.db'));
+  // Un contenu reconnaissable par fichier
+  const attendu = {};
+  for (const f of FICHIERS) {
+    attendu[f] = `contenu de ${f}`;
+    const cible = path.join(dossier, f);
+    fs.mkdirSync(path.dirname(cible), { recursive: true });
+    fs.writeFileSync(cible, attendu[f]);
+  }
+  const s = creerSauvegardes(dossier, st.db, () => {});
+  const copie = JSON.parse(s.lire(s.sauvegarder().nom).toString('utf8'));
+  assert.deepEqual(Object.keys(copie.fichiers).sort(), [...FICHIERS].sort(), 'tous les fichiers listés doivent être dans la sauvegarde');
+  for (const f of FICHIERS) fs.writeFileSync(path.join(dossier, f), 'écrasé');
+  s.restaurer(copie);
+  for (const f of FICHIERS) assert.equal(fs.readFileSync(path.join(dossier, f), 'utf8'), attendu[f], `${f} doit revenir à l’identique`);
+  // Aucun fichier binaire dans la liste : la sauvegarde les lit en UTF-8 et les abîmerait
+  assert.ok(!FICHIERS.some((f) => /\.(bin|db|jpg|png|tar\.gz)$/.test(f)), 'la liste ne doit contenir que du texte');
+  st.db.close();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
