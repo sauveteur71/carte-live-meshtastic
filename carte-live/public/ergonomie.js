@@ -26,12 +26,17 @@ function confirmer(texte, { ok = 'Confirmer', annuler = 'Annuler' } = {}) {
     d.querySelector('[data-r="1"]').focus();
   });
 }
-// Saisie dans l'interface (remplace prompt() du navigateur) : renvoie le texte, ou null si annulé
-function saisir(texte, defaut = '') {
+// Saisie dans l'interface (remplace prompt() du navigateur) : renvoie le texte, ou null si annulé.
+// options.suggestions : fonction optionnelle, appelée au fil de la frappe avec ce qui est tapé, qui renvoie une
+// liste de propositions [{ valeur, libelle, detail }]. Choisir une proposition remplit le champ, qui reste
+// toujours LIBRE : on peut valider un texte qui n'est dans aucune proposition (écouter un nœud encore inconnu,
+// par exemple). Clavier : ↓ ↑ pour parcourir, Entrée pour prendre la proposition visée, Échap pour refermer la
+// liste (un second Échap ferme la boîte). Les appels qui ne passent pas « suggestions » ne changent pas.
+function saisir(texte, defaut = '', options = {}) {
   return new Promise((resoudre) => {
     let d = document.getElementById('dlg-saisir');
     if (!d) { d = document.createElement('dialog'); d.id = 'dlg-saisir'; d.className = 'dlg-confirmer'; d.setAttribute('aria-labelledby', 'saisir-texte'); document.body.appendChild(d); }
-    d.innerHTML = '<form method="dialog"><p id="saisir-texte"></p><input id="saisir-champ" autocomplete="off"><div class="actions-confirmer"><button type="button" data-r="0">Annuler</button><button type="submit" class="principal">Valider</button></div></form>';
+    d.innerHTML = '<form method="dialog"><p id="saisir-texte"></p><input id="saisir-champ" autocomplete="off"><div class="propositions-saisir" id="saisir-props" role="listbox" aria-label="Propositions" hidden></div><div class="actions-confirmer"><button type="button" data-r="0">Annuler</button><button type="submit" class="principal">Valider</button></div></form>';
     d.querySelector('p').textContent = texte;
     const champ = d.querySelector('input');
     champ.value = defaut == null ? '' : String(defaut);
@@ -40,6 +45,43 @@ function saisir(texte, defaut = '') {
     d.querySelector('[data-r="0"]').onclick = () => fin(null);
     d.querySelector('form').onsubmit = (e) => { e.preventDefault(); fin(champ.value); };
     d.onclose = () => fin(null);
+    const suggerer = typeof options.suggestions === 'function' ? options.suggestions : null;
+    const props = d.querySelector('#saisir-props');
+    if (suggerer) {
+      let choix = [], vise = -1, minuterie = null;
+      champ.setAttribute('role', 'combobox');
+      champ.setAttribute('aria-autocomplete', 'list');
+      champ.setAttribute('aria-controls', 'saisir-props');
+      champ.setAttribute('aria-expanded', 'false');
+      const fermer = () => { props.hidden = true; props.innerHTML = ''; choix = []; vise = -1; champ.setAttribute('aria-expanded', 'false'); champ.removeAttribute('aria-activedescendant'); };
+      const viser = (i) => {
+        vise = i;
+        [...props.children].forEach((b, k) => { const a = k === i; b.classList.toggle('vise', a); b.setAttribute('aria-selected', a ? 'true' : 'false'); if (a) b.scrollIntoView({ block: 'nearest' }); });
+        if (i >= 0) champ.setAttribute('aria-activedescendant', 'saisir-prop-' + i); else champ.removeAttribute('aria-activedescendant');
+      };
+      const prendre = (i) => { const c = choix[i]; if (!c) return; champ.value = String(c.valeur); fermer(); champ.focus(); };
+      const proposer = () => {
+        let l = [];
+        try { l = suggerer(champ.value) || []; } catch { l = []; } // une proposition en panne ne doit pas bloquer la saisie
+        choix = l.slice(0, 10);
+        if (!choix.length) { fermer(); return; }
+        props.innerHTML = choix.map((c, i) => `<button type="button" role="option" id="saisir-prop-${i}" aria-selected="false" data-i="${i}"><b>${esc(c.libelle)}</b>${c.detail ? `<small>${esc(c.detail)}</small>` : ''}</button>`).join('');
+        props.hidden = false;
+        champ.setAttribute('aria-expanded', 'true');
+        viser(-1);
+      };
+      // Au fil de la frappe, mais pas à chaque touche : la liste est refaite après une courte pause
+      champ.addEventListener('input', () => { clearTimeout(minuterie); minuterie = setTimeout(proposer, 120); });
+      props.addEventListener('mousedown', (e) => { const b = e.target.closest('[data-i]'); if (b) { e.preventDefault(); prendre(Number(b.dataset.i)); } });
+      champ.addEventListener('keydown', (e) => {
+        if (props.hidden) { if (e.key === 'ArrowDown') { e.preventDefault(); clearTimeout(minuterie); proposer(); } return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); viser(vise + 1 >= choix.length ? 0 : vise + 1); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); viser(vise <= 0 ? choix.length - 1 : vise - 1); }
+        else if ((e.key === 'Enter' || e.key === 'Tab') && vise >= 0) { e.preventDefault(); prendre(vise); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fermer(); } // Échap referme la liste ; un second ferme la boîte
+      });
+      if (champ.value) setTimeout(proposer, 0);
+    }
     d.showModal();
     champ.focus(); champ.select();
   });

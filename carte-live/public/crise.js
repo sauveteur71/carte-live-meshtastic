@@ -93,10 +93,18 @@ function champsSecteur(s = {}) {
   const eq = crise.equipes;
   const noeuds = [...(s.noeuds || []).map(idHex), ...(s.noeudsMc || [])].join(', ');
   const opt = (v, t, c) => `<option value="${v}" ${String(c) === String(v) ? 'selected' : ''}>${t}</option>`;
+  // De quelles équipes parle-t-on ? Celles de la carte (un canal chiffré par équipe), réglées dans
+  // Programmer › 👥 Équipes — pas celles d'une section ADRASEC. Le lien n'est proposé qu'à un administrateur,
+  // seul à pouvoir en créer, et seulement si cet écran existe sur cette carte.
+  const versEquipes = etat.admin && typeof ficheEquipes === 'function';
+  const aideEquipe = eq.length
+    ? `<small class="note">Équipes de la carte : un canal chiffré partagé par les nœuds d’une équipe, réglé dans Programmer › 👥 Équipes.${versEquipes ? ' <a href="#" data-vers-equipes>Voir les équipes de la carte</a>' : ''}</small>`
+    : `<p class="alerte attention">Aucune équipe n’existe encore sur cette carte. Une équipe, c’est un canal chiffré partagé par les nœuds de ceux qui partent sur le terrain : la carte sait alors qui suivre. Créez-en une dans Programmer › 👥 Équipes, puis revenez ici ; en attendant, surveillez des nœuds un par un dans « Autres nœuds suivis », juste en dessous.${versEquipes ? ' <a href="#" data-vers-equipes>Créer une équipe de la carte</a>' : ' Seul un administrateur de la carte peut en créer.'}</p>`;
   return `<div class="parametres compact">
       <label>Nom <input data-c="nom" maxlength="40" value="${esc(s.nom || '')}" placeholder="Secteur nord, vallée de la Loire…"></label>
       <label>Équipe <select data-c="equipe">${opt('', '— aucune —', s.equipe || '')}${eq.map((e) => opt(e.id, esc(e.nom) + ` (${e.nbMembres})`, s.equipe || '')).join('')}${s.equipe && !eq.some((e) => e.id === s.equipe) ? opt(s.equipe, esc(s.nomEquipe || s.equipe), s.equipe) : ''}</select></label>
     </div>
+    ${aideEquipe}
     <label>Autres nœuds suivis <input data-c="noeuds" value="${esc(noeuds)}" placeholder="!a1b2c3d4, clé publique MeshCore (64 caractères)…"></label>
     <small class="note">L’équipe : tous ses membres du moment. Nœuds Meshtastic par identifiant (!a1b2c3d4), nœuds MeshCore par leur clé publique complète.</small>
     <div class="parametres compact">
@@ -217,6 +225,8 @@ async function ficheSecteurs(opts = {}) {
   $('#sa-visibles').onchange = (e) => { crise.visibles = e.target.checked; ecrireLs('gaulix_secteurs_visibles', crise.visibles); dessinerSecteurs(); };
   { const t = $('#sa-tout'); if (t) t.onclick = (e) => { e.preventDefault(); ficheSecteurs({ garder: true }); }; }
   z.querySelectorAll('[data-voir-pos]').forEach((l) => (l.onclick = (ev) => { ev.preventDefault(); const [la, lo] = l.dataset.voirPos.split(',').map(Number); carte.setView([la, lo], Math.max(carte.getZoom(), 15)); }));
+  // « Voir / créer une équipe » : ouvre l'écran des équipes de la carte (Programmer › 👥 Équipes)
+  z.querySelectorAll('[data-vers-equipes]').forEach((l) => (l.onclick = (ev) => { ev.preventDefault(); if (typeof ficheEquipes === 'function') ficheEquipes(); }));
   z.querySelectorAll('[data-sa]').forEach((bloc) => {
     const id = bloc.dataset.sa, s = crise.secteurs.find((x) => x.id === id);
     const retour = (t) => { bloc.querySelector('[data-retour]').textContent = t; };

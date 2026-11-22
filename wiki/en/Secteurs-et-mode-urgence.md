@@ -8,6 +8,7 @@ Two tools to follow field teams (emergency radio, rescue, missing person search)
 1. *Tools › 🗺️ Alert sectors* (or a team's card › *🗺️ Define a sector*).
 2. **⬠ Draw a polygon**: tap the map at each corner (at least 3), then **✔ Finish**; or **◯ Circle**: tap the centre, give the radius in metres.
 3. Attach it to a **team** (all its current members) and/or to **nodes**: `!a1b2c3d4` for Meshtastic, full public key (64 characters) for MeshCore.
+   - The **Team** list offers the **map teams** (one encrypted channel per team), those of *Program › 👥 Teams* — not the teams of an ADRASEC section. A link from the window takes you there. If no team exists yet, the window says so and explains what to do: create a team, or watch nodes one by one under *Other followed nodes*.
 4. Choose the alert: **on leaving** (usual case), **on entering** (area to avoid: cliff, flood, forbidden perimeter) or both.
 5. **Create the sector**. It shows on the map (dashed yellow line, orange when someone is outside).
 

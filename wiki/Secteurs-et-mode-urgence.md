@@ -8,6 +8,7 @@ Deux outils pour suivre des équipes de terrain (ADRASEC, secours, recherche de 
 1. *Outils › 🗺️ Secteurs d'alerte* (ou fiche d'une équipe › *🗺️ Définir un secteur*).
 2. **⬠ Dessiner un polygone** : touchez la carte à chaque sommet (3 au moins), puis **✔ Terminer** ; ou **◯ Cercle** : touchez le centre, donnez le rayon en mètres.
 3. Rattachez-le à une **équipe** (tous ses membres du moment) et/ou à des **nœuds** : `!a1b2c3d4` pour Meshtastic, clé publique complète (64 caractères) pour MeshCore.
+   - La liste **Équipe** propose les **équipes de la carte** (un canal chiffré par équipe), celles de *Programmer › 👥 Équipes* — pas les équipes d'une section ADRASEC. Un lien y mène depuis la fenêtre. Si aucune équipe n'existe encore, la fenêtre le dit et explique quoi faire : créer une équipe, ou surveiller des nœuds un par un dans *Autres nœuds suivis*.
 4. Choisissez l'alerte : **à la sortie** (cas courant), **à l'entrée** (zone à éviter : falaise, crue, périmètre interdit) ou les deux.
 5. **Créer le secteur**. Il se voit sur la carte (trait jaune pointillé, orange quand quelqu'un est dehors).
 

@@ -36,6 +36,29 @@ Si la carte valide les nouveaux comptes (**inscriptions sur validation**), l'adm
 
 > **Winlink** : le client Pat est unique sur la carte (une station, un indicatif). Sa boîte est réservée à **une** ADRASEC (`PAT_ADRASEC`, par défaut celle du département de la carte) : les membres des autres ADRASEC hébergées ne la voient pas. Chaque message est signé de l'indicatif du membre et du nom de son ADRASEC.
 
+## Transférer la section vers une autre carte
+
+Pour installer la même section sur une autre carte (celle d'un collègue, un second serveur) sans tout ressaisir : **Gestion › 🔄 Transférer la section vers une autre carte** (président, responsable ou administrateur de la carte).
+
+1. **Sur la carte de départ** : **⬇ Exporter la section (fichier .json)**. Le fichier contient le **nom de la section**, les **équipes** (nom, couleur, mission) et, pour chaque membre, sa **fiche métier** : indicatif, qualité (radioamateur licencié / SWL), n° SWL, équipe, fonction et nœud porté sur le terrain.
+2. **Sur la carte d'arrivée** : **📥 Importer un fichier…**. Un **récapitulatif** s'affiche avant toute écriture : combien de membres rattachés à un compte existant, combien de fiches en attente, combien d'équipes créées, combien d'entrées ignorées et pourquoi. Rien n'est enregistré tant que vous n'avez pas cliqué **✔ Appliquer l'import**.
+
+**Ce que le fichier ne contient pas** : aucun compte, aucun mot de passe, aucun condensat, aucun jeton de session. Les comptes **ne se transfèrent pas** d'une carte à l'autre : ce serait une faille. La **main courante**, les **recherches** et les **relevés** ne partent pas non plus — ce sont les archives horodatées et signées d'opérations réelles, qui restent sur la carte qui les a enregistrées (bouton **⬇ Exporter la main courante (CSV)** pour les archiver).
+
+**Comment les personnes sont rattachées** : par leur **indicatif**, et par lui seul.
+
+| Cas | Ce qui se passe |
+|---|---|
+| Un seul compte **actif** de la carte d'arrivée porte cet indicatif | Le membre est **rattaché** à ce compte, avec son équipe, sa fonction et son nœud. |
+| Plusieurs comptes portent le même indicatif | **Ignoré** et signalé : à rattacher à la main (la carte ne choisit pas au hasard). |
+| Aucun compte ne porte cet indicatif (ou membre SWL sans indicatif) | Une **fiche en attente** est créée. La personne crée elle-même son compte avec le lien d'invitation `https://votre-carte/adrasec`, demande à rejoindre la section, et **sa fiche se rattache toute seule** quand le président accepte. |
+| Membre déjà présent sur la carte d'arrivée | **Ignoré** : l'import n'écrase jamais une fiche existante. |
+| Membre sans indicatif ni n° SWL | **Ignoré** : rien ne permet de le reconnaître sur l'autre carte. |
+
+Le rôle de **président** n'est **jamais** importé : seul un administrateur de la carte d'arrivée peut le donner (le récapitulatif signale combien de présidents figuraient dans le fichier). Une équipe dont le nom existe déjà est **réutilisée**, pas dupliquée (accents et majuscules ignorés). L'import est **non destructeur** : il n'enlève rien et ne modifie aucun membre déjà là ; le réimporter deux fois ne crée pas de doublon. Export et import sont notés au **journal d'audit** des deux cartes, et l'import est inscrit à la **main courante** de la section d'arrivée.
+
+Les fiches en attente apparaissent dans **Gestion › Fiches en attente d'un compte**, avec un bouton **Rattacher à ce compte** quand un compte au même indicatif existe déjà, et un bouton **Retirer la fiche**.
+
 ## Canaux de l'ADRASEC
 Dans **Gestion › 🎚️ Canaux**, le président (ou un responsable) décrit les canaux Meshtastic que les membres doivent avoir : nom, clé (privée tirée au hasard, publique, ou collée) et partage des positions, 7 au plus. Un membre qui relie sa radio à la carte (**Outils › 📡 Devenir passerelle**) les y écrit en un clic, en choisissant au besoin les canaux à libérer. Les clés restent sur le serveur, chiffrées : personne ne les voit, pas même le président (une empreinte courte permet de les reconnaître). Voir [[Connecter un module|Connecter-un-module]].
 

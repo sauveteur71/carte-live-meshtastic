@@ -577,6 +577,46 @@
       try { await api('/api/adrasec/canaux', { method: 'PUT', body: { canaux } }); chargerCanaux(); } catch (e) { $('#gc-err').textContent = e.message; }
     };
   }
+  // ---- Transfert de la section d'une carte à une autre : export d'un fichier, import avec récapitulatif ----
+  function brancherTransfert(err) {
+    const lien = $('#tr-export'); if (lien) lien.href = avecGroupe('/api/adrasec/export.json');
+    const champ = $('#tr-fichier'), zone = $('#tr-apercu');
+    if (!champ || !zone) return;
+    const ligne = (titre, l, classe = 'note') => (l.length ? `<p class="${classe}"><b>${esc(titre)} (${l.length})</b> : ${l.map((x) => esc(x.quoi) + (x.identifiant ? ' → ' + esc(x.identifiant) : '') + (x.equipe ? ' · ' + esc(x.equipe) : '') + (x.raison ? ' — ' + esc(x.raison) : '')).join(' · ')}</p>` : '');
+    const recap = (r) => `<div class="bandeau">
+      <h3>Import depuis « ${esc(r.section)} »</h3>
+      <p><b>${r.rattaches.length}</b> membre${r.rattaches.length > 1 ? 's' : ''} rattaché${r.rattaches.length > 1 ? 's' : ''} à un compte existant · <b>${r.attentes.length}</b> fiche${r.attentes.length > 1 ? 's' : ''} en attente d’un compte · <b>${r.equipesCreees.length}</b> équipe${r.equipesCreees.length > 1 ? 's' : ''} à créer · <b>${r.dejaMembres.length + r.ambigus.length + r.ignores.length}</b> ignoré${r.dejaMembres.length + r.ambigus.length + r.ignores.length > 1 ? 's' : ''}</p>
+      ${r.equipesCreees.length ? `<p class="note"><b>Équipes créées</b> : ${r.equipesCreees.map(esc).join(', ')}${r.equipesExistantes > 0 ? ` (${r.equipesExistantes} déjà présente${r.equipesExistantes > 1 ? 's' : ''}, réutilisée${r.equipesExistantes > 1 ? 's' : ''})` : ''}</p>` : r.equipesExistantes > 0 ? `<p class="note">Les ${r.equipesExistantes} équipe(s) du fichier existent déjà ici : elles sont réutilisées, pas dupliquées.</p>` : ''}
+      ${ligne('Rattachés à un compte', r.rattaches)}
+      ${ligne('En attente du compte de la personne', r.attentes)}
+      ${ligne('Déjà membres ici', r.dejaMembres)}
+      ${ligne('À rattacher à la main', r.ambigus, 'note attention')}
+      ${ligne('Ignorés', r.ignores, 'note attention')}
+      ${r.presidents ? `<p class="note">${r.presidents} président(s) dans le fichier : le rôle n’est <b>pas</b> repris. Un administrateur de cette carte doit le donner.</p>` : ''}
+      ${r.sansIdentifiant ? `<p class="note">${r.sansIdentifiant} membre(s) de la carte d’origine n’avaient ni indicatif ni n° SWL : rien ne permettait de les reconnaître, ils ne sont pas dans le fichier.</p>` : ''}
+      <p class="note">Rien n’est effacé : les membres déjà présents ici restent en place.</p>
+      <div class="ligne-champs"><button class="principal" id="tr-ok" ${r.rattaches.length + r.attentes.length + r.equipesCreees.length ? '' : 'disabled'}>✔ Appliquer l’import</button><button id="tr-non">Annuler</button><span class="erreur" id="tr-err"></span></div></div>`;
+    champ.onchange = async () => {
+      const f = champ.files && champ.files[0];
+      champ.value = '';
+      zone.innerHTML = '';
+      if (!f) return;
+      if (f.size > 2 * 1024 * 1024) { err('Fichier trop gros (2 Mo au plus) : ce n’est probablement pas un export de section.'); return; }
+      let doc;
+      try { doc = JSON.parse(await f.text()); } catch { err('Fichier illisible : attendu le fichier .json exporté par une autre carte.'); return; }
+      let r;
+      try { r = await api('/api/adrasec/import', { method: 'POST', body: { fichier: doc, appliquer: false } }); } catch (e) { err(e.message); return; }
+      err('');
+      zone.innerHTML = recap(r);
+      zone.scrollIntoView({ block: 'nearest' });
+      $('#tr-non').onclick = () => { zone.innerHTML = ''; };
+      $('#tr-ok').onclick = async () => {
+        $('#tr-ok').disabled = true;
+        try { const fait = await api('/api/adrasec/import', { method: 'POST', body: { fichier: doc, appliquer: true } }); zone.innerHTML = `<div class="bandeau">✔ Import terminé : ${fait.rattaches.length} membre(s) rattaché(s), ${fait.attentes.length} fiche(s) en attente, ${fait.equipesCreees.length} équipe(s) créée(s).</div>`; await charger(); montrer('gestion'); }
+        catch (e) { $('#tr-ok').disabled = false; $('#tr-err').textContent = e.message; }
+      };
+    };
+  }
   function rendreGestion() {
     const v = $('#vue-gestion');
     const membres = E.comptes.filter((c) => c.adrasec || ajoutes.has(c.id));
@@ -598,16 +638,43 @@
         <div class="ligne-champs"><input type="search" id="ge-ajout-filtre" placeholder="🔎 Filtrer les comptes"><label class="case"><input type="checkbox" id="ge-ajout-tout"> Tout cocher</label></div>
         <div class="liste-ajout" id="ge-ajout-liste">${autres.map((c) => `<label class="case${c.autre ? ' indispo' : ''}" data-texte="${esc((c.identifiant + ' ' + (c.indicatif || '')).toLowerCase())}"><input type="checkbox" value="${c.id}" ${c.autre ? 'disabled' : ''}> <b>${esc(c.identifiant)}</b>${c.indicatif ? ` <span class="mono">${esc(c.indicatif)}</span>` : ''}${c.autre ? ` <small>(membre de l’ADRASEC ${esc(c.autre)})</small>` : ''}</label>`).join('')}</div>
         <div class="ligne-champs"><button id="ge-ajouter" class="principal" disabled>Intégrer la sélection</button><span class="note" id="ge-ajout-retour"></span></div>` : '<p class="note">Tous les comptes de la carte sont déjà membres. Les nouveaux membres créent d’abord leur compte avec le lien ci-dessus.</p>'}
+      ${(E.attentes || []).length ? `<h2>Fiches en attente d’un compte <span class="pastille att">${E.attentes.length}</span></h2>
+      <p class="note">Ces fiches viennent d’une autre carte. La personne doit <b>créer son compte elle-même</b> avec le lien ci-dessus, puis demander à rejoindre ${esc(E.nom)} : sa fiche (équipe, fonction, nœud) se rattachera toute seule. Rien ici ne donne d’accès à qui que ce soit.</p>
+      ${E.attentes.map((a) => `<div class="fiche-membre attente" data-attente="${esc(a.id)}"><div class="tete-membre"><b class="mono">${esc(a.indicatif || a.numeroSwl || '?')}</b> <span class="pastille">${esc(QUALITES[a.qualite || ''] || '')}</span>${a.fonction ? ' <small>' + esc(a.fonction) + '</small>' : ''}${a.equipe ? ' <small>équipe ' + esc((E.equipes.find((e) => e.id === a.equipe) || {}).nom || '') + '</small>' : ''}</div>
+        <p class="note">Importée${a.source ? ' de ' + esc(a.source) : ''} le ${new Date(a.heure).toLocaleDateString('fr-FR')}${a.identifiant ? ` · un compte porte cet indicatif : <b>${esc(a.identifiant)}</b>` : a.homonymes > 1 ? ` · ${a.homonymes} comptes portent cet indicatif : à rattacher à la main` : ' · aucun compte ne porte encore cet indicatif'}</p>
+        <div class="ligne-champs">${a.compte ? '<button class="principal at-rattacher">Rattacher à ce compte</button>' : ''}<button class="danger at-retirer">Retirer la fiche</button><span class="note at-retour"></span></div></div>`).join('')}` : ''}
       <h2>🎚️ Canaux de ${esc(E.nom)}</h2>
       <p class="note">Les canaux Meshtastic que vos membres doivent avoir sur leur radio. Un membre qui relie sa radio à la carte depuis son navigateur (carte › Outils › 📡 Devenir passerelle) les y écrit en un clic. Les clés restent sur le serveur, chiffrées : personne ne les voit, pas même ici (une empreinte courte permet de les reconnaître).</p>
       <div id="ge-canaux"><p class="note">Chargement…</p></div>
       <h2>Réglages de ${esc(E.nom)}</h2>
       <div class="ligne-champs"><label>Nom affiché <input id="ge-nom" value="${esc(E.nom)}" placeholder="ADRASEC 43"></label><label>Conservation (jours) <input id="ge-cons" type="number" min="7" max="3650" value="${E.conservationJours}"></label><button id="ge-ok">Enregistrer</button></div>
       <p class="note">Main courante et relevés plus anciens que la durée choisie sont effacés (données personnelles : indicatifs, positions).</p>
+      <h2>🔄 Transférer la section vers une autre carte</h2>
+      <p class="note">Pour installer ${esc(E.nom)} sur une autre carte (celle d’un collègue, un second serveur) : exportez un fichier ici, puis importez-le là-bas. Le fichier contient le <b>nom de la section, les équipes et la fiche de chaque membre</b> (indicatif, qualité, n° SWL, équipe, fonction, nœud porté). Il ne contient <b>aucun compte, aucun mot de passe</b> : sur la carte d’arrivée, chacun crée son compte lui-même avec le lien d’invitation, et sa fiche l’y attend.</p>
+      <p class="note">La <b>main courante</b> et les <b>recherches</b> ne partent pas : ce sont les archives horodatées et signées d’opérations réelles, qui restent sur la carte qui les a enregistrées (bouton « Exporter la main courante » pour les archiver en CSV). Le rôle de <b>président</b> ne part pas non plus : seul un administrateur de la carte d’arrivée peut le donner.</p>
+      <div class="ligne-champs"><a class="bouton" id="tr-export" href="/api/adrasec/export.json" download>⬇ Exporter la section (fichier .json)</a>
+        <label class="bouton">📥 Importer un fichier…<input type="file" id="tr-fichier" accept=".json,application/json" hidden></label></div>
+      <div id="tr-apercu"></div>
       ${E.moi.admin ? `<div class="ligne-champs"><label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="ge-actif" ${E.actif ? 'checked' : ''}> Section ADRASEC activée sur la carte</label></div>${blocGroupes('ADRASEC hébergées sur cette carte')}` : ''}
       <p class="erreur" id="ge-erreur"></p>`;
     const err = (m) => { $('#ge-erreur').textContent = m; if (m) $('#ge-erreur').scrollIntoView({ block: 'nearest' }); };
     chargerCanaux();
+    brancherTransfert(err);
+    // Fiches en attente venues d'une autre carte
+    for (const f of v.querySelectorAll('.fiche-membre[data-attente]')) {
+      const a = (E.attentes || []).find((x) => x.id === f.dataset.attente);
+      const r = $('.at-retour', f);
+      const bR = $('.at-rattacher', f);
+      if (bR) bR.onclick = async () => {
+        bR.disabled = true;
+        try { await api('/api/adrasec/membres/' + a.compte, { method: 'PUT', body: { membre: true, qualite: a.qualite || '', indicatif: a.indicatif || '', numeroSwl: a.numeroSwl || '' } }); await charger(); }
+        catch (e) { bR.disabled = false; r.textContent = e.message; }
+      };
+      $('.at-retirer', f).onclick = async () => {
+        if (!confirm(`Retirer la fiche en attente de ${a.indicatif || a.numeroSwl} ? Elle devra être ressaisie à la main.`)) return;
+        try { await api('/api/adrasec/attentes/' + encodeURIComponent(a.id), { method: 'DELETE' }); await charger(); } catch (e) { r.textContent = e.message; }
+      };
+    }
     $('#ge-copier').onclick = async () => { try { await navigator.clipboard.writeText(lien); $('#ge-copier').textContent = '✔ Copié'; } catch { prompt('Lien à envoyer :', lien); } };
     $('#ge-ok').onclick = async () => { try { await api('/api/adrasec/reglages', { method: 'PUT', body: { nom: $('#ge-nom').value, conservationJours: $('#ge-cons').value } }); await charger(); } catch (e) { err(e.message); } };
     if ($('#ge-actif')) { $('#ge-actif').onchange = async () => { try { await api('/api/adrasec/reglages', { method: 'PUT', body: { actif: $('#ge-actif').checked } }); await charger(); } catch (e) { err(e.message); } }; brancherGroupes(err); }

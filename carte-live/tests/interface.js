@@ -718,6 +718,93 @@ async function essaiAdrasec(navig, cookie) {
   bilanErreurs(o.erreurs, 'fonctions de la carte');
   await c2.close();
 }
+// Transfert d'une section ADRASEC d'une carte à une autre : export d'un fichier, import avec récapitulatif.
+// Le point capital : le fichier exporté ne doit contenir aucun secret ni aucun compte.
+async function essaiAdrasecTransfert(navig, cookie) {
+  console.log('ADRASEC : transfert de la section (export / import)');
+  const H = { 'Content-Type': 'application/json', Cookie: `${cookie.name}=${cookie.value}` };
+  const appel = async (m, url, b, h = H) => { const r = await fetch(BASE + url, { method: m, headers: h, body: b ? JSON.stringify(b) : undefined }); return { statut: r.status, j: await r.json().catch(() => ({})) }; };
+  // 1) Export : en-têtes de téléchargement, et aucun secret dans le fichier
+  const rep = await fetch(BASE + '/api/adrasec/export.json?g=43', { headers: H });
+  const brut = await rep.text();
+  let doc = null;
+  try { doc = JSON.parse(brut); } catch { /* illisible */ }
+  const cles = new Set();
+  if (doc) (function parcourir(x) { if (Array.isArray(x)) x.forEach(parcourir); else if (x && typeof x === 'object') for (const [k, v] of Object.entries(x)) { cles.add(k); parcourir(v); } })(doc);
+  const permis = ['code', 'couleur', 'date', 'equipe', 'equipes', 'fonction', 'format', 'id', 'indicatif', 'membres', 'membresSansIdentifiant', 'mission', 'noeud', 'nom', 'numeroSwl', 'president', 'qualite', 'section', 'version'];
+  const enTrop = [...cles].filter((k) => !permis.includes(k));
+  if (rep.status === 200 && /attachment; filename="adrasec-43-/.test(rep.headers.get('content-disposition') || '')) ok('ADRASEC : la section s’exporte en fichier .json téléchargeable'); else ko('export : HTTP ' + rep.status + ' ' + rep.headers.get('content-disposition'));
+  if (doc && doc.format === 'carte-live-adrasec' && /ADRASEC 43/.test((doc.section || {}).nom || '') && (doc.membres || []).some((m) => m.indicatif === 'F4XYZ')) ok('export : nom de la section, équipes et fiches des membres'); else ko('export : ' + brut.slice(0, 200));
+  if (!enTrop.length) ok('export : aucun champ en dehors de la définition de la section'); else ko('export : champs inattendus : ' + enTrop.join(', '));
+  let fuite = null;
+  for (const interdit of ['hash', 'motdepasse', 'password', 'totp', 'jeton', 'token', 'session', 'cookie', 'psk', 'secret', 'maincourante', 'recherches', 'releves', 'demandes']) if (new RegExp(interdit, 'i').test(brut)) { fuite = 'mot « ' + interdit + ' »'; break; }
+  // Aucun identifiant de compte de cette carte ne doit figurer dans le fichier
+  const tousComptes = await (await fetch(BASE + '/api/comptes', { headers: H })).json().catch(() => []);
+  for (const c of Array.isArray(tousComptes) ? tousComptes : []) if (c.identifiant && brut.includes(c.identifiant)) { fuite = 'identifiant de compte « ' + c.identifiant + ' »'; break; }
+  if (!fuite) ok(`export : ni mot de passe, ni condensat, ni jeton, ni compte (${(tousComptes || []).length} comptes vérifiés), ni main courante, ni recherche`);
+  else ko('export : ' + fuite + ' dans le fichier');
+  // 2) Réservé au président et aux responsables de la section
+  const cx = await fetch(BASE + '/api/connexion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifiant: 'multi-un', motDePasse: 'Multi-compte-2026' }) });
+  const HM = { 'Content-Type': 'application/json', Cookie: (cx.headers.get('set-cookie') || '').split(';')[0] };
+  const expMembre = await fetch(BASE + '/api/adrasec/export.json', { headers: HM });
+  const impMembre = await appel('POST', '/api/adrasec/import', { fichier: { format: 'carte-live-adrasec', version: 1 } }, HM);
+  const expAnonyme = await fetch(BASE + '/api/adrasec/export.json');
+  if (expMembre.status === 403 && impMembre.statut === 403 && expAnonyme.status === 403) ok('export et import réservés au président / responsable (403 pour un membre et pour un anonyme)');
+  else ko('droits du transfert : ' + JSON.stringify({ membre: expMembre.status, import: impMembre.statut, anonyme: expAnonyme.status }));
+  // 3) Import : récapitulatif avant d'appliquer, puis application non destructrice
+  const fichier = { format: 'carte-live-adrasec', version: 1, section: { code: '07', nom: 'ADRASEC 07' },
+    equipes: [{ id: 'e1', nom: 'Gonio 07', couleur: '#4cc9f0', mission: 'Vallée du Rhône' }],
+    membres: [
+      { indicatif: 'F4XYZ', qualite: 'radioamateur', equipe: 'e1' },
+      { indicatif: 'F5ABC', qualite: 'radioamateur', equipe: 'e1', fonction: 'opérateur gonio', president: true },
+      { numeroSwl: 'F-99999', qualite: 'swl' },
+      { indicatif: 'PASBON', qualite: 'radioamateur' },
+    ] };
+  const vue0 = await appel('GET', '/api/adrasec?g=43');
+  const ap = await appel('POST', '/api/adrasec/import?g=43', { fichier, appliquer: false });
+  const vue1 = await appel('GET', '/api/adrasec?g=43');
+  const justeApercu = (vue1.j.attentes || []).length === 0 && vue1.j.equipes.length === vue0.j.equipes.length && vue1.j.membres.length === vue0.j.membres.length;
+  const r = ap.j;
+  if (ap.statut === 200 && r.rattaches.length === 0 && r.attentes.length === 2 && r.dejaMembres.length === 1 && r.ignores.length === 1 && r.equipesCreees.length === 1 && r.presidents === 1 && justeApercu)
+    ok('import : récapitulatif juste (1 déjà membre, 2 en attente, 1 équipe, 1 ignoré, 1 président signalé) et rien écrit avant confirmation');
+  else ko('aperçu d’import : ' + JSON.stringify({ r, justeApercu }).slice(0, 400));
+  const fait = await appel('POST', '/api/adrasec/import?g=43', { fichier, appliquer: true });
+  const vue2 = await appel('GET', '/api/adrasec?g=43');
+  const att = vue2.j.attentes || [];
+  const rien = vue2.j.membres.length === vue0.j.membres.length;
+  const eqNeuve = vue2.j.equipes.some((e) => e.nom === 'Gonio 07');
+  const sansResp = att.every((a) => !a.responsable && !a.president);
+  if (fait.statut === 200 && att.length === 2 && rien && eqNeuve && sansResp)
+    ok('import appliqué : équipe créée, 2 fiches en attente, aucun membre ajouté sans compte, aucun président');
+  else ko('import appliqué : ' + JSON.stringify({ fait: fait.statut, att, rien, eqNeuve }).slice(0, 400));
+  const mc = (vue2.j.mainCourante || []).some((x) => /Import de la section depuis/.test(x.texte));
+  if (mc) ok('import inscrit à la main courante de la section'); else ko('import absent de la main courante');
+  // 4) Retrait d'une fiche en attente, refusé à un simple membre
+  const retraitMembre = await appel('DELETE', '/api/adrasec/attentes/' + att[0].id, null, HM);
+  const retrait = await appel('DELETE', '/api/adrasec/attentes/' + att[0].id);
+  const vue3 = await appel('GET', '/api/adrasec?g=43');
+  if (retraitMembre.statut === 403 && retrait.statut === 200 && (vue3.j.attentes || []).length === 1) ok('fiche en attente retirée par le président, refusée à un simple membre');
+  else ko('retrait d’une fiche en attente : ' + JSON.stringify({ membre: retraitMembre.statut, resp: retrait.statut, reste: (vue3.j.attentes || []).length }));
+  // 5) Journal d'audit des deux côtés
+  const audit = JSON.stringify(await (await fetch(BASE + '/api/audit', { headers: H })).json().catch(() => []));
+  if (/ADRASEC : section exportée/.test(audit) && /ADRASEC : section importée/.test(audit)) ok('journal d’audit : export et import notés'); else ko('journal d’audit du transfert : ' + audit.slice(0, 200));
+  // 6) Interface (téléphone 390 px) : bloc de transfert et fiches en attente
+  const ctx = await navig.newContext({ viewport: { width: 390, height: 844 }, locale: 'fr-FR', isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  await ctx.addCookies([cookie]);
+  await ctx.addInitScript(() => { try { localStorage.setItem('adrasec-onglet', 'gestion'); localStorage.setItem('adrasec-groupe', '43'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(ctx, '/adrasec');
+  await page.waitForTimeout(1500);
+  const u = await page.evaluate(() => { const v = document.querySelector('#vue-gestion'); return { texte: v.textContent.replace(/\s+/g, ' '), bouton: !!v.querySelector('#tr-export'), fichier: !!v.querySelector('#tr-fichier'), attentes: v.querySelectorAll('.fiche-membre.attente').length, deborde: v.scrollWidth > v.clientWidth + 2 }; });
+  if (u.bouton && u.fichier && /Transférer la section vers une autre carte/.test(u.texte) && /aucun compte, aucun mot de passe/.test(u.texte)) ok('page ADRASEC (téléphone) : bloc de transfert, export et import');
+  else ko('bloc de transfert : ' + JSON.stringify({ ...u, texte: u.texte.slice(0, 200) }));
+  if (u.attentes === 1 && /Fiches en attente d’un compte/.test(u.texte)) ok('page ADRASEC : fiche en attente affichée avec ce qu’il faut faire'); else ko('fiches en attente : ' + u.attentes);
+  if (!u.deborde) ok('page ADRASEC (390 px) : pas de débordement horizontal'); else ko('page ADRASEC : débordement en largeur');
+  await page.evaluate(() => { const e = document.querySelector('#tr-export'); if (e) e.scrollIntoView({ block: 'center' }); });
+  await page.waitForTimeout(400);
+  await capture(page, 'adrasec-transfert-telephone');
+  bilanErreurs(erreurs, 'transfert de la section ADRASEC');
+  await ctx.close();
+}
 async function essaiMotDePasseOublie(navig, cookie) {
   console.log('Mot de passe oublié (e-mail, lien de l’administrateur)');
   const H = { 'Content-Type': 'application/json', Cookie: `${cookie.name}=${cookie.value}` };
@@ -1419,6 +1506,144 @@ async function essaiPagesPubliques(navig) {
   }
 }
 
+// Fenêtre « Secteurs d'alerte » : de quelles équipes parle la liste déroulante, et où les créer.
+// Le cas « aucune équipe » est celui où l'utilisateur est perdu : le message doit lui dire quoi faire.
+async function essaiSecteursEquipes(navig, cookie) {
+  console.log('Secteurs d’alerte : lien vers les équipes de la carte');
+  const H = { 'Content-Type': 'application/json', Cookie: `${cookie.name}=${cookie.value}` };
+  const appel = async (m, url, b) => { const r = await fetch(BASE + url, { method: m, headers: H, body: b ? JSON.stringify(b) : undefined }); return { statut: r.status, j: await r.json().catch(() => ({})) }; };
+  const vider = async () => { const l = await appel('GET', '/api/equipes'); for (const e of l.j.equipes || []) await appel('DELETE', '/api/equipes/' + e.id, { retirerDesNoeuds: false }); };
+  const ouvrirSecteurs = async (vue, mobile) => {
+    const ctx = await navig.newContext({ viewport: vue, locale: 'fr-FR', ...(mobile ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) });
+    await ctx.addCookies([cookie]);
+    await ctx.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+    const o = await ouvrir(ctx, '/');
+    await o.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await o.page.evaluate(() => ficheSecteurs());
+    await o.page.waitForTimeout(1200);
+    return { ctx, ...o };
+  };
+  const mesurer = (page) => page.evaluate(() => {
+    const z = document.querySelector('.nouveau-sa');
+    const al = z && z.querySelector('.alerte.attention');
+    const note = z && z.querySelector('small.note');
+    const lien = z && z.querySelector('[data-vers-equipes]');
+    return { alerte: al ? al.textContent.replace(/\s+/g, ' ').trim() : null, note: note ? note.textContent.replace(/\s+/g, ' ').trim() : null,
+      lien: lien ? lien.textContent.trim() : null, couleurAlerte: al ? getComputedStyle(al).color : null,
+      options: [...(z ? z.querySelectorAll('[data-c="equipe"] option') : [])].map((o) => o.textContent),
+      debordeX: document.documentElement.scrollWidth > innerWidth + 1 };
+  });
+
+  // 1) Aucune équipe sur la carte (ordinateur et téléphone 390 px)
+  await vider();
+  for (const [nom, vue, mobile] of [['ordinateur', { width: 1400, height: 900 }, false], ['téléphone 390 px', { width: 390, height: 844 }, true]]) {
+    const { ctx, page, erreurs } = await ouvrirSecteurs(vue, mobile);
+    const m = await mesurer(page);
+    if (m.alerte && /Aucune équipe n’existe encore sur cette carte/.test(m.alerte) && /Programmer › 👥 Équipes/.test(m.alerte) && /Autres nœuds suivis/.test(m.alerte))
+      ok(`${nom} : sans équipe, la fenêtre dit de quelles équipes il s’agit, où en créer une et quoi faire en attendant`);
+    else ko(`${nom} : message « aucune équipe » : ` + JSON.stringify(m).slice(0, 300));
+    if (m.lien === 'Créer une équipe de la carte') ok(`${nom} : lien « Créer une équipe de la carte »`); else ko(`${nom} : lien absent (${m.lien})`);
+    if (m.couleurAlerte && !/rgba?\(0, 0, 0/.test(m.couleurAlerte)) ok(`${nom} : message lisible (${m.couleurAlerte})`); else ko(`${nom} : couleur du message : ${m.couleurAlerte}`);
+    if (!m.debordeX) ok(`${nom} : pas de débordement horizontal`); else ko(`${nom} : la page déborde en largeur`);
+    if (m.options.length === 1 && /aucune/.test(m.options[0])) ok(`${nom} : liste déroulante réduite à « — aucune — »`); else ko(`${nom} : options : ` + JSON.stringify(m.options));
+    await capture(page, 'secteurs-equipes-' + (mobile ? 'telephone' : 'ordinateur'));
+    // Le lien mène bien à l'écran où l'on crée les équipes
+    await page.evaluate(() => document.querySelector('.nouveau-sa [data-vers-equipes]').click());
+    await page.waitForTimeout(1500);
+    const arrive = await page.evaluate(() => ({ equipes: !!document.querySelector('#fiche-contenu .equipes'), titre: (document.querySelector('#fiche-contenu h2') || {}).textContent || '' }));
+    if (arrive.equipes) ok(`${nom} : le lien ouvre l’écran des équipes (${arrive.titre.trim().slice(0, 30)})`); else ko(`${nom} : le lien n’ouvre pas les équipes : ` + JSON.stringify(arrive));
+    await capture(page, 'secteurs-vers-equipes-' + (mobile ? 'telephone' : 'ordinateur'));
+    bilanErreurs(erreurs, `secteurs sans équipe (${nom})`);
+    await ctx.close();
+  }
+
+  // 2) Une équipe existe : la phrase change, le lien reste, l'équipe est proposée
+  const eq = await appel('POST', '/api/equipes', { nom: 'EqLien' });
+  if (eq.statut !== 200) { ko('création de l’équipe d’essai : ' + JSON.stringify(eq.j).slice(0, 120)); return; }
+  const { ctx, page, erreurs } = await ouvrirSecteurs({ width: 1400, height: 900 }, false);
+  const m2 = await mesurer(page);
+  if (m2.note && /Équipes de la carte/.test(m2.note) && /Programmer › 👥 Équipes/.test(m2.note) && !m2.alerte) ok('avec une équipe : la fenêtre rappelle d’où viennent les équipes');
+  else ko('avec une équipe : ' + JSON.stringify(m2).slice(0, 300));
+  if (m2.lien === 'Voir les équipes de la carte') ok('avec une équipe : lien « Voir les équipes de la carte »'); else ko('lien : ' + m2.lien);
+  if (m2.options.some((o) => /EqLien/.test(o))) ok('l’équipe créée est proposée dans la liste'); else ko('options : ' + JSON.stringify(m2.options));
+  bilanErreurs(erreurs, 'secteurs avec une équipe');
+  await ctx.close();
+  await appel('DELETE', '/api/equipes/' + eq.j.id, { retirerDesNoeuds: false });
+}
+
+// Boîte « Identifiant du nœud à écouter » : propositions au fil de la frappe, clavier, champ qui reste libre
+async function essaiSuggestionsNoeuds(navig, cookie) {
+  console.log('Boîte de saisie : propositions de nœuds au fil de la frappe');
+  for (const [nom, vue, mobile] of [['ordinateur', { width: 1400, height: 900 }, false], ['téléphone 390 px', { width: 390, height: 844 }, true]]) {
+    const ctx = await navig.newContext({ viewport: vue, locale: 'fr-FR', ...(mobile ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) });
+    await ctx.addCookies([cookie]);
+    await ctx.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+    const { page, erreurs } = await ouvrir(ctx, '/');
+    await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    // Beaucoup de nœuds : on vérifie que la liste reste courte et que la frappe reste réactive
+    await page.evaluate(() => {
+      etat.noeuds.set(0x5a1e0043, { num: 0x5a1e0043, id: '!5a1e0043', nomCourt: 'MZN4', nomLong: 'Mézenc 43 relais' });
+      etat.noeuds.set(0x5a1e0044, { num: 0x5a1e0044, id: '!5a1e0044', nomCourt: 'PUY1', nomLong: 'Le Puy-en-Velay 43' });
+      for (let i = 0; i < 3000; i++) { const n = 0x60000000 + i; etat.noeuds.set(n, { num: n, id: '!' + n.toString(16), nomCourt: 'R' + i, nomLong: 'Remplissage ' + i }); }
+      window.__portee = testPortee();
+    });
+    await page.waitForSelector('#dlg-saisir[open] #saisir-champ', { timeout: 5000 });
+    // Accents et casse ignorés : « mezenc » trouve « Mézenc 43 relais »
+    const t0 = Date.now();
+    await page.locator('#saisir-champ').fill('mezenc');
+    await page.waitForFunction(() => { const p = document.querySelector('#saisir-props'); return p && !p.hidden && p.children.length; }, null, { timeout: 4000 }).catch(() => {});
+    const delai = Date.now() - t0;
+    const l1 = await page.evaluate(() => ({
+      nb: document.querySelectorAll('#saisir-props button').length,
+      premier: (document.querySelector('#saisir-props button b') || {}).textContent || '',
+      detail: (document.querySelector('#saisir-props button small') || {}).textContent || '',
+      role: (document.querySelector('#saisir-props') || {}).getAttribute('role'),
+      combo: document.querySelector('#saisir-champ').getAttribute('role'),
+      deploye: document.querySelector('#saisir-champ').getAttribute('aria-expanded'),
+      debordeX: document.querySelector('#dlg-saisir').scrollWidth > innerWidth + 1,
+    }));
+    if (l1.nb >= 1 && /Mézenc 43 relais/.test(l1.premier)) ok(`${nom} : « mezenc » propose « ${l1.premier} » (accents et casse ignorés)`); else ko(`${nom} : propositions : ` + JSON.stringify(l1));
+    if (/!5a1e0043/.test(l1.detail)) ok(`${nom} : l’identifiant est montré sous le nom`); else ko(`${nom} : détail : ${l1.detail}`);
+    if (l1.role === 'listbox' && l1.combo === 'combobox' && l1.deploye === 'true') ok(`${nom} : liste annoncée aux lecteurs d’écran (combobox / listbox)`); else ko(`${nom} : accessibilité : ` + JSON.stringify(l1));
+    if (!l1.debordeX) ok(`${nom} : la boîte ne déborde pas en largeur`); else ko(`${nom} : la boîte déborde en largeur`);
+    // Plafond des propositions avec 3 000 nœuds, et réactivité
+    await page.locator('#saisir-champ').fill('r1');
+    await page.waitForTimeout(400);
+    const nb2 = await page.evaluate(() => document.querySelectorAll('#saisir-props button').length);
+    if (nb2 > 0 && nb2 <= 8) ok(`${nom} : au plus 8 propositions avec 3 000 nœuds (${nb2})`); else ko(`${nom} : ${nb2} propositions`);
+    if (delai < 3000) ok(`${nom} : propositions affichées en ${delai} ms`); else ko(`${nom} : propositions trop lentes (${delai} ms)`);
+    // Clavier : ↓ vise la première, Entrée la prend et remplit le champ
+    await page.locator('#saisir-champ').fill('puy');
+    await page.waitForTimeout(400);
+    await page.keyboard.press('ArrowDown');
+    const vise1 = await page.evaluate(() => { const b = document.querySelector('#saisir-props button'); return { classe: b && b.classList.contains('vise'), choisi: b && b.getAttribute('aria-selected'), actif: document.querySelector('#saisir-champ').getAttribute('aria-activedescendant') }; });
+    await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+    const apres = await page.evaluate(() => ({ valeur: document.querySelector('#saisir-champ').value, cachee: document.querySelector('#saisir-props').hidden, ouverte: !!document.querySelector('#dlg-saisir[open]') }));
+    if (vise1.classe && vise1.choisi === 'true' && vise1.actif === 'saisir-prop-0') ok(`${nom} : ↓ vise la première proposition (annoncée)`); else ko(`${nom} : ↓ : ` + JSON.stringify(vise1));
+    if (apres.valeur === '!5a1e0044' && apres.cachee && apres.ouverte) ok(`${nom} : Entrée prend la proposition et remplit le champ sans valider la boîte`); else ko(`${nom} : après Entrée : ` + JSON.stringify(apres));
+    // Échap referme d'abord la liste, puis la boîte
+    await page.locator('#saisir-champ').fill('mezenc');
+    await page.waitForTimeout(400);
+    await capture(page, 'suggestions-noeuds-' + (mobile ? 'telephone' : 'ordinateur'));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    const ech1 = await page.evaluate(() => ({ cachee: document.querySelector('#saisir-props').hidden, ouverte: !!document.querySelector('#dlg-saisir[open]') }));
+    if (ech1.cachee && ech1.ouverte) ok(`${nom} : Échap referme la liste sans fermer la boîte`); else ko(`${nom} : premier Échap : ` + JSON.stringify(ech1));
+    // Champ libre : un identifiant inconnu de la carte est accepté tel quel
+    await page.locator('#saisir-champ').fill('!deadbeef');
+    await page.waitForTimeout(400);
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(1200);
+    const libre = await page.evaluate(() => ({ num: typeof portee !== 'undefined' ? portee.num : null, ouverte: !!document.querySelector('#dlg-saisir[open]') }));
+    if (libre.num === 0xdeadbeef && !libre.ouverte) ok(`${nom} : un identifiant inconnu de la carte reste acceptable (écoute lancée)`); else ko(`${nom} : champ libre : ` + JSON.stringify(libre));
+    await page.evaluate(() => { try { arreterPortee(); } catch { /* */ } });
+    bilanErreurs(erreurs, `propositions de nœuds (${nom})`);
+    await ctx.close();
+  }
+}
+
 (async () => {
   let code = 0;
   try {
@@ -1441,6 +1666,7 @@ async function essaiPagesPubliques(navig) {
     await essaiVue3D(navigateur);
     await essaiProfil3D(navigateur);
     await essaiAdrasec(navigateur, cookie);
+    await essaiAdrasecTransfert(navigateur, cookie);
     await essaiMotDePasseOublie(navigateur, cookie);
     await essaiFrequentation(navigateur, cookie);
     await essaiPasserelleMembre(navigateur, cookie);
@@ -1451,6 +1677,8 @@ async function essaiPagesPubliques(navig) {
     await essaiTelephone(navigateur);
     await essaiRechercheMessages(navigateur, cookie);
     await essaiUrgenceEtSecteurs(navigateur, cookie);
+    await essaiSecteursEquipes(navigateur, cookie);
+    await essaiSuggestionsNoeuds(navigateur, cookie);
     await essaiBandeauMonde(navigateur, cookie);
     await essaiDonateurs(navigateur, cookie);
     await essaiPartager(navigateur, cookie);
