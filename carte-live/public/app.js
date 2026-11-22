@@ -4033,7 +4033,7 @@ function fichePartager() {
   const base = location.origin;
   const iframe = `<iframe src="${base}/publique" width="100%" height="520" style="border:0;border-radius:8px" title="Carte du réseau" loading="lazy"></iframe>`;
   const ha = `rest:\n  - resource: ${base}/api/export/resume.json\n    scan_interval: 120\n    sensor:\n      - name: "Gaulix nœuds actifs"\n        value_template: "{{ value_json.noeudsActifs }}"\n      - name: "Gaulix couverture"\n        unit_of_measurement: "%"\n        value_template: "{{ value_json.couverturePct }}"\n      - name: "Gaulix alertes critiques"\n        value_template: "{{ value_json.alertesCritiques }}"`;
-  const lien = (url, lib, desc) => `<div class="ligne"><span class="titre"><a href="${url}" target="_blank" rel="noopener">${lib}</a><small>${desc}</small></span><span class="meta"><button class="mini" data-copier="${esc(url)}">Copier</button></span></div>`;
+  const lien = (url, lib, desc) => `<div class="ligne sans-pastille"><span class="titre"><a href="${url}" target="_blank" rel="noopener">${lib}</a><small>${desc}</small></span><span class="meta"><button class="mini" data-copier="${esc(url)}">Copier</button></span></div>`;
   $('#fiche').hidden = false;
   etat.selection = null;
   $('#fiche-contenu').innerHTML = `<h2>Carte publique et exports</h2>
@@ -4079,14 +4079,16 @@ async function rendreDonateursAdmin() {
   if (!z) return;
   let r;
   try { r = await api('/api/donateurs/reglages'); } catch (e) { z.innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
-  const h = r.helloasso, g = r.githubSponsors;
+  // Les réglages sont rangés sous r.reglages (voir donateurs.etat()) : les lire à plat laissait la page sur « Chargement… »
+  const g2 = r.reglages || {}, h = g2.helloasso || {}, g = g2.githubSponsors || {};
+  const erreurs = r.erreurs || {};
   const erreur = (s, msg) => (msg ? `<p class="erreur">⚠ ${esc(s)} : ${esc(msg)}</p>` : '');
   // Secret : champ vide = inchangé ; « Effacer » retire ce qui a été saisi ici (le .env reprend la main, s'il en a un)
   const secret = (id, libelle, defini, saisi, type = 'password') => `<label>${libelle} <span class="champ-secret"><input id="${id}" type="${type}" placeholder="${defini ? '•••••• (inchangé)' : ''}" autocomplete="${type === 'password' ? 'new-password' : 'off'}">${saisi ? `<button type="button" class="mini" data-effacer="${id}" title="Effacer le secret saisi dans cette page (le fichier .env reprend la main)">Effacer</button>` : ''}</span></label>`;
-  const types = (r.types || ['Donation']).map((t) => `<option value="${esc(t)}" ${t === h.type ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  const types = (g2.types || ['Donation']).map((t) => `<option value="${esc(t)}" ${t === h.type ? 'selected' : ''}>${esc(t)}</option>`).join('');
   const plein = (r.manuel || []).length >= (r.maxManuel || 200);
   z.innerHTML = `<div class="parametres compact">
-      <label class="case ligne-entiere"><input type="checkbox" id="don-montant" ${r.montantVisible ? 'checked' : ''}> Montant des dons affiché (décoché : seul le nom et le pays apparaissent)</label>
+      <label class="case ligne-entiere"><input type="checkbox" id="don-montant" ${g2.montantVisible ? 'checked' : ''}> Montant des dons affiché (décoché : seul le nom et le pays apparaissent)</label>
     </div>
     <h4>HelloAsso (dons à l’association)</h4>
     <div class="parametres compact">
@@ -4097,9 +4099,9 @@ async function rendreDonateursAdmin() {
       ${secret('don-ha-id', 'Identifiant client (API)', h.clientIdDefini, h.clientIdSaisi, 'text')}
       ${secret('don-ha-secret', 'Clé secrète (API)', h.clientSecretDefini, h.clientSecretSaisi)}
     </div>
-    ${erreur('HelloAsso', r.erreurs.helloasso)}
+    ${erreur('HelloAsso', erreurs.helloasso)}
     <p class="note">HelloAsso ne dit pas si un donateur a accepté d’être montré publiquement : ajoutez chaque don à la main, après son accord. Le nom est toujours abrégé sur la carte (au plus la moitié des caractères : « 42BARBE » devient « 42B*** »).</p>
-    <div id="don-ha-liste">${(r.manuel || []).map((m) => `<div class="ligne"><span class="titre">${esc(m.nom)}${m.pays ? ' · ' + esc(m.pays) : ''}${m.montant != null ? ' · ' + esc(String(m.montant)) + ' €' : ''}<small>ajouté ${ilYa(new Date(m.date).getTime())}</small></span><span class="meta"><button class="mini" data-don-retirer="${esc(m.id)}">✕</button></span></div>`).join('') || '<div class="vide">Aucun don saisi.</div>'}</div>
+    <div id="don-ha-liste">${(r.manuel || []).map((m) => `<div class="ligne sans-pastille"><span class="titre">${esc(m.nom)}${m.pays ? ' · ' + esc(m.pays) : ''}${m.montant != null ? ' · ' + esc(String(m.montant)) + ' €' : ''}<small>ajouté ${ilYa(new Date(m.date).getTime())}</small></span><span class="meta"><button class="mini" data-don-retirer="${esc(m.id)}">✕</button></span></div>`).join('') || '<div class="vide">Aucun don saisi.</div>'}</div>
     ${plein ? `<p class="erreur">Liste pleine (${r.maxManuel || 200} dons) : retirez d’anciennes entrées avant d’en ajouter.</p>` : ''}
     <form id="f-don-manuel" class="parametres compact">
       <label>Nom ou pseudonyme affiché <input name="nom" maxlength="60" required placeholder="ex. 42BARBE"></label>
@@ -4114,7 +4116,7 @@ async function rendreDonateursAdmin() {
       <label>Compte GitHub <input id="don-gh-compte" value="${esc(g.compte || '')}" placeholder="mon-compte"></label>
       ${secret('don-gh-jeton', 'Jeton d’accès (lecture seule)', g.jetonDefini, g.jetonSaisi)}
     </div>
-    ${erreur('GitHub Sponsors', r.erreurs.githubSponsors)}
+    ${erreur('GitHub Sponsors', erreurs.githubSponsors)}
     <p class="note">Ces versements vont sur le compte GitHub personnel du titulaire (revenus à déclarer), affichés ici à côté des dons HelloAsso.</p>
     <div class="actions-prop"><button type="button" class="mini principal" id="don-reglages-ok">Enregistrer</button></div>
     <p class="note">Dernière vérification : ${r.maj ? ilYa(r.maj) : 'jamais'}.</p>

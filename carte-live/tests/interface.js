@@ -1301,6 +1301,28 @@ async function essaiBandeauMonde(navig, cookie) {
 
 // Mur des donateurs : un don saisi par l'administrateur → bandeau visible sur la carte et sur la page publique,
 // sans recouvrir la barre du haut, la recherche, le panneau, la légende ni les boutons ; croix = fermé ; caché en urgence
+async function essaiPartager(navig, cookie) {
+  console.log('Panneau « Carte publique et exports » (téléphone, administrateur)');
+  const contexte = await navig.newContext({ viewport: { width: 390, height: 844 }, locale: 'fr-FR', isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  await contexte.addCookies([cookie]);
+  await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
+  const { page, erreurs } = await ouvrir(contexte, '/');
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  await page.evaluate(() => fichePartager());
+  await page.waitForFunction(() => !/Chargement…/.test(document.querySelector('#donateurs-reglages') ? document.querySelector('#donateurs-reglages').textContent : ''), null, { timeout: 8000 }).catch(() => {});
+  const m = await page.evaluate(() => {
+    const liens = [...document.querySelectorAll('#fiche-contenu .ligne.sans-pastille .titre a')].map((a) => ({ texte: a.textContent.trim(), largeur: Math.round(a.getBoundingClientRect().width), tronque: a.scrollWidth > a.clientWidth + 1 }));
+    const z = document.querySelector('#donateurs-reglages');
+    return { liens, donateurs: z ? z.textContent.slice(0, 60) : null };
+  });
+  const coupes = m.liens.filter((l) => l.tronque || l.largeur < 60);
+  if (m.liens.length >= 7 && !coupes.length) ok('liens d’export : libellés entiers (' + m.liens.length + ' lignes, pas de texte coupé)'); else ko('liens d’export coupés : ' + JSON.stringify(coupes.length ? coupes : m.liens));
+  if (m.donateurs && !/^\s*Chargement/.test(m.donateurs)) ok('mur des donateurs : réglages chargés'); else ko('mur des donateurs : toujours « Chargement… » : ' + m.donateurs);
+  await capture(page, 'partager-telephone');
+  if (erreurs.length) ko('panneau Partager : ' + erreurs.join(' | ')); else ok('panneau Partager : aucune erreur JavaScript');
+  await contexte.close();
+}
+
 async function essaiDonateurs(navig, cookie) {
   console.log('Mur des donateurs');
   const entetes = { 'Content-Type': 'application/json', Cookie: `${cookie.name}=${cookie.value}` };
@@ -1431,6 +1453,7 @@ async function essaiPagesPubliques(navig) {
     await essaiUrgenceEtSecteurs(navigateur, cookie);
     await essaiBandeauMonde(navigateur, cookie);
     await essaiDonateurs(navigateur, cookie);
+    await essaiPartager(navigateur, cookie);
     await essaiPagesPubliques(navigateur);
     code = echecs ? 1 : 0;
     console.log(echecs ? `\n${echecs} problème(s) : captures et journal dans tests/resultats/` : '\nTout est bon ✓');

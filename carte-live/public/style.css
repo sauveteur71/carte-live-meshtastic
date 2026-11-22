@@ -92,6 +92,11 @@ button, input, select { font: inherit; color: inherit; }
 .ligne .titre small { color: var(--tres-doux); margin-left: 4px; }
 .ligne .meta { color: var(--doux); font-size: 12px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ligne .sous-ligne { grid-column: 2 / 4; display: flex; gap: 10px; color: var(--tres-doux); font-size: 12px; }
+/* Ligne sans pastille au début (liens d'export, dons saisis) : le titre prend toute la largeur et passe à la ligne au lieu d'être coupé dans la colonne de 12 px */
+.ligne.sans-pastille { grid-template-columns: 1fr auto; cursor: default; }
+.ligne.sans-pastille:hover { background: none; }
+.ligne.sans-pastille .titre { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.ligne.sans-pastille .titre small { display: block; margin-left: 0; }
 .point { width: 9px; height: 9px; border-radius: 50%; background: var(--tres-doux); }
 .point.actif { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
 .point.recent { background: #8fa3b8; }
