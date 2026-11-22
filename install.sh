@@ -23,6 +23,14 @@ demander() { if [ -r /dev/tty ]; then printf '%s ' "$1" > /dev/tty; read -r rep 
 [ "$(id -u)" = 0 ] || erreur "Lancez le script en administrateur : … | sudo sh"
 command -v curl > /dev/null 2>&1 || erreur "curl est nécessaire (apt install curl)"
 
+# 0. Processeur et système 64 bits : l'image n'existe qu'en amd64 et arm64. Sur un Raspberry Pi, le noyau peut être
+#    64 bits (uname -m = aarch64) avec un système 32 bits (armhf) : c'est l'architecture des paquets qui compte.
+arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
+case "$arch" in
+  amd64|x86_64|arm64|aarch64) ;;
+  *) erreur "Système $arch non pris en charge : la carte demande un Linux 64 bits (x86-64 ou ARM64). Sur Raspberry Pi 4 ou 5, installez Raspberry Pi OS 64 bits (Raspberry Pi Imager). Voir https://github.com/sauveteur71/carte-live-meshtastic/wiki/Installation" ;;
+esac
+
 # 1. Docker
 if ! command -v docker > /dev/null 2>&1; then
   info "Docker n'est pas installé."

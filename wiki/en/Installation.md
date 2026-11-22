@@ -11,7 +11,7 @@ You need a machine that is always on, with **Docker**: Synology NAS (Container M
 | Disk | 8 GB free | SSD, 20 GB (terrain and coverage cache, history) |
 | System | 64-bit Linux with Docker (Raspberry Pi OS **64-bit**, Debian, Ubuntu, DSM 7…) | |
 
-- **Raspberry Pi**: **Pi 4 or Pi 5 with 2 GB or more**, running Raspberry Pi OS **64-bit** (`uname -m` must answer `aarch64`). Prefer a USB 3 SSD to the SD card, which wears out quickly with the database. An official power supply avoids brownouts when a LoRa node is plugged in over USB. Pi 3, Pi Zero 2 or 32-bit Pi: **not supported** (1 GB of memory, no 32-bit image).
+- **Raspberry Pi**: **Pi 4 or Pi 5 with 2 GB or more**, running Raspberry Pi OS **64-bit** (`dpkg --print-architecture` must answer `arm64`; `uname -m` is not enough: it answers `aarch64` even with a 32-bit system). The install script refuses a 32-bit system. Prefer a USB 3 SSD to the SD card, which wears out quickly with the database. An official power supply avoids brownouts when a LoRa node is plugged in over USB. Pi 3, Pi Zero 2 or 32-bit Pi: **not supported** (1 GB of memory, no 32-bit image).
 - **Synology NAS**: Intel/AMD or ARM64 model ("+" series recommended), DSM 7.2 with Container Manager, 2 GB of memory.
 - The map is capped at 512 MB of memory; the update service, the Meshtastic client and the flasher take 64 MB each; the optional PostgreSQL archive 256 MB.
 - Terrain and coverage calculations are the heaviest: they still run on a Pi 4, just more slowly.

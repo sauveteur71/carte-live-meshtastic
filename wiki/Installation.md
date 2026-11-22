@@ -11,7 +11,7 @@ Il faut une machine allumée en permanence avec **Docker** : NAS Synology (Conta
 | Disque | 8 Go libres | SSD, 20 Go (relief et couverture en cache, historique) |
 | Système | Linux 64 bits avec Docker (Raspberry Pi OS **64 bits**, Debian, Ubuntu, DSM 7…) | |
 
-- **Raspberry Pi** : **Pi 4 ou Pi 5 avec 2 Go ou plus**, sous Raspberry Pi OS **64 bits** (`uname -m` doit répondre `aarch64`). Préférez un SSD en USB 3 à la carte SD, qui s'use vite avec la base de données. Une alimentation officielle évite les coupures quand un module LoRa est branché en USB. Pi 3, Pi Zero 2 ou Pi en 32 bits : **non pris en charge** (1 Go de mémoire, pas d'image 32 bits).
+- **Raspberry Pi** : **Pi 4 ou Pi 5 avec 2 Go ou plus**, sous Raspberry Pi OS **64 bits** (`dpkg --print-architecture` doit répondre `arm64` ; `uname -m` ne suffit pas : il répond `aarch64` même avec un système 32 bits). Le script d'installation refuse un système 32 bits. Préférez un SSD en USB 3 à la carte SD, qui s'use vite avec la base de données. Une alimentation officielle évite les coupures quand un module LoRa est branché en USB. Pi 3, Pi Zero 2 ou Pi en 32 bits : **non pris en charge** (1 Go de mémoire, pas d'image 32 bits).
 - **NAS Synology** : modèle à processeur Intel/AMD ou ARM64 (série « + » conseillée), DSM 7.2 avec Container Manager, 2 Go de mémoire.
 - La carte se limite à 512 Mo de mémoire ; le service de mise à jour, le client et le flasheur Meshtastic prennent 64 Mo chacun ; l'archive PostgreSQL (facultative) 256 Mo.
 - Les calculs de relief et de couverture sont les plus gourmands : ils tournent quand même sur un Pi 4, juste plus lentement.

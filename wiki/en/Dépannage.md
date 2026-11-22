@@ -1,5 +1,8 @@
 # Troubleshooting
 
+### `no matching manifest for linux/arm/v7`, `exec format error` or “Unsupported system armhf”
+The machine runs a **32-bit** system. The map only exists in **64-bit** (x86-64 or ARM64). On a Raspberry Pi, `uname -m` can answer `aarch64` while the system is 32-bit: check `dpkg --print-architecture` instead, it must answer `arm64` (or `amd64` on a PC). If it says `armhf`, reinstall **Raspberry Pi OS 64-bit** with Raspberry Pi Imager (Pi 4 or 5; a Pi 3 or Zero 2 does not have enough memory). The install script checks this before starting. The Gaulix agent has a 32-bit build (`agent-gaulix-raspberrypi-armv7`): an old Pi can link a radio module to the map, but not run the map.
+
 ### `getaddrinfo ENOTFOUND` in the log
 The broker address is misspelled (for example `mqttexample.org` instead of `mqtt.example.org`). Fix `MQTT_URL` (or *Manage › Settings*), then `docker compose up -d`.
 

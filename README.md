@@ -116,6 +116,8 @@ Né pour le réseau **Gaulix** en Haute-Loire (43), le programme s'installe pour
 
 Il faut une machine allumée en permanence avec Docker : NAS Synology (Container Manager), Unraid, Raspberry Pi 4/5, serveur Linux…
 
+> **64 bits obligatoire** : processeur x86-64 ou ARM64 **et** système 64 bits. Sur Raspberry Pi, installez **Raspberry Pi OS 64 bits** (`dpkg --print-architecture` doit répondre `arm64`) ; un système 32 bits (`armhf`) ne peut pas faire tourner la carte, même sur un Pi 4 ou 5. Seul l’agent Gaulix (qui relie un module radio à la carte) existe aussi en 32 bits. Détails : [wiki › Installation](https://github.com/sauveteur71/carte-live-meshtastic/wiki/Installation).
+
 ```bash
 git clone https://github.com/sauveteur71/carte-live-meshtastic.git
 cd carte-live-meshtastic
@@ -265,7 +267,7 @@ Les contributions sont bienvenues : ouvrez une *issue* pour proposer une idée o
 
 **Carte live Meshtastic** is a self-hosted live map, monitoring and **remote administration** tool for a local Meshtastic mesh (interface and built-in help in **French and English**, chosen automatically from the browser language or in *Settings › Display › Language*). It listens to your MQTT broker and/or a radio module (Wi-Fi, or USB through a small Go *agent*), stores history in SQLite, shows nodes, measured RF links, telemetry, alerts and packet details, estimates coverage from the French IGN terrain model, ranks the best hilltop sites (with road / 4×4 / footpath access from OpenStreetMap), and lets you read and edit node settings over LoRa (PKI admin, firmware ≥ 2.5), check that all your nodes share the same configuration, and generate channel QR codes. It also maps **MeshCore** networks (alone or overlaid on Meshtastic): repeaters, room servers, companions, links deduced from packet paths, a live packet analyzer, a companion radio used as observer (Wi-Fi, USB or Bluetooth), and meshcoretomqtt-compatible MQTT ingest and republishing.
 
-Quick start: `cp .env.exemple .env && docker compose up -d`, then open `http://SERVER_IP:8095` and follow the setup wizard. Multi-arch images (amd64/arm64) are published on GitHub Container Registry. Licensed under GPL-3.0.
+Quick start: `cp .env.exemple .env && docker compose up -d`, then open `http://SERVER_IP:8095` and follow the setup wizard. Multi-arch images (amd64/arm64) are published on GitHub Container Registry: **a 64-bit system is required** (32-bit Raspberry Pi OS / armhf is not supported). Licensed under GPL-3.0.
 
 ---
 Créé par **F4GLD**. Pour soutenir le projet : [don au Radio-club du Velay](https://www.helloasso.com/associations/radioclub-du-velay/formulaires/2).

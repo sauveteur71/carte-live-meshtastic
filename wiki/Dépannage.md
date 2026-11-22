@@ -1,5 +1,8 @@
 # Dépannage
 
+### `no matching manifest for linux/arm/v7`, `exec format error` ou « Système armhf non pris en charge »
+La machine tourne sous un système **32 bits**. La carte n'existe qu'en **64 bits** (x86-64 ou ARM64). Sur un Raspberry Pi, `uname -m` peut répondre `aarch64` alors que le système est en 32 bits : vérifiez plutôt `dpkg --print-architecture`, qui doit répondre `arm64` (ou `amd64` sur PC). Si c'est `armhf`, réinstallez **Raspberry Pi OS 64 bits** avec Raspberry Pi Imager (Pi 4 ou 5 ; un Pi 3 ou Zero 2 n'a pas assez de mémoire). Le script d'installation fait cette vérification avant de commencer. L'agent Gaulix, lui, a une version 32 bits (`agent-gaulix-raspberrypi-armv7`) : un vieux Pi peut relier un module radio à la carte, mais pas faire tourner la carte.
+
 ### `getaddrinfo ENOTFOUND` dans le journal
 L'adresse du broker est mal écrite (par exemple `mqttgaulix.fr` au lieu de `mqtt.gaulix.fr`). Corrigez `MQTT_URL` (ou *Gestion › Réglages*), puis `docker compose up -d`.
 

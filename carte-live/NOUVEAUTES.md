@@ -4,6 +4,9 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## 2.30.1
 
+### 🖥️ Système 64 bits : vérifié à l'installation
+- Le script d'installation refuse maintenant, avec un message clair, un système **32 bits** (par exemple Raspberry Pi OS 32 bits, `armhf`), au lieu de laisser Docker échouer sur `no matching manifest`. La carte demande un Linux 64 bits (x86-64 ou ARM64). Le README, la page Installation et le Dépannage le disent en toutes lettres, avec la bonne vérification (`dpkg --print-architecture`).
+
 ### 💜 Mur des donateurs : noms HelloAsso affichés tels que saisis
 - Les dons HelloAsso, ajoutés à la main par l'administrateur, s'affichent maintenant **avec le nom exactement tel qu'il a été saisi** : plus d'abréviation automatique (« 42BARBE » ne devient plus « 42B*** »). À l'administrateur de l'abréger lui-même s'il le souhaite. Les parrains GitHub Sponsors, lus automatiquement, restent abrégés.
 
