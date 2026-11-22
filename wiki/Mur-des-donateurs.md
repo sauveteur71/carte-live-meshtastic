@@ -3,7 +3,7 @@
 Un bandeau discret sur la carte (et sur la carte publique) remercie ceux qui ont soutenu le projet : « 42B*** 🇫🇷 a donné pour soutenir le projet ». Il se ferme d'une croix (mémorisé dans le navigateur) et disparaît de lui-même en mode urgence. Tout est désactivé par défaut.
 
 ## Deux sources, chacune activable séparément
-Réglages › **Mur des donateurs** (administrateur) :
+*Outils › 📤 Carte publique et exports*, rubrique **Mur des donateurs** en bas de la fiche (visible seulement par un administrateur) :
 
 - **HelloAsso** (dons à une association). HelloAsso ne dit pas si un donateur a accepté d'être montré publiquement : le mur n'affiche **jamais** un paiement automatiquement. Chaque don est **saisi à la main**, avec la case « le donateur a accepté » obligatoire. 200 dons au plus ; au-delà, l'ajout est refusé (retirez d'anciennes entrées). Les identifiants API (facultatifs) servent seulement à vérifier l'accès depuis la page : la carte lit la **liste des formulaires** de l'association, jamais un paiement nominatif.
 - **GitHub Sponsors** : seuls les parrainages que GitHub marque **publics** sont lus (les privés ne sont jamais demandés), 500 au plus. Ces versements vont sur le compte GitHub personnel du titulaire (revenus à déclarer).
