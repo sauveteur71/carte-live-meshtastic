@@ -59,6 +59,96 @@ function annonceAnnulable(texte, annuler) {
 // Les messages d'erreur ou d'information passent par les annonces en bas de l'écran
 window.alert = (t) => { try { annonce(String(t), /^\d+ |✔|envoy|enregistr|copi/i.test(String(t)) ? 'ok' : 'erreur'); } catch { console.warn(t); } };
 
+// ---- Fenêtres : élargir d'un clic, et fermer en cliquant à côté ----------------------------------------------
+// Toutes les fenêtres de la carte (<dialog>) qui ont une croix de fermeture reçoivent le même traitement :
+//   · un bouton ⤢ qui les élargit (choix gardé pour la prochaine visite, un seul réglage pour toutes) ;
+//   · un clic en dehors de la fenêtre la ferme, comme la croix ou la touche Échap.
+// Exclues : les confirmations (.dlg-confirmer, qui gèrent déjà le clic à côté) et la fenêtre d'installation
+// (pas de croix : elle doit être remplie).
+const CLE_FENETRES_LARGES = 'gaulix_fenetres_larges';
+let fenetresLarges = lireLs(CLE_FENETRES_LARGES, false) === true;
+// Champs de saisie libre : une fenêtre où l'on a commencé à taper ne se ferme pas sur un clic maladroit.
+// Les cases à cocher et les listes ne comptent pas : dans cette carte, elles s'enregistrent au changement.
+const CHAMPS_SAISIE = 'textarea,input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]):not([type=file]):not([type=hidden]):not([type=range]):not([type=color])';
+// Référence : ce que contenaient les champs à l'ouverture de la fenêtre (plusieurs fenêtres gardent les
+// valeurs d'une fois sur l'autre : se fier à la valeur d'origine du HTML les déclarerait « en saisie » pour
+// toujours). Refaite quand la fenêtre réécrit son contenu.
+function noterSaisie(d) { for (const c of d.querySelectorAll(CHAMPS_SAISIE)) c.valeurOuverture = c.value; }
+function saisieEnCours(d) {
+  if (d.dataset.fermerDehors === 'toujours') return false; // fenêtre de recherche : rien à perdre
+  for (const c of d.querySelectorAll(CHAMPS_SAISIE)) {
+    if (c.disabled || c.readOnly) continue;
+    const ref = c.valeurOuverture === undefined ? (c.defaultValue || '') : c.valeurOuverture;
+    if ((c.value || '') !== ref) return true;
+  }
+  return false;
+}
+// Vrai si le point du clic tombe hors du cadre de la fenêtre (donc sur le fond assombri, qui remonte les
+// clics comme s'ils venaient de l'élément <dialog> lui-même : la position est le seul moyen de les distinguer).
+function clicHorsFenetre(d, e) {
+  const r = d.getBoundingClientRect();
+  if (!r.width || !r.height) return false;
+  return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+}
+function fermerFenetre(d) {
+  const croix = d.querySelector(':scope > .fermer, :scope > [data-fermer]');
+  if (croix) croix.click(); else d.close();
+}
+function appliquerLargeurFenetre(d) { d.classList.toggle('elargie', fenetresLarges); }
+// Bouton ⤢ posé à côté de la croix. Plusieurs fenêtres réécrivent tout leur contenu (innerHTML) après
+// l'ouverture : un observateur le repose dès qu'il disparaît.
+function poserBoutonElargir(d) {
+  // Seules les fenêtres de contenu (large / très large) gagnent à être élargies : une boîte de connexion
+  // ou une petite fiche n'a rien à y gagner.
+  if (!d.classList.contains('large') && !d.classList.contains('tres-large')) return;
+  const croix = d.querySelector(':scope > .fermer, :scope > [data-fermer]');
+  if (!croix || d.querySelector(':scope > .elargir')) return;
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'elargir';
+  b.onclick = () => {
+    fenetresLarges = !fenetresLarges;
+    ecrireLs(CLE_FENETRES_LARGES, fenetresLarges);
+    document.querySelectorAll('dialog').forEach(appliquerLargeurFenetre);
+    document.querySelectorAll('dialog > .elargir').forEach(libelleElargir);
+  };
+  croix.insertAdjacentElement('afterend', b);
+  libelleElargir(b);
+}
+function equiperFenetre(d) {
+  const croix = d.querySelector(':scope > .fermer, :scope > [data-fermer]');
+  if (!croix || d.classList.contains('dlg-confirmer')) return; // rien à fermer, ou fenêtre qui gère déjà tout
+  poserBoutonElargir(d);
+  appliquerLargeurFenetre(d);
+  noterSaisie(d);
+  if (d.dataset.fenetreEquipee) return; // gestionnaires de clic et observateur : une seule fois par fenêtre
+  d.dataset.fenetreEquipee = '1';
+  new MutationObserver(() => { if (d.open) { poserBoutonElargir(d); appliquerLargeurFenetre(d); noterSaisie(d); } }).observe(d, { childList: true });
+  // Un glissement commencé dans la fenêtre et relâché dehors (sélection de texte) ne doit pas fermer :
+  // on exige que l'appui ET le relâchement soient tous les deux sur le fond, en dehors du cadre.
+  let appuiDehors = false;
+  d.addEventListener('mousedown', (e) => { appuiDehors = e.target === d && clicHorsFenetre(d, e); });
+  d.addEventListener('click', (e) => {
+    const dehors = appuiDehors; appuiDehors = false;
+    if (!dehors || e.target !== d || !clicHorsFenetre(d, e)) return;
+    if (saisieEnCours(d)) { annonce('✍️ Fenêtre gardée ouverte : une saisie est commencée. Fermez avec la croix ✕ ou la touche Échap.', 'info'); return; }
+    fermerFenetre(d);
+  });
+}
+function libelleElargir(b) {
+  b.textContent = fenetresLarges ? '⤡' : '⤢';
+  b.title = fenetresLarges ? 'Réduire la fenêtre' : 'Élargir la fenêtre';
+  b.setAttribute('aria-label', b.title);
+}
+// Les fenêtres sont créées à des moments très différents (certaines à la volée) : on équipe chacune à son ouverture
+for (const nom of ['showModal', 'show']) {
+  const natif = HTMLDialogElement.prototype[nom];
+  HTMLDialogElement.prototype[nom] = function (...a) {
+    const r = natif.apply(this, a);
+    try { equiperFenetre(this); } catch { /* fenêtre inhabituelle : elle s'ouvre quand même */ }
+    return r;
+  };
+}
+
 // ---- Niveaux d'affichage -------------------------------------------------------------------------------------
 const NIVEAUX = { simple: 'Simple', operateur: 'Opérateur', expert: 'Expert' };
 const ergo = { niveau: 'simple', groupe: 'reseau', favoris: [], recents: [] };
@@ -489,7 +579,7 @@ function demarrerErgonomie() {
 // ADRASEC, Winlink) et choisir les fonctions affichées. Ouvert aussi depuis le menu Outils (administrateurs).
 async function dlgFonctionsCarte() {
   let d = document.getElementById('dlg-fonctions-carte');
-  if (!d) { d = document.createElement('dialog'); d.id = 'dlg-fonctions-carte'; d.className = 'dlg-fonctions-carte'; document.body.appendChild(d); }
+  if (!d) { d = document.createElement('dialog'); d.id = 'dlg-fonctions-carte'; d.className = 'dlg-fonctions-carte'; d.classList.add('large'); document.body.appendChild(d); }
   d.innerHTML = '<button class="fermer" type="button" data-fermer title="Fermer">×</button><h3>🎚️ Fonctions de la carte</h3><div class="vide">Lecture…</div>';
   d.querySelector('[data-fermer]').onclick = () => d.close();
   if (!d.open) d.showModal();
@@ -523,7 +613,7 @@ async function dlgFonctionsCarte() {
     ${inter('data-adrasec', ad.actif, `🛰️ Section ${esc(ad.nom || 'ADRASEC')}`, 'Espace réservé aux membres de l’ADRASEC : main courante, radiogoniométrie (recherche de balise), équipes, Winlink. Une fois activée, ajoutez les membres dans la section, onglet ⚙️ Gestion.', '<div class="actions-fonction"><a class="bouton" href="adrasec" target="_blank" rel="noopener">Ouvrir la section ↗</a></div>')}
     ${wlBloc}` : ''}
     <h4>Fonctions affichées</h4>
-    ${LISTE.map(([k, t, x]) => inter(`data-f="${k}"`, !m.includes(k), t, esc(x))).join('')}
+    <div class="grille-fonctions">${LISTE.map(([k, t, x]) => inter(`data-f="${k}"`, !m.includes(k), t, esc(x))).join('')}</div>
     <p class="note">La vigilance Météo-France reste toujours affichée.</p>
     <p class="erreur" data-retour></p>`;
   d.querySelector('[data-fermer]').onclick = () => d.close();
@@ -555,7 +645,7 @@ function dlgFonctionsMasquees() {
     ['feux', '🔥 Feux actifs (satellite)', 'couche des foyers NASA FIRMS, alertes sur la zone et envoi radio'],
   ];
   let d = document.getElementById('dlg-fonctions');
-  if (!d) { d = document.createElement('dialog'); d.id = 'dlg-fonctions'; document.body.appendChild(d); }
+  if (!d) { d = document.createElement('dialog'); d.id = 'dlg-fonctions'; d.className = 'large'; document.body.appendChild(d); }
   const m = (etat.config && etat.config.fonctionsMasquees) || [];
   d.innerHTML = `<button class="fermer" type="button" data-fermer title="Fermer">×</button><h3>👁️ Fonctions affichées</h3>
     <p class="note">Décochez ce que les utilisateurs de cette carte ne doivent pas voir. La vigilance Météo-France reste toujours affichée. Valeur de départ possible dans le .env : <span class="mono">FONCTIONS_MASQUEES=signalements,vigipirate,fr-alert,main-courante,bipper</span>.</p>

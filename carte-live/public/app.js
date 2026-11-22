@@ -54,7 +54,9 @@ const etat = {
   coucheLiens: null,
   alertes: [],
   stats: null,
-  couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true, federation: true, releves: true, routiers: false, dfci: false, radar: false, feux: false },
+  // Une clé par bouton « bascule » de la barre des couches : sans elle, le choix de l'utilisateur n'est pas
+  // relu au chargement (il est filtré par « k in etat.couches ») et le réglage CARTE_COUCHES_MASQUEES l'ignore.
+  couches: { rf: true, voisinage: true, traceroute: true, inactifs: false, animations: true, sommets: true, federation: true, releves: true, routiers: false, dfci: false, radar: false, feux: false, aprs: false, rivieres: false, lorawan: false },
   filtresPorts: new Set([...Object.keys(PORTS), 'pki']),
   selection: null,
   trajet: null,
@@ -6283,11 +6285,14 @@ function brancherInterface() {
       noms: () => [...etat.noeuds.values()].filter((n) => n.dernierVu && Date.now() - n.dernierVu < 7 * 86400000).flatMap((n) => [n.nomCourt, n.nomLong]) }); }
   { const g = $('#groupe-noeuds'); if (g) { try { g.value = localStorage.getItem('gaulix_groupe') || ''; } catch { /* ignoré */ } g.hidden = !etat.membre; g.onchange = () => { try { localStorage.setItem('gaulix_groupe', g.value); } catch { /* ignoré */ } rendreNoeuds(); }; } }
   $('#fenetre').onchange = chargerLiens;
-  document.querySelectorAll('.bascule').forEach((b) => (b.onclick = () => {
+  // Bascules de couche : SEULEMENT les boutons porteurs d'un data-couche. La classe « bascule » sert aussi
+  // au style des boutons du menu Outils et du menu Radio : sans le filtre, ce gestionnaire écrasait leur
+  // propre action (Module USB, Module Bluetooth, Thème clair, Passerelle…) et le clic ne faisait plus rien.
+  document.querySelectorAll('.bascule[data-couche]').forEach((b) => (b.onclick = () => {
     const c = b.dataset.couche;
     etat.couches[c] = !etat.couches[c];
     b.classList.toggle('actif', etat.couches[c]);
-    if (c) ecrireLs('gaulix_couches', etat.couches); // choix gardé pour la prochaine visite
+    ecrireLs('gaulix_couches', etat.couches); // choix gardé pour la prochaine visite
     if (c === 'inactifs') { dessinerNoeuds(); rendreLegende(); } else if (c === 'sommets') dessinerSommets(); else if (c === 'animations') { if (typeof dessinerAxes === 'function') dessinerAxes(); } else if (c === 'federation') dessinerFederation(); else if (c === 'routiers') dessinerRoutiers(); else if (c === 'dfci') dessinerDfci(); else if (c === 'radar') dessinerRadar(); else if (c === 'feux') dessinerFeux(); else if (c === 'aprs') { dessinerAprs(); rendreLegende(); } else if (c === 'rivieres') { dessinerRivieres(); rendreLegende(); } else if (c === 'lorawan') { dessinerLorawan(); rendreLegende(); } else if (c === 'releves') dessinerReleves(); else dessinerLiens();
   }));
   $('#filtres').onclick = (e) => {
@@ -6870,6 +6875,11 @@ async function demarrer() {
   for (const c of etat.config.couchesMasquees || []) if (c in etat.couches) etat.couches[c] = false;
   // Téléphone ou tablette, sans choix enregistré : pas d'animation des paquets (coûteuse sur mobile)
   const choixCouches = lireLs('gaulix_couches', null);
+  // Ménage : une version précédente pouvait enregistrer une clé parasite « undefined » (un clic sur un bouton
+  // du menu Outils passait par la bascule des couches). On la retire sans toucher aux choix légitimes.
+  if (choixCouches && Object.keys(choixCouches).some((k) => !(k in etat.couches))) {
+    ecrireLs('gaulix_couches', Object.fromEntries(Object.entries(choixCouches).filter(([k]) => k in etat.couches)));
+  }
   const economie = !!(navigator.connection && (navigator.connection.saveData || /(^|-)2g$/.test(navigator.connection.effectiveType || '')));
   if (!choixCouches && ((window.matchMedia && matchMedia('(pointer: coarse)').matches) || economie)) etat.couches.animations = false;
   Object.assign(etat.couches, Object.fromEntries(Object.entries(choixCouches || {}).filter(([k, v]) => k in etat.couches && typeof v === 'boolean')));
@@ -6886,8 +6896,7 @@ async function demarrer() {
     const lc = $('#lien-client'), lf = $('#lien-flasher'), note = $('#note-outils');
     if (lc) lc.href = o.client || auto(8443, 8096);
     if (lf) lf.href = o.flasher || auto(10000, 8097);
-    const chromium = !!(navigator.userAgentData && navigator.userAgentData.brands && navigator.userAgentData.brands.some((b) => /Chrom|Edge/i.test(b.brand)));
-    if (note) note.textContent = !https ? 'USB et Bluetooth demandent la carte en HTTPS (voir README).' : !('serial' in navigator) && !chromium ? 'USB et Bluetooth : utilisez Chrome ou Edge.' : '';
+    if (note) marquerVoiesModule(); // note du menu + marquage des boutons USB / Bluetooth inutilisables ici
   }
   const nomMarque = document.querySelector('.marque .nom-carte');
   if (nomMarque) nomMarque.textContent = etat.config.titre.split(' · ')[0];
@@ -7194,12 +7203,46 @@ async function reglerSignauxUsb(port) {
   const pont = info.usbVendorId != null && PONTS_USB_SERIE.has(info.usbVendorId);
   try { await port.setSignals(pont ? { dataTerminalReady: false, requestToSend: false } : { dataTerminalReady: true, requestToSend: true }); } catch { /* pas géré */ }
 }
-async function brancherUsb(portDonne) {
-  if (!('serial' in navigator)) {
-    // Ne jamais échouer en silence : HTTP (hors de ce PC) ou navigateur sans Web Serial (Firefox, Safari, application mobile)
-    const m = !window.isSecureContext ? 'USB impossible ici : ouvrez la carte en HTTPS (adresse en …ts.net) ou depuis le PC où tourne la carte (localhost).' : 'Ce navigateur ne gère pas l’USB : utilisez Chrome ou Edge sur un ordinateur.';
-    annonce('🔌 ' + m, 'erreur'); alert(m); return;
+// Un clic sur « Module USB de ce PC » ou « Module Bluetooth » doit TOUJOURS répondre quelque chose : soit
+// l'action, soit la raison pour laquelle elle est impossible ici. Chrome n'expose ni navigator.serial ni
+// navigator.bluetooth sur une page non sécurisée (carte en http://, par exemple via une adresse Tailscale),
+// ni dans Firefox ou Safari : sans message, le bouton semble cassé.
+const VOIES_MODULE = {
+  usb: {
+    icone: '🔌',
+    dispo: () => 'serial' in navigator,
+    nonSecurise: 'USB impossible ici : ouvrez la carte en HTTPS (adresse en …ts.net) ou depuis le PC où tourne la carte (localhost).',
+    navigateur: 'Ce navigateur ne gère pas l’USB : utilisez Chrome ou Edge sur un ordinateur.',
+  },
+  ble: {
+    icone: '📶',
+    dispo: () => !!navigator.bluetooth,
+    nonSecurise: 'Bluetooth impossible ici : ouvrez la carte en HTTPS (adresse en …ts.net) ou depuis le PC où tourne la carte (localhost).',
+    navigateur: 'Ce navigateur ne gère pas le Bluetooth : utilisez Chrome ou Edge sur un ordinateur.',
+  },
+};
+// Renvoie true si la voie est utilisable ; sinon prévient (bandeau + boîte) et renvoie false.
+function voieModuleDispo(voie) {
+  const v = VOIES_MODULE[voie];
+  if (v.dispo()) return true;
+  // 15 s : le message doit rester le temps d'être lu, c'est la seule réponse possible à ce clic
+  annonce(v.icone + ' ' + (window.isSecureContext ? v.navigateur : v.nonSecurise), 'erreur', null, undefined, 15000);
+  return false;
+}
+// Boutons proposés mais inutilisables dans ce contexte : marqués sur place (ils restent cliquables, le clic
+// explique pourquoi ; un bouton désactivé ne dirait rien, c'est justement ce qui déroute).
+function marquerVoiesModule() {
+  for (const [sel, voie] of [['#outil-usb', 'usb'], ['#outil-ble', 'ble']]) {
+    const b = $(sel); if (!b) continue;
+    const v = VOIES_MODULE[voie], dispo = v.dispo();
+    b.classList.toggle('indispo', !dispo);
+    if (!dispo) b.title = window.isSecureContext ? v.navigateur : v.nonSecurise;
   }
+  const note = $('#note-outils');
+  if (note) note.textContent = !window.isSecureContext ? 'USB et Bluetooth demandent la carte en HTTPS (voir README).' : !VOIES_MODULE.usb.dispo() && !VOIES_MODULE.ble.dispo() ? 'USB et Bluetooth : utilisez Chrome ou Edge.' : '';
+}
+async function brancherUsb(portDonne) {
+  if (!voieModuleDispo('usb')) return;
   let port = portDonne;
   if (!port) {
     try { port = await navigator.serial.requestPort({}); } catch (e) {
@@ -7246,9 +7289,15 @@ async function brancherUsb(portDonne) {
   }
 }
 async function brancherBle(appareilDonne, reprise = false) {
-  if (!navigator.bluetooth) { alert('Ce navigateur ne gère pas le Bluetooth : utilisez Chrome ou Edge, sur la carte en HTTPS.'); return; }
+  if (!voieModuleDispo('ble')) return;
   let appareil = appareilDonne;
-  if (!appareil) try { appareil = await navigator.bluetooth.requestDevice({ filters: [{ services: [BLE_SERVICE] }] }); } catch { return; }
+  if (!appareil) {
+    try { appareil = await navigator.bluetooth.requestDevice({ filters: [{ services: [BLE_SERVICE] }] }); } catch (e) {
+      // NotFoundError : fenêtre fermée sans choix, ou aucun module vu. Toute autre erreur est un vrai échec : on le dit.
+      annonce(e.name === 'NotFoundError' ? '📶 Aucun module Bluetooth choisi. Liste vide ? Allumez le module, fermez l’appli Meshtastic du téléphone (un seul appareil à la fois), puis réessayez.' : '📶 Bluetooth : ' + e.message, 'erreur');
+      return;
+    }
+  }
   if (!reprise) arreterReconnexionBle(moduleNav);
   moduleNav.type = 'ble'; majModuleNav(reprise ? 'reconnexion' : 'connexion', reprise ? 'reconnexion Bluetooth…' : null);
   try {
@@ -7306,6 +7355,8 @@ async function brancherBle(appareilDonne, reprise = false) {
     try { appareil.gatt.disconnect(); } catch { /* déjà */ }
     moduleNav.ble = null;
     majModuleNav(reprise ? 'reconnexion' : 'aucun', 'Bluetooth : ' + e.message);
+    // Visible aussi quand on vient du menu Outils (le bloc des modules n'est pas affiché)
+    if (!appareilDonne && !reprise) annonce('📶 Module Bluetooth : ' + e.message, 'erreur');
   }
 }
 // auto : coupure subie (la reconnexion automatique suit) ; sinon débranchement voulu
@@ -7532,7 +7583,11 @@ async function ouvrirConnexion(message) {
         filters: [{ services: [BLE_SERVICE] }, { services: [MC_BLE] }, { namePrefix: 'Meshtastic' }, { namePrefix: 'MeshCore' }],
         optionalServices: [BLE_SERVICE, MC_BLE],
       });
-    } catch { return; } // fenêtre fermée
+    } catch (e) {
+      // NotFoundError : fenêtre fermée sans choix, ou aucun module vu. Jamais d'échec muet.
+      retour(e.name === 'NotFoundError' ? '✗ Aucun module Bluetooth choisi. Si la liste était vide : allumez le module, fermez l’appli Meshtastic / MeshCore du téléphone (un seul appareil à la fois), puis réessayez.' : '✗ Bluetooth : ' + esc(e.message), 'ko');
+      return;
+    }
     retour(`Connexion à « ${esc(app.name || 'module')} »… (Windows peut demander le code PIN)`);
     let type = null;
     try {

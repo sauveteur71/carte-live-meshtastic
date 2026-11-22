@@ -1425,9 +1425,14 @@ function mcOuvrirWs(source, versCompanion) {
   });
 }
 async function mcBrancherUsb(portDonne) {
-  if (!('serial' in navigator)) { alert('Ce navigateur ne gère pas l’USB : utilisez Chrome ou Edge, sur la carte en HTTPS.'); return; }
+  if (!voieModuleDispo('usb')) return; // jamais d'échec muet : HTTP, Firefox, Safari… le clic explique pourquoi
   let port = portDonne;
-  if (!port) try { port = await navigator.serial.requestPort({}); } catch { return; }
+  if (!port) {
+    try { port = await navigator.serial.requestPort({}); } catch (e) {
+      annonce(e.name === 'NotFoundError' ? '🔌 Aucun port choisi. Liste vide ? Le PC ne voit pas le companion : câble de charge seule, pilote USB (CP210x, CH340) manquant, ou firmware « companion BLE » (qui ne répond qu’en Bluetooth).' : '🔌 USB : ' + e.message, 'erreur');
+      return;
+    }
+  }
   mc.nav.type = 'usb'; mcMajNav('connexion');
   try {
     await port.open({ baudRate: 115200 });
@@ -1445,13 +1450,20 @@ async function mcBrancherUsb(portDonne) {
     })();
   } catch (e) {
     try { await port.close(); } catch { /* déjà */ }
-    mcMajNav('aucun', e.name === 'NetworkError' || /open/i.test(e.message) ? 'port déjà utilisé (fermez l’appli MeshCore ou l’agent)' : e.message);
+    const cause = e.name === 'NetworkError' || /open/i.test(e.message) ? 'port déjà utilisé (fermez l’appli MeshCore ou l’agent)' : e.message;
+    mcMajNav('aucun', cause);
+    if (!portDonne) annonce('🔌 Companion MeshCore : ' + cause, 'erreur');
   }
 }
 async function mcBrancherBle(appareilDonne, reprise = false) {
-  if (!navigator.bluetooth) { alert('Ce navigateur ne gère pas le Bluetooth : utilisez Chrome ou Edge, sur la carte en HTTPS.'); return; }
+  if (!voieModuleDispo('ble')) return; // jamais d'échec muet : HTTP, Firefox, Safari… le clic explique pourquoi
   let app = appareilDonne;
-  if (!app) try { app = await navigator.bluetooth.requestDevice({ filters: [{ services: [MC_BLE_SERVICE] }, { namePrefix: 'MeshCore' }], optionalServices: [MC_BLE_SERVICE] }); } catch { return; }
+  if (!app) {
+    try { app = await navigator.bluetooth.requestDevice({ filters: [{ services: [MC_BLE_SERVICE] }, { namePrefix: 'MeshCore' }], optionalServices: [MC_BLE_SERVICE] }); } catch (e) {
+      annonce(e.name === 'NotFoundError' ? '📶 Aucun companion MeshCore choisi. Liste vide ? Allumez le module, fermez l’appli MeshCore du téléphone (un seul appareil à la fois), puis réessayez.' : '📶 Bluetooth : ' + e.message, 'erreur');
+      return;
+    }
+  }
   if (!reprise) arreterReconnexionBle(mc.nav);
   mc.nav.type = 'ble'; mcMajNav(reprise ? 'reconnexion' : 'connexion', reprise ? 'reconnexion Bluetooth…' : null);
   try {
@@ -1494,7 +1506,9 @@ async function mcBrancherBle(appareilDonne, reprise = false) {
   } catch (e) {
     try { app.gatt.disconnect(); } catch { /* déjà */ }
     mc.nav.ble = null;
-    mcMajNav(reprise ? 'reconnexion' : 'aucun', 'Bluetooth : ' + e.message + (reprise ? '' : ' (code PIN demandé ? appairez d’abord le companion dans Windows)'));
+    const cause = 'Bluetooth : ' + e.message + (reprise ? '' : ' (code PIN demandé ? appairez d’abord le companion dans Windows)');
+    mcMajNav(reprise ? 'reconnexion' : 'aucun', cause);
+    if (!appareilDonne && !reprise) annonce('📶 Companion MeshCore : ' + cause, 'erreur');
   }
 }
 // auto : coupure subie (la reconnexion automatique suit) ; sinon débranchement voulu

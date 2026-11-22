@@ -9,6 +9,7 @@
 - **Bouton ＋** sur la carte : touchez ＋ puis un point de la carte pour signaler un événement, voir la couverture depuis ce point, le partager ou tracer un profil (sans clic droit, pratique sur téléphone).
 - **« ? »** à droite des rubriques : l'aide de l'écran affiché s'ouvre dans la carte (pages de ce wiki). **Visite guidée** à la première visite, à revoir dans Réglages.
 - **Confort et accessibilité** : confirmations et messages dans l'interface (plus de fenêtres du navigateur), option **Grand texte**, thème clair, navigation au clavier (Tab, Entrée, Échap), étiquettes pour lecteurs d'écran, boutons plus grands sur écran tactile.
+- **Fenêtres plus confortables** : sur un écran large, les fenêtres de réglages s'ouvrent plus larges et les listes passent sur **deux colonnes** (tout se voit sans faire défiler). Le bouton **⤢**, à côté de la croix, les élargit encore ; le choix est gardé pour la prochaine visite et vaut pour toutes les fenêtres. Un **clic à côté de la fenêtre la ferme**, comme la croix ✕ ou la touche Échap — sauf si une saisie est commencée : la fenêtre reste alors ouverte et le dit, rien n'est perdu.
 
 ![Vue d’ensemble](https://raw.githubusercontent.com/sauveteur71/carte-live-meshtastic/main/docs/captures/fr-carte.jpg)
 

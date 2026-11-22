@@ -2,6 +2,21 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## 2.30.0
+
+### 🖱️ Les boutons du menu Outils marchent de nouveau
+- **13 boutons ne faisaient rien quand on cliquait dessus** (🔌 Module USB de ce PC, 📶 Module Bluetooth, 📟 Client Meshtastic, ⚡ Flasher un module Meshtastic, ⚡ Flasher un module MeshCore, 🛠️ Configurer un répéteur MeshCore, 📟 Application MeshCore, 🕸️ Topologie et simulation (Meshtastic et MeshCore), ⇄ Passerelle inter-réseaux, 🛰️ Section ADRASEC, ☀️ Thème clair, 📲 Installer l'application). Le gestionnaire des **couches** de la carte était posé sur tous les boutons de même apparence, y compris ceux du menu Outils, et écrasait leur vraie action. Il ne s'applique plus qu'aux vraies bascules de couche.
+- Au passage, une **clé parasite** avait pu s'enregistrer dans les couches gardées par le navigateur : elle est retirée toute seule, les choix légitimes sont gardés. Les couches **Stations APRS**, **Rivières** et **Capteurs LoRaWAN** sont enfin mémorisées d'une visite à l'autre.
+
+### 🔌 Un clic sur USB ou Bluetooth répond toujours quelque chose
+- Chrome n'ouvre l'USB (Web Serial) et le Bluetooth (Web Bluetooth) que sur une page **sécurisée** : carte en HTTPS, ou ouverte depuis la machine où elle tourne. Carte ouverte en `http://` depuis un autre PC (adresse Tailscale, par exemple), ou dans Firefox ou Safari : les boutons **🔌 Module USB de ce PC** et **📶 Module Bluetooth** sont marqués **⚠**, et un clic explique en clair ce qui manque au lieu de ne rien faire.
+- Tous les chemins de connexion d'un module (Meshtastic et MeshCore, USB et Bluetooth, menu Outils et fiche « Connecter un module ») **ne sortent plus en silence** : fenêtre de choix fermée, liste vide, port déjà pris, Bluetooth refusé… chaque cas donne un message qui dit quoi faire.
+
+### 🪟 Fenêtres plus larges, et un clic à côté pour fermer
+- Sur un écran large, les fenêtres de réglages (🎚️ Fonctions de la carte, 👁️ Fonctions affichées…) s'ouvrent **plus larges** et leurs listes passent sur **deux colonnes** : tout se voit sans faire défiler, au lieu d'une colonne étroite au milieu de l'écran.
+- Bouton **⤢** à côté de la croix : élargit encore (jusqu'à 1 480 px, ou 1 800 px pour les très grandes fenêtres), **une fois pour toutes les fenêtres**, et le choix est gardé pour la prochaine visite. Masqué en dessous de 1 000 px de large : téléphone et tablette ne changent pas.
+- **Un clic à côté de la fenêtre la ferme**, comme la croix ✕ ou la touche Échap (plus besoin de remonter chercher la croix en haut d'une fenêtre longue). Un clic dans la fenêtre, même sur un bord ou une zone vide, ne ferme jamais, et un glissement de sélection relâché en dehors non plus. Si une **saisie est commencée**, la fenêtre reste ouverte et le dit : rien n'est perdu. La fenêtre d'installation, elle, ne se ferme pas de cette façon.
+
 ## 2.29.0
 
 ### 🗺️ Secteurs d'alerte (géorepérage)
