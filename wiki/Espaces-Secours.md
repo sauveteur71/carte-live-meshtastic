@@ -44,6 +44,10 @@ Les fichiers des espaces ne partent **pas** dans les sauvegardes de la carte (el
 2. **⚙️ Gestion** : régler l'espace (pour un DPS : lieu, dates, public attendu, catégorie), cadrer la carte sur le site puis **Ouvrir la carte sur la vue actuelle**, créer les **comptes** des équipiers.
 3. **👥 Équipes** : créer les postes et les équipes. Pour chacun : son type, son effectif prévu, un **emplacement fixe** (clic sur la carte) et/ou le **nœud LoRa** qu'il porte.
 
+**Administrateur de la carte qui tient aussi l'espace** (cas d'une petite structure : la même personne crée l'espace et en est le responsable). Connecté à la carte **et** à l'espace dans le même navigateur, il retrouve le sélecteur de nœuds **dans l'espace** : *⚙️ Gestion › Nœuds LoRa de l'espace › ➕ Choisir des nœuds dans la liste de la carte*, ou le bouton **➕ Ajouter des nœuds à l'espace** de la fiche d'une équipe. Plus besoin de repasser par la page de gestion des espaces. C'est sa session d'administrateur de la carte qui l'autorise : un responsable qui ne l'a pas ne voit rien de la liste des nœuds de la carte.
+
+**Affichage** : le bouton en haut à droite de la carte donne le choix du fond (**Sombre**, Plan IGN, **Plan IGN sombre**, Photos aériennes, **Topographique (relief)**, OpenStreetMap) et deux surcouches (**Relief ombré**, Noms des lieux). La barre entre la carte et le panneau se **tire à la souris** pour élargir ou rétrécir le panneau (double-clic : largeur d'origine ; au clavier, flèches gauche et droite). Ces choix sont retenus sur l'appareil.
+
 **Équipiers** : ils ouvrent la même adresse avec leur compte, sur téléphone ou ordinateur. Ils voient la carte, les interventions, les équipes et la main courante ; ils changent l'état de **leur** équipe.
 
 ## Plusieurs organisations dans un même espace

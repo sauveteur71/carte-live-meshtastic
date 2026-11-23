@@ -188,6 +188,7 @@
 
   let E = await api(base + '/etat');
   page.innerHTML = `<div id="carte"><div id="consigne" hidden></div></div>
+    <div id="poignee" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Largeur du panneau : tirez, ou flèches gauche et droite" title="Tirez pour élargir ou rétrécir le panneau (double-clic : largeur d’origine)"></div>
     <aside>
       <div class="alerte-radio" id="alerte-radio" role="alert" hidden>⚠ Le module radio de la carte est déconnecté : les envois par radio ne partent plus.</div>
       <nav class="onglets" id="onglets">
@@ -207,19 +208,55 @@
   $('#sortir').onclick = async () => { await api(base + '/deconnexion', { method: 'POST' }).catch(() => {}); location.reload(); };
 
   // ---- Carte --------------------------------------------------------------------------------------------------
+  const memo = (k, v) => { try { if (v === undefined) return localStorage.getItem('secours-' + k); if (v === null) localStorage.removeItem('secours-' + k); else localStorage.setItem('secours-' + k, v); } catch { /* navigateur sans stockage */ } return null; };
+  // Largeur du panneau, retenue sur cet appareil (avant de créer la carte, qui prend la place restante)
+  const cote = $('aside'), poignee = $('#poignee');
+  const borner = (l) => Math.round(Math.max(340, Math.min(innerWidth - 260, l)));
+  if (Number(memo('largeur'))) cote.style.setProperty('--largeur', borner(Number(memo('largeur'))) + 'px');
   const depart = E.centre ? [[E.centre.lat, E.centre.lon], E.centre.zoom] : [acces.carte.centre, acces.carte.zoom || 10];
   const carte = L.map('carte', { zoomControl: true }).setView(depart[0], depart[1]);
-  const wmts = (couche, format = 'image/png') => `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${couche}&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=${format}`;
+  function largeur(l, retenir) {
+    if (l == null) { cote.style.removeProperty('--largeur'); memo('largeur', null); } else { cote.style.setProperty('--largeur', borner(l) + 'px'); if (retenir) memo('largeur', String(borner(l))); }
+    carte.invalidateSize({ pan: false });
+  }
+  poignee.onpointerdown = (ev) => {
+    ev.preventDefault(); poignee.setPointerCapture(ev.pointerId); poignee.classList.add('glisse'); document.body.classList.add('glisse-panneau');
+    const droite = cote.getBoundingClientRect().right;
+    let l = cote.offsetWidth;
+    poignee.onpointermove = (e2) => { l = droite - e2.clientX - poignee.offsetWidth / 2; largeur(l); };
+    poignee.onpointerup = poignee.onpointercancel = () => { poignee.onpointermove = poignee.onpointerup = poignee.onpointercancel = null; poignee.classList.remove('glisse'); document.body.classList.remove('glisse-panneau'); largeur(l, true); };
+  };
+  poignee.ondblclick = () => largeur(null);
+  poignee.onkeydown = (ev) => { const pas = { ArrowLeft: 40, ArrowRight: -40 }[ev.key]; if (pas) { ev.preventDefault(); largeur(cote.offsetWidth + pas, true); } else if (ev.key === 'Home') { ev.preventDefault(); largeur(null); } };
+  window.addEventListener('resize', () => carte.invalidateSize({ pan: false }));
+  // Fonds de carte : les mêmes que la carte du réseau (sombre, plans, photos, topographique), relief et noms en surcouche
+  const wmts = (couche, format = 'image/png', style = 'normal') => `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${couche}&STYLE=${style}&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=${format}`;
   const ign = '&copy; <a href="https://www.ign.fr/" target="_blank" rel="noopener">IGN</a> Géoplateforme';
+  const t = acces.carte.tuiles;
   const fonds = {
+    ...(t && t.url ? { 'Sombre': L.layerGroup([
+      L.tileLayer(t.url, { maxZoom: 19, maxNativeZoom: t.zoomMaxNatif || 19, className: t.sombre ? 'tuiles-sombres' : '', attribution: t.attribution }),
+      ...(t.etiquettes ? [L.tileLayer(t.etiquettes, { maxZoom: 19, maxNativeZoom: t.zoomMaxNatif || 19, className: 'etiquettes-claires' })] : []),
+    ]) } : {}),
     'Plan IGN': L.tileLayer(wmts('GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2'), { maxZoom: 19, attribution: ign }),
+    'Plan IGN sombre': L.tileLayer(wmts('GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2'), { maxZoom: 19, className: 'tuiles-sombres', attribution: ign }),
     'Photos aériennes IGN': L.tileLayer(wmts('ORTHOIMAGERY.ORTHOPHOTOS', 'image/jpeg'), { maxZoom: 19, attribution: ign }),
+    'Topographique (relief)': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 19, maxNativeZoom: 17, subdomains: 'abc', attribution: 'Carte &copy; <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a> (CC-BY-SA), données &copy; contributeurs OpenStreetMap' }),
     'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, subdomains: 'abc', attribution: '&copy; contributeurs <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' }),
   };
-  const memo = (k, v) => { try { if (v === undefined) return localStorage.getItem('secours-' + k); localStorage.setItem('secours-' + k, v); } catch { /* navigateur sans stockage */ } return null; };
-  fonds[fonds[memo('fond')] ? memo('fond') : 'Plan IGN'].addTo(carte);
-  L.control.layers(fonds, null, { position: 'topright' }).addTo(carte);
-  carte.on('baselayerchange', (e) => memo('fond', e.name));
+  const surcouches = {
+    'Relief ombré': L.tileLayer(wmts('ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW', 'image/png', 'estompage_grayscale'), { maxZoom: 19, maxNativeZoom: 15, opacity: 0.4, attribution: ign }),
+    'Noms des lieux': L.tileLayer(wmts('GEOGRAPHICALNAMES.NAMES'), { maxZoom: 19, maxNativeZoom: 18, className: 'noms-ign', attribution: ign }),
+  };
+  const fondChoisi = fonds[memo('fond')] ? memo('fond') : 'Plan IGN';
+  fonds[fondChoisi].addTo(carte);
+  document.body.classList.toggle('fond-sombre', /sombre/i.test(fondChoisi));
+  let surcouchesChoisies = [];
+  try { surcouchesChoisies = (JSON.parse(memo('surcouches') || '[]') || []).filter((n) => surcouches[n]); } catch { /* choix illisible : aucune surcouche */ }
+  for (const n of surcouchesChoisies) surcouches[n].addTo(carte);
+  L.control.layers(fonds, surcouches, { position: 'topright' }).addTo(carte);
+  carte.on('baselayerchange', (e) => { memo('fond', e.name); document.body.classList.toggle('fond-sombre', /sombre/i.test(e.name)); });
+  carte.on('overlayadd overlayremove', (e) => { if (!surcouches[e.name]) return; surcouchesChoisies = surcouchesChoisies.filter((n) => n !== e.name); if (e.type === 'overlayadd') surcouchesChoisies.push(e.name); memo('surcouches', JSON.stringify(surcouchesChoisies)); });
   L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(carte);
   const coucheReperes = L.layerGroup().addTo(carte), coucheTrajets = L.layerGroup().addTo(carte);
   const couchesEquipes = L.layerGroup().addTo(carte), couchesInter = L.layerGroup().addTo(carte), couchePointage = L.layerGroup().addTo(carte);
@@ -306,6 +343,14 @@
   const optionsEquipes = (choisi, vide = '— aucune —') => `<option value="">${esc(vide)}</option>` + E.equipes.map((e) => `<option value="${esc(e.id)}" ${e.id === choisi ? 'selected' : ''}>${esc(e.nom)}</option>`).join('');
   // Saisie commencée dans l'onglet Gestion : il n'est pas redessiné tant qu'elle n'est pas enregistrée ou abandonnée
   let saisieGestion = false;
+  // Le responsable qui est aussi administrateur de la carte (sa session de la carte est ouverte dans ce navigateur)
+  // attribue les nœuds d'ici, sans repasser par la page de gestion des espaces. C'est sa session d'administrateur qui
+  // l'autorise : un responsable sans elle ne voit rien de la liste des nœuds de la carte.
+  let adminCarte = null;
+  const lireAdminCarte = async () => { try { adminCarte = await api('/api/secours-admin/selecteur'); } catch { adminCarte = null; } };
+  if (E.moi.responsable) await lireAdminCarte();
+  let selOuvert = false, selRecherche = '';
+  const selCoches = new Set();
   const menuOuvert = (zone) => { const a = document.activeElement; return !!a && a.tagName === 'SELECT' && zone.contains(a); };
   async function agir(f, zoneErreur) {
     if (document.activeElement && /^(BUTTON|SELECT)$/.test(document.activeElement.tagName)) document.activeElement.blur();
@@ -401,6 +446,7 @@
       <div class="champs"><label>Effectif prévu <input id="e-effectif" type="number" min="0" max="500" inputmode="numeric"></label>
         <label>Nœud LoRa porté <select id="e-noeud"></select></label>
         <label>Couleur <input id="e-couleur" type="color" value="#4cc9f0"></label></div>
+      ${adminCarte ? '<div class="champs"><button class="mini" id="e-plus-noeuds">➕ Ajouter des nœuds à l’espace</button><span class="note">s’il manque dans la liste ci-dessus</span></div>' : ''}
       <label>Consigne <input id="e-consigne" maxlength="200" placeholder="ex. Reste à l’entrée nord jusqu’à 23 h"></label>
       <div class="champs"><button id="e-pointer">📍 Emplacement fixe sur la carte</button><button id="e-sans-pos" class="mini">Aucun</button><span id="e-pos" class="note"></span></div>
       <div class="champs"><button class="principal" id="e-ok">Enregistrer</button><button id="e-annuler">Annuler</button><button class="danger mini" id="e-supprimer" hidden>Supprimer</button><span id="e-retour" class="erreur"></span></div>
@@ -425,6 +471,7 @@
     $('#e-annuler').onclick = fermerEquipe;
     $('#e-pointer').onclick = () => pointer('Cliquez sur la carte à l’emplacement du poste', (p) => { posEq = p; majPosEq(); });
     $('#e-sans-pos').onclick = () => { posEq = null; majPosEq(); };
+    if ($('#e-plus-noeuds')) $('#e-plus-noeuds').onclick = () => { selOuvert = true; $('#onglets [data-vue="gestion"]').click(); const d = $('#g-selecteur'); if (d) { d.scrollIntoView({ block: 'start' }); $('#g-s-recherche').focus(); } };
     $('#e-ok').onclick = async () => {
       const corps = { nom: $('#e-nom').value, genre: $('#e-genre').value, organisation: $('#e-org').value || null, effectif: $('#e-effectif').value, noeud: $('#e-noeud').value || null, consigne: $('#e-consigne').value, couleur: $('#e-couleur').value, lat: posEq ? posEq.lat : null, lon: posEq ? posEq.lon : null };
       if (await agir(() => api(eqEdit ? `${base}/equipes/${eqEdit}` : `${base}/equipes`, { method: eqEdit ? 'PATCH' : 'POST', body: corps }), $('#e-retour'))) fermerEquipe();
@@ -611,9 +658,22 @@
       <div class="champs"><label class="case"><input type="checkbox" id="n-resp"> Responsable</label><button class="principal" id="n-ok">Créer le compte</button><span id="n-retour" class="erreur"></span></div>
 
       <h2>Nœuds LoRa de l’espace</h2>
+      ${adminCarte ? `
+      ${E.noeuds.length ? `<table><tbody>${E.noeuds.map((n) => `<tr data-noeud="${esc(n.id)}"><td><b translate="no">${esc(n.nom || '—')}</b><br><span class="mono note">${esc(n.id)}</span></td>
+        <td><select class="gn-org" aria-label="Organisation du nœud">${optionsOrgs(n.organisation)}</select></td><td><button class="mini danger gn-retirer">Retirer</button></td></tr>`).join('')}</tbody></table>` : '<p class="bandeau">Aucun nœud n’est attribué à cet espace : choisissez ci-dessous ceux que porteront vos équipes.</p>'}
+      ${E.attentes.length ? `<p class="note">En attente (pas encore vus par la carte, attribués dès qu’ils s’allument) :</p><div class="puces">${E.attentes.map((a) => `<span class="pastille puce att"><span class="mono" translate="no">${esc(a.nom)}</span>${nomOrg(a.organisation) ? ' · ' + esc(nomOrg(a.organisation)) : ''} <button class="mini gn-attente" data-nom="${esc(a.nom)}" aria-label="Ne plus attendre ${esc(a.nom)}">✕</button></span>`).join('')}</div>` : ''}
+      <details class="selecteur" id="g-selecteur" ${selOuvert ? 'open' : ''}><summary>➕ Choisir des nœuds dans la liste de la carte</summary>
+        <label>Chercher (nom court, nom long ou numéro) <input id="g-s-recherche" type="search" value="${esc(selRecherche)}" placeholder="ex. PS01, Poste scène, !a1b2c3d4" autocapitalize="off" spellcheck="false"></label>
+        <div class="s-liste" id="g-s-liste"></div>
+        <div class="champs"><label>Ranger dans <select id="g-s-org">${optionsOrgs(null)}</select></label><button class="mini principal" id="g-s-attribuer">Attribuer les nœuds cochés</button></div>
+        <div class="champs"><label>Nœud pas encore allumé : son nom court <input id="g-s-attente" class="mono" maxlength="12" placeholder="ex. PS01" autocapitalize="off" spellcheck="false"></label><button class="mini" id="g-s-attendre">L’attendre</button></div>
+        <p class="note">Le nœud attendu rejoint l’espace dès que la carte voit un nœud portant ce nom court. Si plusieurs nœuds portent le même nom, rien n’est attribué : choisissez-le alors dans la liste.</p>
+      </details>
+      <div id="g-n-retour" class="erreur"></div>
+      <p class="note">Vous voyez la liste des nœuds de la carte parce que votre session d’administrateur de la carte est ouverte dans ce navigateur. Les autres responsables de l’espace ne la voient pas.</p>` : `
       ${E.attentes.length ? `<p class="note">Attendus, pas encore allumés : <span class="mono" translate="no">${E.attentes.map((a) => esc(a.nom)).join(', ')}</span></p>` : ''}
       ${E.noeuds.length ? `<p translate="no" class="mono">${E.noeuds.map((n) => esc(n.nom ? `${n.nom} (${n.id})` : n.id) + (nomOrg(n.organisation) ? ` — ${esc(nomOrg(n.organisation))}` : '')).join('<br>')}</p>` : '<p class="bandeau">Aucun nœud n’est attribué à cet espace. Demandez à l’administrateur de la carte d’y ajouter les nœuds que porteront vos équipes.</p>'}
-      <p class="note">Seul l’administrateur de la carte attribue des nœuds : l’espace ne voit que ceux-là.</p>` : ''}
+      <p class="note">Seul l’administrateur de la carte attribue des nœuds : l’espace ne voit que ceux-là.</p>`}` : ''}
 
       <h2>Depuis le terrain, par radio</h2>
       <p class="note">Un message texte envoyé par le nœud d’une équipe arrive ici :</p>
@@ -659,6 +719,29 @@
       $('.c-actif', tr).onclick = () => maj({ actif: c.statut !== 'actif' });
       $('.c-mdp', tr).onclick = () => { const m = prompt(`Nouveau mot de passe de ${c.identifiant} (8 caractères au moins) :`); if (m) maj({ motDePasse: m }); };
       if ($('.c-suppr', tr)) $('.c-suppr', tr).onclick = () => { if (confirm(`Supprimer le compte ${c.identifiant} ?`)) maj({ supprimer: true }); };
+    }
+    // Nœuds de l'espace, pour le responsable qui est aussi administrateur de la carte
+    if (adminCarte) {
+      const retour = $('#g-n-retour'), liste = $('#g-s-liste'), d = $('#g-selecteur');
+      const adminEspace = (corps) => agir(async () => { await api('/api/secours-admin/espaces/' + code, { method: 'PATCH', body: corps }); await lireAdminCarte(); }, retour);
+      const lister = () => {
+        const r = selRecherche.trim().toLowerCase();
+        const tous = adminCarte.noeuds.filter((n) => n.espace !== code && (!r || `${n.court || ''} ${n.long || ''} ${n.id}`.toLowerCase().includes(r))), vus = tous.slice(0, 60);
+        liste.innerHTML = (vus.length ? vus.map((n) => `<label class="case ligne-noeud"><input type="checkbox" value="${esc(n.id)}" ${selCoches.has(n.id) ? 'checked' : ''} ${n.espace ? 'disabled' : ''}><span><b translate="no">${esc(n.court || '—')}</b> <span translate="no">${esc(n.long || '')}</span> <span class="mono note">${esc(n.id)}</span> <span class="note">${n.espace ? '— déjà dans un autre espace' : n.vu ? `· vu ${depuis(n.vu)}` : ''}</span></span></label>`).join('') : '<div class="vide">Aucun nœud de la carte ne correspond.</div>')
+          + (tous.length > vus.length ? `<p class="note">${tous.length - vus.length} autres nœuds : précisez la recherche.</p>` : '');
+        $('#g-s-attribuer').textContent = selCoches.size ? `Attribuer les nœuds cochés (${selCoches.size})` : 'Attribuer les nœuds cochés';
+      };
+      if (selOuvert) lister();
+      d.ontoggle = () => { selOuvert = d.open; if (d.open) lister(); };
+      liste.onchange = (ev2) => { if (ev2.target.checked) selCoches.add(ev2.target.value); else selCoches.delete(ev2.target.value); $('#g-s-attribuer').textContent = selCoches.size ? `Attribuer les nœuds cochés (${selCoches.size})` : 'Attribuer les nœuds cochés'; };
+      $('#g-s-recherche').oninput = (ev2) => { selRecherche = ev2.target.value; lister(); };
+      $('#g-s-attribuer').onclick = () => { const n = [...selCoches]; if (!n.length) { retour.textContent = 'Cochez au moins un nœud dans la liste.'; return; } const org = $('#g-s-org').value || null; selCoches.clear(); selRecherche = ''; adminEspace({ attribuer: { noeuds: n, organisation: org } }); };
+      $('#g-s-attendre').onclick = () => adminEspace({ attendre: { nom: $('#g-s-attente').value.trim(), organisation: $('#g-s-org').value || null } });
+      for (const b of vG.querySelectorAll('.gn-attente')) b.onclick = () => adminEspace({ retirerAttente: b.dataset.nom });
+      for (const tr of vG.querySelectorAll('tr[data-noeud]')) {
+        $('.gn-org', tr).onchange = (ev2) => { ev2.target.blur(); adminEspace({ attribuer: { noeuds: [tr.dataset.noeud], organisation: ev2.target.value || null } }); };
+        $('.gn-retirer', tr).onclick = () => { if (confirm(`Retirer le nœud ${tr.dataset.noeud} de cet espace ? L’équipe qui le porte n’aura plus de position.`)) adminEspace({ retirer: [tr.dataset.noeud] }); };
+      }
     }
     $('#n-ok').onclick = async () => {
       const corps = { identifiant: $('#n-id').value, motDePasse: $('#n-mdp').value, equipe: $('#n-equipe').value || null, fonction: $('#n-fonction').value, responsable: $('#n-resp').checked };

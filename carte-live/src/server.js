@@ -4058,6 +4058,8 @@ app.get('/api/urgence/journal.csv', (req, res) => {
 // Séparés de tout le reste (voir secours.js) : un fichier par espace, des comptes qui n'existent que dans ce fichier,
 // un cookie à part (secours_session). Aucune de ces routes ne lit la session de la carte, sauf la gestion des
 // espaces (/api/secours-admin), réservée aux administrateurs de la carte, qui ne donne accès à aucun contenu.
+// La page d'un espace appelle ces routes de gestion quand le responsable a aussi sa session d'administrateur de la
+// carte ouverte dans le même navigateur : il attribue alors les nœuds sans changer de page.
 const secours = require('./secours').creerSecours({ config, journal,
   // Envois d'un espace vers le terrain : toujours un message direct au nœud d'une équipe, jamais recopié dans les
   // messages de la carte (discret)
@@ -4103,7 +4105,7 @@ app.get('/api/secours/:code/acces', (req, res) => {
   if (!e) return res.status(404).json({ erreur: 'Aucun espace à cette adresse' });
   const x = sessionSecours(req), d = e.decrire();
   res.set('Cache-Control', 'no-store').json({ code: d.code, nom: d.nom, genre: d.genre, connecte: !!x, identifiant: x ? x.compte.identifiant : null,
-    carte: { centre: [config.carte.centreLat, config.carte.centreLon], zoom: config.carte.zoom } });
+    carte: { centre: [config.carte.centreLat, config.carte.centreLon], zoom: config.carte.zoom, tuiles: config.carte.tuiles } });
 });
 app.post('/api/secours/:code/connexion', (req, res) => {
   const e = secours.espace(req.params.code);

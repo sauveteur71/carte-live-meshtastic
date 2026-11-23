@@ -25,7 +25,13 @@
     .pastille.crit { color: #2b0308; background: var(--critique); border-color: var(--critique); }
     main { flex: 1; display: flex; min-height: 0; }
     #carte { flex: 1; min-width: 0; background: #0b1117; position: relative; }
-    aside { width: 500px; max-width: 52vw; display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--bord); min-height: 0; }
+    aside { width: var(--largeur, 500px); min-width: 340px; max-width: calc(100vw - 260px); flex: none; display: flex; flex-direction: column; background: var(--surface); min-height: 0; }
+    /* Poignée entre la carte et le panneau : on la tire pour élargir ou rétrécir le panneau */
+    #poignee { flex: none; width: 12px; cursor: col-resize; background: var(--surface); border-left: 1px solid var(--bord); position: relative; touch-action: none; }
+    #poignee::after { content: ''; position: absolute; left: 4px; top: 50%; width: 3px; height: 46px; margin-top: -23px; border-radius: 2px; background: var(--doux); opacity: .75; }
+    #poignee:hover, #poignee.glisse, #poignee:focus-visible { background: var(--surface-2); }
+    #poignee:hover::after, #poignee.glisse::after, #poignee:focus-visible::after { background: var(--accent); opacity: 1; }
+    body.glisse-panneau { user-select: none; cursor: col-resize; }
     nav.onglets { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--bord); }
     nav.onglets button { flex: 1 1 auto; border: 0; border-radius: 0; background: none; padding: 10px 4px; color: var(--doux); font-weight: 650; font-size: 14px; min-height: 44px; white-space: nowrap; }
     nav.onglets button.actif { color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); }
@@ -78,6 +84,12 @@
     table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
     td, th { padding: 6px 5px; border-bottom: 1px solid var(--bord); text-align: left; vertical-align: top; }
     .leaflet-container { background: #0b1117; font: inherit; }
+    .tuiles-sombres { filter: invert(1) hue-rotate(185deg) brightness(.82) contrast(.9) saturate(.55); }
+    .etiquettes-claires { filter: brightness(2.8) contrast(1.25); }
+    body.fond-sombre .noms-ign { filter: invert(1) hue-rotate(180deg) brightness(1.15) contrast(1.1); }
+    .leaflet-control-layers label { flex-direction: row; color: var(--texte); font-size: 13.5px; }
+    .leaflet-control-layers input { width: auto; min-height: 0; }
+    .leaflet-control-layers-separator { border-top-color: var(--bord); }
     .leaflet-control-layers { background: var(--surface); color: var(--texte); border: 1px solid var(--bord) !important; }
     .leaflet-control-layers-toggle { background-color: #f1f5f9; }
     .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--texte); }
@@ -114,7 +126,8 @@
     @media (max-width: 780px) {
       main { flex-direction: column; }
       #carte { flex: 0 0 40vh; }
-      aside { width: 100%; max-width: none; border-left: 0; border-top: 1px solid var(--bord); flex: 1; }
+      aside { width: 100%; min-width: 0; max-width: none; border-top: 1px solid var(--bord); flex: 1; }
+      #poignee { display: none; }
     }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
   </style>

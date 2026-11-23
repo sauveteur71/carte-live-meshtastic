@@ -2,6 +2,13 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## En préparation
+
+### ⛑️ Espaces Secours : fonds de carte, panneau élargissable, nœuds attribués depuis l'espace
+- **Fonds de carte au choix** dans un espace, comme sur la carte du réseau : Sombre, Plan IGN, Plan IGN sombre, Photos aériennes, Topographique (relief), OpenStreetMap, avec en surcouche le **relief ombré** et les noms des lieux. Le choix est retenu sur l'appareil.
+- **Panneau de droite élargissable** : la barre entre la carte et le panneau se tire à la souris (double-clic : largeur d'origine ; flèches au clavier). La largeur est retenue sur l'appareil.
+- **Nœuds attribués depuis l'espace** quand le responsable est aussi l'administrateur de la carte (connecté aux deux dans le même navigateur) : le sélecteur de nœuds apparaît dans *⚙️ Gestion* de l'espace et depuis la fiche d'une équipe, sans repasser par la page de gestion des espaces. Un responsable sans session d'administrateur de la carte ne voit toujours rien de la liste des nœuds.
+
 ## 2.32.0
 
 ### ⛑️ Espaces Secours : plusieurs organisations, nœuds choisis dans une liste, options
