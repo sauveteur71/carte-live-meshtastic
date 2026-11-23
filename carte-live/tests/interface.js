@@ -924,6 +924,97 @@ async function essaiMotDePasseOublie(navig, cookie) {
   for (const id of [a1.id, a2.id, f1.j.id]) await appel('DELETE', '/api/comptes/' + id);
 }
 
+// Espaces « Secours » (DPS, PCS) : séparés de la carte et de l'ADRASEC. Chaque espace a ses comptes ; une session de
+// la carte n'y entre pas, une session d'espace n'ouvre rien d'autre (ni la carte, ni l'ADRASEC, ni un autre espace).
+async function essaiSecours(navig, cookie) {
+  console.log('Espaces Secours (DPS, PCS) : cloisonnement et page');
+  const H = { Cookie: `${cookie.name}=${cookie.value}`, 'Content-Type': 'application/json' };
+  const statut = async (url, entetes = {}) => (await fetch(BASE + url, { headers: entetes })).status;
+  const poster = (url, corps, entetes = { 'Content-Type': 'application/json' }, methode = 'POST') => fetch(BASE + url, { method: methode, headers: entetes, body: JSON.stringify(corps) });
+  const creer = (code, nom, genre, id, noeuds) => poster('/api/secours-admin/espaces', { code, nom, genre, responsable: { identifiant: id, motDePasse: 'motdepasse-essai' }, noeuds }, H);
+  const r1 = await creer('festival-essai', 'Festival d’essai', 'dps', 'chef.essai', '!a1b2c3d4');
+  const r2 = await creer('pcs-essai', 'PCS d’essai', 'pcs', 'mairie.essai', '');
+  const doublon = await poster('/api/secours-admin/espaces/pcs-essai', { noeuds: '!a1b2c3d4' }, H, 'PATCH');
+  const liste = (await r2.json()).espaces || [];
+  if (r1.ok && r2.ok && liste.length === 2 && doublon.status === 400 && /déjà attribué/.test((await doublon.json()).erreur)) ok('deux espaces créés par l’administrateur de la carte ; un nœud ne peut pas être attribué à deux espaces');
+  else ko('création des espaces : ' + JSON.stringify({ r1: r1.status, r2: r2.status, liste: liste.length, doublon: doublon.status }));
+  // Sessions
+  const entrer = async (code, id) => { const r = await poster(`/api/secours/${code}/connexion`, { identifiant: id, motDePasse: 'motdepasse-essai' }); return (r.headers.get('set-cookie') || '').split(';')[0]; };
+  const chef = await entrer('festival-essai', 'chef.essai');
+  const refus = await poster('/api/secours/pcs-essai/connexion', { identifiant: 'chef.essai', motDePasse: 'motdepasse-essai' });
+  const S = {
+    anonyme: await statut('/api/secours/festival-essai/etat'),
+    adminCarte: await statut('/api/secours/festival-essai/etat', { Cookie: H.Cookie }),
+    chefChezLui: await statut('/api/secours/festival-essai/etat', { Cookie: chef }),
+    chefAutreEspace: await statut('/api/secours/pcs-essai/etat', { Cookie: chef }),
+    chefAdrasec: await statut('/api/adrasec', { Cookie: chef }),
+    chefMessages: await statut('/api/messages', { Cookie: chef }),
+    chefGestion: await statut('/api/secours-admin/espaces', { Cookie: chef }),
+    // Le cookie d'un espace présenté comme session de la carte, et l'inverse
+    chefCommeCarte: await statut('/api/comptes', { Cookie: `${cookie.name}=${chef.split('=')[1].replace(/^festival-essai\./, '')}` }),
+    carteCommeEspace: await statut('/api/secours/festival-essai/etat', { Cookie: `secours_session=festival-essai.${cookie.value}` }),
+    autreComptes: refus.status,
+  };
+  const attendu = { anonyme: 401, adminCarte: 401, chefChezLui: 200, chefAutreEspace: 401, chefAdrasec: 401, chefMessages: 401, chefGestion: 403, chefCommeCarte: 401, carteCommeEspace: 401, autreComptes: 401 };
+  if (JSON.stringify(S) === JSON.stringify(attendu)) ok('cloisonnement : ni la session de la carte ni celle d’un autre espace n’entrent ; un compte d’espace n’ouvre ni la carte ni l’ADRASEC');
+  else ko('cloisonnement des espaces : ' + JSON.stringify(S));
+  const acces = await (await fetch(BASE + '/api/secours/festival-essai/acces')).json();
+  if (Object.keys(acces).sort().join() === 'carte,code,connecte,genre,identifiant,nom' && acces.connecte === false) ok('sans connexion, un espace ne dit que son nom et son type');
+  else ko('accès public d’un espace : ' + JSON.stringify(acces));
+  // Équipe, intervention, main courante par l'API ; équipier limité à l'état de son équipe
+  const HC = { Cookie: chef, 'Content-Type': 'application/json' };
+  const eq = await (await poster('/api/secours/festival-essai/equipes', { nom: 'Binôme A', genre: 'binome', effectif: 2, noeud: '!a1b2c3d4' }, HC)).json();
+  const eq2 = await (await poster('/api/secours/festival-essai/equipes', { nom: 'Poste 1', genre: 'poste', effectif: 4, lat: 45.04, lon: 3.88 }, HC)).json();
+  await poster('/api/secours/festival-essai/comptes', { identifiant: 'secouriste.essai', motDePasse: 'motdepasse-essai', equipe: eq.id }, HC);
+  const sec = await entrer('festival-essai', 'secouriste.essai'), HS = { Cookie: sec, 'Content-Type': 'application/json' };
+  const x = await (await poster('/api/secours/festival-essai/interventions', { genre: 'malaise', titre: 'Malaise essai', lat: 45.041, lon: 3.881, equipe: eq.id }, HS)).json();
+  const R = {
+    equipierCree: (await poster('/api/secours/festival-essai/equipes', { nom: 'Pirate' }, HS)).status,
+    equipierComptes: (await poster('/api/secours/festival-essai/comptes', { identifiant: 'pirate', motDePasse: 'motdepasse-essai' }, HS)).status,
+    etatAutre: (await poster(`/api/secours/festival-essai/equipes/${eq2.id}/etat`, { etat: 'pause' }, HS, 'PUT')).status,
+    etatSienne: (await poster(`/api/secours/festival-essai/equipes/${eq.id}/etat`, { etat: 'pause' }, HS, 'PUT')).status,
+    csv: (await (await fetch(BASE + '/api/secours/festival-essai/main-courante.csv', { headers: { Cookie: sec } })).text()).includes('Intervention ouverte : Malaise essai'),
+  };
+  const vue = await (await fetch(BASE + '/api/secours/festival-essai/etat', { headers: { Cookie: sec } })).json();
+  if (x.statut === 'en-cours' && JSON.stringify(R) === JSON.stringify({ equipierCree: 403, equipierComptes: 403, etatAutre: 400, etatSienne: 200, csv: true }) && vue.comptes === undefined && vue.noeuds === undefined && vue.equipes.length === 2)
+    ok('équipier : interventions et main courante oui, équipes, comptes et nœuds réservés aux responsables');
+  else ko('droits d’un équipier : ' + JSON.stringify({ x: x.statut, R, comptes: vue.comptes, noeuds: vue.noeuds }));
+  // Page : connexion, onglets, carte, sans erreur JavaScript (ordinateur puis téléphone)
+  const ctx = await navig.newContext({ viewport: { width: 1366, height: 800 }, locale: 'fr-FR' });
+  const { page, erreurs } = await ouvrir(ctx, '/secours/festival-essai');
+  await page.fill('#c-id', 'chef.essai'); await page.fill('#c-mdp', 'motdepasse-essai'); await page.click('#connexion button');
+  await page.waitForSelector('#onglets', { timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(800);
+  const p = await page.evaluate(() => ({ onglets: document.querySelectorAll('#onglets button').length, fiches: document.querySelectorAll('#i-liste .fiche').length, carte: !!document.querySelector('#carte .leaflet-pane'),
+    reperes: document.querySelectorAll('.rep-equipe, .rep-inter').length, gestion: document.querySelector('[data-vue="gestion"]').textContent.trim() }));
+  await page.click('[data-vue="equipes"]'); await page.waitForTimeout(300);
+  const resume = await page.textContent('#e-resume');
+  if (p.onglets === 4 && p.fiches === 1 && p.carte && p.reperes >= 2 && /Gestion/.test(p.gestion) && /Effectif prévu : 6 secouristes/.test(resume)) ok('page d’un espace : interventions, équipes sur la carte, effectif du dispositif');
+  else { ko('page d’un espace : ' + JSON.stringify({ p, resume })); await capture(page, 'secours-espace'); }
+  bilanErreurs(erreurs, 'Page d’un espace Secours');
+  await ctx.close();
+  const tel = await navig.newContext({ viewport: { width: 390, height: 800 }, locale: 'fr-FR' });
+  await tel.addCookies([{ name: 'secours_session', value: sec.split('=')[1], domain: '127.0.0.1', path: '/' }]);
+  const t = await ouvrir(tel, '/secours/festival-essai');
+  const pt = await t.page.evaluate(() => ({ deborde: document.documentElement.scrollWidth > innerWidth, gestion: document.querySelector('[data-vue="gestion"]').textContent.trim(), nouvelle: !!document.querySelector('#i-nouvelle') }));
+  if (!pt.deborde && /Mon compte/.test(pt.gestion) && pt.nouvelle) ok('équipier sur téléphone : page lisible sans défilement horizontal, pas d’onglet Gestion');
+  else { ko('espace sur téléphone : ' + JSON.stringify(pt)); await capture(t.page, 'secours-telephone'); }
+  bilanErreurs(t.erreurs, 'Espace Secours sur téléphone');
+  await tel.close();
+  // Gestion des espaces (administrateur de la carte), puis suppression
+  const adm = await navig.newContext({ viewport: { width: 1366, height: 800 }, locale: 'fr-FR' });
+  await adm.addCookies([cookie]);
+  const g = await ouvrir(adm, '/secours');
+  const nb = await g.page.locator('#liste .fiche').count();
+  if (nb === 2) ok('gestion des espaces : les deux espaces listés pour l’administrateur de la carte'); else { ko(`gestion des espaces : ${nb} fiche(s)`); await capture(g.page, 'secours-gestion'); }
+  bilanErreurs(g.erreurs, 'Gestion des espaces Secours');
+  await adm.close();
+  const suppr = await fetch(BASE + '/api/secours-admin/espaces/festival-essai', { method: 'DELETE', headers: H });
+  const apres = await statut('/api/secours/festival-essai/etat', { Cookie: chef });
+  if (suppr.ok && apres === 401 && fs.readdirSync(path.join(donnees, 'secours', 'corbeille')).some((f) => f.startsWith('festival-essai-'))) ok('espace supprimé : plus d’accès, fichier gardé dans la corbeille');
+  else ko('suppression d’un espace : ' + JSON.stringify({ suppr: suppr.status, apres }));
+}
+
 async function essaiFrequentation(navig, cookie) {
   console.log('Fréquentation (visiteurs, pays, provenance)');
   const H = { Cookie: `${cookie.name}=${cookie.value}` };
@@ -2595,6 +2686,7 @@ async function essaiSuggestionsNoeuds(navig, cookie) {
     await essaiAdrasec(navigateur, cookie);
     await essaiAdrasecTransfert(navigateur, cookie);
     await essaiMotDePasseOublie(navigateur, cookie);
+    await essaiSecours(navigateur, cookie);
     await essaiFrequentation(navigateur, cookie);
     await essaiPasserelleMembre(navigateur, cookie);
     await essaiAdministrationALaDemande(navigateur, cookie);

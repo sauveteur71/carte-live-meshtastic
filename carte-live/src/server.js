@@ -234,7 +234,7 @@ function pageVersionnee(fichier) {
   }
   return pagesVersionnees.get(fichier);
 }
-const NOMS_PAGES = { 'index.html': 'carte', 'publique.html': 'page publique', 'rejoindre.html': 'rejoindre', 'adrasec.html': 'ADRASEC', 'terrain.html': 'lien terrain' };
+const NOMS_PAGES = { 'index.html': 'carte', 'publique.html': 'page publique', 'rejoindre.html': 'rejoindre', 'adrasec.html': 'ADRASEC', 'secours.html': 'secours', 'terrain.html': 'lien terrain' };
 const envoyerPage = (fichier) => (req, res) => {
   try { frequentation.noter(req, /CarteLiveAndroid/.test(req.get('user-agent') || '') ? 'appli Android' : NOMS_PAGES[fichier] || fichier.replace(/\.html$/, '')); } catch { /* comptage sans importance */ }
   res.set('Cache-Control', 'no-cache').type('html').send(pageVersionnee(fichier));
@@ -3522,7 +3522,7 @@ function traiterEnveloppeMt(topic, message) {
     if (evt.genre === 'erreur') { compteur.erreurs++; return; }
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
     versPasserelleRadio(evt);
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { secours.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuserMembres({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
@@ -3851,7 +3851,7 @@ const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   integrerEvenement: (evt) => {
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
     versPasserelleRadio(evt);
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { secours.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuserMembres({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
@@ -3871,7 +3871,7 @@ const ecoutes = creerEcoutes({
     integrerEvenement: (evt) => {
       if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
     versPasserelleRadio(evt);
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
+    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { secours.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuserMembres({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
@@ -4040,6 +4040,82 @@ app.get('/api/urgence/journal.csv', (req, res) => {
     res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${x.nom}"`, 'Cache-Control': 'no-store' }).send('\ufeff' + x.texte);
   } catch (e) { res.status(404).json({ erreur: e.message }); }
 });
+// ---- Espaces « Secours » : DPS d'une association de sécurité civile, volet radio du PCS d'une commune ----
+// Séparés de tout le reste (voir secours.js) : un fichier par espace, des comptes qui n'existent que dans ce fichier,
+// un cookie à part (secours_session). Aucune de ces routes ne lit la session de la carte, sauf la gestion des
+// espaces (/api/secours-admin), réservée aux administrateurs de la carte, qui ne donne accès à aucun contenu.
+const secours = require('./secours').creerSecours({ config, journal,
+  nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); },
+  positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
+const adminSecours = (f) => (req, res) => {
+  const u = utilisateur(req);
+  if (!u || u.role !== 'admin') return res.status(403).json({ erreur: 'Réservé aux administrateurs de la carte' });
+  try { res.set('Cache-Control', 'no-store').json(f(req, req.body || {}, nomCompte(u))); } catch (e) { res.status(400).json({ erreur: e.message }); }
+};
+app.get('/api/secours-admin/espaces', adminSecours(() => ({ espaces: secours.lister() })));
+app.post('/api/secours-admin/espaces', adminSecours((req, b, auteur) => { secours.creer(b, auteur); return { espaces: secours.lister() }; }));
+app.patch('/api/secours-admin/espaces/:code', adminSecours((req, b, auteur) => { secours.modifier(req.params.code, b, auteur); return { espaces: secours.lister() }; }));
+app.delete('/api/secours-admin/espaces/:code', adminSecours((req, b, auteur) => { secours.supprimer(req.params.code, auteur); return { espaces: secours.lister() }; }));
+app.get(['/secours', '/secours.html', '/secours/:code'], envoyerPage('secours.html'));
+const sessionSecours = (req) => { const x = secours.session(lireCookie(req, 'secours_session')); return x && x.espace.code === String(req.params.code || '').toLowerCase() ? x : null; };
+const cookieSecours = (req, valeur, duree) => `secours_session=${encodeURIComponent(valeur)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${duree}${req.secure ? '; Secure' : ''}`;
+// Membre d'un espace (session de cet espace-là) ; « responsable » : gestion des équipes, des comptes, des réglages
+const routeSecours = (f, { responsable = false } = {}) => async (req, res) => {
+  const x = sessionSecours(req);
+  if (!x) return res.status(401).json({ erreur: 'Connexion à cet espace requise' });
+  if (responsable && !x.espace.estResponsable(x.compte)) return res.status(403).json({ erreur: 'Réservé aux responsables de cet espace' });
+  try { res.set('Cache-Control', 'no-store').json(await f(req, req.body || {}, x.espace, x.compte)); } catch (e) { res.status(400).json({ erreur: e.message }); }
+};
+// Ce qu'un visiteur non connecté apprend d'un espace dont il a l'adresse : son nom et son type, rien d'autre
+app.get('/api/secours/:code/acces', (req, res) => {
+  const e = secours.espace(req.params.code);
+  if (!e) return res.status(404).json({ erreur: 'Aucun espace à cette adresse' });
+  const x = sessionSecours(req), d = e.decrire();
+  res.set('Cache-Control', 'no-store').json({ code: d.code, nom: d.nom, genre: d.genre, connecte: !!x, identifiant: x ? x.compte.identifiant : null,
+    carte: { centre: [config.carte.centreLat, config.carte.centreLon], zoom: config.carte.zoom } });
+});
+app.post('/api/secours/:code/connexion', (req, res) => {
+  const e = secours.espace(req.params.code);
+  if (!e) return res.status(404).json({ erreur: 'Aucun espace à cette adresse' });
+  if (limiter('secours:' + req.ip, false)) return res.status(429).json({ erreur: 'Trop de tentatives, réessayez dans 15 minutes' });
+  const b = req.body || {};
+  try {
+    const compte = e.comptes.connecter(b.identifiant, b.motDePasse, b.code);
+    res.setHeader('Set-Cookie', cookieSecours(req, secours.jeton(e, compte), e.comptes.DUREE_SESSION / 1000));
+    res.json({ ok: true });
+  } catch (err) { limiter('secours:' + req.ip); res.status(401).json({ erreur: err.message }); }
+});
+app.post('/api/secours/:code/deconnexion', (req, res) => { res.setHeader('Set-Cookie', cookieSecours(req, '', 0)); res.json({ ok: true }); });
+// État complet de l'espace ; ?rev= : la page l'appelle toutes les quelques secondes et ne reçoit le détail que s'il a
+// changé (les positions des équipes, elles, sont toujours renvoyées : elles bougent sans rien écrire)
+app.get('/api/secours/:code/etat', routeSecours((req, b, e, compte) => {
+  const v = e.etat(compte);
+  return String(req.query.rev || '') === String(v.rev) ? { rev: v.rev, inchange: true, equipes: v.equipes.map((q) => ({ id: q.id, position: q.position, etat: q.etat })) } : v;
+}));
+app.put('/api/secours/:code/reglages', routeSecours((req, b, e) => e.reglages(b), { responsable: true }));
+app.post('/api/secours/:code/equipes', routeSecours((req, b, e) => e.majEquipe(null, b), { responsable: true }));
+app.patch('/api/secours/:code/equipes/:id', routeSecours((req, b, e) => e.majEquipe(req.params.id, b), { responsable: true }));
+// État d'une équipe : un équipier change celui de la sienne, un responsable celui de toutes
+app.put('/api/secours/:code/equipes/:id/etat', routeSecours((req, b, e, compte) => {
+  if (!e.estResponsable(compte) && e.equipeDe(compte) !== req.params.id) throw new Error('Vous ne pouvez changer que l’état de votre équipe');
+  return e.changerEtat(req.params.id, b.etat, e.signature(compte));
+}));
+app.post('/api/secours/:code/interventions', routeSecours((req, b, e, compte) => e.majIntervention(null, b, e.signature(compte))));
+app.patch('/api/secours/:code/interventions/:id', routeSecours((req, b, e, compte) => e.majIntervention(req.params.id, b, e.signature(compte))));
+app.post('/api/secours/:code/main-courante', routeSecours((req, b, e, compte) => e.ajouterMc(b, compte)));
+app.get('/api/secours/:code/main-courante.csv', (req, res) => {
+  const x = sessionSecours(req);
+  if (!x) return res.status(401).json({ erreur: 'Connexion à cet espace requise' });
+  res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="main-courante-${x.espace.code}-${new Date().toISOString().slice(0, 10)}.csv"`, 'Cache-Control': 'no-store' }).send('﻿' + x.espace.csvMc());
+});
+app.post('/api/secours/:code/comptes', routeSecours((req, b, e) => { const c = e.creerCompte(b, !!b.responsable); return { ok: true, id: c.id }; }, { responsable: true }));
+app.patch('/api/secours/:code/comptes/:id', routeSecours((req, b, e, compte) => e.majCompte(req.params.id, b, compte), { responsable: true }));
+app.put('/api/secours/:code/mot-de-passe', routeSecours((req, b, e, compte) => {
+  e.comptes.changerMotDePasse(compte.id, b.ancien, b.nouveau);
+  // Changer de mot de passe ferme les autres sessions du compte : celle-ci est rouverte aussitôt
+  req.res.setHeader('Set-Cookie', cookieSecours(req, secours.jeton(e, compte), e.comptes.DUREE_SESSION / 1000));
+  return { ok: true };
+}));
 // ---- Section ADRASEC (radiogoniométrie, main courante) et Winlink par Pat ----
 // Envoi radio d'un point de passage + message (diffusion de la position estimée d'une balise aux équipes)
 const radioPointAdrasec = async ({ texte, canal, ...p }) => {

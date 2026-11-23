@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Espace Secours</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <style>
+    :root {
+      --fond: #0b1117; --surface: #111a23; --surface-2: #17232e; --bord: rgba(140, 175, 200, 0.34);
+      --texte: #f4f7fa; --doux: #cbd7e2; --accent: #3ee6c4; --critique: #ff6b79; --attention: #ffb547; --ok: #3ee68a;
+      --police: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--fond); color: var(--texte); font: 15px/1.45 var(--police); }
+    body { display: flex; flex-direction: column; overflow: hidden; }
+    header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 14px; background: var(--surface); border-bottom: 1px solid var(--bord); }
+    header h1 { font-size: 17px; margin: 0; font-weight: 700; }
+    header .moi { margin-left: auto; color: var(--doux); font-size: 13.5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pastille { display: inline-block; padding: 1px 9px; border-radius: 10px; font-size: 12.5px; font-weight: 650; background: var(--surface-2); border: 1px solid var(--bord); color: var(--texte); white-space: nowrap; }
+    .pastille.ok { color: #062019; background: var(--ok); border-color: var(--ok); }
+    .pastille.att { color: #2a1800; background: var(--attention); border-color: var(--attention); }
+    .pastille.crit { color: #2b0308; background: var(--critique); border-color: var(--critique); }
+    main { flex: 1; display: flex; min-height: 0; }
+    #carte { flex: 1; min-width: 0; background: #0b1117; position: relative; }
+    aside { width: 500px; max-width: 52vw; display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--bord); min-height: 0; }
+    nav.onglets { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--bord); }
+    nav.onglets button { flex: 1 1 auto; border: 0; border-radius: 0; background: none; padding: 10px 4px; color: var(--doux); font-weight: 650; font-size: 14px; min-height: 44px; white-space: nowrap; }
+    nav.onglets button.actif { color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); }
+    nav.onglets button[data-nb]:not([data-nb=""]):not([data-nb="0"])::after { content: attr(data-nb); margin-left: 6px; background: var(--attention); color: #1a1200; border-radius: 9px; padding: 0 6px; font-size: 12px; }
+    .vue { display: none; overflow: auto; padding: 12px 14px 28px; flex: 1; }
+    .vue.actif { display: block; }
+    h2 { font-size: 16px; margin: 18px 0 8px; }
+    h2:first-child { margin-top: 2px; }
+    h3 { font-size: 13px; margin: 16px 0 6px; color: var(--doux); text-transform: uppercase; letter-spacing: .04em; }
+    p { margin: 6px 0; }
+    .note { color: var(--doux); font-size: 13px; }
+    .erreur { color: var(--critique); font-weight: 600; }
+    .reussi { color: var(--ok); font-weight: 600; }
+    label { display: flex; flex-direction: column; gap: 3px; color: var(--doux); font-size: 13px; }
+    label.case { flex-direction: row; align-items: center; gap: 7px; color: var(--texte); font-size: 14px; cursor: pointer; min-height: 36px; }
+    .champs { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin: 6px 0; }
+    .champs > label { flex: 1 1 130px; }
+    .champs > label.large { flex-basis: 100%; }
+    input, select, textarea, button, a.bouton { font: inherit; color: var(--texte); background: var(--surface-2); border: 1px solid var(--bord); border-radius: 8px; padding: 6px 10px; min-height: 38px; }
+    input, select, textarea { width: 100%; }
+    textarea { min-height: 64px; resize: vertical; }
+    input[type=checkbox] { width: 20px; height: 20px; min-height: 0; flex: none; accent-color: var(--accent); }
+    input[type=color] { width: 44px; padding: 2px; }
+    input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    button, a.bouton { cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+    button.principal, a.bouton.principal { background: var(--accent); color: #062019; border-color: var(--accent); font-weight: 700; }
+    button.danger { border-color: var(--critique); color: var(--critique); }
+    button.mini { min-height: 30px; padding: 2px 9px; font-size: 13px; }
+    button.actif { border-color: var(--accent); color: var(--accent); font-weight: 650; }
+    button:disabled { opacity: .5; cursor: default; }
+    .fiche { border: 1px solid var(--bord); border-left: 5px solid var(--c, var(--bord)); border-radius: 10px; padding: 9px 12px; margin: 8px 0; background: var(--surface-2); }
+    .fiche.urgente { border-color: var(--critique); border-left-color: var(--critique); }
+    .fiche.terminee { opacity: .7; }
+    .fiche .tete { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+    .fiche .tete b { font-size: 15px; }
+    .fiche .tete .heure { margin-left: auto; color: var(--doux); font-size: 12.5px; white-space: nowrap; }
+    .fiche .corps { white-space: pre-wrap; word-break: break-word; margin: 3px 0; }
+    .fiche .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+    .fiche .actions select { width: auto; flex: 1 1 130px; min-height: 30px; padding: 2px 6px; font-size: 13px; }
+    .entree { border-bottom: 1px solid var(--bord); padding: 7px 0; }
+    .entree .tete { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 12.5px; color: var(--doux); }
+    .entree .tete b { color: var(--texte); }
+    .entree .corps { white-space: pre-wrap; word-break: break-word; margin-top: 2px; }
+    .cadre { border: 1px solid var(--accent); border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+    .bandeau { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--attention); background: rgba(255, 181, 71, .09); margin: 8px 0; }
+    .vide { color: var(--doux); padding: 14px 0; text-align: center; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .plein { margin: 0 auto; width: 100%; max-width: 860px; padding: 18px 16px 40px; overflow: auto; }
+    .plein.etroit { max-width: 460px; }
+    table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+    td, th { padding: 6px 5px; border-bottom: 1px solid var(--bord); text-align: left; vertical-align: top; }
+    .leaflet-container { background: #0b1117; font: inherit; }
+    .leaflet-control-layers { background: var(--surface); color: var(--texte); border: 1px solid var(--bord) !important; }
+    .leaflet-control-layers-toggle { background-color: #f1f5f9; }
+    .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--texte); }
+    .rep-equipe { width: 30px; height: 30px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 5px rgba(0, 0, 0, .7); display: flex; align-items: center; justify-content: center; font-size: 15px; }
+    .rep-equipe.fixe { border-radius: 8px; }
+    .rep-equipe.ancien { border-style: dashed; opacity: .8; }
+    .rep-inter { width: 30px; height: 30px; border-radius: 6px; transform: rotate(45deg); border: 3px solid #fff; background: var(--attention); box-shadow: 0 1px 5px rgba(0, 0, 0, .7); display: flex; align-items: center; justify-content: center; }
+    .rep-inter span { transform: rotate(-45deg); font-weight: 800; color: #1a1200; font-size: 16px; }
+    .rep-inter.urgente { background: var(--critique); }
+    .rep-inter.en-cours { background: #4cc9f0; }
+    .rep-inter.terminee { background: #7d8b97; }
+    .etq { background: rgba(11, 17, 23, .92); border: 1px solid var(--bord); color: #fff; border-radius: 6px; padding: 1px 7px; font-weight: 650; white-space: nowrap; box-shadow: none; }
+    .etq::before { display: none; }
+    #consigne { position: absolute; z-index: 1000; left: 50%; top: 12px; transform: translateX(-50%); background: var(--surface); border: 2px solid var(--accent); border-radius: 10px; padding: 8px 14px; font-weight: 650; max-width: 90%; text-align: center; }
+    @media (max-width: 780px) {
+      main { flex-direction: column; }
+      #carte { flex: 0 0 40vh; }
+      aside { width: 100%; max-width: none; border-left: 0; border-top: 1px solid var(--bord); flex: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="titre">Espace Secours</h1>
+    <span class="pastille" id="genre" hidden></span>
+    <span class="moi" id="moi"></span>
+  </header>
+  <main id="page"></main>
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script src="/secours.js"></script>
+</body>
+</html>

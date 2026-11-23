@@ -2,6 +2,15 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## En préparation
+
+### ⛑️ Espaces Secours : DPS des associations de sécurité civile, volet radio du PCS des communes
+- Nouveaux **espaces séparés de tout le reste de la carte**, créés par l'administrateur (*Outils › ⛑️ Espaces Secours*) : un **DPS** (dispositif prévisionnel de secours : festival, course, fête locale) pour une association de sécurité civile, ou le volet radio d'un **PCS** (plan communal de sauvegarde) pour une commune. Chaque espace a son adresse (`/secours/festival-2027`).
+- Dans un espace : **interventions pointées sur la carte** (à faire, en cours, terminée, urgente), **équipes et postes** avec la **position en direct** du nœud LoRa porté par chaque équipe, **main courante** horodatée exportable en CSV. Pour un DPS, l'effectif prévu est comparé à la catégorie du dispositif (PAPS, DPS-PE, DPS-ME, DPS-GE), à titre de repère.
+- **Remontées du terrain par radio** : un message `INTER chute au virage 4` envoyé par le nœud d'une équipe crée une intervention à sa position ; `FIN` la termine ; `DISPO`, `POSTE`, `PAUSE`, `INDISPO` changent l'état de l'équipe ; tout autre message est noté dans la main courante.
+- **Cloisonnement** : ces espaces n'ont rien de commun avec la section ADRASEC, qui reste réservée aux radioamateurs. Un espace = **un fichier à lui** sur le serveur ; ses **comptes n'existent que dans cet espace** (un secouriste ou un agent communal n'a aucun accès à la carte, au réseau radio ni à l'ADRASEC) ; il ne voit que **les nœuds que l'administrateur lui attribue**, et un nœud n'appartient qu'à un espace. L'administrateur de la carte crée l'espace et nomme son responsable, mais n'entre pas dedans.
+- Les fichiers des espaces ne partent pas dans les sauvegardes de la carte : chaque espace garde ses copies quotidiennes sur le serveur (7 jours). Mode d'emploi : page **Espaces Secours** du wiki.
+
 ## 2.30.1
 
 ### 🖥️ Système 64 bits : vérifié à l'installation
