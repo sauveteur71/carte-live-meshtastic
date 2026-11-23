@@ -70,12 +70,15 @@ async function versions() {
 // ---- 2. Protobufs : nos fichiers comparés au dépôt officiel ----
 const elements = (src) => {
   // « message X », « enum Y », champs « type nom = n; » et valeurs « NOM = n; », rattachés à leur bloc
-  const out = new Set(); const pile = [];
+  // Les options sur plusieurs lignes (« [(meshtastic.enum_value_metadata) = { … }] ») ouvrent des accolades
+  // qui ne ferment pas le bloc : elles sont comptées à part.
+  const out = new Set(); const pile = []; let options = 0;
   for (const l0 of src.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '').split('\n')) {
     const l = l0.trim();
     let m;
-    if ((m = /^(message|enum|oneof)\s+(\w+)\s*\{/.exec(l))) { pile.push(m[2]); out.add(`${m[1]} ${pile.join('.')}`); continue; }
-    if (l.startsWith('}')) { pile.pop(); continue; }
+    if (!options && (m = /^(message|enum|oneof)\s+(\w+)\s*\{/.exec(l))) { pile.push(m[2]); out.add(`${m[1]} ${pile.join('.')}`); continue; }
+    if (!options && l.startsWith('}')) { pile.pop(); continue; }
+    options = Math.max(0, options + (l.match(/\{/g) || []).length - (l.match(/\}/g) || []).length);
     if ((m = /^(?:optional\s+|repeated\s+)?([\w.]+)\s+(\w+)\s*=\s*(\d+)/.exec(l))) out.add(`${pile.join('.')}.${m[2]} = ${m[3]} (${m[1]})`);
     else if ((m = /^(\w+)\s*=\s*(-?\d+)/.exec(l))) out.add(`${pile.join('.')}.${m[1]} = ${m[2]}`);
   }
