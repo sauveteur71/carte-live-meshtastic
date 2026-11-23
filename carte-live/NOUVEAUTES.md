@@ -2,7 +2,7 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
-## En préparation
+## 2.31.0
 
 ### ⛑️ Espaces Secours : DPS des associations de sécurité civile, volet radio du PCS des communes
 - Nouveaux **espaces séparés de tout le reste de la carte**, créés par l'administrateur (*Outils › ⛑️ Espaces Secours*) : un **DPS** (dispositif prévisionnel de secours : festival, course, fête locale) pour une association de sécurité civile, ou le volet radio d'un **PCS** (plan communal de sauvegarde) pour une commune. Chaque espace a son adresse (`/secours/festival-2027`).
@@ -11,6 +11,9 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 - **Vers le terrain, par radio** : les responsables et le poste de coordination écrivent à une équipe (ou à toutes, l'une après l'autre) depuis la main courante, et envoient une intervention avec sa position et son code DFCI. Toujours en **message direct** au nœud de l'équipe, jamais sur un canal ; l'accusé (*envoyé*, *relayé*, *reçu*, *non remis*) s'affiche dans la main courante, et le texte n'est pas recopié dans les messages de la carte.
 - **Cloisonnement** : ces espaces n'ont rien de commun avec la section ADRASEC, qui reste réservée aux radioamateurs. Un espace = **un fichier à lui** sur le serveur ; ses **comptes n'existent que dans cet espace** (un secouriste ou un agent communal n'a aucun accès à la carte, au réseau radio ni à l'ADRASEC) ; il ne voit que **les nœuds que l'administrateur lui attribue**, et un nœud n'appartient qu'à un espace. L'administrateur de la carte crée l'espace et nomme son responsable, mais n'entre pas dedans.
 - Les fichiers des espaces ne partent pas dans les sauvegardes de la carte : chaque espace garde ses copies quotidiennes sur le serveur (7 jours). Mode d'emploi : page **Espaces Secours** du wiki.
+
+### 📱 Android : l'appli ne télécharge plus elle-même la mise à jour
+- Une mise à jour disponible n'est plus téléchargée puis installée par l'appli : un bouton ouvre simplement sa page de version dans le navigateur. Évite le signalement « Appli dangereuse bloquée » de Play Protect, qui repérait ce comportement comme typique d'une appli installant d'autres applis.
 
 ## 2.30.1
 
