@@ -2,7 +2,7 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
-## En préparation
+## 2.32.0
 
 ### ⛑️ Espaces Secours : plusieurs organisations, nœuds choisis dans une liste, options
 - **Plusieurs organisations dans un même espace** : Croix-Rouge et Protection Civile sur le même festival, services techniques et réserve communale dans un PCS. La liste propose les associations agréées les plus courantes (Croix-Rouge française, Protection Civile, UDSP, FFSS, Croix-Blanche, SNSM, UNASS, Ordre de Malte France…), l'ADRASEC quand elle prête son concours, et un nom libre. Chaque nœud et chaque équipe se range dans une organisation ; l'onglet Équipes se filtre par organisation. C'est un rangement : tout l'espace reste commun.
