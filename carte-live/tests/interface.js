@@ -1109,7 +1109,7 @@ async function essaiSecours(navig, cookie) {
   sd.attendus = await dx.page.evaluate(() => [...document.querySelectorAll('.gn-attente')].map((b) => b.dataset.nom).join());
   await dx.page.click('.gn-attente[data-nom="PC01"]'); await dx.page.waitForTimeout(900);
   sd.apres = await dx.page.evaluate(() => [...document.querySelectorAll('.gn-attente')].map((b) => b.dataset.nom).join());
-  if (sd.ouvert && sd.gestion && sd.noeud && sd.lignes >= 1 && sd.attendus === 'PC01,PS01' && sd.apres === 'PS01') ok('responsable aussi administrateur de la carte : nœuds de l’espace choisis et attendus depuis l’espace, sans repasser par la gestion');
+  if (sd.ouvert && sd.gestion && sd.noeud && sd.lignes >= 1 && sd.attendus === 'PS01,PC01' && sd.apres === 'PS01') ok('responsable aussi administrateur de la carte : nœuds de l’espace choisis et attendus depuis l’espace, sans repasser par la gestion');
   else { ko('sélecteur de nœuds dans l’espace : ' + JSON.stringify(sd)); await capture(dx.page, 'secours-selecteur-espace'); }
   bilanErreurs(dx.erreurs, 'Sélecteur de nœuds dans un espace');
   await deux.close();
