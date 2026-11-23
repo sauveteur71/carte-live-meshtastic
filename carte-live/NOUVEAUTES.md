@@ -2,6 +2,22 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## En préparation
+
+### ⛑️ Espaces Secours : plusieurs organisations, nœuds choisis dans une liste, options
+- **Plusieurs organisations dans un même espace** : Croix-Rouge et Protection Civile sur le même festival, services techniques et réserve communale dans un PCS. La liste propose les associations agréées les plus courantes (Croix-Rouge française, Protection Civile, UDSP, FFSS, Croix-Blanche, SNSM, UNASS, Ordre de Malte France…), l'ADRASEC quand elle prête son concours, et un nom libre. Chaque nœud et chaque équipe se range dans une organisation ; l'onglet Équipes se filtre par organisation. C'est un rangement : tout l'espace reste commun.
+- **Nœuds choisis dans la liste de la carte** (*Outils › ⛑️ Espaces Secours*) : on cherche un nœud par son nom ou son numéro, on coche, on attribue, au lieu de taper les numéros. Un nœud **pas encore allumé** s'ajoute par son **nom court** : il rejoint l'espace dès que la carte le voit.
+- **Points de rassemblement** dans tous les espaces (onglet 🚩 Repères) : posés sur la carte, vus de tous, et envoyés aux équipes par radio avec la position et le code DFCI : « tout le monde se retrouve ici ».
+- **Options activables par espace** (⚙️ Gestion) : messages-types, canal réservé, points de passage Meshtastic reçus → interventions, trajets des équipes, batterie des nœuds, priorités et tableau de bord, repères du PCS (zones à évacuer, centres d'accueil, points d'eau, accès des secours, dangers), rapport de fin (page figée à garder ou imprimer), alerte quand le module radio de la carte tombe, alerte par e-mail d'une intervention urgente.
+- **Canal réservé** : l'administrateur de la carte peut réserver un canal du module radio à un espace ; « Toutes les équipes » part alors en un seul message sur ce canal.
+- **Séparation côté réception** : les messages et points de passage des nœuds d'un espace, et ce qui passe sur son canal réservé, n'apparaissent plus dans les messages de la carte (la position des nœuds reste visible sur la carte du réseau).
+- Les accusés radio sont gardés dans le fichier de l'espace : ils restent affichés après un redémarrage de la carte.
+
+### 📡 Section ADRASEC : points de rassemblement et options
+- **Points de rassemblement** (onglet 👥 Équipes) : posés par tout membre, vus de toute la section, diffusés par radio (point de passage et message, avec position et code DFCI) sur le canal choisi.
+- **Options de la section** (⚙️ Gestion, président) : batterie des nœuds des membres, alerte quand le module radio de la carte tombe, messages aux équipes par radio avec messages-types et accusé, trajets des membres.
+- Correction : le choix du canal pour diffuser la position estimée d'une balise affichait toujours « module radio non relié ».
+
 ## 2.31.0
 
 ### ⛑️ Espaces Secours : DPS des associations de sécurité civile, volet radio du PCS des communes

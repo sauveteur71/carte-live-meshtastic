@@ -127,7 +127,8 @@ function creerReseau(stockage, config) {
         q.vu.run({ num: gw, heure, sauts: null, snr: null, rssi: null });
       }
 
-      const garderTexte = evt.port === 'texte' && (config.canauxTexte.length === 0 || config.canauxTexte.includes(evt.canal));
+      // evt.reserve : message revenu à un espace Secours (ses nœuds, son canal réservé) : la carte n'en garde pas le texte
+      const garderTexte = evt.port === 'texte' && !evt.reserve && (config.canauxTexte.length === 0 || config.canauxTexte.includes(evt.canal));
       const r = q.insererPaquet.get({
         idPaquet: evt.idPaquet,
         de: evt.de,

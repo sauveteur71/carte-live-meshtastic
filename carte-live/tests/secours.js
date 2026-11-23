@@ -20,11 +20,16 @@ function monter() {
   // Faux module radio : garde ce qui part, numérote les paquets, accusé réglable
   const partis = [], accuses = new Map();
   const radio = { panne: null, connecte: () => !radio.panne,
-    envoyerTexte: ({ texte, dest }, auteur) => { if (radio.panne) throw new Error(radio.panne); const id = partis.length + 1; partis.push({ id, texte, dest, auteur }); accuses.set(id, 'envoye'); return { id, dest }; },
-    etatEnvoi: (n) => (accuses.has(n) ? { statut: accuses.get(n) } : null) };
+    envoyerTexte: ({ texte, dest, canal }, auteur) => { if (radio.panne) throw new Error(radio.panne); const id = partis.length + 1; partis.push({ id, texte, dest, canal, auteur }); accuses.set(id, 'envoye'); return { id, dest }; },
+    etatEnvoi: (n) => (accuses.has(n) ? { statut: accuses.get(n) } : null),
+    canaux: () => [{ index: 0, nom: 'LongFast' }, { index: 1, nom: 'Secours43' }, { index: 2, nom: 'Mairie' }] };
+  // Ce que la carte sait de ses nœuds (sélecteur, batterie, trajets) et son serveur d'e-mails, simulés
+  const carte = { noeuds: [{ num: N1, court: 'ALPH', long: 'Binôme Alpha', vu: 5 }, { num: N2, court: 'MAIR', long: 'Mairie', vu: 4 }, { num: N3, court: 'PS01', long: 'Poste 1', vu: 3 }], sante: new Map(), traces: new Map(), courriels: [], smtp: true };
   const secours = creerSecours({ config: { fichierBase: path.join(dossier, 'carte-live.db') }, journal: (...a) => journal.push(a.join(' ')), radio, espacement: 5,
+    noeudsCarte: () => carte.noeuds, santeDe: (n) => carte.sante.get(n >>> 0) || null, traceDe: (n, depuis) => (carte.traces.get(n >>> 0) || []).filter((p) => p.heure >= depuis),
+    courriel: { actif: () => carte.smtp, envoyer: async (m) => { carte.courriels.push(m); return true; } },
     positionDe: (n) => positions.get(n >>> 0) || null, nomDe: (n) => (n >>> 0 === N1 ? 'Binôme Alpha' : null) });
-  return { dossier, secours, positions, journal, radio, partis, accuses };
+  return { dossier, secours, positions, journal, radio, partis, accuses, carte };
 }
 const festival = (secours, plus = {}) => secours.creer({ code: 'festival-2027', nom: 'Festival du Velay', genre: 'dps', responsable: { identifiant: 'chef.dispositif', motDePasse: 'motdepasse-1' }, noeuds: [idNoeud(N1)], ...plus }, 'admin');
 const commune = (secours, plus = {}) => secours.creer({ code: 'pcs-commune', nom: 'PCS de la commune', genre: 'pcs', responsable: { identifiant: 'mairie', motDePasse: 'motdepasse-2' }, noeuds: [idNoeud(N2)], ...plus }, 'admin');
@@ -250,4 +255,243 @@ test('suppression : fichier mis à la corbeille, adresse libérée ; les espaces
   const C2 = apres.espace('pcs-commune');
   assert.ok(C2.etat(C2.comptes.connecter('mairie', 'motdepasse-2')).mainCourante.some((m) => /Ouverture du poste de commandement/.test(m.texte)));
   apres.fermer();
+});
+
+test('organisations et sélecteur : nœuds choisis dans la liste de la carte, rangés par organisation, attendus par leur nom court', () => {
+  const { secours, carte } = monter();
+  festival(secours, { noeuds: [], organisations: ['Croix-Rouge française'] }); commune(secours);
+  const F = secours.espace('festival-2027');
+  assert.deepStrictEqual(F.organisations().map((o) => o.nom), ['Croix-Rouge française']);
+  const crf = F.organisations()[0].id;
+  // Le sélecteur montre les nœuds de la carte et l'espace qui les a déjà ; l'ADRASEC figure parmi les organisations proposées
+  let sel = secours.selecteur();
+  assert.deepStrictEqual(sel.noeuds.map((n) => [n.id, n.court, n.espace]), [['!a1b2c3d4', 'ALPH', null], ['!0badcafe', 'MAIR', 'pcs-commune'], ['!12345678', 'PS01', null]]);
+  assert.ok(sel.organisations.dps.includes('ADRASEC') && sel.organisations.dps.includes('Ordre de Malte France') && sel.organisations.pcs.includes('Services techniques'));
+  assert.deepStrictEqual(sel.canaux, ['Secours43', 'Mairie'], 'le canal principal ne se réserve pas');
+  // Une deuxième organisation et ses nœuds dans le même appel ; un nœud d'un autre espace est refusé
+  secours.modifier('festival-2027', { organisation: { nom: 'Protection Civile (ADPC, FNPC)' }, attribuer: { noeuds: ['!12345678'], organisation: 'nouvelle' } }, 'admin');
+  secours.modifier('festival-2027', { attribuer: { noeuds: [idNoeud(N1)], organisation: crf } }, 'admin');
+  assert.throws(() => secours.modifier('festival-2027', { attribuer: { noeuds: [idNoeud(N2)] } }, 'admin'), /déjà attribué à l’espace « PCS de la commune »/);
+  assert.throws(() => secours.modifier('festival-2027', { organisation: { nom: 'croix-rouge française' } }, 'admin'), /existe déjà/);
+  assert.throws(() => secours.modifier('festival-2027', { attribuer: { noeuds: [idNoeud(N1)], organisation: 'inconnue' } }, 'admin'), /Organisation inconnue/);
+  const pc = F.organisations().find((o) => /Protection/.test(o.nom)).id;
+  assert.deepStrictEqual(F.lignesNoeuds().map((n) => [n.id, n.organisation]), [['!12345678', pc], ['!a1b2c3d4', crf]]);
+  // Une équipe prend l'organisation de son nœud ; le responsable peut la changer
+  const chef = F.comptes.lister()[0];
+  const eq = F.majEquipe(null, { nom: 'Poste 1', genre: 'poste', noeud: '!12345678' });
+  assert.strictEqual(eq.organisation, pc);
+  assert.strictEqual(F.majEquipe(eq.id, { organisation: crf }).organisation, crf);
+  assert.deepStrictEqual(F.etat(chef).organisations.map((o) => o.nom), ['Croix-Rouge française', 'Protection Civile (ADPC, FNPC)']);
+  // Nœud pas encore allumé : attendu par son nom court, attribué quand la carte le voit (un seul nœud de ce nom)
+  secours.modifier('festival-2027', { attendre: { nom: 'VPSP', organisation: crf } }, 'admin');
+  assert.throws(() => secours.modifier('pcs-commune', { attendre: { nom: 'vpsp' } }, 'admin'), /déjà attendu par l’espace « Festival du Velay »/);
+  assert.throws(() => secours.modifier('festival-2027', { attendre: { nom: 'deux mots' } }, 'admin'), /pas d’espace/);
+  assert.deepStrictEqual(secours.lister().find((e) => e.code === 'festival-2027').attentes.map((a) => a.nom), ['VPSP']);
+  const N4 = 0x0000beef, N5 = 0x0000cafe;
+  carte.noeuds.push({ num: N4, court: 'vpsp', long: 'Véhicule', vu: 9 }, { num: N5, court: 'VPSP', long: 'Homonyme', vu: 9 });
+  secours.resoudreAttentes();
+  assert.ok(!F.possedeNoeud(N4) && !F.possedeNoeud(N5), 'deux nœuds portent ce nom : rien n’est attribué');
+  carte.noeuds.pop();
+  secours.resoudreAttentes();
+  assert.ok(F.possedeNoeud(N4));
+  assert.strictEqual(F.lignesNoeuds().find((n) => n.num === N4).organisation, crf);
+  assert.strictEqual(F.lignesAttentes().length, 0);
+  // Un nom attendu déjà porté par un nœud d'un autre espace n'est pas pris
+  secours.modifier('festival-2027', { attendre: { nom: 'MAIR' } }, 'admin');
+  assert.ok(!F.possedeNoeud(N2) && F.lignesAttentes().length === 1);
+  secours.modifier('festival-2027', { retirerAttente: 'mair' }, 'admin');
+  assert.strictEqual(F.lignesAttentes().length, 0);
+  // Organisation retirée : nœuds et équipes restent, sans organisation ; nœud retiré : l'équipe le perd
+  secours.modifier('festival-2027', { organisation: { id: crf, supprimer: true } }, 'admin');
+  assert.strictEqual(F.lignesNoeuds().find((n) => n.num === N1).organisation, null);
+  assert.strictEqual(F.etat(chef).equipes[0].organisation, null);
+  secours.modifier('festival-2027', { retirer: ['!12345678'] }, 'admin');
+  assert.ok(!F.possedeNoeud(N3));
+  assert.strictEqual(F.etat(chef).equipes[0].noeud, null);
+  secours.fermer();
+});
+
+test('options de l’espace : activables par genre, messages-types, priorités, alerte e-mail', async () => {
+  const { secours, carte } = monter();
+  festival(secours); commune(secours);
+  const F = secours.espace('festival-2027'), P = secours.espace('pcs-commune');
+  const chef = F.comptes.lister()[0], maire = P.comptes.lister()[0];
+  // Les repères du PCS ne sont proposés qu'à un PCS ; chaque espace règle les siennes
+  assert.ok(!('couches' in F.etat(chef).options) && P.etat(maire).options.couches === true);
+  assert.deepStrictEqual(Object.keys(F.etat(chef).catalogueOptions).sort(), ['alerteRadio', 'batterie', 'canal', 'courriel', 'macros', 'points', 'priorites', 'rapport', 'trajets']);
+  F.reglages({ options: { trajets: false, couches: true, inconnue: true } });
+  assert.strictEqual(F.option('trajets'), false);
+  assert.ok(!F.option('couches') && P.option('trajets'), 'option d’un autre genre ignorée ; l’autre espace n’a pas bougé');
+  // Messages-types : ceux du genre par défaut, puis ceux du responsable
+  assert.ok(F.etat(chef).macros.length >= 3);
+  F.reglages({ macros: ['Rejoignez le PC', '', '  Pause repas à 13 h  '] });
+  assert.deepStrictEqual(F.etat(chef).macros, ['Rejoignez le PC', 'Pause repas à 13 h']);
+  assert.throws(() => F.reglages({ macros: Array.from({ length: 13 }, (_, i) => 'm' + i) }), /12 messages-types/);
+  // Priorités : « urgente » vaut priorité 1 ; la case à cocher d'avant reste comprise
+  const a = F.majIntervention(null, { titre: 'Entorse', priorite: 3 }, 'chef');
+  assert.deepStrictEqual([a.priorite, a.urgente], [3, 0]);
+  assert.deepStrictEqual([F.majIntervention(a.id, { urgente: true }, 'chef').priorite, F.majIntervention(a.id, { urgente: false }, 'chef').priorite], [1, 2]);
+  assert.throws(() => F.majIntervention(a.id, { priorite: 7 }, 'chef'), /Priorité inconnue/);
+  // Alerte e-mail : option éteinte par défaut ; adresses contrôlées ; un envoi par intervention qui devient urgente
+  F.majIntervention(null, { titre: 'Sans alerte', priorite: 1 }, 'chef');
+  await new Promise((ok) => setTimeout(ok, 20));
+  assert.strictEqual(carte.courriels.length, 0);
+  assert.throws(() => F.reglages({ courriels: 'pas-une-adresse' }), /Adresse e-mail invalide/);
+  assert.throws(() => F.reglages({ courriels: 'a@x.fr b@x.fr c@x.fr d@x.fr e@x.fr f@x.fr' }), /5 adresses/);
+  F.reglages({ options: { courriel: true }, courriels: 'PC@exemple.fr, astreinte@exemple.fr' });
+  assert.deepStrictEqual(F.etat(chef).courriel, { disponible: true, adresses: ['pc@exemple.fr', 'astreinte@exemple.fr'] });
+  const u = F.majIntervention(null, { titre: 'Arrêt cardiaque', genre: 'detresse', priorite: 1, lat: 45.04, lon: 3.88 }, 'chef');
+  F.majIntervention(u.id, { detail: 'DAE en cours' }, 'chef'); // déjà urgente : pas de second e-mail
+  F.majIntervention(a.id, { priorite: 1 }, 'chef'); // le devient : un e-mail
+  await new Promise((ok) => setTimeout(ok, 20));
+  assert.strictEqual(carte.courriels.length, 2);
+  assert.strictEqual(carte.courriels[0].a, 'pc@exemple.fr, astreinte@exemple.fr');
+  assert.match(carte.courriels[0].sujet, /^\[Festival du Velay\] Urgent : Arrêt cardiaque$/);
+  assert.match(carte.courriels[0].texte, /Position : 45\.04000, 3\.88000 \(DFCI /);
+  assert.ok(F.etat(chef).mainCourante.some((m) => /Alerte e-mail envoyée \(2 adresses\) : Arrêt cardiaque/.test(m.texte)));
+  // Envoi d'e-mails non réglé sur la carte : rien ne part, l'espace le sait
+  carte.smtp = false;
+  F.majIntervention(null, { titre: 'Autre urgence', priorite: 1 }, 'chef');
+  await new Promise((ok) => setTimeout(ok, 20));
+  assert.strictEqual(carte.courriels.length, 2);
+  assert.strictEqual(F.etat(chef).courriel.disponible, false);
+  assert.strictEqual(F.etat(F.creerCompte({ identifiant: 'equipier', motDePasse: 'motdepasse-9' })).courriel, undefined, 'les adresses ne sont montrées qu’aux responsables');
+  secours.fermer();
+});
+
+test('ce qui revient à un espace : points de passage, canal réservé, et rien pour la carte', () => {
+  const { secours, partis, journal } = monter();
+  festival(secours); commune(secours);
+  const F = secours.espace('festival-2027'), P = secours.espace('pcs-commune');
+  const chef = F.comptes.lister()[0], maire = P.comptes.lister()[0];
+  const alpha = F.majEquipe(null, { nom: 'Binôme Alpha', genre: 'binome', noeud: idNoeud(N1) });
+  // recu() dit à la carte si le paquet revient à un espace (elle ne le montre alors pas à ses membres)
+  assert.strictEqual(secours.recu({ port: 'texte', de: N3, texte: 'bonjour à tous', canal: 'LongFast' }), false);
+  assert.strictEqual(secours.recu({ port: 'texte', de: N1, texte: 'DISPO', canal: 'LongFast' }), true);
+  assert.strictEqual(secours.recu({ port: 'position', de: N1, position: { lat: 45, lon: 3 } }), false, 'les positions restent à la carte');
+  // Point de passage posé par le nœud d'une équipe : une intervention ; déplacé : mise à jour ; expiré : terminée
+  const point = (plus) => ({ port: 'waypoint', de: N1, pointRepere: { id: 4242, nom: '🚑 Chute au virage 4', description: 'jambe', lat: 45.051, lon: 3.901, expire: 0, ...plus } });
+  assert.strictEqual(secours.recu(point()), true);
+  secours.recu(point()); // reçu par une autre passerelle
+  let x = F.etat(chef).interventions;
+  assert.strictEqual(x.length, 1);
+  assert.deepStrictEqual([x[0].titre, x[0].detail, x[0].lat, x[0].equipe, x[0].origine, x[0].statut], ['Chute au virage 4', 'jambe', 45.051, alpha.id, 'radio', 'en-cours']);
+  secours.recu(point({ lat: 45.06 }));
+  x = F.etat(chef).interventions;
+  assert.deepStrictEqual([x.length, x[0].lat], [1, 45.06]);
+  secours.recu(point({ lat: 45.06, expire: 1 }));
+  assert.strictEqual(F.etat(chef).interventions[0].statut, 'terminee');
+  assert.strictEqual(secours.recu({ port: 'waypoint', de: N3, pointRepere: { id: 1, nom: 'x', lat: 45, lon: 3 } }), false, 'point d’un nœud hors espace : laissé à la carte');
+  assert.strictEqual(P.etat(maire).interventions.length, 0);
+  // Option éteinte : le point n'ouvre rien, mais il reste hors de la carte (il vient d'un nœud de l'espace)
+  F.reglages({ options: { points: false } });
+  assert.strictEqual(secours.recu(point({ id: 77, nom: 'Autre' })), true);
+  assert.strictEqual(F.etat(chef).interventions.length, 1);
+  // Canal réservé : il doit exister sur le module, ne sert qu'à un espace, jamais le canal principal
+  assert.throws(() => secours.modifier('festival-2027', { canal: 'Inconnu' }, 'admin'), /n’a pas de canal « Inconnu »/);
+  assert.throws(() => secours.modifier('festival-2027', { canal: 'LongFast' }, 'admin'), /canal principal/);
+  secours.modifier('festival-2027', { canal: 'secours43' }, 'admin');
+  assert.throws(() => secours.modifier('pcs-commune', { canal: 'Secours43' }, 'admin'), /déjà réservé à l’espace « Festival du Velay »/);
+  assert.deepStrictEqual(F.etat(chef).canal, { nom: 'Secours43', utilisable: true });
+  // Un nœud inconnu de l'espace qui parle sur son canal réservé : noté dans la main courante, caché à la carte
+  assert.strictEqual(secours.recu({ port: 'texte', de: N3, texte: 'ici le renfort', canal: 'Secours43' }), true);
+  const mc = F.etat(chef).mainCourante[0];
+  assert.deepStrictEqual([mc.texte, mc.auteur, mc.origine], ['ici le renfort', '!12345678 (nœud hors espace)', 'radio']);
+  assert.strictEqual(secours.recu({ port: 'texte', de: N3, texte: 'ici le renfort', canal: 'Mairie' }), false);
+  // Le nœud d'un autre espace qui parle sur ce canal : son message reste à son espace, pas à celui du canal
+  assert.strictEqual(secours.recu({ port: 'texte', de: N2, texte: 'la mairie écoute', canal: 'Secours43' }), true);
+  assert.ok(P.etat(maire).mainCourante.some((m) => m.texte === 'la mairie écoute') && !F.etat(chef).mainCourante.some((m) => m.texte === 'la mairie écoute'));
+  // « Toutes les équipes » : un seul message sur le canal ; une équipe précise : toujours un message direct
+  partis.length = 0;
+  assert.deepStrictEqual(F.envoyer(chef, { texte: 'Point de situation à 15 h' }).destinataires, ['toutes les équipes (canal Secours43)']);
+  F.envoyer(chef, { texte: 'Pour toi seul', equipe: alpha.id });
+  assert.deepStrictEqual(partis.map((p) => [p.canal, p.dest, p.texte]), [[1, undefined, 'Point de situation à 15 h'], [undefined, N1, 'Pour toi seul']]);
+  assert.match(F.etat(chef).mainCourante[1].texte, /^→ canal Secours43 : Point de situation/);
+  // Option « canal » éteinte : retour aux messages directs, équipe par équipe
+  F.reglages({ options: { canal: false } });
+  partis.length = 0;
+  F.envoyer(chef, { texte: 'Sans canal' });
+  assert.deepStrictEqual(partis.map((p) => [p.canal, p.dest]), [[undefined, N1]]);
+  secours.modifier('festival-2027', { canal: '' }, 'admin');
+  assert.strictEqual(F.etat(chef).canal.nom, null);
+  assert.ok(journal.some((l) => /canal réservé de l’espace festival-2027 : aucun/.test(l)));
+  secours.fermer();
+});
+
+test('repères : point de rassemblement partout, repères d’un PCS en option, envoi aux équipes', () => {
+  const { secours, partis } = monter();
+  festival(secours); commune(secours);
+  const F = secours.espace('festival-2027'), P = secours.espace('pcs-commune');
+  const chef = F.comptes.lister()[0], maire = P.comptes.lister()[0];
+  assert.deepStrictEqual(Object.keys(F.etat(chef).listes.reperes), ['rassemblement']);
+  assert.deepStrictEqual(Object.keys(P.etat(maire).listes.reperes), ['rassemblement', 'zone', 'accueil', 'eau', 'acces', 'danger']);
+  assert.throws(() => F.majRepere(null, { genre: 'rassemblement', nom: 'Parking' }, 'chef'), /Pointez le repère/);
+  const r = F.majRepere(null, { genre: 'rassemblement', nom: 'Parking nord', detail: 'côté portail', lat: 45.0421, lon: 3.8853 }, 'chef');
+  assert.throws(() => F.majRepere(null, { genre: 'zone', nom: 'x', contour: [[45, 3], [45.1, 3], [45.1, 3.1]] }, 'chef'), /Type de repère inconnu/);
+  assert.deepStrictEqual(F.etat(chef).reperes.map((x) => [x.nom, x.genre, x.lat]), [['Parking nord', 'rassemblement', 45.0421]]);
+  // « Tout le monde se retrouve ici » : nom, position et code DFCI partent aux équipes
+  F.majEquipe(null, { nom: 'Binôme Alpha', genre: 'binome', noeud: idNoeud(N1) });
+  F.diffuserRepere(r.id, {}, chef);
+  assert.match(partis[0].texte, /^RASSEMBLEMENT Parking nord · 45\.04210,3\.88530 DFCI \S+ · côté portail$/);
+  assert.strictEqual(partis[0].dest, N1);
+  // PCS : une zone à évacuer se dessine (3 points au moins), son centre sert de position
+  assert.throws(() => P.majRepere(null, { genre: 'zone', nom: 'Quartier bas', contour: [[45, 3], [45.1, 3]] }, 'mairie'), /3 à 60 points/);
+  const z = P.majRepere(null, { genre: 'zone', nom: 'Quartier bas', contour: [[45, 3], [45.1, 3], [45.1, 3.3]] }, 'mairie');
+  assert.deepStrictEqual([z.contour.length, z.lat, z.lon], [3, 45.066667, 3.1]);
+  P.majRepere(null, { genre: 'accueil', nom: 'Gymnase', lat: 45.07, lon: 3.2 }, 'mairie');
+  // Option « Repères du PCS » éteinte : il ne reste que les points de rassemblement, rien n'est effacé
+  P.reglages({ options: { couches: false } });
+  assert.strictEqual(P.etat(maire).reperes.length, 0);
+  assert.throws(() => P.diffuserRepere(z.id, {}, maire), /Repère inconnu/);
+  P.reglages({ options: { couches: true } });
+  assert.strictEqual(P.etat(maire).reperes.length, 2);
+  P.majRepere(z.id, { supprimer: true }, 'mairie');
+  assert.deepStrictEqual(P.etat(maire).reperes.map((x) => x.nom), ['Gymnase']);
+  assert.strictEqual(F.etat(chef).reperes.length, 1, 'les repères d’un espace ne passent pas dans l’autre');
+  secours.fermer();
+});
+
+test('suivi des nœuds : batterie, trajet, radio de la carte qui tombe, accusés retenus, rapport de fin', () => {
+  const { secours, carte, accuses, radio } = monter();
+  festival(secours);
+  const F = secours.espace('festival-2027'), chef = F.comptes.lister()[0];
+  const alpha = F.majEquipe(null, { nom: 'Binôme Alpha', genre: 'binome', noeud: idNoeud(N1), effectif: 2 });
+  assert.strictEqual(F.etat(chef).equipes[0].sante, null);
+  carte.sante.set(N1, { batterie: 17.6, tension: 3.512, heure: 99 });
+  assert.deepStrictEqual(F.etat(chef).equipes[0].sante, { batterie: 18, tension: 3.51, heure: 99 });
+  F.reglages({ options: { batterie: false } });
+  assert.strictEqual(F.etat(chef).equipes[0].sante, null);
+  // Trajet : les positions gardées par la carte pour ce nœud, sur la période demandée
+  const t = Date.now();
+  carte.traces.set(N1, [{ lat: 45, lon: 3.9, heure: t - 30 * 3600000 }, { lat: 45.01, lon: 3.91, heure: t - 3600000 }, { lat: 45.02, lon: 3.92, heure: t - 60000 }]);
+  assert.deepStrictEqual(F.trace(alpha.id, 6).points.map((p) => p[0]), [45.01, 45.02]);
+  assert.throws(() => F.trace('inconnue', 6), /Équipe inconnue/);
+  F.reglages({ options: { trajets: false } });
+  assert.throws(() => F.trace(alpha.id, 6), /pas activés/);
+  // Le module radio de la carte tombe puis revient : la main courante le note
+  secours.veilleRadio();
+  radio.panne = 'Module radio non connecté'; secours.veilleRadio(); secours.veilleRadio();
+  radio.panne = null; secours.veilleRadio();
+  assert.deepStrictEqual(F.etat(chef).mainCourante.filter((m) => m.origine === 'systeme').map((m) => /déconnecté/.test(m.texte)), [false, true]);
+  assert.strictEqual(F.etat(chef).radio.tombee, false);
+  radio.panne = 'Module radio non connecté'; secours.veilleRadio();
+  assert.strictEqual(F.etat(chef).radio.tombee, true, 'bandeau : le module était connecté et ne l’est plus');
+  radio.panne = null; secours.veilleRadio();
+  // Accusé retenu dans le fichier de l'espace : il survit à l'oubli du module
+  F.envoyer(chef, { texte: 'Rejoignez le PC', equipe: alpha.id });
+  const envoi = F.etat(chef).mainCourante[0];
+  accuses.set(envoi.envoi, 'recu');
+  assert.strictEqual(F.etat(chef).mainCourante[0].accuse, 'recu');
+  accuses.clear();
+  assert.strictEqual(F.etat(chef).mainCourante[0].accuse, 'recu');
+  // Rapport de fin : une page figée avec équipes, interventions, main courante et accusés
+  const x = F.majIntervention(null, { titre: 'Malaise <stand 3>', genre: 'malaise', priorite: 1, equipe: alpha.id, lat: 45.04, lon: 3.88 }, 'chef');
+  F.majIntervention(x.id, { statut: 'terminee' }, 'chef');
+  const r = F.rapport();
+  assert.match(r.nom, /^rapport-festival-2027-\d{4}-\d{2}-\d{2}\.html$/);
+  for (const attendu of ['Festival du Velay', 'Binôme Alpha', 'Malaise &lt;stand 3&gt;', 'Urgente', '→ Binôme Alpha : Rejoignez le PC', '<td>reçu</td>', 'DFCI ']) assert.ok(r.html.includes(attendu), attendu);
+  assert.ok(!r.html.includes('<stand 3>') && !/<script/i.test(r.html));
+  F.reglages({ options: { rapport: false } });
+  assert.throws(() => F.rapport(), /n’est pas activé/);
+  secours.fermer();
 });

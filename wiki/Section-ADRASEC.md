@@ -95,6 +95,25 @@ Dans l'onglet **📡 Radiogoniométrie**, bloc **Diffusion aux équipes** (reche
 - **📡 Par radio LoRa (zone blanche)** : la carte envoie, sur le canal choisi (de préférence le canal chiffré des équipes), un **point de passage « 🎯 Balise estimée »** qui s'affiche sur la carte de l'appli Meshtastic de chaque équipier, et un **message texte** (coordonnées, locator, DFCI, taille de la zone). **Automatique** : renvoyé à chaque nouveau relevé si l'estimation bouge de plus de 300 m (au plus une fois par minute). À la clôture, le point est retiré et un message de fin part.
 - **🔗 Lien terrain (réseau mobile)** : un lien secret, à envoyer par SMS ou à faire scanner (QR code), ouvre la carte de la recherche **sans compte et en lecture seule** : relèvements, position estimée, ellipse, équipes. Avec le GPS du téléphone, elle donne **la distance et le cap** jusqu'à la balise, et ouvre l'appli GPS du téléphone. Le lien s'éteint à la clôture de la recherche (48 h au plus) ou d'un clic sur « Désactiver ». La carte doit être joignable depuis le téléphone (adresse en …ts.net avec Tailscale, ou adresse publique).
 
+## Points de rassemblement
+
+Onglet **👥 Équipes › 🟢 Points de rassemblement** : **Nouveau point de rassemblement**, son nom, **📍 Pointer sur la carte**, Enregistrer. Tout membre de la section peut en poser un (un chef d'équipe sur le terrain n'attend pas le président) ; tous les membres le voient sur la carte.
+
+**📻 Diffuser** l'envoie aux équipes par radio, sur le canal choisi : un point de passage (il s'affiche dans l'application Meshtastic des équipes) et un message avec la position et le code DFCI : « tout le monde se retrouve ici ». L'envoi est noté dans la main courante. Tous les nœuds qui ont ce canal le reçoivent : choisissez le canal chiffré de la section plutôt que le canal public.
+
+## Options de la section
+
+Dans **⚙️ Gestion › Options**, le président active ce dont sa section a besoin :
+
+| Option | Ce qu'elle apporte |
+|---|---|
+| **Batterie des nœuds** | Niveau de batterie du nœud de chaque membre (onglet Équipes) ; à 20 % ou moins, il est signalé. |
+| **Alerte si la radio de la carte tombe** | Un bandeau rouge et une ligne de main courante quand le module radio de la carte se déconnecte, puis quand il revient. |
+| **Messages aux équipes par radio** | Dans la main courante, un bloc **📻 Écrire aux équipes par radio** : canal, message court ou message-type (liste modifiable). L'accusé (envoyé, relayé, reçu, non remis) s'affiche sur la ligne. |
+| **Trajets des membres** | Bouton **〰** d'un membre : le chemin de son nœud sur les 12 dernières heures. |
+
+Les points de rassemblement sont toujours disponibles.
+
 ## Secteurs d'alerte et mode urgence
 
 Sur la carte principale (gestionnaires et administrateurs), deux outils complètent la section pendant une activation :

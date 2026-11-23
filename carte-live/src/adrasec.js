@@ -18,6 +18,10 @@
 //   Jamais de compte, de mot de passe, de condensat ni de jeton : sur la carte d'arrivée chacun crée son compte par
 //   le lien d'invitation, et sa fiche l'attend (rattachée par l'indicatif). Main courante, recherches et relevés
 //   partent aussi (auteurs en texte), sans lien terrain ni diffusion radio ; un second import ne les double pas.
+// - Points de rassemblement : posés sur la carte de la section, visibles de tous ses membres, diffusables par radio
+//   (point de passage et message sur un canal du module de la carte).
+// - Options de la section, réglées par son président : batterie des nœuds des membres, alerte quand le module radio
+//   de la carte tombe, messages aux équipes par radio (avec messages-types et accusé), trajets des membres.
 // Données dans adrasec.json (dossier des données), incluses dans les sauvegardes ; aucune n'apparaît sur la carte
 // publique. Conservation : main courante et relevés effacés au-delà de la durée choisie par l'administrateur.
 
@@ -25,6 +29,18 @@ const path = require('path');
 const crypto = require('crypto');
 const { ecrireSur, lireJson } = require('./fichiers');
 const Gonio = require('../public/gonio.js');
+const { versDfci } = require('../public/dfci.js');
+
+// Options activables par section (une ADRASEC n'a pas toutes les mêmes besoins qu'une autre)
+const OPTIONS = {
+  batterie: { nom: 'Batterie des nœuds', aide: 'Niveau de batterie du nœud de chaque membre, signalé quand il est bas.', defaut: true },
+  alerteRadio: { nom: 'Alerte si la radio de la carte tombe', aide: 'Un bandeau et une ligne de main courante quand le module radio de la carte se déconnecte.', defaut: true },
+  messages: { nom: 'Messages aux équipes par radio', aide: 'Un message court part sur un canal du module de la carte, avec des messages-types ; son accusé s’affiche dans la main courante.', defaut: false },
+  trajets: { nom: 'Trajets des membres', aide: 'Le chemin parcouru par le nœud d’un membre se dessine sur la carte.', defaut: false },
+};
+const MACROS = ['Rendez compte de votre position', 'Rejoignez le point de rassemblement', 'Relevé demandé sur la fréquence de recherche', 'Fin de recherche, retour au PC'];
+const ENVOIS_MAX = 30, ENVOIS_FENETRE = 10 * 60000;
+const couper = (t, n) => { t = String(t || ''); while (Buffer.byteLength(t) > n) t = [...t].slice(0, -1).join(''); return t; };
 
 const TYPES_MC = ['information', 'message-recu', 'message-emis', 'decision', 'mouvement', 'incident', 'fin'];
 const FREQUENCES = ['121,5 MHz', '243 MHz', '406 MHz', 'autre'];
@@ -43,7 +59,10 @@ const cleAttente = (x) => (x && x.indicatif ? String(x.indicatif).toUpperCase() 
 
 // surEquipeSupprimee(cle) : une équipe ADRASEC disparaît (équipe ou section supprimée) ; cle = « adrasec:CODE:ID »,
 // la valeur qu'un secteur d'alerte garde pour la suivre (voir equipeSecteur plus bas)
-function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positionDe = () => null, nomDe = () => null, radioPoint = null, surEquipeSupprimee = () => {} }) {
+// radioTexte({ texte, canal }, auteur) → { id } ; etatEnvoi(id) → { statut } ; radioConnecte() ; santeDe(num) → { batterie, tension, heure } ;
+// traceDe(num, depuis) → [{ lat, lon, heure }]
+function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positionDe = () => null, nomDe = () => null, radioPoint = null, surEquipeSupprimee = () => {},
+  radioTexte = null, etatEnvoi = () => null, radioConnecte = () => false, santeDe = () => null, traceDe = () => [] }) {
   // Une carte peut héberger les ADRASEC de plusieurs départements : chacune a ses membres, son président (responsable),
   // ses équipes, sa main courante et ses recherches. L'administrateur de la carte crée les ADRASEC et nomme les présidents.
   const fichier = path.join(path.dirname(config.fichierBase), 'adrasec.json');
@@ -70,7 +89,7 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
   const groupeDeCompte = (cid) => Object.keys(racine.groupes).find((k) => racine.groupes[k].membres[cid]) || null;
   const nomGroupe = (code) => (racine.groupes[code] || {}).nom || 'ADRASEC ' + code;
   const signalerSuppression = (code, eid) => { try { surEquipeSupprimee(cleEquipe(code, eid)); } catch (e) { journal('[ADRASEC] secteurs de l’équipe supprimée :', e.message); } };
-  const ctx = { actif: () => racine.actif, sauver, journal, diffuser, positionDe, nomDe, radioPoint, groupeDeCompte, nomGroupe, signalerSuppression };
+  const ctx = { actif: () => racine.actif, sauver, journal, diffuser, positionDe, nomDe, radioPoint, groupeDeCompte, nomGroupe, signalerSuppression, radioTexte, etatEnvoi, radioConnecte, santeDe, traceDe };
   const instances = new Map();
   const inst = (code) => {
     const g = racine.groupes[code];
@@ -83,6 +102,17 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
   const purgerTout = () => toutes().forEach((i) => i.purger());
   purgerTout();
   setInterval(purgerTout, 6 * 3600000).unref();
+  // Le module radio de la carte tombe ou revient : chaque section le note dans sa main courante (option)
+  let radioVue = null, radioDejaVue = false;
+  ctx.radioTombee = () => radioDejaVue && radioVue === false; // il était connecté et ne l'est plus
+  const veilleRadio = () => {
+    let c = false;
+    try { c = !!radioConnecte(); } catch { /* module absent */ }
+    if (c) radioDejaVue = true;
+    if (radioVue !== null && c !== radioVue && racine.actif) for (const i of toutes()) { try { i.radioChange(c); } catch (e) { journal('[ADRASEC] alerte radio :', e.message); } }
+    radioVue = c;
+  };
+  setInterval(veilleRadio, 20000).unref();
 
   const groupeDe = (compte) => (compte ? groupeDeCompte(compte.id) : null);
   // ADRASEC vue par ce compte : la sienne ; un administrateur de la carte choisit (code) ou voit la première
@@ -190,7 +220,7 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
   return {
     actif: () => racine.actif, nom: () => 'ADRASEC', groupes: listeGroupes, groupeDe, groupePour, estMembre, nomGroupe,
     majGroupe, reglagesGlobaux, demander, demandeDe, vue, rolesComptes, roleCompte,
-    texteRecu: (evt) => { if (racine.actif) toutes().forEach((i) => i.texteRecu(evt)); },
+    texteRecu: (evt) => { if (racine.actif) toutes().forEach((i) => i.texteRecu(evt)); }, veilleRadio,
     vueTerrain: (jeton) => { for (const i of toutes()) { const v = i.vueTerrain(jeton); if (v) return v; } return null; },
     estCleEquipe, equipesPourSecteurs, peutVoirEquipe,
     noeudsEquipe: (cle) => { const x = equipeSecteur(cle); return x ? noeudsDe(x.g, x.e.id) : []; },
@@ -202,7 +232,11 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
 function creerGroupe(g, ctx) {
   const { sauver, journal, diffuser, positionDe, nomDe, radioPoint } = ctx;
   for (const k of ['membres', 'demandes']) g[k] = g[k] || {};
-  for (const k of ['equipes', 'mainCourante', 'recherches', 'releves', 'attentes']) g[k] = g[k] || [];
+  for (const k of ['equipes', 'mainCourante', 'recherches', 'releves', 'attentes', 'reperes']) g[k] = g[k] || [];
+  g.options = g.options || {};
+  const option = (k) => (OPTIONS[k] ? (typeof g.options[k] === 'boolean' ? g.options[k] : OPTIONS[k].defaut) : false);
+  const options = () => Object.fromEntries(Object.keys(OPTIONS).map((k) => [k, option(k)]));
+  const macros = () => (Array.isArray(g.macros) ? g.macros : MACROS);
   const purger = () => {
     const limite = Date.now() - Math.max(7, g.conservationJours || 365) * 86400000;
     const n = g.mainCourante.length + g.releves.length;
@@ -224,8 +258,99 @@ function creerGroupe(g, ctx) {
   function reglages(b) {
     if (b.nom !== undefined) g.nom = txt(b.nom, 40) || 'ADRASEC ' + g.code;
     if (b.conservationJours !== undefined) g.conservationJours = Math.min(3650, Math.max(7, Math.round(Number(b.conservationJours) || 365)));
+    if (b.options !== undefined) for (const k of Object.keys(OPTIONS)) if (typeof (b.options || {})[k] === 'boolean') g.options[k] = b.options[k];
+    if (b.macros !== undefined) {
+      const l = (Array.isArray(b.macros) ? b.macros : String(b.macros || '').split(/\r?\n/)).map((x) => couper(txt(x, 300), 200)).filter(Boolean);
+      if (l.length > 12) throw new Error('12 messages-types au plus');
+      g.macros = l;
+    }
     sauver(true);
-    return { nom: g.nom, conservationJours: g.conservationJours };
+    diffuser({ genre: 'adrasec', quoi: 'reglages' });
+    return { nom: g.nom, conservationJours: g.conservationJours, options: options(), macros: macros() };
+  }
+
+  // ---- Points de rassemblement ------------------------------------------------------------------------------
+  // Posés par tout membre (un chef d'équipe sur le terrain en a besoin sans attendre le président) ; chacun les voit.
+  function majRepere(rid, b, compte) {
+    if (rid && b.supprimer) {
+      if (!g.reperes.some((r) => r.id === rid)) throw new Error('Point de rassemblement inconnu');
+      g.reperes = g.reperes.filter((r) => r.id !== rid);
+    } else {
+      let r = rid ? g.reperes.find((x) => x.id === rid) : null;
+      if (rid && !r) throw new Error('Point de rassemblement inconnu');
+      if (!r) {
+        if (g.reperes.length >= 50) throw new Error('50 points de rassemblement au plus');
+        r = { id: id(), nom: '', detail: null, lat: null, lon: null, idPoint: (crypto.randomBytes(4).readUInt32LE(0) >>> 0) || 1, heure: Date.now(), auteur: signature(compte) };
+      }
+      if (b.nom !== undefined) r.nom = txt(b.nom, 60);
+      if (!r.nom) r.nom = 'Point de rassemblement';
+      if (b.detail !== undefined) r.detail = txt(b.detail, 200) || null;
+      if (b.lat !== undefined || b.lon !== undefined) {
+        const lat = Number(b.lat), lon = Number(b.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Position invalide');
+        r.lat = +lat.toFixed(6); r.lon = +lon.toFixed(6);
+      }
+      if (r.lat == null) throw new Error('Pointez le point de rassemblement sur la carte');
+      if (!rid) g.reperes.push(r);
+    }
+    sauver(true);
+    diffuser({ genre: 'adrasec', quoi: 'reperes' });
+    return { reperes: g.reperes };
+  }
+  // « Tout le monde se retrouve ici » : point de passage (il s'affiche dans les applis des équipes) et message, sur
+  // le canal choisi ; noté dans la main courante
+  async function diffuserRepere(rid, b, compte) {
+    const r = g.reperes.find((x) => x.id === rid);
+    if (!r) throw new Error('Point de rassemblement inconnu');
+    if (!radioPoint) throw new Error('Envoi radio indisponible sur cette carte');
+    const canal = Number(b.canal);
+    if (!Number.isInteger(canal) || canal < 0 || canal > 7) throw new Error('Canal 0 à 7');
+    const dfci = versDfci(r.lat, r.lon);
+    const texte = [`RASSEMBLEMENT ${r.nom}`, `${r.lat.toFixed(5)},${r.lon.toFixed(5)}${dfci ? ' DFCI ' + dfci : ''}`, r.detail].filter(Boolean).join(' · ');
+    await radioPoint({ idPoint: r.idPoint, lat: r.lat, lon: r.lon, nom: '🟢 Rassemblement', description: [r.nom, r.detail].filter(Boolean).join(' · '), expireS: Math.floor(Date.now() / 1000) + 12 * 3600, canal, texte });
+    ajouterMc(compte, { type: 'message-emis', texte: `Point de rassemblement diffusé par radio (canal ${canal}) : ${r.nom}` }, { origine: 'radio' });
+    return { ok: true, texte };
+  }
+
+  // ---- Messages aux équipes par radio (option « messages ») ------------------------------------------------------
+  let envoisRecents = [];
+  function envoyerMessage(compte, b) {
+    if (!option('messages')) throw new Error('Les messages par radio ne sont pas activés dans cette section');
+    if (!ctx.radioTexte) throw new Error('Envoi radio indisponible sur cette carte');
+    const texte = couper(txt(b.texte, 600), 200);
+    if (!texte) throw new Error('Message vide');
+    const canal = Number(b.canal);
+    if (!Number.isInteger(canal) || canal < 0 || canal > 7) throw new Error('Canal 0 à 7');
+    envoisRecents = envoisRecents.filter((t) => Date.now() - t < ENVOIS_FENETRE);
+    if (envoisRecents.length >= ENVOIS_MAX) throw new Error(`Trop d’envois par radio : ${ENVOIS_MAX} messages au plus par 10 minutes`);
+    const r = ctx.radioTexte({ texte, canal }, `ADRASEC ${g.code} (${signature(compte)})`);
+    envoisRecents.push(Date.now());
+    return ajouterMc(compte, { type: 'message-emis', texte: `→ canal ${canal} : ${texte}` }, { origine: 'radio', envoi: r && r.id != null ? r.id : null });
+  }
+  // Accusé d'un envoi : relu auprès du module tant qu'il peut changer, puis gardé dans la main courante
+  function accuse(x) {
+    if (x.envoi == null) return null;
+    if (x.accuse === 'recu' || x.accuse === 'echec') return x.accuse;
+    let a = null;
+    try { const e = ctx.etatEnvoi(x.envoi); a = e ? e.statut : null; } catch { /* module absent */ }
+    if (a && a !== x.accuse) { x.accuse = a; sauver(); }
+    return a || x.accuse || null;
+  }
+  function radioChange(connecte) {
+    if (!option('alerteRadio')) return;
+    ajouterMc(null, { type: 'information', texte: connecte ? 'Le module radio de la carte est de nouveau connecté.' : '⚠ Le module radio de la carte est déconnecté : les envois par radio ne partent plus.' }, { auteur: 'carte', origine: 'systeme' });
+  }
+  // Trajet du nœud d'un membre (option « trajets ») : au plus 24 h et 400 points
+  function trace(compteId, heures) {
+    if (!option('trajets')) throw new Error('Les trajets ne sont pas activés dans cette section');
+    const m = g.membres[Number(compteId)];
+    if (!m) throw new Error('Membre inconnu');
+    if (!m.noeud) return { points: [] };
+    const h = Math.min(24, Math.max(1, Number(heures) || 6));
+    let pts = [];
+    try { pts = (ctx.traceDe(m.noeud >>> 0, Date.now() - h * 3600000) || []).filter((p) => p.lat != null && p.lon != null); } catch { /* pas d'historique */ }
+    const pas = Math.ceil(pts.length / 400) || 1;
+    return { heures: h, points: pts.filter((_, i) => i % pas === 0 || i === pts.length - 1).map((p) => [+p.lat.toFixed(6), +p.lon.toFixed(6), p.heure]) };
   }
   function majMembre(compteId, b, auteur, parAdmin = false) {
     const cid = Number(compteId);
@@ -721,6 +846,10 @@ function creerGroupe(g, ctx) {
   }
 
   // ---- Vue complète pour la page ADRASEC --------------------------------------------------------------------
+  function santeMembre(m) {
+    if (!m.noeud || !option('batterie')) return null;
+    try { const t = ctx.santeDe(m.noeud >>> 0); return t && t.batterie != null ? { batterie: Math.round(t.batterie), heure: t.heure || null } : null; } catch { return null; }
+  }
   function vue(compte, comptesListe) {
     const admin = estResponsable(compte);
     const moi = membre(compte);
@@ -728,15 +857,17 @@ function creerGroupe(g, ctx) {
       const c = comptesListe.find((x) => x.id === Number(cid));
       const pos = positionMembre(m);
       return { compte: Number(cid), nom: c ? c.identifiant : '(compte supprimé)', indicatif: m.indicatif || null, licencie: !!m.licencie, qualite: m.qualite || (m.licencie ? 'radioamateur' : null), numeroSwl: m.numeroSwl || null, responsable: !!m.responsable, equipe: m.equipe || null, fonction: m.fonction || null,
-        noeud: m.noeud || null, nomNoeud: m.noeud ? nomDe(m.noeud) : null, position: pos ? { lat: pos.lat, lon: pos.lon, heure: pos.heure || null } : null };
+        noeud: m.noeud || null, nomNoeud: m.noeud ? nomDe(m.noeud) : null, position: pos ? { lat: pos.lat, lon: pos.lon, heure: pos.heure || null } : null, sante: santeMembre(m) };
     });
     const recherches = g.recherches.slice(0, 30).map((r) => ({ ...r, releves: g.releves.filter((x) => x.recherche === r.id), calcul: localiser(r.id) }));
     return {
       nom: g.nom, code: g.code, actif: ctx.actif(), conservationJours: g.conservationJours,
       moi: { identifiant: compte.identifiant, admin: compte.role === 'admin', responsable: admin, membre: !!moi, licencie: estLicencie(compte), qualite: moi ? moi.qualite || (moi.licencie ? 'radioamateur' : null) : null, indicatif: moi ? moi.indicatif : null, equipe: moi ? moi.equipe : null, noeud: moi ? moi.noeud : null },
       equipes: g.equipes, membres, typesMc: TYPES_MC, frequences: FREQUENCES,
-      mainCourante: g.mainCourante.slice(-400),
+      mainCourante: g.mainCourante.slice(-400).map((x) => (x.envoi != null ? { ...x, accuse: accuse(x) } : x)),
       recherches,
+      reperes: g.reperes, options: options(), macros: macros(), catalogueOptions: admin ? Object.fromEntries(Object.entries(OPTIONS).map(([k, o]) => [k, { nom: o.nom, aide: o.aide }])) : undefined,
+      radio: { connecte: (() => { try { return !!ctx.radioConnecte(); } catch { return false; } })(), tombee: !!(ctx.radioTombee && ctx.radioTombee()) },
       comptes: admin ? comptesListe.filter((c) => c.statut === 'actif').map((c) => ({ id: c.id, identifiant: c.identifiant, indicatif: c.indicatif || null, role: c.role, adrasec: !!g.membres[c.id], autre: g.membres[c.id] ? null : ctx.groupeDeCompte(c.id) })) : undefined,
       demandes: admin ? Object.entries(g.demandes || {}).map(([cid, x]) => { const c = comptesListe.find((y) => y.id === Number(cid) && y.statut === 'actif'); return c && !g.membres[cid] ? { compte: c.id, identifiant: c.identifiant, indicatifCompte: c.indicatif || null, ...x } : null; }).filter(Boolean) : undefined,
       comptesEnAttente: compte.role === 'admin' ? comptesListe.filter((c) => c.statut === 'en_attente').length : undefined,
@@ -752,7 +883,7 @@ function creerGroupe(g, ctx) {
 
   return {
     g, purger, membre, estMembre, estResponsable, estLicencie, signature, demander, refuserDemande, demandeDe,
-    reglages, majMembre, majEquipe, ajouterMc, csvMc, majRecherche, ajouterReleve, majReleve, retirerReleve, localiser, texteRecu, vue,
+    reglages, majMembre, majEquipe, ajouterMc, csvMc, majRepere, diffuserRepere, envoyerMessage, radioChange, trace, option, majRecherche, ajouterReleve, majReleve, retirerReleve, localiser, texteRecu, vue,
     diffuserBalise, creerLien, couperLien, vueTerrain, exporter, importer, retirerAttente,
   };
 }

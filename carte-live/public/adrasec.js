@@ -107,6 +107,7 @@
     return d;
   };
   chercheur.addTo(carte);
+  const couchesReperes = L.layerGroup().addTo(carte), couchesTrajets = L.layerGroup().addTo(carte);
   const couchesApercu = L.layerGroup().addTo(carte), couchesGonio = L.layerGroup().addTo(carte), couchesEquipes = L.layerGroup().addTo(carte), couchesRms = L.layerGroup().addTo(carte);
   let modeClic = null; // fonction appelée au prochain clic sur la carte
   carte.on('click', (e) => { if (!modeClic) return; const f = modeClic; modeClic = null; $('#consigne').hidden = true; f(e.latlng); });
@@ -126,6 +127,10 @@
     if (v === 'winlink') rendreWinlink();
   }
 
+  // Canaux du module radio de la carte : pour diffuser un point de rassemblement ou écrire aux équipes
+  let canauxRadio = { connecte: false, canaux: [] }, canalChoisi = Number(memo('canal')) || 0;
+  const optionsCanaux = () => (canauxRadio.connecte && canauxRadio.canaux.length ? canauxRadio.canaux.map((c) => `<option value="${c.index}" ${c.index === canalChoisi ? 'selected' : ''}>${c.index} · ${esc(c.nom)}</option>`).join('') : '<option value="0">module radio non relié</option>');
+  const retenirCanal = (sel) => { if (sel) sel.onchange = () => { canalChoisi = Number(sel.value) || 0; memo('canal', String(canalChoisi)); }; };
   async function charger() {
     try { E = await api('/api/adrasec'); } catch (e) {
       // Administrateur de la carte, aucune ADRASEC encore créée : création de la première
@@ -133,6 +138,8 @@
       $('#vue-mc').innerHTML = `<p class="erreur">${esc(e.message)}</p>`; return;
     }
     if (!groupe) groupe = E.code;
+    $('#alerte-radio').hidden = !(E.actif && E.options.alerteRadio && E.radio.tombee);
+    canauxRadio = await api('/api/adrasec/canaux-radio').catch(() => ({ connecte: false, canaux: [] }));
     $('#titre').textContent = E.nom; document.title = E.nom;
     const q = E.moi.qualite === 'swl' ? '<span class="pastille">SWL</span>' : E.moi.licencie ? '<span class="pastille ok">licencié</span>' : E.moi.membre ? '<span class="pastille">non licencié</span>' : '';
     $('#moi').innerHTML = `${E.groupes && E.groupes.length > 1 ? `<select id="choix-groupe" title="ADRASEC affichée (administrateur de la carte)">${E.groupes.map((x) => `<option value="${esc(x.code)}" ${x.code === E.code ? 'selected' : ''}>${esc(x.nom)}</option>`).join('')}</select> ` : ''}${esc(E.moi.indicatif || E.moi.identifiant)} ${q}${E.moi.admin ? ' <span class="pastille">admin carte</span>' : E.moi.responsable ? ' <span class="pastille ok">président</span>' : ''}`;
@@ -148,17 +155,31 @@
 
   // ---- Main courante ----------------------------------------------------------------------------------------
   const LIB_TYPE = { information: 'Information', 'message-recu': 'Message reçu', 'message-emis': 'Message émis', decision: 'Décision', mouvement: 'Mouvement', incident: 'Incident', fin: 'Fin' };
+  const ACCUSES = { envoye: 'envoyé', relaye: 'relayé', recu: 'reçu', echec: 'non remis' };
   function rendreMc() {
     const v = $('#vue-mc');
-    const brouillon = $('#mc-texte') ? $('#mc-texte').value : '';
+    const brouillon = $('#mc-texte') ? $('#mc-texte').value : '', brouillonRadio = $('#rm-texte') ? $('#rm-texte').value : '';
     v.innerHTML = `<h2>Main courante</h2>
       <div class="ligne-champs"><label>Type <select id="mc-type">${E.typesMc.map((t) => `<option value="${t}">${LIB_TYPE[t] || t}</option>`).join('')}</select></label>
         <label>Équipe <select id="mc-equipe"><option value="">—</option>${E.equipes.map((e) => `<option value="${e.id}" ${E.moi.equipe === e.id ? 'selected' : ''}>${esc(e.nom)}</option>`).join('')}</select></label></div>
       <textarea id="mc-texte" placeholder="Événement, message reçu ou émis, décision… (heure et auteur ajoutés tout seuls)"></textarea>
       <div class="ligne-champs"><button class="principal" id="mc-ajouter">Inscrire</button><a href="${avecGroupe('/api/adrasec/main-courante.csv')}" download><button type="button">⬇ Export CSV</button></a><span class="erreur" id="mc-erreur"></span></div>
       <p class="note">Les inscriptions ne se modifient pas : pour corriger, inscrivez une nouvelle ligne. Les relevés, recherches et messages Winlink s'y ajoutent tout seuls.</p>
-      <div id="mc-liste">${E.mainCourante.length ? E.mainCourante.slice().reverse().map((x) => `<div class="entree"><div class="tete"><b>${heure(x.heure)}</b><span>${esc(x.auteur)}</span>${x.equipe ? `<span><i class="equipe-pastille" style="background:${couleurEquipe(x.equipe)}"></i>${esc(nomEquipe(x.equipe))}</span>` : ''}<span class="type">${esc(LIB_TYPE[x.type] || x.type)}</span></div><div class="corps">${esc(x.texte)}</div></div>`).join('') : '<div class="vide">Aucune inscription.</div>'}</div>`;
+      ${E.options.messages ? `<div class="cadre-radio"><b>📻 Écrire aux équipes par radio</b>
+        <div class="macros">${E.macros.map((m, i) => `<button class="mini" data-macro="${i}" translate="no">${esc(m)}</button>`).join('')}</div>
+        <div class="ligne-champs"><label>Canal <select id="rm-canal">${optionsCanaux()}</select></label><label style="flex:3 1 220px">Message (200 caractères au plus) <input id="rm-texte" maxlength="200" placeholder="ex. Rejoignez le point de rassemblement"></label><button class="principal" id="rm-ok" ${canauxRadio.connecte ? '' : 'disabled'}>Envoyer</button></div>
+        <p class="note" id="rm-retour">${canauxRadio.connecte ? 'Le message part sur le canal choisi : tous les nœuds qui ont ce canal le reçoivent. L’accusé s’affiche dans la main courante.' : '⚠ Le module radio de la carte n’est pas connecté : rien ne peut partir pour l’instant.'}</p></div>` : ''}
+      <div id="mc-liste">${E.mainCourante.length ? E.mainCourante.slice().reverse().map((x) => `<div class="entree"><div class="tete"><b>${heure(x.heure)}</b><span>${esc(x.auteur)}</span>${x.equipe ? `<span><i class="equipe-pastille" style="background:${couleurEquipe(x.equipe)}"></i>${esc(nomEquipe(x.equipe))}</span>` : ''}<span class="type">${esc(LIB_TYPE[x.type] || x.type)}</span>${x.origine === 'radio' ? '<span title="Passé par la radio">📻</span>' : ''}${x.accuse ? `<span class="pastille ${x.accuse === 'recu' ? 'ok' : x.accuse === 'echec' ? 'att' : ''}">${esc(ACCUSES[x.accuse] || x.accuse)}</span>` : ''}</div><div class="corps">${esc(x.texte)}</div></div>`).join('') : '<div class="vide">Aucune inscription.</div>'}</div>`;
     $('#mc-texte').value = brouillon;
+    if ($('#rm-ok')) {
+      $('#rm-texte').value = brouillonRadio;
+      retenirCanal($('#rm-canal'));
+      for (const b of v.querySelectorAll('[data-macro]')) b.onclick = () => { $('#rm-texte').value = E.macros[Number(b.dataset.macro)]; $('#rm-texte').focus(); };
+      $('#rm-ok').onclick = async () => {
+        try { await api('/api/adrasec/messages', { method: 'POST', body: { texte: $('#rm-texte').value, canal: Number($('#rm-canal').value) } }); await charger(); }
+        catch (e) { $('#rm-retour').innerHTML = `<span class="erreur">${esc(e.message)}</span>`; }
+      };
+    }
     $('#mc-ajouter').onclick = async () => {
       try { await api('/api/adrasec/main-courante', { method: 'POST', body: { type: $('#mc-type').value, equipe: $('#mc-equipe').value, texte: $('#mc-texte').value } }); $('#mc-texte').value = ''; charger(); } catch (e) { $('#mc-erreur').textContent = e.message; }
     };
@@ -276,7 +297,7 @@
   }
   async function brancherDiffusion(r) {
     const sel = $('#d-canal');
-    if (sel) api('/api/adrasec/canaux').then((m) => {
+    if (sel) api('/api/adrasec/canaux-radio').then((m) => {
       const cur = r.diffusion ? r.diffusion.canal : 0;
       if (!m.connecte) { sel.innerHTML = `<option value="${cur}">module radio non relié</option>`; return; }
       sel.innerHTML = m.canaux.map((c) => `<option value="${c.index}" ${c.index === cur ? 'selected' : ''}>${c.index} · ${esc(c.nom)}</option>`).join('');
@@ -352,16 +373,39 @@
 
   // ---- Équipes ------------------------------------------------------------------------------------------------
   // Membre dans une équipe : petite étiquette, ✕ pour le sortir de l'équipe (président)
-  const puceMembre = (m, sansEquipe) => `<span class="puce-membre" style="--c:${couleurEquipe(m.equipe)}"><b>${esc(m.indicatif || m.numeroSwl || m.nom)}</b>${m.indicatif || m.numeroSwl ? ` <small>${esc(m.nom)}</small>` : ''}${m.fonction ? ` <small>· ${esc(m.fonction)}</small>` : ''}${m.position ? ' 📍' : ''}${E.moi.responsable && !sansEquipe ? `<button class="retirer-eq" data-sortir="${m.compte}" title="Sortir de l’équipe">✕</button>` : ''}</span>`;
+  const puceMembre = (m, sansEquipe) => `<span class="puce-membre" style="--c:${couleurEquipe(m.equipe)}"><b>${esc(m.indicatif || m.numeroSwl || m.nom)}</b>${m.indicatif || m.numeroSwl ? ` <small>${esc(m.nom)}</small>` : ''}${m.fonction ? ` <small>· ${esc(m.fonction)}</small>` : ''}${m.position ? ' 📍' : ''}${m.sante ? (m.sante.batterie <= 20 ? ` <span class="pastille att" title="Batterie du nœud">🪫 ${m.sante.batterie} %</span>` : ` <small title="Batterie du nœud">🔋 ${m.sante.batterie > 100 ? 'secteur' : m.sante.batterie + ' %'}</small>`) : ''}${E.options.trajets && m.noeud ? `<button class="retirer-eq${trajets.has(m.compte) ? ' actif' : ''}" data-trajet="${m.compte}" title="Afficher ou masquer le trajet de son nœud (12 h)" aria-pressed="${trajets.has(m.compte)}">〰</button>` : ''}${E.moi.responsable && !sansEquipe ? `<button class="retirer-eq" data-sortir="${m.compte}" title="Sortir de l’équipe">✕</button>` : ''}</span>`;
+  // Trajets affichés (bouton 〰 d'un membre) et point de rassemblement en cours de saisie
+  const trajets = new Map();
+  async function majTrajets() {
+    for (const cid of [...trajets.keys()]) {
+      const m = E.membres.find((x) => x.compte === cid);
+      if (!m || !m.noeud || !E.options.trajets) { trajets.delete(cid); continue; }
+      try { trajets.set(cid, (await api(`/api/adrasec/membres/${cid}/trace?heures=12`)).points); } catch { trajets.delete(cid); }
+    }
+    couchesTrajets.clearLayers();
+    for (const [cid, pts] of trajets) { const m = E.membres.find((x) => x.compte === cid); if (m && pts.length > 1) L.polyline(pts.map((p) => [p[0], p[1]]), { color: couleurEquipe(m.equipe), weight: 4, opacity: 0.85 }).bindTooltip(`Trajet de ${esc(m.indicatif || m.nom)} (12 h)`, { sticky: true }).addTo(couchesTrajets); }
+  }
+  let saisieRepere = null; // { id, nom, detail, lat, lon } pendant la saisie d'un point de rassemblement
   function rendreEquipes() {
     const v = $('#vue-equipes');
-    couchesEquipes.clearLayers();
+    couchesEquipes.clearLayers(); couchesReperes.clearLayers();
+    for (const r of E.reperes) L.marker([r.lat, r.lon], { icon: L.divIcon({ className: '', iconSize: [34, 34], iconAnchor: [17, 17], html: '<div class="rep-rassemblement">🟢</div>' }), zIndexOffset: 300 })
+      .bindTooltip(esc(r.nom), { permanent: true, direction: 'bottom', offset: [0, 15], className: 'etq-equipe' }).bindPopup(`<b>${esc(r.nom)}</b><br>Point de rassemblement${r.detail ? '<br>' + esc(r.detail) : ''}`).addTo(couchesReperes);
+    if (saisieRepere && saisieRepere.lat != null) L.circleMarker([saisieRepere.lat, saisieRepere.lon], { radius: 10, color: '#3ee68a', weight: 3, fillOpacity: 0.3 }).addTo(couchesReperes);
     const parEq = new Map([[null, []], ...E.equipes.map((e) => [e.id, []])]);
     for (const m of E.membres) (parEq.get(m.equipe) || parEq.get(null)).push(m);
     v.innerHTML = `<h2>Équipes</h2>${E.moi.responsable ? '<div class="ligne-champs"><label>Nouvelle équipe <input id="eq-nom" placeholder="ex. Gonio 1"></label><button id="eq-creer">Créer</button></div>' : ''}
       ${E.equipes.map((e) => `<div class="entree"><div class="tete"><b>${E.moi.responsable ? `<input type="color" class="couleur-eq" data-couleur-eq="${e.id}" value="${e.couleur}" title="Couleur de l’équipe (traits des relevés, points sur la carte)">` : `<i class="equipe-pastille" style="background:${e.couleur}"></i>`}${esc(e.nom)}</b>${e.mission ? `<span class="type">🎯 ${esc(e.mission)}</span>` : ''}${E.moi.responsable ? ` <button class="mini principal" data-ajout-eq="${e.id}">＋ Membres</button> <button class="mini" data-mission="${e.id}">Mission</button> <button class="mini danger" data-suppr-eq="${e.id}">Supprimer</button>` : ''}</div>
         <div class="corps puces-membres">${parEq.get(e.id).map(puceMembre).join('') || '<span class="note">Aucun membre : « ＋ Membres » pour en ajouter</span>'}</div></div>`).join('') || '<div class="vide">Aucune équipe : le président les crée ici.</div>'}
       ${parEq.get(null).length ? `<h3>Sans équipe</h3><div class="corps puces-membres">${parEq.get(null).map((m) => puceMembre(m, true)).join('')}</div>` : ''}
+      <h2>🟢 Points de rassemblement</h2>
+      <p class="note">Visibles de tous les membres de ${esc(E.nom)}. « 📻 Diffuser » envoie le point aux équipes par radio (point de passage et message, avec la position et le code DFCI) : « tout le monde se retrouve ici ».</p>
+      ${saisieRepere ? `<div class="cadre-radio" id="rp-form"><div class="ligne-champs"><label>Nom <input id="rp-nom" maxlength="60" placeholder="ex. Parking de la mairie" value="${esc(saisieRepere.nom || '')}"></label><label>Précisions <input id="rp-detail" maxlength="200" placeholder="ex. Côté portail nord" value="${esc(saisieRepere.detail || '')}"></label></div>
+        <div class="ligne-champs"><button id="rp-pointer">📍 Pointer sur la carte</button><span class="note mono">${saisieRepere.lat != null ? `${saisieRepere.lat.toFixed(5)}, ${saisieRepere.lon.toFixed(5)}` : 'Aucune position'}</span></div>
+        <div class="ligne-champs"><button class="principal" id="rp-ok">Enregistrer</button><button id="rp-annuler">Annuler</button><span class="erreur" id="rp-retour"></span></div></div>` : '<div class="ligne-champs"><button class="principal" id="rp-nouveau">🟢 Nouveau point de rassemblement</button></div>'}
+      ${E.reperes.map((r) => `<div class="entree" data-repere="${esc(r.id)}"><div class="tete"><b>🟢 ${esc(r.nom)}</b><span class="mono">${r.lat.toFixed(5)}, ${r.lon.toFixed(5)}</span><span class="note">${esc(r.auteur || '')}</span></div>
+        ${r.detail ? `<div class="corps">${esc(r.detail)}</div>` : ''}
+        <div class="ligne-champs"><button class="mini rp-voir">Voir</button><label>Canal <select class="rp-canal">${optionsCanaux()}</select></label><button class="mini rp-diffuser" ${canauxRadio.connecte ? '' : 'disabled'}>📻 Diffuser</button><button class="mini rp-modifier">Modifier</button><button class="mini danger rp-supprimer">Supprimer</button><span class="note rp-retour"></span></div></div>`).join('') || (saisieRepere ? '' : '<div class="vide">Aucun point de rassemblement.</div>')}
       <p class="note">📍 : position en direct du nœud Meshtastic associé au membre (Gestion). Elle s'affiche sur la carte et sert de position par défaut pour ses relevés.</p>`;
     for (const m of E.membres) {
       if (!m.position) continue;
@@ -370,6 +414,38 @@
         .bindTooltip(`${esc(m.indicatif || m.nom)}${m.equipe ? ' · ' + esc(nomEquipe(m.equipe)) : ''}`, { permanent: true, direction: 'right', offset: [8, 0], className: 'etq-equipe' })
         .bindPopup(`<b>${esc(m.indicatif || m.nom)}</b><br>${esc(nomEquipe(m.equipe) || 'sans équipe')}<br>${m.position.heure ? 'position ' + heure(m.position.heure) : ''}`).addTo(couchesEquipes);
     }
+    // Points de rassemblement
+    const garder = () => { if (saisieRepere && $('#rp-nom')) { saisieRepere.nom = $('#rp-nom').value; saisieRepere.detail = $('#rp-detail').value; } };
+    if ($('#rp-nouveau')) $('#rp-nouveau').onclick = () => { saisieRepere = { id: null, nom: '', detail: '', lat: null, lon: null }; rendreEquipes(); $('#rp-nom').focus(); };
+    if ($('#rp-form')) {
+      $('#rp-pointer').onclick = () => { garder(); consigne('Cliquez sur la carte à l’endroit du point de rassemblement'); modeClic = (ll) => { saisieRepere.lat = +ll.lat.toFixed(6); saisieRepere.lon = +ll.lng.toFixed(6); rendreEquipes(); }; };
+      $('#rp-annuler').onclick = () => { saisieRepere = null; modeClic = null; consigne(''); rendreEquipes(); };
+      $('#rp-ok').onclick = async () => {
+        garder();
+        try { await api(saisieRepere.id ? '/api/adrasec/reperes/' + saisieRepere.id : '/api/adrasec/reperes', { method: saisieRepere.id ? 'PATCH' : 'POST', body: { nom: saisieRepere.nom, detail: saisieRepere.detail, ...(saisieRepere.lat != null ? { lat: saisieRepere.lat, lon: saisieRepere.lon } : {}) } }); saisieRepere = null; charger(); }
+        catch (e) { $('#rp-retour').textContent = e.message; }
+      };
+    }
+    for (const f of v.querySelectorAll('[data-repere]')) {
+      const r = E.reperes.find((x) => x.id === f.dataset.repere), retour = $('.rp-retour', f);
+      retenirCanal($('.rp-canal', f));
+      $('.rp-voir', f).onclick = () => carte.setView([r.lat, r.lon], Math.max(carte.getZoom(), 15));
+      $('.rp-modifier', f).onclick = () => { saisieRepere = { id: r.id, nom: r.nom, detail: r.detail || '', lat: r.lat, lon: r.lon }; rendreEquipes(); $('#rp-nom').focus(); };
+      $('.rp-supprimer', f).onclick = async () => { if (!confirm(`Supprimer le point de rassemblement « ${r.nom} » ?`)) return; await api('/api/adrasec/reperes/' + r.id, { method: 'PATCH', body: { supprimer: true } }).catch((e) => alert(e.message)); charger(); };
+      $('.rp-diffuser', f).onclick = async () => {
+        const c = Number($('.rp-canal', f).value);
+        if (!confirm(`Diffuser « ${r.nom} » par radio sur le canal ${c} ? Tous les nœuds qui ont ce canal le recevront.`)) return;
+        try { const x = await api(`/api/adrasec/reperes/${r.id}/diffuser`, { method: 'POST', body: { canal: c } }); retour.textContent = '✔ Diffusé : ' + x.texte; }
+        catch (e) { retour.innerHTML = `<span class="erreur">${esc(e.message)}</span>`; }
+      };
+    }
+    for (const b of v.querySelectorAll('[data-trajet]')) b.onclick = async () => {
+      const cid = Number(b.dataset.trajet);
+      if (trajets.has(cid)) trajets.delete(cid); else trajets.set(cid, []);
+      await majTrajets();
+      if (trajets.has(cid)) { const pts = trajets.get(cid); if (pts.length > 1) carte.fitBounds(pts.map((q) => [q[0], q[1]]), { maxZoom: 17, padding: [40, 40] }); else consigne('Aucun trajet connu pour ce nœud sur les 12 dernières heures'), setTimeout(() => { if (!modeClic) consigne(''); }, 4000); }
+      rendreEquipes();
+    };
     const bc = $('#eq-creer');
     if (bc) bc.onclick = async () => { await api('/api/adrasec/equipes', { method: 'POST', body: { nom: $('#eq-nom').value } }).catch((e) => alert(e.message)); charger(); };
     // Mission : choisie dans une liste (recherches en cours, missions déjà données aux autres équipes) pour rattacher
@@ -668,6 +744,11 @@
       <h2>Réglages de ${esc(E.nom)}</h2>
       <div class="ligne-champs"><label>Nom affiché <input id="ge-nom" value="${esc(E.nom)}" placeholder="ADRASEC 43"></label><label>Conservation (jours) <input id="ge-cons" type="number" min="7" max="3650" value="${E.conservationJours}"></label><button id="ge-ok">Enregistrer</button></div>
       <p class="note">Main courante et relevés plus anciens que la durée choisie sont effacés (données personnelles : indicatifs, positions).</p>
+      <h2>Options de ${esc(E.nom)}</h2>
+      <p class="note">Activez ce dont votre section a besoin ; le reste disparaît de l’écran de ses membres. Les points de rassemblement sont toujours disponibles (onglet 👥 Équipes).</p>
+      ${Object.entries(E.catalogueOptions || {}).map(([k, o]) => `<label class="case option-section"><input type="checkbox" class="ge-option" value="${esc(k)}" ${E.options[k] ? 'checked' : ''}> <span><b>${esc(o.nom)}</b> — <span class="note">${esc(o.aide)}</span></span></label>`).join('')}
+      <label>Messages-types (un par ligne, 12 au plus) <textarea id="ge-macros" rows="4">${esc(E.macros.join('\n'))}</textarea></label>
+      <div class="ligne-champs"><button id="ge-options-ok" class="principal">Enregistrer les options</button></div>
       <h2>🔄 Transférer la section vers une autre carte</h2>
       <p class="note">Pour installer ${esc(E.nom)} sur une autre carte (celle d’un collègue, un second serveur) : exportez un fichier ici, puis importez-le là-bas. Le fichier contient le <b>nom de la section, les équipes et la fiche de chaque membre</b> (indicatif, qualité, n° SWL, équipe, fonction, nœud porté), ainsi que la <b>main courante</b> et les <b>recherches</b>. Il ne contient <b>aucun compte, aucun mot de passe</b> : sur la carte d’arrivée, chacun crée son compte lui-même avec le lien d’invitation, et sa fiche l’y attend.</p>
       <p class="note">La <b>main courante</b>, les <b>recherches</b> et leurs <b>relevés</b> partent aussi, avec le nom de leurs auteurs. Un second import du même fichier ne les double pas ; ce qui dépasse la durée de conservation de la carte d’arrivée n’y entre pas. Une recherche en cours reste ouverte là-bas, mais <b>sans lien terrain ni diffusion radio</b> : à recréer sur place si besoin. Le rôle de <b>président</b> ne part pas : seul un administrateur de la carte d’arrivée peut le donner.</p>
@@ -694,6 +775,10 @@
         try { await api('/api/adrasec/attentes/' + encodeURIComponent(a.id), { method: 'DELETE' }); await charger(); } catch (e) { r.textContent = e.message; }
       };
     }
+    $('#ge-options-ok').onclick = async () => {
+      try { await api('/api/adrasec/reglages', { method: 'PUT', body: { options: Object.fromEntries([...v.querySelectorAll('.ge-option')].map((x) => [x.value, x.checked])), macros: $('#ge-macros').value.split('\n') } }); await charger(); }
+      catch (e) { err(e.message); }
+    };
     $('#ge-copier').onclick = async () => { try { await navigator.clipboard.writeText(lien); $('#ge-copier').textContent = '✔ Copié'; } catch { prompt('Lien à envoyer :', lien); } };
     $('#ge-ok').onclick = async () => { try { await api('/api/adrasec/reglages', { method: 'PUT', body: { nom: $('#ge-nom').value, conservationJours: $('#ge-cons').value } }); await charger(); } catch (e) { err(e.message); } };
     if ($('#ge-actif')) { $('#ge-actif').onchange = async () => { try { await api('/api/adrasec/reglages', { method: 'PUT', body: { actif: $('#ge-actif').checked } }); await charger(); } catch (e) { err(e.message); } }; brancherGroupes(err); }
@@ -753,6 +838,7 @@
   montrer(ongletActif);
   cadrerGonio();
   // Rafraîchissement : toutes les 15 s, sans perdre la saisie en cours
-  setInterval(() => { const a = document.activeElement; if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return; if (document.querySelector('.choix-mission, .choix-membres, #g-form-nouvelle:not([hidden]), #ge-ajout-liste input:checked, .fiche-membre.nouvelle, .edition-canaux[open]')) return; charger(); }, 15000);
+  setInterval(() => { const a = document.activeElement; if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return; if (document.querySelector('.choix-mission, .choix-membres, #g-form-nouvelle:not([hidden]), #ge-ajout-liste input:checked, .fiche-membre.nouvelle, .edition-canaux[open], #rp-form')) return; charger(); }, 15000);
+  setInterval(() => { if (trajets.size && !document.hidden) majTrajets(); }, 60000);
   window.adrasecEtat = () => E; // essais
 })();

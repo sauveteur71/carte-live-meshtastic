@@ -3514,15 +3514,33 @@ function traiterMessageMqtt(topic, message) {
     traiterEnveloppeMt(topic, message);
   } finally { noterTache(nom, performance.now() - t0); }
 }
+// Paquet décodé (MQTT, module de la carte, modules en écoute) : à qui revient-il ? Un seul endroit le décide.
+// Un espace Secours prend ce qui vient de ses nœuds (messages, points de passage) et ce qui passe sur son canal
+// réservé : la carte ne le montre alors ni dans ses messages, ni dans ses signalements, ni à la passerelle, ni aux
+// équipes de la carte, ni à l'ADRASEC (evt.reserve : le texte n'est pas gardé par reseau.integrer). La détection
+// d'un message de détresse (mode urgence) reste active pour tous les nœuds.
+function versSections(evt) {
+  let pris = false;
+  try { pris = !!secours.recu(evt); } catch { /* pas encore prêt */ }
+  if (pris) { evt.reserve = true; evt.contenu = null; if (evt.port !== 'texte') evt.resume = 'Réservé à un espace Secours'; }
+  else {
+    if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
+    versPasserelleRadio(evt);
+    if (evt.port === 'texte' && evt.texte) {
+      if (/^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } }
+      try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ }
+      try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ }
+    }
+  }
+  crisePaquet(evt);
+}
 // Enveloppe Meshtastic (MQTT, ou paquet du réseau local remis sous forme d'enveloppe) : décodage puis carte
 function traiterEnveloppeMt(topic, message) {
   try {
     const evt = decoderMessage(topic, message, canaux);
     if (!evt) return;
     if (evt.genre === 'erreur') { compteur.erreurs++; return; }
-    if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
-    versPasserelleRadio(evt);
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { secours.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
+    versSections(evt);
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuserMembres({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
@@ -3849,9 +3867,7 @@ app.post('/api/mc/maintenance/conformite', (req, res) => {
 });
 const sourceRadio = creerSourceRadio(stockage, config, canaux, {
   integrerEvenement: (evt) => {
-    if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
-    versPasserelleRadio(evt);
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { secours.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
+    versSections(evt);
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuserMembres({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
@@ -3869,9 +3885,7 @@ const ecoutes = creerEcoutes({
   config, journal,
   fabriquerRadio: (m) => creerSourceRadio(stockage, config, canaux, {
     integrerEvenement: (evt) => {
-      if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
-    versPasserelleRadio(evt);
-    if (evt.port === 'texte' && evt.texte && /^Pager ACK/i.test(evt.texte)) { try { signalements.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { equipes.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } } if (evt.port === 'texte' && evt.texte) { try { secours.texteRecu(evt); } catch { /* pas encore prêt */ } } crisePaquet(evt);
+    versSections(evt);
     if (evt.port === 'position' && evt.position && evt.position.lat != null) { try { const d = administration.reponsePosition(evt.de); if (d != null) diffuserMembres({ genre: 'position-reponse', num: evt.de >>> 0, lat: evt.position.lat, lon: evt.position.lon, delai: d }); } catch { /* pas encore prêt */ } }
     const sortie = reseau.integrer(evt);
     try { autresPresets.noterPaquet(evt); } catch { /* pas encore prêt */ }
@@ -4049,17 +4063,27 @@ const secours = require('./secours').creerSecours({ config, journal,
   // messages de la carte (discret)
   radio: {
     connecte: () => { try { return !!signalements.canaux().mt.connecte; } catch { return false; } },
-    envoyerTexte: ({ texte, dest }, auteur) => administration.envoyerTexte({ texte, dest, discret: true }, auteur),
+    envoyerTexte: ({ texte, dest, canal }, auteur) => administration.envoyerTexte({ texte, dest, canal, discret: true }, auteur),
     etatEnvoi: (id) => administration.etatEnvoi(id),
+    canaux: () => { try { return signalements.canaux().mt.canaux; } catch { return []; } },
   },
+  courriel,
+  santeDe: (num) => { try { const r = reqSanteSecours.get(num >>> 0); return r ? { batterie: r.batterie, tension: r.tension, heure: r.heure_telemetrie } : null; } catch { return null; } },
+  traceDe: (num, depuis) => { try { return reqTraceSecours.all(num >>> 0, depuis); } catch { return []; } },
+  noeudsCarte: () => reqNoeudsSecours.all().map((n) => ({ num: n.num, court: n.nom_court, long: n.nom_long, vu: n.dernier_vu })),
   nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); },
   positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
+const reqSanteSecours = stockage.db.prepare('SELECT batterie, tension, heure_telemetrie FROM noeuds WHERE num = ?');
+const reqTraceSecours = stockage.db.prepare('SELECT lat, lon, heure FROM positions WHERE num = ? AND heure >= ? ORDER BY heure LIMIT 5000');
+const reqNoeudsSecours = stockage.db.prepare('SELECT num, nom_court, nom_long, dernier_vu FROM noeuds ORDER BY dernier_vu DESC LIMIT 3000');
 const adminSecours = (f) => (req, res) => {
   const u = utilisateur(req);
   if (!u || u.role !== 'admin') return res.status(403).json({ erreur: 'Réservé aux administrateurs de la carte' });
   try { res.set('Cache-Control', 'no-store').json(f(req, req.body || {}, nomCompte(u))); } catch (e) { res.status(400).json({ erreur: e.message }); }
 };
 app.get('/api/secours-admin/espaces', adminSecours(() => ({ espaces: secours.lister() })));
+// Sélecteur de nœuds : ceux que la carte connaît (et l'espace qui les a déjà), canaux du module, organisations proposées
+app.get('/api/secours-admin/selecteur', adminSecours(() => secours.selecteur()));
 app.post('/api/secours-admin/espaces', adminSecours((req, b, auteur) => { secours.creer(b, auteur); return { espaces: secours.lister() }; }));
 app.patch('/api/secours-admin/espaces/:code', adminSecours((req, b, auteur) => { secours.modifier(req.params.code, b, auteur); return { espaces: secours.lister() }; }));
 app.delete('/api/secours-admin/espaces/:code', adminSecours((req, b, auteur) => { secours.supprimer(req.params.code, auteur); return { espaces: secours.lister() }; }));
@@ -4097,8 +4121,25 @@ app.post('/api/secours/:code/deconnexion', (req, res) => { res.setHeader('Set-Co
 // changé (les positions des équipes, elles, sont toujours renvoyées : elles bougent sans rien écrire)
 app.get('/api/secours/:code/etat', routeSecours((req, b, e, compte) => {
   const v = e.etat(compte);
-  return String(req.query.rev || '') === String(v.rev) ? { rev: v.rev, inchange: true, equipes: v.equipes.map((q) => ({ id: q.id, position: q.position, etat: q.etat })), accuses: e.accuses(), radioConnectee: v.radio.connecte } : v;
+  return String(req.query.rev || '') === String(v.rev) ? { rev: v.rev, inchange: true, equipes: v.equipes.map((q) => ({ id: q.id, position: q.position, etat: q.etat, sante: q.sante })), accuses: e.accuses(), radioConnectee: v.radio.connecte, radioTombee: v.radio.tombee } : v;
 }));
+// Organisations de l'espace (associations d'un DPS, services d'un PCS), repères sur la carte, trajets, rapport de fin
+app.post('/api/secours/:code/organisations', routeSecours((req, b, e) => e.majOrganisation(null, b), { responsable: true }));
+app.patch('/api/secours/:code/organisations/:id', routeSecours((req, b, e) => e.majOrganisation(req.params.id, b), { responsable: true }));
+const gardeReperes = (e, compte) => { if (!e.peutEnvoyer(compte)) throw new Error('Repères réservés aux responsables et au poste de coordination'); };
+app.post('/api/secours/:code/reperes', routeSecours((req, b, e, compte) => { gardeReperes(e, compte); return e.majRepere(null, b, e.signature(compte)); }));
+app.patch('/api/secours/:code/reperes/:id', routeSecours((req, b, e, compte) => { gardeReperes(e, compte); return e.majRepere(req.params.id, b, e.signature(compte)); }));
+app.post('/api/secours/:code/reperes/:id/diffuser', routeSecours((req, b, e, compte) => e.diffuserRepere(req.params.id, b, compte)));
+app.get('/api/secours/:code/equipes/:id/trace', routeSecours((req, b, e) => e.trace(req.params.id, req.query.heures)));
+app.get('/api/secours/:code/rapport.html', (req, res) => {
+  const x = sessionSecours(req);
+  if (!x) return res.status(401).json({ erreur: 'Connexion à cet espace requise' });
+  if (!x.espace.estResponsable(x.compte)) return res.status(403).json({ erreur: 'Réservé aux responsables de cet espace' });
+  try {
+    const r = x.espace.rapport();
+    res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': `attachment; filename="${r.nom}"`, 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" }).send(r.html);
+  } catch (err) { res.status(400).json({ erreur: err.message }); }
+});
 app.put('/api/secours/:code/reglages', routeSecours((req, b, e) => e.reglages(b), { responsable: true }));
 app.post('/api/secours/:code/equipes', routeSecours((req, b, e) => e.majEquipe(null, b), { responsable: true }));
 app.patch('/api/secours/:code/equipes/:id', routeSecours((req, b, e) => e.majEquipe(req.params.id, b), { responsable: true }));
@@ -4132,6 +4173,11 @@ const radioPointAdrasec = async ({ texte, canal, ...p }) => {
   if (texte) { await new Promise((r) => setTimeout(r, 400)); administration.envoyerTexte({ texte: signalements.couper(texte, 200), canal }, 'ADRASEC'); }
 };
 const adrasec = require('./adrasec').creerAdrasec({ config, journal, diffuser, radioPoint: radioPointAdrasec,
+  // Options d'une section : messages aux équipes (sur un canal, avec accusé), batterie et trajets des nœuds des membres
+  radioTexte: ({ texte, canal }, auteur) => administration.envoyerTexte({ texte, canal }, auteur), etatEnvoi: (n) => administration.etatEnvoi(n),
+  radioConnecte: () => { try { return !!signalements.canaux().mt.connecte; } catch { return false; } },
+  santeDe: (num) => { try { const r = reqSanteSecours.get(num >>> 0); return r ? { batterie: r.batterie, tension: r.tension, heure: r.heure_telemetrie } : null; } catch { return null; } },
+  traceDe: (num, depuis) => { try { return reqTraceSecours.all(num >>> 0, depuis); } catch { return []; } },
   // Équipe ADRASEC supprimée (ou sa section) : ses secteurs d'alerte la perdent, comme pour une équipe de la carte
   surEquipeSupprimee: (cle) => { if (secteursAlerte.equipeSupprimee(cle)) planifierRafraichir(); },
   nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); }, positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
@@ -4244,7 +4290,13 @@ app.put('/api/adrasec/reglages', (req, res, next) => {
   const r = adrasec.reglagesGlobaux({ actif: b.actif });
   if (b.nom === undefined && b.conservationJours === undefined) return res.json(r);
   next();
-}, routeAdrasec((req, b, u, G) => (b.nom !== undefined || b.conservationJours !== undefined ? G.reglages(b) : { ok: true }), { admin: true }));
+}, routeAdrasec((req, b, u, G) => (b.nom !== undefined || b.conservationJours !== undefined || b.options !== undefined || b.macros !== undefined ? G.reglages(b) : { ok: true }), { admin: true }));
+// Points de rassemblement (tout membre), messages aux équipes par radio et trajets des membres (options de la section)
+app.post('/api/adrasec/reperes', routeAdrasec((req, b, u, G) => G.majRepere(null, b, u)));
+app.patch('/api/adrasec/reperes/:id', routeAdrasec((req, b, u, G) => G.majRepere(req.params.id, b, u)));
+app.post('/api/adrasec/reperes/:id/diffuser', routeAdrasec((req, b, u, G) => G.diffuserRepere(req.params.id, b, u)));
+app.post('/api/adrasec/messages', routeAdrasec((req, b, u, G) => { G.envoyerMessage(u, b); return { ok: true }; }));
+app.get('/api/adrasec/membres/:compte/trace', routeAdrasec((req, b, u, G) => G.trace(req.params.compte, req.query.heures)));
 app.put('/api/adrasec/membres/:compte', routeAdrasec((req, b, u, G) => G.majMembre(req.params.compte, b, nomCompte(u), u.role === 'admin'), { admin: true }));
 app.post('/api/adrasec/equipes', routeAdrasec((req, b, u, G) => G.majEquipe(null, b), { admin: true }));
 app.patch('/api/adrasec/equipes/:id', routeAdrasec((req, b, u, G) => G.majEquipe(req.params.id, b), { admin: true }));
@@ -4281,7 +4333,9 @@ app.patch('/api/adrasec/recherches/:id', routeAdrasec((req, b, u, G) => G.majRec
 app.post('/api/adrasec/releves', routeAdrasec((req, b, u, G) => G.ajouterReleve(u, b)));
 app.delete('/api/adrasec/releves/:id', routeAdrasec((req, b, u, G) => G.retirerReleve(u, req.params.id)));
 app.patch('/api/adrasec/releves/:id', routeAdrasec((req, b, u, G) => G.majReleve(u, req.params.id, b)));
-app.get('/api/adrasec/canaux', routeAdrasec(() => { try { return signalements.canaux().mt; } catch { return { connecte: false, canaux: [] }; } }));
+// Canaux du module radio de la carte (choix du canal d'une diffusion). Adresse à part : /api/adrasec/canaux est le
+// jeu de canaux de la section, déclaré plus haut, et masquait cette route.
+app.get('/api/adrasec/canaux-radio', routeAdrasec(() => { try { return signalements.canaux().mt; } catch { return { connecte: false, canaux: [] }; } }));
 app.post('/api/adrasec/recherches/:id/diffuser', routeAdrasec((req, b, u, G) => G.diffuserBalise(req.params.id, b, u)));
 app.get('/api/adrasec/qr', routeAdrasec(async (req) => ({ qr: await require('qrcode').toDataURL(String(req.query.u || '').slice(0, 300), { margin: 1, width: 240 }) })));
 app.post('/api/adrasec/recherches/:id/lien', routeAdrasec((req, b, u, G) => G.creerLien(req.params.id, u)));

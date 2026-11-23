@@ -645,6 +645,25 @@ async function essaiAdrasec(navig, cookie) {
   const contexteNL = await fetch(BASE + '/api/adrasec/winlink/envoyer', { method: 'POST', headers: H, body: JSON.stringify({ a: 'F1PREF', sujet: 'x', corps: 'y' }) });
   if (contexteNL.status === 403) ok('Winlink : envoi refusé à un membre non licencié'); else ko('Winlink non licencié : HTTP ' + contexteNL.status);
   await appel('PUT', '/api/adrasec/membres/' + moi.id, { membre: true, licencie: true, indicatif: 'F4XYZ' });
+  // Points de rassemblement (tout membre, propres à la section) et options de la section (président)
+  const essayer = async (f) => { try { await f(); return 'ok'; } catch (e) { return e.message; } };
+  const rp = await appel('POST', '/api/adrasec/reperes', { nom: 'Parking de la mairie', detail: 'côté nord', lat: 45.043, lon: 3.885 });
+  const R = {
+    sansPosition: await essayer(() => appel('POST', '/api/adrasec/reperes', { nom: 'Sans position' })),
+    autreSection: (await appel('GET', '/api/adrasec?g=42')).reperes.length,
+    diffusion: await essayer(() => appel('POST', `/api/adrasec/reperes/${rp.reperes[0].id}/diffuser`, { canal: 0 })),
+    messagesEteints: await essayer(() => appel('POST', '/api/adrasec/messages', { texte: 'Essai', canal: 0 })),
+    trajetsEteints: await essayer(() => appel('GET', `/api/adrasec/membres/${moi.id}/trace`)),
+  };
+  const reg = await appel('PUT', '/api/adrasec/reglages', { options: { messages: true, trajets: true, inconnue: true }, macros: ['Rejoignez le PC', ''] });
+  R.messages = await essayer(() => appel('POST', '/api/adrasec/messages', { texte: 'Essai', canal: 0 }));
+  R.trajets = (await appel('GET', `/api/adrasec/membres/${moi.id}/trace`)).points.length;
+  const vueOpt = await appel('GET', '/api/adrasec');
+  if (/Pointez le point de rassemblement/.test(R.sansPosition) && R.autreSection === 0 && /module radio non connecté/i.test(R.diffusion) && /ne sont pas activés/.test(R.messagesEteints) && /ne sont pas activés/.test(R.trajetsEteints)
+    && /module radio non connecté/i.test(R.messages) && R.trajets === 0 && JSON.stringify(reg.options) === JSON.stringify({ batterie: true, alerteRadio: true, messages: true, trajets: true }) && reg.macros.join() === 'Rejoignez le PC'
+    && vueOpt.reperes.length === 1 && vueOpt.radio.tombee === false && Object.keys(vueOpt.catalogueOptions).length === 4 && !vueOpt.mainCourante.some((x) => x.type === 'message-emis' && /canal/.test(x.texte)))
+    ok('ADRASEC : point de rassemblement propre à la section, options réglées par le président, envoi radio refusé avec son motif sans module');
+  else ko('ADRASEC repères et options : ' + JSON.stringify({ R, options: reg.options, macros: reg.macros }));
   // Page
   const contexte = await navig.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
   await contexte.addCookies([cookie]);
@@ -652,6 +671,10 @@ async function essaiAdrasec(navig, cookie) {
   const { page, erreurs } = await ouvrir(contexte, '/adrasec');
   const p = await page.evaluate(() => ({ titre: document.querySelector('#titre').textContent, resultat: (document.querySelector('.resultat') || {}).textContent || '', cones: document.querySelectorAll('#carte path.leaflet-interactive, #carte svg path').length, gestion: !document.querySelector('[data-vue="gestion"]').hidden }));
   if (/ADRASEC 43/.test(p.titre) && /Position la plus probable/.test(p.resultat) && p.cones >= 8 && p.gestion) ok('page ADRASEC : estimation, cônes et onglet Gestion'); else ko('page ADRASEC : ' + JSON.stringify(p));
+  const po = await page.evaluate(() => ({ repere: document.querySelectorAll('#carte .rep-rassemblement').length, liste: document.querySelectorAll('#vue-equipes [data-repere]').length, nouveau: !!document.querySelector('#rp-nouveau'), diffuser: document.querySelector('.rp-diffuser').disabled,
+    options: document.querySelectorAll('.ge-option').length, cochees: document.querySelectorAll('.ge-option:checked').length, radio: !!document.querySelector('#rm-texte'), macros: document.querySelectorAll('#vue-mc [data-macro]').length, bandeau: document.querySelector('#alerte-radio').hidden }));
+  if (po.repere === 1 && po.liste === 1 && po.nouveau && po.diffuser && po.options === 4 && po.cochees === 4 && po.radio && po.macros === 1 && po.bandeau) ok('page ADRASEC : point de rassemblement sur la carte et dans l’onglet Équipes, options dans Gestion, bloc « Écrire aux équipes par radio »');
+  else ko('page ADRASEC, repères et options : ' + JSON.stringify(po));
   // Clic sur la carte : point de l'équipe et aperçu du gisement tapé
   await page.evaluate(() => { document.querySelector('[data-pos="carte"]').click(); });
   await page.mouse.click(300, 450);
@@ -989,6 +1012,48 @@ async function essaiSecours(navig, cookie) {
     && vueChef.radio.peutEnvoyer && !vueChef.radio.connecte && vue.radio.peutEnvoyer === false && !vueChef.mainCourante.some((m) => m.type === 'message-emis'))
     ok('envoi vers le terrain : réservé aux responsables, refusé avec son motif quand le module radio n’est pas connecté');
   else ko('envoi vers le terrain : ' + JSON.stringify({ s: [envoiChef.status, envoiSec.status, diffusion.status], motifs, radio: vueChef.radio }));
+  // Organisations dans l'espace, nœuds choisis dans la liste de la carte, nœud attendu par son nom court
+  const HA = { ...H, 'Content-Type': 'application/json' };
+  const modifier = (code, corps) => poster('/api/secours-admin/espaces/' + code, corps, HA, 'PATCH');
+  const org1 = await modifier('festival-essai', { organisation: { nom: 'Croix-Rouge française' } });
+  const sel = await (await fetch(BASE + '/api/secours-admin/selecteur', { headers: H })).json();
+  const O = {
+    org: org1.status, selChef: await statut('/api/secours-admin/selecteur', { Cookie: chef }),
+    proposees: sel.organisations.dps.includes('ADRASEC') && sel.organisations.dps.includes('Ordre de Malte France') && sel.organisations.pcs.includes('Services techniques'),
+    doublon: (await modifier('festival-essai', { organisation: { nom: 'croix-rouge française' } })).status,
+    attente: (await modifier('festival-essai', { organisation: { nom: 'Protection Civile (ADPC, FNPC)' }, attendre: { nom: 'PS01', organisation: 'nouvelle' } })).status,
+    attenteAilleurs: (await modifier('pcs-essai', { attendre: { nom: 'ps01' } })).status,
+    canalInconnu: (await modifier('festival-essai', { canal: 'CanalAbsent' })).status,
+  };
+  const fiche = (await (await fetch(BASE + '/api/secours-admin/espaces', { headers: H })).json()).espaces.find((e) => e.code === 'festival-essai');
+  if (JSON.stringify(O) === JSON.stringify({ org: 200, selChef: 403, proposees: true, doublon: 400, attente: 200, attenteAilleurs: 400, canalInconnu: 400 }) && Array.isArray(sel.noeuds)
+    && fiche.organisations.length === 2 && fiche.attentes.length === 1 && fiche.attentes[0].nom === 'PS01' && fiche.attentes[0].organisation === fiche.organisations[1].id)
+    ok('organisations d’un espace : liste proposée (dont l’ADRASEC), sélecteur réservé à l’administrateur de la carte, nœud attendu par son nom court');
+  else ko('organisations et sélecteur : ' + JSON.stringify({ O, organisations: fiche.organisations, attentes: fiche.attentes }));
+  // Repères et options : point de rassemblement dans un DPS, zone à évacuer seulement dans un PCS, droits
+  const orgEquipe = await poster(`/api/secours/festival-essai/equipes/${eq2.id}`, { organisation: fiche.organisations[0].id }, HC, 'PATCH');
+  const rp = await poster('/api/secours/festival-essai/reperes', { genre: 'rassemblement', nom: 'Parking nord', lat: 45.042, lon: 3.885 }, HC);
+  const repere = await rp.json();
+  const mairie = await entrer('pcs-essai', 'mairie.essai'), HM = { Cookie: mairie, 'Content-Type': 'application/json' };
+  const P = {
+    orgEquipe: orgEquipe.status, rassemblement: rp.status,
+    zoneDps: (await poster('/api/secours/festival-essai/reperes', { genre: 'zone', nom: 'Zone', contour: [[45, 3.8], [45.1, 3.8], [45.1, 3.9]] }, HC)).status,
+    zonePcs: (await poster('/api/secours/pcs-essai/reperes', { genre: 'zone', nom: 'Quartier bas', contour: [[45, 3.8], [45.1, 3.8], [45.1, 3.9]] }, HM)).status,
+    equipier: (await poster('/api/secours/festival-essai/reperes', { genre: 'rassemblement', nom: 'Pirate', lat: 45, lon: 3.8 }, HS)).status,
+    diffusion: (await poster(`/api/secours/festival-essai/reperes/${repere.id}/diffuser`, {}, HC)).status,
+    optionsEquipier: (await poster('/api/secours/festival-essai/reglages', { options: { trajets: false } }, HS, 'PUT')).status,
+    options: (await poster('/api/secours/festival-essai/reglages', { options: { trajets: false }, macros: ['Rejoignez le PC'] }, HC, 'PUT')).status,
+    trace: (await fetch(BASE + `/api/secours/festival-essai/equipes/${eq.id}/trace`, { headers: { Cookie: chef } })).status,
+    rapportEquipier: await statut('/api/secours/festival-essai/rapport.html', { Cookie: sec }),
+  };
+  const rapport = await fetch(BASE + '/api/secours/festival-essai/rapport.html', { headers: { Cookie: chef } });
+  const texteRapport = await rapport.text();
+  const vueSec = await (await fetch(BASE + '/api/secours/festival-essai/etat', { headers: { Cookie: sec } })).json();
+  if (JSON.stringify(P) === JSON.stringify({ orgEquipe: 200, rassemblement: 200, zoneDps: 400, zonePcs: 200, equipier: 400, diffusion: 400, optionsEquipier: 403, options: 200, trace: 400, rapportEquipier: 403 })
+    && rapport.status === 200 && /attachment/.test(rapport.headers.get('content-disposition') || '') && texteRapport.includes('Malaise essai') && texteRapport.includes('Parking nord')
+    && vueSec.reperes.length === 1 && vueSec.options.trajets === false && vueSec.macros[0] === 'Rejoignez le PC' && vueSec.catalogueOptions === undefined && vueSec.courriel === undefined && vueSec.organisations.length === 2)
+    ok('repères, options et rapport de fin : point de rassemblement vu de tout l’espace, zone réservée au PCS, réglages et rapport réservés aux responsables');
+  else ko('repères et options : ' + JSON.stringify({ P, rapport: rapport.status, reperes: vueSec.reperes.length, options: vueSec.options }));
   // Page : connexion, onglets, carte, sans erreur JavaScript (ordinateur puis téléphone)
   const ctx = await navig.newContext({ viewport: { width: 1366, height: 800 }, locale: 'fr-FR' });
   const { page, erreurs } = await ouvrir(ctx, '/secours/festival-essai');
@@ -1001,9 +1066,24 @@ async function essaiSecours(navig, cookie) {
   const resume = await page.textContent('#e-resume');
   await page.click('[data-vue="mc"]'); await page.waitForTimeout(300);
   const envoi = await page.evaluate(() => ({ bloc: !!document.querySelector('#r-texte'), choix: document.querySelectorAll('#r-dest option').length, coupe: document.querySelector('#r-ok').disabled, etat: document.querySelector('#r-etat').textContent }));
+  await page.click('[data-vue="reperes"]'); await page.waitForTimeout(300);
+  const rep = await page.evaluate(() => ({ fiches: document.querySelectorAll('#p-liste .fiche').length, carte: document.querySelectorAll('.rep-repere.rassemblement').length, nouveau: !!document.querySelector('#p-rassemblement'), autre: document.querySelector('#p-autre').hidden, radio: !!document.querySelector('#p-liste .radio') }));
+  await page.click('#p-rassemblement'); await page.fill('#p-nom', 'Entrée sud'); await page.click('#p-pointer'); await page.mouse.click(400, 400); await page.waitForTimeout(200);
+  await page.click('#p-ok'); await page.waitForTimeout(900);
+  rep.apres = await page.locator('#p-liste .fiche').count();
+  await page.click('[data-vue="equipes"]'); await page.waitForTimeout(300);
+  const filtre = await page.evaluate(() => ({ choix: document.querySelectorAll('#e-org-filtre option').length, trajet: !!document.querySelector('#e-liste .trajet'), org: /Croix-Rouge française/.test(document.querySelector('#e-liste').textContent) }));
+  await page.selectOption('#e-org-filtre', { index: 1 }); await page.waitForTimeout(300);
+  filtre.filtrees = await page.locator('#e-liste .fiche').count();
+  await page.click('[data-vue="gestion"]'); await page.waitForTimeout(400);
+  const gestion = await page.evaluate(() => ({ options: document.querySelectorAll('.g-option').length, rapport: !!document.querySelector('a[href$="/rapport.html"]'), macros: document.querySelector('#g-macros').value, attendu: /PS01/.test(document.querySelector('#vue-gestion').textContent), bord: document.querySelectorAll('#i-bord .tableau-bord div').length }));
+  if (rep.fiches === 1 && rep.carte === 1 && rep.nouveau && rep.autre && rep.radio && rep.apres === 2 && filtre.choix === 3 && !filtre.trajet && filtre.org && filtre.filtrees === 1
+    && gestion.options === 9 && gestion.rapport && gestion.macros === 'Rejoignez le PC' && gestion.attendu && gestion.bord === 5)
+    ok('page d’un espace : onglet Repères (point posé sur la carte), équipes filtrées par organisation, options et rapport dans Gestion, tableau de bord');
+  else { ko('repères, organisations et options dans la page : ' + JSON.stringify({ rep, filtre, gestion })); await capture(page, 'secours-options'); }
   if (envoi.bloc && envoi.choix === 2 && envoi.coupe && /n’est pas connecté/.test(envoi.etat)) ok('main courante : bloc « Écrire au terrain par radio », désactivé tant que le module n’est pas connecté');
   else { ko('bloc d’envoi par radio : ' + JSON.stringify(envoi)); await capture(page, 'secours-envoi'); }
-  if (p.onglets === 4 && p.fiches === 1 && p.carte && p.reperes >= 2 && /Gestion/.test(p.gestion) && /Effectif prévu : 6 secouristes/.test(resume)) ok('page d’un espace : interventions, équipes sur la carte, effectif du dispositif');
+  if (p.onglets === 5 && p.fiches === 1 && p.carte && p.reperes >= 2 && /Gestion/.test(p.gestion) && /Effectif prévu : 6 secouristes/.test(resume)) ok('page d’un espace : interventions, équipes sur la carte, effectif du dispositif');
   else { ko('page d’un espace : ' + JSON.stringify({ p, resume })); await capture(page, 'secours-espace'); }
   bilanErreurs(erreurs, 'Page d’un espace Secours');
   await ctx.close();
@@ -1021,6 +1101,13 @@ async function essaiSecours(navig, cookie) {
   const g = await ouvrir(adm, '/secours');
   const nb = await g.page.locator('#liste .fiche').count();
   if (nb === 2) ok('gestion des espaces : les deux espaces listés pour l’administrateur de la carte'); else { ko(`gestion des espaces : ${nb} fiche(s)`); await capture(g.page, 'secours-gestion'); }
+  const f1 = g.page.locator('.fiche[data-code="festival-essai"]');
+  await f1.locator('details.selecteur summary').click(); await g.page.waitForTimeout(300);
+  await f1.locator('.s-attente').fill('VPSP'); await f1.locator('.s-attendre').click(); await g.page.waitForTimeout(900);
+  const f2 = g.page.locator('.fiche[data-code="festival-essai"]');
+  const sg = await f2.evaluate((el) => ({ puces: el.querySelectorAll('.puce').length, attentes: [...el.querySelectorAll('.a-retirer')].map((b) => b.dataset.nom).join(), ouvert: el.querySelector('details.selecteur').open, recherche: !!el.querySelector('.s-recherche'), noeud: !!el.querySelector('tr[data-noeud="!a1b2c3d4"] .n-org'), canal: !!el.querySelector('.c-canal'), deborde: document.documentElement.scrollWidth > innerWidth }));
+  if (sg.puces === 4 && sg.attentes === 'PS01,VPSP' && sg.ouvert && sg.recherche && sg.noeud && sg.canal && !sg.deborde) ok('gestion des espaces : organisations, nœuds rangés, sélecteur resté ouvert, nœud attendu ajouté par son nom court');
+  else { ko('gestion des espaces, sélecteur : ' + JSON.stringify(sg)); await capture(g.page, 'secours-selecteur'); }
   bilanErreurs(g.erreurs, 'Gestion des espaces Secours');
   await adm.close();
   const suppr = await fetch(BASE + '/api/secours-admin/espaces/festival-essai', { method: 'DELETE', headers: H });
