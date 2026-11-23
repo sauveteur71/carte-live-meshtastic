@@ -219,8 +219,8 @@ public class MainActivity extends Activity {
         try { Veille.demarrer(this); } catch (Exception e) { /* refusé par Android */ }
     }
 
-    // Nouvelle version de l'APK publiée sur GitHub : proposée une fois par jour (ou à la demande), téléchargée puis
-    // installée par-dessus (même clé de signature) ; les cartes enregistrées sont gardées
+    // Nouvelle version de l'APK publiée sur GitHub : signalée une fois par jour (ou à la demande), avec un bouton qui
+    // ouvre sa page dans le navigateur ; elle s'installe par-dessus (même clé de signature), les cartes sont gardées
     private void verifierMiseAJour(boolean demande) {
         if (BuildConfig.PLAY) { // version du Play Store : les mises à jour passent par le Store
             try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + getPackageName()))); }
@@ -251,8 +251,8 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     if (plusRecente && lien != null) {
                         new AlertDialog.Builder(this).setTitle("Nouvelle version " + tag)
-                                .setMessage("Une nouvelle version de l'application est disponible (installée : " + version() + "). La télécharger et l'installer ? Vos cartes enregistrées sont gardées.")
-                                .setPositiveButton("Installer", (d, w) -> installer(lien, tag))
+                                .setMessage("Une nouvelle version de l'application est disponible (installée : " + version() + "). Ouvrir sa page de téléchargement dans le navigateur ? Vos cartes enregistrées sont gardées.")
+                                .setPositiveButton("Ouvrir la page", (d, w) -> ouvrirAilleurs(Uri.parse("https://github.com/" + DEPOT + "/releases/tag/v" + tag)))
                                 .setNegativeButton("Plus tard", null).show();
                     } else if (demande) Toast.makeText(this, "L'application est à jour (" + version() + ")", Toast.LENGTH_LONG).show();
                 });
@@ -272,29 +272,10 @@ public class MainActivity extends Activity {
     }
     private static int entier(String s) { try { return Integer.parseInt(s.replaceAll("[^0-9].*$", "")); } catch (Exception e) { return 0; } }
 
-    // Téléchargement confié au gestionnaire de téléchargements d'Android : sa notification « Téléchargement terminé »
-    // lance l'installation. L'appli n'a ainsi besoin d'aucune permission pour installer ou désinstaller des applis,
-    // ce qui évite les alertes « appli dangereuse » de Play Protect
-    private void installer(String lien, String tag) {
-        try {
-            DownloadManager.Request d = new DownloadManager.Request(Uri.parse(lien));
-            d.setTitle("Carte live " + tag);
-            d.setMimeType("application/vnd.android.package-archive");
-            d.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            d.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "carte-live-" + tag + ".apk");
-            ((DownloadManager) getSystemService(DOWNLOAD_SERVICE)).enqueue(d);
-            new AlertDialog.Builder(this).setTitle("Téléchargement de la version " + tag)
-                    .setMessage("Quand le téléchargement est terminé, touchez la notification (ou ouvrez le fichier dans Téléchargements) pour installer la nouvelle version. Vos cartes enregistrées sont gardées.")
-                    .setPositiveButton("OK", null).show();
-        } catch (Exception e) {
-            ouvrirAilleurs(Uri.parse(lien)); // sinon : le navigateur s'en charge
-        }
-    }
-
-    // Adresse « content:// » du fichier téléchargé, servie par le fournisseur de fichiers de l'application
-    private Uri androidx_fichier(File f) {
-        return Uri.parse("content://" + getPackageName() + ".fichiers/maj/" + f.getName());
-    }
+    // L'appli ne télécharge ni n'installe jamais de fichier APK elle-même : elle ouvre seulement la page de la version
+    // dans le navigateur du téléphone, qui télécharge et installe. Une appli qui va chercher une APK et la présente à
+    // l'installateur ressemble, pour Google Play Protect, à un programme qui en installe d'autres en cachette
+    // (alerte « Appli dangereuse bloquée »), même sans aucune permission d'installation.
 
     // Cherche une carte live sur le réseau local (Wi-Fi de la maison, point d'accès d'un Pi autonome) : toutes les
     // adresses du sous-réseau, port 8095, réponse de /sante
