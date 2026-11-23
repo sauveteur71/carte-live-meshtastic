@@ -179,13 +179,21 @@ test('envois vers le terrain : message direct aux nœuds des équipes, droits, a
   assert.strictEqual(mc.find((m) => m.texte === '→ Binôme Alpha : Rejoignez le poste scène').accuse, 'recu');
   assert.ok(mc.every((m) => m.type !== 'message-emis' || m.origine === 'radio'));
   assert.ok(F.accuses().some((a) => a.accuse === 'recu'));
-  // Intervention : intitulé, position et code DFCI, à l'équipe engagée ; message ramené à 200 octets
+  // Intervention envoyée à l'équipe engagée
   const x = F.majIntervention(null, { genre: 'malaise', titre: 'Malaise devant la scène', lat: 45.0432, lon: 3.8853, urgente: true, equipe: bravo.id, detail: 'é'.repeat(300) }, 'chef.dispositif');
   F.diffuserIntervention(x.id, {}, chef);
   const dernier = partis.at(-1);
   assert.strictEqual(dernier.dest, N2);
-  assert.match(dernier.texte, /^INTER Malaise devant la scène \(URGENT\) · 45\.04320,3\.88530 DFCI [A-Z]{2}\d{2}[A-Z]\d(\.\d)? · é+$/);
-  assert.ok(Buffer.byteLength(dernier.texte) <= 200);
+  // Sans lieu saisi, l'intitulé en tient lieu ; ni précisions ni priorité dans le message
+  assert.match(dernier.texte, /^INTER Malaise devant la scène · 45\.04320,3\.88530 DFCI [A-Z]{2}\d{2}[A-Z]\d(\.\d)? · Malaise$/);
+  // Message d'intervention : lieu précis, nature, état apparent, et rien d'autre
+  F.majIntervention(x.id, { lieu: 'Point B, près de la scène principale', etat: 'consciente' }, 'chef.dispositif');
+  F.diffuserIntervention(x.id, {}, chef);
+  assert.match(partis.at(-1).texte, /^INTER Point B, près de la scène principale · 45\.04320,3\.88530 DFCI \S+ · Malaise · consciente$/);
+  assert.strictEqual(F.majIntervention(x.id, { etat: 'inventé' }, 'chef.dispositif').etat, null);
+  F.majIntervention(x.id, { lieu: 'L'.repeat(80), etat: 'ne-respire-pas' }, 'chef.dispositif');
+  F.diffuserIntervention(x.id, {}, chef);
+  assert.ok(Buffer.byteLength(partis.at(-1).texte) <= 200 && /ne respire pas$/.test(partis.at(-1).texte));
   // Droits : un équipier d'une équipe ordinaire n'envoie pas ; celui du poste de coordination, si
   const equipier = F.creerCompte({ identifiant: 'secouriste.un', motDePasse: 'motdepasse-4', equipe: alpha.id });
   assert.throws(() => F.envoyer(equipier, { texte: 'essai', equipe: bravo.id }), /réservé aux responsables et au poste de coordination/);

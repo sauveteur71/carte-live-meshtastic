@@ -103,7 +103,7 @@ Seuls les messages des nœuds attribués à l'espace sont pris en compte ; ceux 
 Les **responsables** et les équipiers du **poste de coordination** (PC du dispositif, poste de commandement communal) écrivent aux équipes sans passer par le téléphone :
 
 - **🗒️ Main courante › 📻 Écrire au terrain par radio** : choisir une équipe, ou *Toutes les équipes qui portent un nœud*, saisir un message court (200 caractères au plus), **Envoyer**.
-- **📍 Interventions › bouton 📻 Envoyer** d'une intervention : son intitulé, sa position et son **code DFCI** partent à l'équipe engagée (à toutes si aucune n'est désignée).
+- **📍 Interventions › bouton 📻 Envoyer** d'une intervention : le **message d'intervention** part à l'équipe engagée (à toutes si aucune n'est désignée). Il se limite à l'essentiel : le **lieu précis** (le repère saisi dans la fiche, ex. « Point B, près de la scène principale », puis la position et le **code DFCI**), la **nature** de l'intervention et, pour un DPS, l'**état apparent** (consciente, inconsciente et respire, ne respire pas, saignement important, détresse respiratoire). Exemple : `INTER Point B, près de la scène principale · 45.04320,3.88530 DFCI KD68F4.2 · Malaise · consciente`. Les précisions de la fiche et la priorité ne partent pas par radio.
 
 Ce qu'il faut savoir :
 

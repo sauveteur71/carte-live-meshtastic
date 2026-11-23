@@ -98,6 +98,8 @@ const REPERES = {
   danger: { nom: 'Danger', icone: '⛔', couches: true },
 };
 const PRIORITES = { 1: 'Urgente', 2: 'Normale', 3: 'Peut attendre' };
+// État apparent de la victime, tel qu'on le dit à la radio (DPS) : ni nom ni information médicale nominative
+const ETATS_VICTIME = { consciente: 'consciente', 'inconsciente-respire': 'inconsciente, respire', 'ne-respire-pas': 'inconsciente, ne respire pas', saignement: 'saignement important', 'detresse-respiratoire': 'détresse respiratoire', inconnu: 'état inconnu' };
 const COURRIELS_MAX = 5, COURRIELS_HEURE = 20;
 const MEL = /^[^\s@<>,;]{1,64}@[^\s@<>,;]{1,190}\.[a-z]{2,}$/i;
 const COPIES_GARDEES = 7;
@@ -161,6 +163,8 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
   colonne('noeuds', 'organisation', 'TEXT');
   colonne('equipes', 'organisation', 'TEXT');
   colonne('interventions', 'priorite', 'INTEGER');
+  colonne('interventions', 'lieu', 'TEXT'); // lieu précis dit à la radio : repère du site, secteur, poste
+  colonne('interventions', 'etat', 'TEXT'); // état apparent (DPS)
   colonne('interventions', 'point', 'INTEGER'); // identifiant du point de passage Meshtastic qui l'a créée
   db.exec('UPDATE interventions SET priorite = CASE WHEN urgente = 1 THEN 1 ELSE 2 END WHERE priorite IS NULL');
   const q = {
@@ -198,8 +202,8 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
     interventions: db.prepare("SELECT * FROM interventions WHERE statut <> 'terminee' OR cloture >= ? ORDER BY heure DESC LIMIT 500"),
     intervention: db.prepare('SELECT * FROM interventions WHERE id = ?'),
     interventionEnCours: db.prepare("SELECT * FROM interventions WHERE equipe = ? AND statut = 'en-cours' ORDER BY maj DESC LIMIT 1"),
-    creerIntervention: db.prepare('INSERT INTO interventions (id, heure, lat, lon, genre, titre, detail, urgente, statut, equipe, auteur, origine, maj, cloture, priorite, point) VALUES (@id, @heure, @lat, @lon, @genre, @titre, @detail, @urgente, @statut, @equipe, @auteur, @origine, @maj, @cloture, @priorite, @point)'),
-    majIntervention: db.prepare('UPDATE interventions SET lat=@lat, lon=@lon, genre=@genre, titre=@titre, detail=@detail, urgente=@urgente, statut=@statut, equipe=@equipe, maj=@maj, cloture=@cloture, priorite=@priorite WHERE id=@id'),
+    creerIntervention: db.prepare('INSERT INTO interventions (id, heure, lat, lon, genre, titre, detail, urgente, statut, equipe, auteur, origine, maj, cloture, priorite, point, lieu, etat) VALUES (@id, @heure, @lat, @lon, @genre, @titre, @detail, @urgente, @statut, @equipe, @auteur, @origine, @maj, @cloture, @priorite, @point, @lieu, @etat)'),
+    majIntervention: db.prepare('UPDATE interventions SET lat=@lat, lon=@lon, genre=@genre, titre=@titre, detail=@detail, urgente=@urgente, statut=@statut, equipe=@equipe, maj=@maj, cloture=@cloture, priorite=@priorite, lieu=@lieu, etat=@etat WHERE id=@id'),
     detacherInterventions: db.prepare('UPDATE interventions SET equipe = NULL WHERE equipe = ?'),
     mainCourante: db.prepare('SELECT * FROM main_courante ORDER BY heure DESC LIMIT ?'),
     touteMainCourante: db.prepare('SELECT * FROM main_courante ORDER BY heure'),
@@ -442,13 +446,15 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
   // ---- Interventions pointées sur la carte ------------------------------------------------------------------------
   function majIntervention(iid, b, auteur, origine = 'saisie', point = null) {
     const nouveau = !iid;
-    const x = nouveau ? { id: id(), heure: Date.now(), lat: null, lon: null, genre: 'autre', titre: '', detail: null, urgente: 0, statut: 'a-faire', equipe: null, auteur, origine, maj: Date.now(), cloture: null, priorite: 2, point: point != null ? Number(point) >>> 0 : null } : q.intervention.get(iid);
+    const x = nouveau ? { id: id(), heure: Date.now(), lat: null, lon: null, genre: 'autre', titre: '', detail: null, urgente: 0, statut: 'a-faire', equipe: null, auteur, origine, maj: Date.now(), cloture: null, priorite: 2, point: point != null ? Number(point) >>> 0 : null, lieu: null, etat: null } : q.intervention.get(iid);
     if (!x) throw new Error('Intervention inconnue');
     const avant = { statut: x.statut, equipe: x.equipe, priorite: nouveau ? null : x.priorite || 2 };
     if (b.genre !== undefined) x.genre = G().interventions[b.genre] ? b.genre : 'autre';
     if (b.titre !== undefined) x.titre = txt(b.titre, 80);
     if (!x.titre) x.titre = G().interventions[x.genre];
     if (b.detail !== undefined) x.detail = txt(b.detail, 600) || null;
+    if (b.lieu !== undefined) x.lieu = txt(b.lieu, 80) || null;
+    if (b.etat !== undefined) x.etat = genre() === 'dps' && ETATS_VICTIME[b.etat] ? b.etat : null;
     // Priorité : 1 urgente, 2 normale, 3 peut attendre ; « urgente » (case à cocher, message radio) vaut priorité 1
     if (b.priorite !== undefined) { const p = Number(b.priorite); if (!PRIORITES[p]) throw new Error('Priorité inconnue'); x.priorite = p; }
     else if (b.urgente !== undefined) x.priorite = b.urgente ? 1 : (x.priorite === 1 || !x.priorite ? 2 : x.priorite);
@@ -640,13 +646,15 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
     })();
     return { ok: true, destinataires: cibles.map((e) => e.nom) };
   }
-  // Intervention envoyée par radio : intitulé, position (et code DFCI), précisions ; à l'équipe engagée, sinon à
-  // celle choisie, sinon à toutes
+  // Message d'intervention envoyé par radio, limité à l'essentiel : lieu précis (repère du site, puis position et
+  // code DFCI), nature, état apparent. Sans lieu saisi, l'intitulé en tient lieu. À l'équipe engagée, sinon à celle
+  // choisie, sinon à toutes.
   function diffuserIntervention(iid, b, compte) {
     const x = q.intervention.get(iid);
     if (!x) throw new Error('Intervention inconnue');
     const dfci = x.lat != null ? versDfci(x.lat, x.lon) : null;
-    const texte = [`INTER ${x.titre}${x.urgente ? ' (URGENT)' : ''}`, x.lat != null ? `${x.lat.toFixed(5)},${x.lon.toFixed(5)}${dfci ? ' DFCI ' + dfci : ''}` : null, x.detail].filter(Boolean).join(' · ');
+    const nature = x.genre !== 'autre' ? G().interventions[x.genre] : null;
+    const texte = couper([`INTER ${x.lieu || x.titre}`, x.lat != null ? `${x.lat.toFixed(5)},${x.lon.toFixed(5)}${dfci ? ' DFCI ' + dfci : ''}` : null, nature && nature.toLowerCase() !== (x.lieu || x.titre).toLowerCase() ? nature : null, x.etat ? ETATS_VICTIME[x.etat] : null].filter(Boolean).join(' · '), 200);
     return envoyer(compte, { texte, equipe: b.equipe !== undefined ? b.equipe || null : x.equipe, intervention: x.id });
   }
 
@@ -717,7 +725,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{border:1px solid 
 <h2>Équipes et postes</h2>
 ${tableau(['Équipe', 'Type', 'Organisation', 'Effectif', 'Nœud', 'Membres', 'Dernier état'], eqs.map((e) => [h(e.nom), h(G().equipes[e.genre] || e.genre), h(orgs.get(e.organisation) || ''), e.effectif ?? '', e.noeud ? h(nomDe(e.noeud >>> 0) || idNoeud(e.noeud)) : '', h((membres.get(e.id) || []).join(', ')), h(ETATS_EQUIPE[e.etat] || e.etat)]))}
 <h2>Interventions</h2>
-${tableau(['Ouverte', 'Intitulé', 'Nature', 'Priorité', 'Équipe', 'Position', 'Signalée par', 'Clôture', 'Durée'], inters.map((x) => [h(quand(x.heure)), `<b>${h(x.titre)}</b>${x.detail ? '<br>' + h(x.detail) : ''}`, h(G().interventions[x.genre] || x.genre), h(PRIORITES[x.priorite] || ''), h(nomEq.get(x.equipe) || ''), x.lat != null ? `${x.lat.toFixed(5)}, ${x.lon.toFixed(5)}<br>DFCI ${h(versDfci(x.lat, x.lon) || '')}` : '', h(x.auteur || '') + (x.origine === 'radio' ? ' (radio)' : ''), x.cloture ? h(quand(x.cloture)) : 'non close', x.cloture ? h(duree(x.cloture - x.heure)) : '']))}
+${tableau(['Ouverte', 'Intitulé', 'Lieu et état', 'Nature', 'Priorité', 'Équipe', 'Position', 'Signalée par', 'Clôture', 'Durée'], inters.map((x) => [h(quand(x.heure)), `<b>${h(x.titre)}</b>${x.detail ? '<br>' + h(x.detail) : ''}`, h([x.lieu, x.etat ? ETATS_VICTIME[x.etat] : null].filter(Boolean).join(' · ')), h(G().interventions[x.genre] || x.genre), h(PRIORITES[x.priorite] || ''), h(nomEq.get(x.equipe) || ''), x.lat != null ? `${x.lat.toFixed(5)}, ${x.lon.toFixed(5)}<br>DFCI ${h(versDfci(x.lat, x.lon) || '')}` : '', h(x.auteur || '') + (x.origine === 'radio' ? ' (radio)' : ''), x.cloture ? h(quand(x.cloture)) : 'non close', x.cloture ? h(duree(x.cloture - x.heure)) : '']))}
 <h2>Repères</h2>
 ${tableau(['Repère', 'Type', 'Position', 'Précisions'], q.reperes.all().map((r) => [h(r.nom), h((REPERES[r.genre] || {}).nom || r.genre), `${r.lat.toFixed(5)}, ${r.lon.toFixed(5)}`, h(r.detail || '')]))}
 <h2>Main courante</h2>
@@ -790,7 +798,7 @@ ${tableau(['Heure', 'Auteur', 'Type', 'Équipe', 'Texte', 'Radio'], mc.map((m) =
     return {
       rev, code, nom: lire('nom', code), genre: genre(), nomGenre: G().nom,
       moi: { id: compte.id, identifiant: compte.identifiant, responsable: estResponsable(compte), equipe: aff.equipe || null },
-      listes: { equipes: G().equipes, interventions: G().interventions, etats: ETATS_EQUIPE, categories: genre() === 'dps' ? CATEGORIES_DPS : null, typesMc: TYPES_MC, priorites: PRIORITES, reperes: genresReperes(),
+      listes: { equipes: G().equipes, interventions: G().interventions, etats: ETATS_EQUIPE, categories: genre() === 'dps' ? CATEGORIES_DPS : null, typesMc: TYPES_MC, priorites: PRIORITES, etatsVictime: genre() === 'dps' ? ETATS_VICTIME : null, reperes: genresReperes(),
         organisations: [...G().organisations, ...ASSOCIATIONS] },
       options: options(), catalogueOptions: estResponsable(compte) ? Object.fromEntries(optionsDuGenre().map(([k, o]) => [k, { nom: o.nom, aide: o.aide }])) : undefined,
       organisations: organisations(), reperes: reperes(), macros: macros(),

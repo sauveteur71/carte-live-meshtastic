@@ -320,6 +320,8 @@
       <div class="champs"><label>Nature <select id="i-genre">${options(E.listes.interventions)}</select></label>
         <label>Équipe engagée <select id="i-equipe"></select></label></div>
       <label>Intitulé court <input id="i-titre" maxlength="80" placeholder="ex. Chute au virage 4"></label>
+      <div class="champs"><label>Lieu précis (dit à la radio) <input id="i-lieu" maxlength="80" placeholder="ex. Point B, près de la scène principale"></label>
+        ${E.listes.etatsVictime ? `<label>État apparent <select id="i-etat">${options(E.listes.etatsVictime, null, '— non précisé —')}</select></label>` : ''}</div>
       <label style="margin-top:6px">Précisions <textarea id="i-detail" maxlength="600" placeholder="Accès, nombre de personnes, matériel utile…"></textarea></label>
       <p class="note">N’écrivez ni nom de victime ni information médicale nominative.</p>
       ${E.options.priorites ? `<div class="champs"><label>Priorité <select id="i-priorite">${optionsPrio(2)}</select></label></div>` : '<label class="case"><input type="checkbox" id="i-urgente"> Urgente</label>'}
@@ -330,11 +332,11 @@
   let posInter = null;
   const majPosInter = () => { $('#i-pos').textContent = posInter ? `${posInter.lat.toFixed(5)}, ${posInter.lon.toFixed(5)}` : 'Aucune position'; marquerPointage(posInter); };
   $('#i-nouvelle').onclick = () => { $('#i-form').hidden = false; $('#i-nouvelle').hidden = true; $('#i-equipe').innerHTML = optionsEquipes(null, '— à désigner —'); $('#i-titre').focus(); };
-  const fermerInter = () => { $('#i-form').hidden = true; $('#i-nouvelle').hidden = false; posInter = null; majPosInter(); for (const k of ['#i-titre', '#i-detail']) $(k).value = ''; if ($('#i-urgente')) $('#i-urgente').checked = false; if ($('#i-priorite')) $('#i-priorite').value = '2'; $('#i-retour').textContent = ''; };
+  const fermerInter = () => { $('#i-form').hidden = true; $('#i-nouvelle').hidden = false; posInter = null; majPosInter(); for (const k of ['#i-titre', '#i-detail', '#i-lieu']) $(k).value = ''; if ($('#i-etat')) $('#i-etat').value = ''; if ($('#i-urgente')) $('#i-urgente').checked = false; if ($('#i-priorite')) $('#i-priorite').value = '2'; $('#i-retour').textContent = ''; };
   $('#i-annuler').onclick = fermerInter;
   $('#i-pointer').onclick = () => pointer('Cliquez sur la carte à l’endroit de l’intervention', (p) => { posInter = p; majPosInter(); });
   $('#i-ok').onclick = async () => {
-    const corps = { genre: $('#i-genre').value, titre: $('#i-titre').value, detail: $('#i-detail').value, ...($('#i-priorite') ? { priorite: Number($('#i-priorite').value) } : { urgente: $('#i-urgente').checked }), equipe: $('#i-equipe').value || null, ...(posInter || {}) };
+    const corps = { genre: $('#i-genre').value, titre: $('#i-titre').value, lieu: $('#i-lieu').value, ...($('#i-etat') ? { etat: $('#i-etat').value || null } : {}), detail: $('#i-detail').value, ...($('#i-priorite') ? { priorite: Number($('#i-priorite').value) } : { urgente: $('#i-urgente').checked }), equipe: $('#i-equipe').value || null, ...(posInter || {}) };
     if (await agir(() => api(base + '/interventions', { method: 'POST', body: corps }), $('#i-retour'))) fermerInter();
   };
   const LIB_STATUT = { 'a-faire': 'À faire', 'en-cours': 'En cours', terminee: 'Terminée' };
@@ -358,6 +360,7 @@
       <div class="fiche ${x.statut === 'terminee' ? 'terminee' : x.urgente ? 'urgente' : ''}" data-id="${esc(x.id)}">
         <div class="tete"><b translate="no">${esc(x.titre)}</b>${x.urgente && x.statut !== 'terminee' ? '<span class="pastille crit">Urgente</span>' : ''}${E.options.priorites && x.priorite === 3 && x.statut !== 'terminee' ? '<span class="pastille">Peut attendre</span>' : ''}<span class="pastille ${x.statut === 'terminee' ? 'ok' : x.statut === 'en-cours' ? '' : 'att'}">${LIB_STATUT[x.statut]}</span><span class="heure">${heure(x.heure)}</span></div>
         <div class="note">${esc(E.listes.interventions[x.genre] || '')} · signalée par <span translate="no">${esc(x.auteur || '?')}</span>${x.origine === 'radio' ? ' 📻 par radio' : ''}</div>
+        ${x.lieu || x.etat ? `<div class="corps" translate="no">${x.lieu ? '📍 ' + esc(x.lieu) : ''}${x.lieu && x.etat ? ' · ' : ''}${x.etat ? esc((E.listes.etatsVictime || {})[x.etat] || x.etat) : ''}</div>` : ''}
         ${x.detail ? `<div class="corps" translate="no">${esc(x.detail)}</div>` : ''}
         <div class="actions">
           <select class="eq" aria-label="Équipe engagée">${optionsEquipes(x.equipe, '— équipe à désigner —')}</select>
@@ -378,7 +381,7 @@
       if ($('.radio', f)) $('.radio', f).onclick = async () => {
         const a = x.equipe ? E.equipes.find((e) => e.id === x.equipe) : null;
         const qui = a ? `à « ${a.nom} »` : E.canal.utilisable ? `à toutes les équipes, sur le canal « ${E.canal.nom} »` : `à toutes les équipes qui portent un nœud (${E.equipes.filter((e) => e.noeud).length})`;
-        if (!confirm(`Envoyer l’intervention « ${x.titre} » par radio ${qui} ?`)) return;
+        if (!confirm(`Envoyer l’intervention « ${x.titre} » par radio ${qui} ?\nLe message donne le lieu précis, la nature et l’état apparent.`)) return;
         try { const r = await api(`${base}/interventions/${x.id}/diffuser`, { method: 'POST', body: {} }); await rafraichir(true); annoncer(`📻 Envoyé à ${r.destinataires.join(', ')}`); }
         catch (e) { alert(e.message); }
       };
