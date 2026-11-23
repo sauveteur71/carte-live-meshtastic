@@ -4045,6 +4045,13 @@ app.get('/api/urgence/journal.csv', (req, res) => {
 // un cookie à part (secours_session). Aucune de ces routes ne lit la session de la carte, sauf la gestion des
 // espaces (/api/secours-admin), réservée aux administrateurs de la carte, qui ne donne accès à aucun contenu.
 const secours = require('./secours').creerSecours({ config, journal,
+  // Envois d'un espace vers le terrain : toujours un message direct au nœud d'une équipe, jamais recopié dans les
+  // messages de la carte (discret)
+  radio: {
+    connecte: () => { try { return !!signalements.canaux().mt.connecte; } catch { return false; } },
+    envoyerTexte: ({ texte, dest }, auteur) => administration.envoyerTexte({ texte, dest, discret: true }, auteur),
+    etatEnvoi: (id) => administration.etatEnvoi(id),
+  },
   nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); },
   positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
 const adminSecours = (f) => (req, res) => {
@@ -4090,7 +4097,7 @@ app.post('/api/secours/:code/deconnexion', (req, res) => { res.setHeader('Set-Co
 // changé (les positions des équipes, elles, sont toujours renvoyées : elles bougent sans rien écrire)
 app.get('/api/secours/:code/etat', routeSecours((req, b, e, compte) => {
   const v = e.etat(compte);
-  return String(req.query.rev || '') === String(v.rev) ? { rev: v.rev, inchange: true, equipes: v.equipes.map((q) => ({ id: q.id, position: q.position, etat: q.etat })) } : v;
+  return String(req.query.rev || '') === String(v.rev) ? { rev: v.rev, inchange: true, equipes: v.equipes.map((q) => ({ id: q.id, position: q.position, etat: q.etat })), accuses: e.accuses(), radioConnectee: v.radio.connecte } : v;
 }));
 app.put('/api/secours/:code/reglages', routeSecours((req, b, e) => e.reglages(b), { responsable: true }));
 app.post('/api/secours/:code/equipes', routeSecours((req, b, e) => e.majEquipe(null, b), { responsable: true }));
@@ -4102,6 +4109,8 @@ app.put('/api/secours/:code/equipes/:id/etat', routeSecours((req, b, e, compte) 
 }));
 app.post('/api/secours/:code/interventions', routeSecours((req, b, e, compte) => e.majIntervention(null, b, e.signature(compte))));
 app.patch('/api/secours/:code/interventions/:id', routeSecours((req, b, e, compte) => e.majIntervention(req.params.id, b, e.signature(compte))));
+app.post('/api/secours/:code/interventions/:id/diffuser', routeSecours((req, b, e, compte) => e.diffuserIntervention(req.params.id, b, compte)));
+app.post('/api/secours/:code/envoi', routeSecours((req, b, e, compte) => e.envoyer(compte, b)));
 app.post('/api/secours/:code/main-courante', routeSecours((req, b, e, compte) => e.ajouterMc(b, compte)));
 app.get('/api/secours/:code/main-courante.csv', (req, res) => {
   const x = sessionSecours(req);

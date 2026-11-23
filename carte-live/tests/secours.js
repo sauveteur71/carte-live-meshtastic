@@ -17,9 +17,14 @@ function monter() {
   const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'secours-essai-'));
   const positions = new Map([[N1, { lat: 45.05, lon: 3.9, heure: 1 }], [N2, { lat: 45.1, lon: 3.95, heure: 1 }]]);
   const journal = [];
-  const secours = creerSecours({ config: { fichierBase: path.join(dossier, 'carte-live.db') }, journal: (...a) => journal.push(a.join(' ')),
+  // Faux module radio : garde ce qui part, numérote les paquets, accusé réglable
+  const partis = [], accuses = new Map();
+  const radio = { panne: null, connecte: () => !radio.panne,
+    envoyerTexte: ({ texte, dest }, auteur) => { if (radio.panne) throw new Error(radio.panne); const id = partis.length + 1; partis.push({ id, texte, dest, auteur }); accuses.set(id, 'envoye'); return { id, dest }; },
+    etatEnvoi: (n) => (accuses.has(n) ? { statut: accuses.get(n) } : null) };
+  const secours = creerSecours({ config: { fichierBase: path.join(dossier, 'carte-live.db') }, journal: (...a) => journal.push(a.join(' ')), radio, espacement: 5,
     positionDe: (n) => positions.get(n >>> 0) || null, nomDe: (n) => (n >>> 0 === N1 ? 'Binôme Alpha' : null) });
-  return { dossier, secours, positions, journal };
+  return { dossier, secours, positions, journal, radio, partis, accuses };
 }
 const festival = (secours, plus = {}) => secours.creer({ code: 'festival-2027', nom: 'Festival du Velay', genre: 'dps', responsable: { identifiant: 'chef.dispositif', motDePasse: 'motdepasse-1' }, noeuds: [idNoeud(N1)], ...plus }, 'admin');
 const commune = (secours, plus = {}) => secours.creer({ code: 'pcs-commune', nom: 'PCS de la commune', genre: 'pcs', responsable: { identifiant: 'mairie', motDePasse: 'motdepasse-2' }, noeuds: [idNoeud(N2)], ...plus }, 'admin');
@@ -142,6 +147,57 @@ test('remontées par radio : seulement les nœuds de l’espace, INTER / états 
   assert.ok(!F.etat(chef).mainCourante.some((m) => /Route de la gare/.test(m.texte)));
   assert.strictEqual(C.etat(maire).interventions.length, 0);
   assert.strictEqual(F.etat(chef).interventions.length, 1);
+  secours.fermer();
+});
+
+test('envois vers le terrain : message direct aux nœuds des équipes, droits, accusés, limite', async () => {
+  const { secours, radio, partis, accuses } = monter();
+  secours.creer({ code: 'festival-2027', nom: 'Festival du Velay', genre: 'dps', responsable: { identifiant: 'chef.dispositif', motDePasse: 'motdepasse-1' }, noeuds: [idNoeud(N1), idNoeud(N2)] }, 'admin');
+  const F = secours.espace('festival-2027');
+  const chef = F.comptes.connecter('chef.dispositif', 'motdepasse-1');
+  const alpha = F.majEquipe(null, { nom: 'Binôme Alpha', genre: 'binome', noeud: idNoeud(N1) });
+  const bravo = F.majEquipe(null, { nom: 'Binôme Bravo', genre: 'binome', noeud: idNoeud(N2) });
+  const poste = F.majEquipe(null, { nom: 'Poste scène', genre: 'poste', lat: 45.0431, lon: 3.8852 });
+  const pc = F.majEquipe(null, { nom: 'PC', genre: 'pc' });
+  // Une équipe : un seul message direct, vers son nœud et aucun autre
+  assert.deepStrictEqual(F.envoyer(chef, { texte: 'Rejoignez le poste scène', equipe: alpha.id }).destinataires, ['Binôme Alpha']);
+  assert.deepStrictEqual(partis.map((p) => [p.dest, p.texte, p.auteur]), [[N1, 'Rejoignez le poste scène', 'espace Secours festival-2027']]);
+  assert.throws(() => F.envoyer(chef, { texte: 'x', equipe: poste.id }), /ne porte pas de nœud/);
+  assert.throws(() => F.envoyer(chef, { texte: '   ' }), /Message vide/);
+  // Toutes : une par une, seulement celles qui portent un nœud
+  F.envoyer(chef, { texte: 'Fin du dispositif à 23 h' });
+  await new Promise((ok) => setTimeout(ok, 60));
+  assert.deepStrictEqual(partis.slice(1).map((p) => p.dest), [N1, N2]);
+  // Accusé de réception lu dans la main courante
+  accuses.set(1, 'recu');
+  const mc = F.etat(chef).mainCourante;
+  assert.strictEqual(mc.find((m) => m.texte === '→ Binôme Alpha : Rejoignez le poste scène').accuse, 'recu');
+  assert.ok(mc.every((m) => m.type !== 'message-emis' || m.origine === 'radio'));
+  assert.ok(F.accuses().some((a) => a.accuse === 'recu'));
+  // Intervention : intitulé, position et code DFCI, à l'équipe engagée ; message ramené à 200 octets
+  const x = F.majIntervention(null, { genre: 'malaise', titre: 'Malaise devant la scène', lat: 45.0432, lon: 3.8853, urgente: true, equipe: bravo.id, detail: 'é'.repeat(300) }, 'chef.dispositif');
+  F.diffuserIntervention(x.id, {}, chef);
+  const dernier = partis.at(-1);
+  assert.strictEqual(dernier.dest, N2);
+  assert.match(dernier.texte, /^INTER Malaise devant la scène \(URGENT\) · 45\.04320,3\.88530 DFCI [A-Z]{2}\d{2}[A-Z]\d(\.\d)? · é+$/);
+  assert.ok(Buffer.byteLength(dernier.texte) <= 200);
+  // Droits : un équipier d'une équipe ordinaire n'envoie pas ; celui du poste de coordination, si
+  const equipier = F.creerCompte({ identifiant: 'secouriste.un', motDePasse: 'motdepasse-4', equipe: alpha.id });
+  assert.throws(() => F.envoyer(equipier, { texte: 'essai', equipe: bravo.id }), /réservé aux responsables et au poste de coordination/);
+  assert.strictEqual(F.etat(equipier).radio.peutEnvoyer, false);
+  const operateur = F.creerCompte({ identifiant: 'operateur.pc', motDePasse: 'motdepasse-5', equipe: pc.id });
+  assert.strictEqual(F.etat(operateur).radio.peutEnvoyer, true);
+  F.envoyer(operateur, { texte: 'Bien reçu', equipe: alpha.id });
+  // Module de la carte non connecté : l'erreur revient à celui qui envoie, rien n'est noté comme envoyé
+  radio.panne = 'Module radio non connecté';
+  const avant = F.etat(chef).mainCourante.length;
+  assert.throws(() => F.envoyer(chef, { texte: 'perdu', equipe: alpha.id }), /Module radio non connecté/);
+  assert.strictEqual(F.etat(chef).mainCourante.length, avant);
+  assert.strictEqual(F.etat(chef).radio.connecte, false);
+  radio.panne = null;
+  // Limite de temps d'antenne : 30 messages par 10 minutes
+  assert.throws(() => { for (let k = 0; k < 40; k++) F.envoyer(chef, { texte: 'essai ' + k, equipe: alpha.id }); }, /30 messages au plus par 10 minutes/);
+  // Sans module radio fourni (essais, carte sans émission) : envoi refusé proprement
   secours.fermer();
 });
 

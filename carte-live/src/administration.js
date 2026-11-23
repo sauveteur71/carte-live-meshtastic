@@ -1237,7 +1237,9 @@ function creerAdministration(radio, stockage) {
     e.heureAccuse = Date.now();
     sauverEnvois();
   });
-  function envoyerTexte({ texte, canal, dest }, auteur) {
+  // discret : le message n'est pas recopié dans l'historique des messages de la carte (envoi d'un espace Secours, dont
+  // le contenu ne regarde pas les membres de la carte) ; son accusé de réception reste suivi
+  function envoyerTexte({ texte, canal, dest, discret = false }, auteur) {
     const info = radio.infos();
     if (!info.connecte) throw new Error('Module radio non connecté');
     texte = String(texte || '').trim();
@@ -1254,7 +1256,7 @@ function creerAdministration(radio, stockage) {
     envois.set(id, { statut: 'envoye', dest: vers, heure: Date.now(), de: info.noeudLocal >>> 0 });
     if (envois.size > 500) envois.delete(envois.keys().next().value);
     sauverEnvois();
-    try { radio.injecter({ ...paquet, rxTime: Math.floor(Date.now() / 1000), hopStart: info.hopLimit }); } catch (e) { journal('enregistrement du message :', e.message); }
+    if (!discret) { try { radio.injecter({ ...paquet, rxTime: Math.floor(Date.now() / 1000), hopStart: info.hopLimit }); } catch (e) { journal('enregistrement du message :', e.message); } }
     journal(`message ${direct ? 'direct vers ' + idNoeud(vers) : 'sur le canal ' + index} envoyé par ${auteur}`);
     return { id, dest: vers, canal: index };
   }

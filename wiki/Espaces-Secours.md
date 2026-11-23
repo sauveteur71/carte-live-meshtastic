@@ -62,6 +62,22 @@ Un message texte envoyé par le nœud d'une équipe (application Meshtastic, sur
 
 Seuls les messages des nœuds attribués à l'espace sont pris en compte ; ceux des autres nœuds du réseau n'y entrent jamais.
 
+## Vers le terrain, par radio
+
+Les **responsables** et les équipiers du **poste de coordination** (PC du dispositif, poste de commandement communal) écrivent aux équipes sans passer par le téléphone :
+
+- **🗒️ Main courante › 📻 Écrire au terrain par radio** : choisir une équipe, ou *Toutes les équipes qui portent un nœud*, saisir un message court (200 caractères au plus), **Envoyer**.
+- **📍 Interventions › bouton 📻 Envoyer** d'une intervention : son intitulé, sa position et son **code DFCI** partent à l'équipe engagée (à toutes si aucune n'est désignée).
+
+Ce qu'il faut savoir :
+
+- C'est toujours un **message direct au nœud de l'équipe**, jamais un message sur un canal : un canal du module de la carte est lu par tout le réseau. Avec des nœuds en firmware 2.5 ou plus, un message direct est chiffré de bout en bout.
+- L'envoi passe par le **module radio de la carte** : il doit être connecté (sinon le bouton est grisé et le motif affiché).
+- Chaque envoi est noté dans la main courante, avec son **accusé** : *envoyé*, *relayé*, puis *reçu* quand le nœud de l'équipe a répondu, ou *non remis*.
+- « Toutes les équipes » envoie un message par équipe, l'un après l'autre (quelques secondes entre deux). Limite : 30 messages par 10 minutes et par espace, pour ménager le temps d'antenne.
+- Le texte envoyé n'est **pas** recopié dans les messages de la carte.
+- Pas de point de passage sur la carte de l'application Meshtastic : un point de passage se diffuse sur un canal et s'afficherait chez tout le monde. La position part en texte (coordonnées et DFCI).
+
 ## Questions fréquentes
 
 - **Le responsable a perdu son mot de passe** : l'administrateur de la carte en remet un par **Nommer un responsable / remettre son mot de passe** (même identifiant). Pour un équipier, c'est le responsable de l'espace qui le fait (⚙️ Gestion › Comptes).

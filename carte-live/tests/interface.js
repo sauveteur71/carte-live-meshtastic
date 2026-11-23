@@ -979,6 +979,16 @@ async function essaiSecours(navig, cookie) {
   if (x.statut === 'en-cours' && JSON.stringify(R) === JSON.stringify({ equipierCree: 403, equipierComptes: 403, etatAutre: 400, etatSienne: 200, csv: true }) && vue.comptes === undefined && vue.noeuds === undefined && vue.equipes.length === 2)
     ok('équipier : interventions et main courante oui, équipes, comptes et nœuds réservés aux responsables');
   else ko('droits d’un équipier : ' + JSON.stringify({ x: x.statut, R, comptes: vue.comptes, noeuds: vue.noeuds }));
+  // Envoi vers le terrain : réservé aux responsables et au poste de coordination ; sans module radio branché sur la
+  // carte d'essai, l'envoi est refusé avec le motif, et rien n'est noté comme envoyé
+  const envoiChef = await poster('/api/secours/festival-essai/envoi', { texte: 'Essai', equipe: eq.id }, HC), envoiSec = await poster('/api/secours/festival-essai/envoi', { texte: 'Essai', equipe: eq.id }, HS);
+  const diffusion = await poster(`/api/secours/festival-essai/interventions/${x.id}/diffuser`, {}, HC);
+  const motifs = [(await envoiChef.json()).erreur, (await envoiSec.json()).erreur, (await diffusion.json()).erreur];
+  const vueChef = await (await fetch(BASE + '/api/secours/festival-essai/etat', { headers: { Cookie: chef } })).json();
+  if (envoiChef.status === 400 && /Module radio non connecté/.test(motifs[0]) && envoiSec.status === 400 && /réservé aux responsables/.test(motifs[1]) && /Module radio non connecté/.test(motifs[2])
+    && vueChef.radio.peutEnvoyer && !vueChef.radio.connecte && vue.radio.peutEnvoyer === false && !vueChef.mainCourante.some((m) => m.type === 'message-emis'))
+    ok('envoi vers le terrain : réservé aux responsables, refusé avec son motif quand le module radio n’est pas connecté');
+  else ko('envoi vers le terrain : ' + JSON.stringify({ s: [envoiChef.status, envoiSec.status, diffusion.status], motifs, radio: vueChef.radio }));
   // Page : connexion, onglets, carte, sans erreur JavaScript (ordinateur puis téléphone)
   const ctx = await navig.newContext({ viewport: { width: 1366, height: 800 }, locale: 'fr-FR' });
   const { page, erreurs } = await ouvrir(ctx, '/secours/festival-essai');
@@ -989,6 +999,10 @@ async function essaiSecours(navig, cookie) {
     reperes: document.querySelectorAll('.rep-equipe, .rep-inter').length, gestion: document.querySelector('[data-vue="gestion"]').textContent.trim() }));
   await page.click('[data-vue="equipes"]'); await page.waitForTimeout(300);
   const resume = await page.textContent('#e-resume');
+  await page.click('[data-vue="mc"]'); await page.waitForTimeout(300);
+  const envoi = await page.evaluate(() => ({ bloc: !!document.querySelector('#r-texte'), choix: document.querySelectorAll('#r-dest option').length, coupe: document.querySelector('#r-ok').disabled, etat: document.querySelector('#r-etat').textContent }));
+  if (envoi.bloc && envoi.choix === 2 && envoi.coupe && /n’est pas connecté/.test(envoi.etat)) ok('main courante : bloc « Écrire au terrain par radio », désactivé tant que le module n’est pas connecté');
+  else { ko('bloc d’envoi par radio : ' + JSON.stringify(envoi)); await capture(page, 'secours-envoi'); }
   if (p.onglets === 4 && p.fiches === 1 && p.carte && p.reperes >= 2 && /Gestion/.test(p.gestion) && /Effectif prévu : 6 secouristes/.test(resume)) ok('page d’un espace : interventions, équipes sur la carte, effectif du dispositif');
   else { ko('page d’un espace : ' + JSON.stringify({ p, resume })); await capture(page, 'secours-espace'); }
   bilanErreurs(erreurs, 'Page d’un espace Secours');

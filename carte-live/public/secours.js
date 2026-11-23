@@ -189,6 +189,8 @@
         .addTo(couchesInter);
     }
   }
+  let minuterieAnnonce = null;
+  function annoncer(texte) { $('#consigne').textContent = texte; $('#consigne').hidden = false; clearTimeout(minuterieAnnonce); minuterieAnnonce = setTimeout(() => { if (!pointage) $('#consigne').hidden = true; }, 5000); }
   const allerA = (p) => { if (p && p.lat != null) carte.setView([p.lat, p.lon], Math.max(carte.getZoom(), 16)); };
   // Premier affichage sans centre réglé : cadrer sur ce qui est posé sur la carte
   if (!E.centre) { const pts = [...E.equipes.map(ou).filter(Boolean), ...E.interventions.filter((x) => x.lat != null && x.statut !== 'terminee')].map((p) => [p.lat, p.lon]); if (pts.length) carte.fitBounds(pts, { maxZoom: 16, padding: [40, 40] }); }
@@ -245,6 +247,7 @@
           <select class="eq" aria-label="Équipe engagée">${optionsEquipes(x.equipe, '— équipe à désigner —')}</select>
           ${x.statut !== 'terminee' ? '<button class="mini principal fin">✓ Terminée</button>' : '<button class="mini rouvrir">Rouvrir</button>'}
           ${x.lat != null ? '<button class="mini voir">Voir</button>' : '<button class="mini placer">📍 Placer</button>'}
+          ${E.radio.peutEnvoyer && x.statut !== 'terminee' ? '<button class="mini radio" title="Envoyer cette intervention par radio, en message direct">📻 Envoyer</button>' : ''}
         </div>
       </div>`).join('') : '<div class="vide">Aucune intervention en cours.</div>';
     for (const f of l.querySelectorAll('.fiche')) {
@@ -254,6 +257,13 @@
       if ($('.rouvrir', f)) $('.rouvrir', f).onclick = () => maj({ statut: x.equipe ? 'en-cours' : 'a-faire' });
       if ($('.voir', f)) $('.voir', f).onclick = () => allerA(x);
       if ($('.placer', f)) $('.placer', f).onclick = () => pointer(`Cliquez sur la carte : « ${x.titre} »`, (p) => maj(p));
+      if ($('.radio', f)) $('.radio', f).onclick = async () => {
+        const a = x.equipe ? E.equipes.find((e) => e.id === x.equipe) : null;
+        const qui = a ? `à « ${a.nom} »` : `à toutes les équipes qui portent un nœud (${E.equipes.filter((e) => e.noeud).length})`;
+        if (!confirm(`Envoyer l’intervention « ${x.titre} » par radio ${qui} ?`)) return;
+        try { const r = await api(`${base}/interventions/${x.id}/diffuser`, { method: 'POST', body: {} }); await rafraichir(true); annoncer(`📻 Envoyé à ${r.destinataires.join(', ')}`); }
+        catch (e) { alert(e.message); }
+      };
     }
   }
 
@@ -328,11 +338,30 @@
     <div class="champs"><label>Type <select id="m-type">${['information', 'decision', 'message-recu', 'message-emis', 'mouvement'].map((k) => `<option value="${k}">${LIB_MC[k]}</option>`).join('')}</select></label>
       <button class="principal" id="m-ok">Noter</button><a class="bouton" href="${base}/main-courante.csv" download>⬇ CSV</a></div>
     <div id="m-retour" class="erreur"></div>
-    <p class="note">Les entrées ne se modifient pas : pour corriger, ajoutez-en une nouvelle. 📻 = arrivé par radio.</p>
+    <p class="note">Les entrées ne se modifient pas : pour corriger, ajoutez-en une nouvelle. 📻 = passé par la radio.</p>
+    ${E.radio.peutEnvoyer ? `<div class="cadre"><b>📻 Écrire au terrain par radio</b>
+      <div class="champs"><label>Destinataire <select id="r-dest"></select></label></div>
+      <label>Message (court : 200 caractères au plus) <input id="r-texte" maxlength="200" placeholder="ex. Rejoignez le poste scène"></label>
+      <div class="champs"><button class="principal" id="r-ok">Envoyer</button><span id="r-retour" class="erreur"></span></div>
+      <p class="note" id="r-etat"></p></div>` : ''}
     <div id="m-liste"></div>`;
+  if (E.radio.peutEnvoyer) $('#r-ok').onclick = async () => {
+    const z = $('#r-retour'); z.className = 'erreur'; z.textContent = '';
+    try {
+      const r = await api(base + '/envoi', { method: 'POST', body: { texte: $('#r-texte').value, equipe: $('#r-dest').value || null } });
+      $('#r-texte').value = ''; z.className = 'reussi'; z.textContent = `Envoyé à ${r.destinataires.join(', ')}`;
+      await rafraichir(true);
+    } catch (e) { z.textContent = e.message; }
+  };
   $('#m-ok').onclick = async () => { if (await agir(() => api(base + '/main-courante', { method: 'POST', body: { texte: $('#m-texte').value, type: $('#m-type').value } }), $('#m-retour'))) { $('#m-texte').value = ''; $('#m-retour').textContent = ''; } };
   function dessinerMc() {
-    $('#m-liste').innerHTML = E.mainCourante.length ? E.mainCourante.map((x) => `<div class="entree"><div class="tete"><span>${heure(x.heure)}</span><b translate="no">${esc(x.auteur || '')}</b><span class="pastille">${esc(LIB_MC[x.type] || x.type)}</span>${x.origine === 'radio' ? '<span title="Arrivé par radio">📻</span>' : ''}${x.equipe && nomEquipe(x.equipe) ? `<span translate="no">${esc(nomEquipe(x.equipe))}</span>` : ''}</div><div class="corps" translate="no">${esc(x.texte)}</div></div>`).join('') : '<div class="vide">Main courante vide.</div>';
+    if (E.radio.peutEnvoyer && !menuOuvert(vMc)) {
+      const avec = E.equipes.filter((e) => e.noeud), choisi = $('#r-dest').value;
+      $('#r-dest').innerHTML = `<option value="">Toutes les équipes qui portent un nœud (${avec.length})</option>` + avec.map((e) => `<option value="${esc(e.id)}" ${e.id === choisi ? 'selected' : ''}>${esc(e.nom)}</option>`).join('');
+      $('#r-etat').textContent = !E.radio.disponible ? 'Envoi par radio indisponible sur cette carte.' : !E.radio.connecte ? '⚠ Le module radio de la carte n’est pas connecté : rien ne peut partir pour l’instant.' : 'Message direct au nœud de l’équipe ; l’accusé de réception s’affiche dans la main courante.';
+      $('#r-ok').disabled = !E.radio.connecte || !avec.length;
+    }
+    $('#m-liste').innerHTML = E.mainCourante.length ? E.mainCourante.map((x) => `<div class="entree"><div class="tete"><span>${heure(x.heure)}</span><b translate="no">${esc(x.auteur || '')}</b><span class="pastille">${esc(LIB_MC[x.type] || x.type)}</span>${x.origine === 'radio' ? '<span title="Passé par la radio">📻</span>' : ''}${x.accuse ? `<span class="pastille ${x.accuse === 'recu' ? 'ok' : x.accuse === 'echec' ? 'crit' : ''}">${esc(E.radio.accuses[x.accuse] || x.accuse)}</span>` : ''}${x.equipe && nomEquipe(x.equipe) ? `<span translate="no">${esc(nomEquipe(x.equipe))}</span>` : ''}</div><div class="corps" translate="no">${esc(x.texte)}</div></div>`).join('') : '<div class="vide">Main courante vide.</div>';
   }
 
   // Gestion (responsable) et « mon compte » (tous)
@@ -375,6 +404,9 @@
         <tr><td class="mono">DISPO · POSTE · PAUSE · INDISPO</td><td>change l’état de l’équipe</td></tr>
         <tr><td>tout autre message</td><td>est noté dans la main courante</td></tr>
       </tbody></table>
+
+      <h2>Vers le terrain, par radio</h2>
+      <p class="note">Les responsables et le poste de coordination écrivent aux équipes depuis l’onglet 🗒️ Main courante, ou envoient une intervention avec son bouton 📻. C’est toujours un <b>message direct</b> au nœud de l’équipe (jamais un canal lu par tout le réseau), avec la position et le code DFCI pour une intervention. « reçu » s’affiche quand le nœud a accusé réception.</p>
 
       <h2>Mon mot de passe</h2>
       <div class="champs"><label>Actuel <input id="p-ancien" type="password" autocomplete="current-password"></label><label>Nouveau <input id="p-nouveau" type="password" autocomplete="new-password"></label></div>
@@ -423,7 +455,10 @@
     enCours = true;
     try {
       const r = await api(`${base}/etat${force ? '' : '?rev=' + E.rev}`);
-      if (r.inchange) { for (const q of r.equipes) { const e = E.equipes.find((x) => x.id === q.id); if (e) { e.position = q.position; e.etat = q.etat; } } dessinerCarte(); if (vueActive === 'equipes') dessinerEquipes(); }
+      if (r.inchange) { for (const q of r.equipes) { const e = E.equipes.find((x) => x.id === q.id); if (e) { e.position = q.position; e.etat = q.etat; } } 
+        let change = E.radio.connecte !== r.radioConnectee; E.radio.connecte = r.radioConnectee;
+        for (const a of r.accuses || []) { const m = E.mainCourante.find((x) => x.id === a.id); if (m && m.accuse !== a.accuse) { m.accuse = a.accuse; change = true; } }
+        dessinerCarte(); if (vueActive === 'equipes') dessinerEquipes(); if (change && vueActive === 'mc') dessinerMc(); }
       else { E = r; dessinerTout(); }
     } catch (e) { if (e.statut === 401) location.reload(); if (force) throw e; } finally { enCours = false; }
   }

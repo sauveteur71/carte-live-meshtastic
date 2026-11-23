@@ -22,12 +22,17 @@
 //   « INTER chute au virage 4 »  crée une intervention à la position du nœud ;
 //   « DISPO », « POSTE », « PAUSE », « INDISPO »  changent l'état de l'équipe ; « FIN » clôt son intervention en cours ;
 //   tout autre message est noté dans la main courante.
+// Envois vers le terrain (responsables et poste de coordination) : message direct au nœud d'une équipe, ou à chaque
+// équipe l'une après l'autre ; une intervention s'envoie de la même façon (intitulé, position, code DFCI). Toujours
+// en message direct, jamais sur un canal : un canal du module de la carte est lu par tout le réseau, et un point de
+// passage diffusé s'afficherait sur la carte de tous. Le texte envoyé n'est pas recopié dans les messages de la carte.
 
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
 const { creerComptes } = require('./comptes');
+const { versDfci } = require('../public/dfci.js');
 
 const CODE = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/;
 const RESERVES = new Set(['espaces', 'copies', 'corbeille', 'api', 'admin']);
@@ -52,6 +57,10 @@ const TYPES_MC = ['information', 'message-recu', 'message-emis', 'decision', 'mo
 const COULEURS = ['#ff8a1f', '#4cc9f0', '#b48cff', '#3ee68a', '#ff5c6c', '#ffd23f', '#e07bff', '#80ed99'];
 const MOTS_RADIO = { DISPO: 'disponible', DISPONIBLE: 'disponible', POSTE: 'poste', PAUSE: 'pause', INDISPO: 'indisponible', INDISPONIBLE: 'indisponible' };
 const COPIES_GARDEES = 7;
+const ENVOIS_MAX = 30, ENVOIS_FENETRE = 10 * 60000; // messages radio par espace et par 10 minutes (temps d'antenne)
+const ACCUSES = { envoye: 'envoyé', relaye: 'relayé', recu: 'reçu', echec: 'non remis' };
+// Texte ramené à n octets (limite d'un message Meshtastic), sans couper un caractère en deux
+function couper(t, n) { t = String(t || ''); while (Buffer.byteLength(t) > n) t = [...t].slice(0, -1).join(''); return t; }
 
 const id = () => crypto.randomBytes(6).toString('hex');
 const txt = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b-\u001f]/g, '').trim().slice(0, max);
@@ -75,7 +84,7 @@ const idNoeud = (n) => '!' + (n >>> 0).toString(16).padStart(8, '0');
 // creation : { genre, nom } à la création de l'espace (le type, DPS ou PCS, est fixé là et ne change plus : les listes
 // d'équipes et d'interventions en dépendent)
 function ouvrirEspace(fichier, code, ctx, creation = null) {
-  const { journal, positionDe, nomDe } = ctx;
+  const { journal, positionDe, nomDe, radio = null, espacement = 3000 } = ctx;
   const db = new Database(fichier);
   try { fs.chmodSync(fichier, 0o600); } catch { /* système de fichiers sans chmod */ }
   db.pragma('journal_mode = WAL');
@@ -98,6 +107,8 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
     );
     CREATE INDEX IF NOT EXISTS idx_mc_heure ON main_courante(heure);
   `);
+  // Envoi radio lié à une entrée de main courante : numéro du paquet, pour suivre son accusé de réception
+  if (!db.prepare('PRAGMA table_info(main_courante)').all().some((c) => c.name === 'envoi')) db.exec('ALTER TABLE main_courante ADD COLUMN envoi INTEGER');
   const q = {
     reglage: db.prepare('SELECT valeur FROM reglages WHERE cle = ?'),
     ecrireReglage: db.prepare('INSERT INTO reglages (cle, valeur) VALUES (?, ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur'),
@@ -126,7 +137,7 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
     detacherInterventions: db.prepare('UPDATE interventions SET equipe = NULL WHERE equipe = ?'),
     mainCourante: db.prepare('SELECT * FROM main_courante ORDER BY heure DESC LIMIT ?'),
     touteMainCourante: db.prepare('SELECT * FROM main_courante ORDER BY heure'),
-    ajouterMc: db.prepare('INSERT INTO main_courante (id, heure, auteur, type, equipe, intervention, texte, origine) VALUES (@id, @heure, @auteur, @type, @equipe, @intervention, @texte, @origine)'),
+    ajouterMc: db.prepare('INSERT INTO main_courante (id, heure, auteur, type, equipe, intervention, texte, origine, envoi) VALUES (@id, @heure, @auteur, @type, @equipe, @intervention, @texte, @origine, @envoi)'),
     purgerMc: db.prepare('DELETE FROM main_courante WHERE heure < ?'),
     purgerInterventions: db.prepare("DELETE FROM interventions WHERE statut = 'terminee' AND cloture < ?"),
   };
@@ -275,11 +286,11 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
   }
 
   // ---- Main courante ----------------------------------------------------------------------------------------------
-  function ajouterMc(b, auteur, origine = 'saisie') {
+  function ajouterMc(b, auteur, origine = 'saisie', envoi = null) {
     const texte = txt(b.texte, 1000);
     if (!texte) throw new Error('Texte vide');
     const x = { id: id(), heure: Date.now(), auteur: auteur || 'radio', type: TYPES_MC.includes(b.type) ? b.type : 'information',
-      equipe: b.equipe && q.equipe.get(b.equipe) ? b.equipe : null, intervention: b.intervention && q.intervention.get(b.intervention) ? b.intervention : null, texte, origine };
+      equipe: b.equipe && q.equipe.get(b.equipe) ? b.equipe : null, intervention: b.intervention && q.intervention.get(b.intervention) ? b.intervention : null, texte, origine, envoi };
     q.ajouterMc.run(x);
     touche();
     return x;
@@ -322,6 +333,60 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
       }
     } catch (err) { journal(`[Secours] message radio de ${idNoeud(de)} ignoré (${code}) :`, err.message); }
     return true;
+  }
+
+  // ---- Envois vers le terrain (messages directs aux nœuds des équipes) ----------------------------------------------
+  // Qui envoie : un responsable, ou un équipier affecté à un poste de coordination (PC du dispositif, PC communal)
+  function peutEnvoyer(compte) {
+    if (estResponsable(compte)) return true;
+    const a = q.affectation.get(compte.id), e = a && a.equipe ? q.equipe.get(a.equipe) : null;
+    return !!e && e.genre === 'pc';
+  }
+  let envoisRecents = [];
+  const accuse = (n) => { if (n == null || !radio) return null; const e = radio.etatEnvoi(n); return e ? e.statut : null; };
+  // b : { texte, equipe } (une équipe) ou { texte } (toutes celles qui portent un nœud, l'une après l'autre)
+  function envoyer(compte, b) {
+    if (!radio) throw new Error('Envoi par radio indisponible sur cette carte');
+    if (!peutEnvoyer(compte)) throw new Error('Envoi par radio réservé aux responsables et au poste de coordination');
+    const texte = couper(txt(b.texte, 600), 200);
+    if (!texte) throw new Error('Message vide');
+    let cibles;
+    if (b.equipe) {
+      const e = q.equipe.get(b.equipe);
+      if (!e) throw new Error('Équipe inconnue');
+      if (!e.noeud) throw new Error(`« ${e.nom} » ne porte pas de nœud : impossible de lui écrire par radio`);
+      cibles = [e];
+    } else cibles = q.equipes.all().filter((e) => e.noeud);
+    if (!cibles.length) throw new Error('Aucune équipe ne porte de nœud');
+    envoisRecents = envoisRecents.filter((t) => Date.now() - t < ENVOIS_FENETRE);
+    if (envoisRecents.length + cibles.length > ENVOIS_MAX) throw new Error(`Trop d’envois par radio : ${ENVOIS_MAX} messages au plus par 10 minutes`);
+    const auteur = signature(compte), inter = b.intervention || null;
+    const un = (e) => {
+      const r = radio.envoyerTexte({ texte, dest: e.noeud >>> 0 }, `espace Secours ${code}`);
+      envoisRecents.push(Date.now());
+      ajouterMc({ texte: `→ ${e.nom} : ${texte}`, type: 'message-emis', equipe: e.id, intervention: inter }, auteur, 'radio', r.id);
+    };
+    un(cibles[0]); // une erreur du module (non connecté…) remonte tout de suite à celui qui envoie
+    // Les suivants partent en arrière-plan, espacés : plusieurs messages d'affilée satureraient la file du module
+    (async () => {
+      for (const e of cibles.slice(1)) {
+        await new Promise((ok) => setTimeout(ok, espacement));
+        try { un(e); } catch (err) {
+          journal(`[Secours] envoi radio vers ${idNoeud(e.noeud)} impossible (${code}) :`, err.message);
+          try { ajouterMc({ texte: `Envoi par radio à ${e.nom} impossible : ${err.message}`, type: 'message-emis', equipe: e.id, intervention: inter }, auteur, 'radio'); } catch { /* espace fermé entre-temps */ }
+        }
+      }
+    })();
+    return { ok: true, destinataires: cibles.map((e) => e.nom) };
+  }
+  // Intervention envoyée par radio : intitulé, position (et code DFCI), précisions ; à l'équipe engagée, sinon à
+  // celle choisie, sinon à toutes
+  function diffuserIntervention(iid, b, compte) {
+    const x = q.intervention.get(iid);
+    if (!x) throw new Error('Intervention inconnue');
+    const dfci = x.lat != null ? versDfci(x.lat, x.lon) : null;
+    const texte = [`INTER ${x.titre}${x.urgente ? ' (URGENT)' : ''}`, x.lat != null ? `${x.lat.toFixed(5)},${x.lon.toFixed(5)}${dfci ? ' DFCI ' + dfci : ''}` : null, x.detail].filter(Boolean).join(' · ');
+    return envoyer(compte, { texte, equipe: b.equipe !== undefined ? b.equipe || null : x.equipe, intervention: x.id });
   }
 
   // ---- Comptes de l'espace ----------------------------------------------------------------------------------------
@@ -391,7 +456,9 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
       listes: { equipes: G().equipes, interventions: G().interventions, etats: ETATS_EQUIPE, categories: genre() === 'dps' ? CATEGORIES_DPS : null, typesMc: TYPES_MC },
       evenement: ev, centre: centre(), conservationJours: Number(lire('conservation')) || 365,
       effectif: { prevu, categorie: cat, conforme: cat ? prevu >= cat.min && (cat.max == null || prevu <= cat.max) : null },
-      equipes, interventions: q.interventions.all(Date.now() - 12 * 3600000), mainCourante: q.mainCourante.all(300),
+      equipes, interventions: q.interventions.all(Date.now() - 12 * 3600000),
+      mainCourante: q.mainCourante.all(300).map((m) => (m.envoi != null ? { ...m, accuse: accuse(m.envoi) } : m)),
+      radio: { disponible: !!radio, connecte: !!radio && !!radio.connecte(), peutEnvoyer: peutEnvoyer(compte), accuses: ACCUSES },
       noeuds: estResponsable(compte) ? noeudsAttribues().map((n) => ({ num: n, id: idNoeud(n), nom: nomDe(n) || null })) : undefined,
       comptes: estResponsable(compte) ? listerComptes() : undefined,
     };
@@ -417,6 +484,9 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
   return {
     code, comptes, decrire, reglages, definirNoeuds, noeudsAttribues, possedeNoeud: (n) => !!q.noeud.get(n >>> 0),
     majEquipe, changerEtat, majIntervention, ajouterMc: (b, compte) => ajouterMc(b, signature(compte)), csvMc, texteRecu,
+    envoyer, diffuserIntervention, peutEnvoyer,
+    // Accusés des envois de la dernière heure : la page les relit sans recharger tout l'état
+    accuses: () => q.mainCourante.all(300).filter((m) => m.envoi != null && Date.now() - m.heure < 3600000).map((m) => ({ id: m.id, accuse: accuse(m.envoi) })),
     estResponsable, signature, creerCompte, majCompte, nommerResponsable, etat, rev: () => rev, purger, copier,
     equipeDe: (compte) => (q.affectation.get(compte.id) || {}).equipe || null,
     fermer: () => { try { db.close(); } catch { /* déjà fermée */ } },
@@ -424,9 +494,10 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
 }
 
 // ---- Tous les espaces de la carte ----------------------------------------------------------------------------------
-function creerSecours({ config, journal = () => {}, positionDe = () => null, nomDe = () => null }) {
+// radio : { connecte(), envoyerTexte({ texte, dest }, auteur) → { id }, etatEnvoi(id) → { statut } } ; absent : pas d'envoi
+function creerSecours({ config, journal = () => {}, positionDe = () => null, nomDe = () => null, radio = null, espacement = 3000 }) {
   const dossier = path.join(path.dirname(config.fichierBase), 'secours');
-  const ctx = { journal, positionDe, nomDe };
+  const ctx = { journal, positionDe, nomDe, radio, espacement };
   const espaces = new Map();
   const fichierDe = (code) => path.join(dossier, code + '.db');
   const valider = (code) => { const c = String(code || '').trim().toLowerCase(); if (!CODE.test(c) || RESERVES.has(c)) throw new Error('Adresse de l’espace : 3 à 32 caractères, lettres minuscules, chiffres et tirets (ex. festival-2027)'); return c; };
