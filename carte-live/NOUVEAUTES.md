@@ -2,7 +2,7 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
-## En préparation
+## 2.33.0
 
 ### ⛑️ Espaces Secours : fonds de carte, panneau élargissable, chaque espace gère ses nœuds
 - **Fonds de carte au choix** dans un espace, comme sur la carte du réseau : Sombre, Plan IGN, Plan IGN sombre, Photos aériennes, Topographique (relief), OpenStreetMap, avec en surcouche le **relief ombré** et les noms des lieux. Le choix est retenu sur l'appareil.
