@@ -607,7 +607,17 @@ async function essaiAdrasec(navig, cookie) {
   const double = await appel('PUT', '/api/adrasec/membres/' + b1.id + '?g=43', { membre: true }).then(() => 'accepté', (e) => e.message);
   const wlAutre = await appelB('GET', '/api/adrasec/winlink/boite/in');
   if (wlAutre.statut === 400 && /réservée à ADRASEC 43/.test(wlAutre.j.erreur) && apres.j.winlink && apres.j.winlink.autorise === false) ok('Winlink : boîte réservée à l’ADRASEC de la station (refusée à une autre ADRASEC)'); else ko('Winlink réservé : ' + JSON.stringify({ wl: wlAutre, w: apres.j.winlink }));
-  if (apres.statut === 200 && apres.j.code === '42' && apres.j.moi.responsable && apres.j.moi.qualite === 'swl' && !apres.j.mainCourante.length && eqB.statut === 200 && nomme.statut === 400 && /administrateur de la carte/.test(nomme.j.erreur) && winB.statut === 403 && /déjà membre de ADRASEC 42/.test(double)) ok('ADRASEC : président de son département (équipes, membres), ADRASEC séparées, SWL sans Winlink, un seul département par membre'); else ko('ADRASEC président : ' + JSON.stringify({ apres: apres.statut, code: apres.j.code, resp: apres.j.moi && apres.j.moi.responsable, mc: apres.j.mainCourante && apres.j.mainCourante.length, eqB: eqB.statut, nomme, win: winB.statut, double }));
+  if (apres.statut === 200 && apres.j.code === '42' && apres.j.moi.responsable && apres.j.moi.qualite === 'swl' && !apres.j.mainCourante.length && eqB.statut === 200 && nomme.statut === 400 && /administrateur de la carte/.test(nomme.j.erreur) && winB.statut === 403) ok('ADRASEC : président de son département (équipes, membres), ADRASEC séparées, SWL sans Winlink'); else ko('ADRASEC président : ' + JSON.stringify({ apres: apres.statut, code: apres.j.code, resp: apres.j.moi && apres.j.moi.responsable, mc: apres.j.mainCourante && apres.j.mainCourante.length, eqB: eqB.statut, nomme, win: winB.statut, double }));
+  // Un opérateur à cheval sur deux départements : membre des deux ADRASEC, une fiche dans chacune (président de
+  // l'une, simple membre de l'autre), il choisit celle qu'il affiche ; retiré de l'une, il garde l'autre
+  const deux = await appelB('GET', '/api/adrasec?g=43'), defaut = await appelB('GET', '/api/adrasec');
+  const eq43 = await appelB('POST', '/api/adrasec/equipes?g=43', { nom: 'Pas à moi' });
+  const rolesDeux = (await appel('GET', '/api/adrasec/roles')).roles[b1.id];
+  await appel('PUT', '/api/adrasec/membres/' + b1.id + '?g=43', { membre: false });
+  const retire = await appelB('GET', '/api/adrasec?g=43');
+  if (double === 'accepté' && deux.statut === 200 && deux.j.code === '43' && !deux.j.moi.responsable && deux.j.moi.qualite === 'swl' && deux.j.sections.length === 2 && defaut.j.code === '42' && defaut.j.moi.responsable && eq43.statut === 403 && rolesDeux.groupes.join() === '42,43' && retire.j.code === '42' && retire.j.sections.length === 1)
+    ok('ADRASEC : un compte membre de deux ADRASEC (fiche et rôle propres à chacune, choix de celle affichée), puis retiré de l’une');
+  else ko('ADRASEC deux sections : ' + JSON.stringify({ double, deux: deux.statut, code: deux.j.code, moi: deux.j.moi, sections: deux.j.sections, defaut: defaut.j.code, eq43: eq43.statut, rolesDeux, retire: retire.j.code }));
   // Case ADRASEC de la gestion des comptes : cocher intègre le compte à l'ADRASEC du département de la carte
   const b2 = await appel('POST', '/api/comptes', { identifiant: 'bruno43', motDePasse: 'Essai-bruno-2026!!' });
   const r1 = await appel('PUT', '/api/adrasec/roles/' + b2.id, { groupe: 'AUTO' });

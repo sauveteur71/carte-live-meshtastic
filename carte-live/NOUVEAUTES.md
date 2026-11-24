@@ -2,6 +2,15 @@
 
 Le texte de la section de chaque version est repris tel quel dans la note de la release GitHub.
 
+## En préparation
+
+### 📡 Section ADRASEC : un opérateur membre de plusieurs ADRASEC
+- **Un même compte peut être membre de plusieurs ADRASEC** hébergées sur la carte (un opérateur à cheval sur deux départements). Le président de la seconde ADRASEC l'intègre depuis *⚙️ Gestion › Intégrer un compte de la carte* ; ce n'est plus refusé.
+- **Une fiche par ADRASEC** : l'indicatif, la qualité et le nœud porté sont repris de la première ; l'équipe, la fonction et le rôle de président sont propres à chaque ADRASEC.
+- **Choix de l'ADRASEC affichée** en haut de la page, pour un membre de plusieurs ADRASEC (retenu sur l'appareil). Canaux à écrire sur sa radio et équipes des secteurs d'alerte : ceux de toutes ses ADRASEC.
+- **Relevé envoyé par radio** (`GONIO 125`) par un opérateur membre de plusieurs ADRASEC : il va à l'ADRASEC dont le **canal a été utilisé** (jeu de canaux de l'ADRASEC) ; en message direct ou sur un canal commun, à toutes ses ADRASEC où une recherche est en cours.
+- Gestion des comptes de la carte : un compte membre de plusieurs ADRASEC les affiche toutes ; ses fiches se règlent dans la page ADRASEC.
+
 ## 2.33.0
 
 ### ⛑️ Espaces Secours : fonds de carte, panneau élargissable, chaque espace gère ses nœuds

@@ -6,7 +6,7 @@
   const esc = (s) => String(s ?? '').replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmt = (n, d = 0) => (n == null || !Number.isFinite(Number(n)) ? '–' : Number(n).toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }));
   const heure = (t) => new Date(t).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  let groupe = null; // ADRASEC consultée par un administrateur de la carte (?g=43)
+  let groupe = null; // ADRASEC affichée (?g=43) : au choix d'un membre de plusieurs ADRASEC ou d'un administrateur de la carte
   const avecGroupe = (url) => (groupe && /^\/api\/adrasec(\/|$|\?|\.)/.test(url) && !/\/api\/adrasec\/(acces|demande|groupes)/.test(url) ? url + (url.includes('?') ? '&' : '?') + 'g=' + encodeURIComponent(groupe) : url);
   async function api(url, opts = {}) {
     url = avecGroupe(url);
@@ -142,7 +142,7 @@
     canauxRadio = await api('/api/adrasec/canaux-radio').catch(() => ({ connecte: false, canaux: [] }));
     $('#titre').textContent = E.nom; document.title = E.nom;
     const q = E.moi.qualite === 'swl' ? '<span class="pastille">SWL</span>' : E.moi.licencie ? '<span class="pastille ok">licencié</span>' : E.moi.membre ? '<span class="pastille">non licencié</span>' : '';
-    $('#moi').innerHTML = `${E.groupes && E.groupes.length > 1 ? `<select id="choix-groupe" title="ADRASEC affichée (administrateur de la carte)">${E.groupes.map((x) => `<option value="${esc(x.code)}" ${x.code === E.code ? 'selected' : ''}>${esc(x.nom)}</option>`).join('')}</select> ` : ''}${esc(E.moi.indicatif || E.moi.identifiant)} ${q}${E.moi.admin ? ' <span class="pastille">admin carte</span>' : E.moi.responsable ? ' <span class="pastille ok">président</span>' : ''}`;
+    $('#moi').innerHTML = `${E.sections && E.sections.length > 1 ? `<select id="choix-groupe" title="${E.moi.admin ? 'ADRASEC affichée (administrateur de la carte)' : 'Vous êtes membre de plusieurs ADRASEC : choisissez celle à afficher'}">${E.sections.map((x) => `<option value="${esc(x.code)}" ${x.code === E.code ? 'selected' : ''}>${esc(x.nom)}</option>`).join('')}</select> ` : ''}${esc(E.moi.indicatif || E.moi.identifiant)} ${q}${E.moi.admin ? ' <span class="pastille">admin carte</span>' : E.moi.responsable ? ' <span class="pastille ok">président</span>' : ''}`;
     if ($('#choix-groupe')) $('#choix-groupe').onchange = () => { groupe = $('#choix-groupe').value; memo('groupe', groupe); rechercheChoisie = null; ajoutes = new Set(); charger(); };
     $('#onglets [data-vue="gestion"]').hidden = !E.moi.responsable;
     { const b = $('#onglets [data-vue="gestion"]'), n = (E.demandes || []).length; if (b) b.dataset.nb = n || ''; }
@@ -732,7 +732,7 @@
       <h2>Intégrer un compte de la carte</h2>
       ${autres.length ? `<p class="note">Cochez un ou plusieurs comptes. Ceux qui ont un indicatif sont intégrés comme radioamateurs licenciés, les autres comme bénévoles : corrigez ensuite leur fiche si besoin (SWL, équipe, nœud).</p>
         <div class="ligne-champs"><input type="search" id="ge-ajout-filtre" placeholder="🔎 Filtrer les comptes"><label class="case"><input type="checkbox" id="ge-ajout-tout"> Tout cocher</label></div>
-        <div class="liste-ajout" id="ge-ajout-liste">${autres.map((c) => `<label class="case${c.autre ? ' indispo' : ''}" data-texte="${esc((c.identifiant + ' ' + (c.indicatif || '')).toLowerCase())}"><input type="checkbox" value="${c.id}" ${c.autre ? 'disabled' : ''}> <b>${esc(c.identifiant)}</b>${c.indicatif ? ` <span class="mono">${esc(c.indicatif)}</span>` : ''}${c.autre ? ` <small>(membre de l’ADRASEC ${esc(c.autre)})</small>` : ''}</label>`).join('')}</div>
+        <div class="liste-ajout" id="ge-ajout-liste">${autres.map((c) => `<label class="case" data-texte="${esc((c.identifiant + ' ' + (c.indicatif || '')).toLowerCase())}"><input type="checkbox" value="${c.id}"> <b>${esc(c.identifiant)}</b>${c.indicatif ? ` <span class="mono">${esc(c.indicatif)}</span>` : ''}${(c.autres || []).length ? ` <small>(aussi membre de ${esc(c.autres.join(', '))})</small>` : ''}</label>`).join('')}</div>
         <div class="ligne-champs"><button id="ge-ajouter" class="principal" disabled>Intégrer la sélection</button><span class="note" id="ge-ajout-retour"></span></div>` : '<p class="note">Tous les comptes de la carte sont déjà membres. Les nouveaux membres créent d’abord leur compte avec le lien ci-dessus.</p>'}
       ${(E.attentes || []).length ? `<h2>Fiches en attente d’un compte <span class="pastille att">${E.attentes.length}</span></h2>
       <p class="note">Ces fiches viennent d’une autre carte. La personne doit <b>créer son compte elle-même</b> avec le lien ci-dessus, puis demander à rejoindre ${esc(E.nom)} : sa fiche (équipe, fonction, nœud) se rattachera toute seule. Rien ici ne donne d’accès à qui que ce soit.</p>

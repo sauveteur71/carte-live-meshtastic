@@ -4180,6 +4180,8 @@ const radioPointAdrasec = async ({ texte, canal, ...p }) => {
   if (texte) { await new Promise((r) => setTimeout(r, 400)); administration.envoyerTexte({ texte: signalements.couper(texte, 200), canal }, 'ADRASEC'); }
 };
 const adrasec = require('./adrasec').creerAdrasec({ config, journal, diffuser, radioPoint: radioPointAdrasec,
+  // Canaux déclarés par une ADRASEC : le message radio d'un opérateur membre de plusieurs ADRASEC va à celle du canal utilisé
+  canauxSection: (code) => jeuxCanaux.vue('adrasec:' + code).canaux.map((c) => c.nom),
   // Options d'une section : messages aux équipes (sur un canal, avec accusé), batterie et trajets des nœuds des membres
   radioTexte: ({ texte, canal }, auteur) => administration.envoyerTexte({ texte, canal }, auteur), etatEnvoi: (n) => administration.etatEnvoi(n),
   radioConnecte: () => { try { return !!signalements.canaux().mt.connecte; } catch { return false; } },
@@ -4189,7 +4191,7 @@ const adrasec = require('./adrasec').creerAdrasec({ config, journal, diffuser, r
   surEquipeSupprimee: (cle) => { if (secteursAlerte.equipeSupprimee(cle)) planifierRafraichir(); },
   nomDe: (n) => { const r = reqNomSig.get(n >>> 0); return r && (r.nom_long || r.nom_court); }, positionDe: (num) => { try { const r = reqPosEquipe.get(num >>> 0); return r && r.lat != null ? { lat: r.lat, lon: r.lon, heure: r.heure_position || 0 } : null; } catch { return null; } } });
 const winlink = require('./winlink').creerWinlink({ journal });
-// ADRASEC du compte (un administrateur de la carte choisit celle qu'il consulte : ?g=43) ; membre, président
+// ADRASEC du compte (un membre de plusieurs ADRASEC, ou un administrateur de la carte, choisit celle qu'il consulte : ?g=43) ; membre, président
 // (responsable) ou administrateur de la carte, qui règle la section même désactivée
 const routeAdrasec = (f, { admin = false, licencie = false } = {}) => async (req, res) => {
   const u = utilisateur(req);
@@ -4222,7 +4224,7 @@ const { planifier: planifierCanaux } = require('./jeux-canaux');
 function jeuxPour(u) {
   const l = [{ ...jeuxCanaux.vue('carte', u.role === 'admin'), titre: config.carte.titre || 'Carte live', modifiable: u.role === 'admin' }];
   if (adrasec.actif()) {
-    const codes = u.role === 'admin' ? adrasec.groupes().map((g) => g.code) : [adrasec.groupeDe(u)].filter(Boolean);
+    const codes = u.role === 'admin' ? adrasec.groupes().map((g) => g.code) : adrasec.groupesDe(u);
     for (const code of codes) {
       const G = adrasec.groupePour(u, code);
       if (G) l.push({ ...jeuxCanaux.vue('adrasec:' + code, G.estResponsable(u)), titre: G.g.nom, modifiable: G.estResponsable(u) });
@@ -4245,7 +4247,7 @@ app.put('/api/adrasec/canaux', routeAdrasec((req, b, u, G) => jeuxCanaux.definir
 // Portées qu'un compte a le droit d'écrire sur sa radio
 function porteesPermises(u) {
   const l = ['carte'];
-  if (adrasec.actif()) { if (u.role === 'admin') l.push(...adrasec.groupes().map((g) => 'adrasec:' + g.code)); else { const c = adrasec.groupeDe(u); if (c) l.push('adrasec:' + c); } }
+  if (adrasec.actif()) { if (u.role === 'admin') l.push(...adrasec.groupes().map((g) => 'adrasec:' + g.code)); else l.push(...adrasec.groupesDe(u).map((c) => 'adrasec:' + c)); }
   return l;
 }
 // Radio d'une passerelle de page, si elle appartient à ce compte (un administrateur : aussi le module principal)

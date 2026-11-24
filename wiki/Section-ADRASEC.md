@@ -6,7 +6,9 @@ Rien de cette section n'apparaît sur la carte publique.
 
 ## Organisation : une ADRASEC par département
 
-Une même carte peut héberger les ADRASEC de **plusieurs départements**. Chacune est **séparée** : ses membres, son président, ses équipes, sa main courante et ses recherches de balise. Un membre appartient à une seule ADRASEC et ne voit que la sienne.
+Une même carte peut héberger les ADRASEC de **plusieurs départements**. Chacune est **séparée** : ses membres, son président, ses équipes, sa main courante et ses recherches de balise. Un membre ne voit que son ADRASEC.
+
+**Opérateur à cheval sur deux départements** : un même compte peut être membre de **plusieurs ADRASEC** de la carte. Le président de la seconde l'intègre comme n'importe quel compte (**⚙️ Gestion › Intégrer un compte de la carte**, où il apparaît avec la mention *aussi membre de…*). Il a alors **une fiche dans chaque ADRASEC** : son indicatif, sa qualité et son nœud sont repris de la première ; l'équipe, la fonction et le rôle de président sont propres à chacune. En haut de la page, une liste lui permet de **choisir l'ADRASEC affichée** (le choix est retenu sur l'appareil). La position de son nœud est visible dans ses deux ADRASEC. Un relevé qu'il envoie par radio (`GONIO 125`) va à l'ADRASEC dont il a utilisé le **canal** (un canal du jeu de canaux de cette ADRASEC, voir plus bas) ; en message direct ou sur un canal commun, il va à ses deux ADRASEC, là où une recherche est en cours.
 
 | Qui | Fait quoi |
 |---|---|

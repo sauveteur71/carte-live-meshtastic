@@ -49,6 +49,9 @@ jobs:
       - name: Tests des espaces Secours (DPS, PCS) et de leur cloisonnement
         working-directory: carte-live
         run: node --test tests/secours.js
+      - name: Tests de la section ADRASEC (membre de plusieurs ADRASEC, canal utilisé)
+        working-directory: carte-live
+        run: node --test tests/adrasec.js
       - name: Textes du serveur traduits en anglais (journal, erreurs, diagnostic, alertes)
         working-directory: carte-live
         run: node outils/textes-serveur.js

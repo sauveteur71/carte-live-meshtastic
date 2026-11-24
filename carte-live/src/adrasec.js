@@ -1,7 +1,8 @@
 'use strict';
 // Section ADRASEC (édition française) : espaces réservés aux associations départementales de radiotransmetteurs au
 // service de la sécurité civile. Une carte peut héberger les ADRASEC de plusieurs départements, chacune séparée
-// (membres, équipes, main courante, recherches). L'administrateur de la carte crée les ADRASEC et nomme leurs
+// (membres, équipes, main courante, recherches). Un même compte peut être membre de plusieurs ADRASEC (un opérateur
+// à cheval sur deux départements) : il a une fiche dans chacune et choisit celle qu'il consulte. L'administrateur de la carte crée les ADRASEC et nomme leurs
 // présidents ; le président intègre ses membres, radioamateurs licenciés ou SWL (écouteurs, sans émission).
 // - Membres : un compte de la carte demande à rejoindre la section (page /adrasec) ; un administrateur de la carte
 //   ou un responsable de la section accepte la demande, ou l'ajoute directement. Les responsables (nommés par un
@@ -61,7 +62,8 @@ const cleAttente = (x) => (x && x.indicatif ? String(x.indicatif).toUpperCase() 
 // la valeur qu'un secteur d'alerte garde pour la suivre (voir equipeSecteur plus bas)
 // radioTexte({ texte, canal }, auteur) → { id } ; etatEnvoi(id) → { statut } ; radioConnecte() ; santeDe(num) → { batterie, tension, heure } ;
 // traceDe(num, depuis) → [{ lat, lon, heure }]
-function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positionDe = () => null, nomDe = () => null, radioPoint = null, surEquipeSupprimee = () => {},
+// canauxSection(code) → noms des canaux du jeu de canaux de cette ADRASEC
+function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positionDe = () => null, nomDe = () => null, radioPoint = null, surEquipeSupprimee = () => {}, canauxSection = () => [],
   radioTexte = null, etatEnvoi = () => null, radioConnecte = () => false, santeDe = () => null, traceDe = () => [] }) {
   // Une carte peut héberger les ADRASEC de plusieurs départements : chacune a ses membres, son président (responsable),
   // ses équipes, sa main courante et ses recherches. L'administrateur de la carte crée les ADRASEC et nomme les présidents.
@@ -86,10 +88,12 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
     const f = () => { try { ecrireSur(fichier, JSON.stringify(racine), { mode: 0o600 }); } catch (e) { journal('[ADRASEC] enregistrement impossible :', e.message); } };
     if (vite) f(); else minuterie = setTimeout(f, 1500);
   };
-  const groupeDeCompte = (cid) => Object.keys(racine.groupes).find((k) => racine.groupes[k].membres[cid]) || null;
+  // ADRASEC dont ce compte est membre (souvent une seule ; plusieurs pour un opérateur à cheval sur deux départements)
+  const groupesDeCompte = (cid) => Object.keys(racine.groupes).sort().filter((k) => racine.groupes[k].membres[cid]);
+  const groupeDeCompte = (cid) => groupesDeCompte(cid)[0] || null;
   const nomGroupe = (code) => (racine.groupes[code] || {}).nom || 'ADRASEC ' + code;
   const signalerSuppression = (code, eid) => { try { surEquipeSupprimee(cleEquipe(code, eid)); } catch (e) { journal('[ADRASEC] secteurs de l’équipe supprimée :', e.message); } };
-  const ctx = { actif: () => racine.actif, sauver, journal, diffuser, positionDe, nomDe, radioPoint, groupeDeCompte, nomGroupe, signalerSuppression, radioTexte, etatEnvoi, radioConnecte, santeDe, traceDe };
+  const ctx = { actif: () => racine.actif, sauver, journal, diffuser, positionDe, nomDe, radioPoint, groupeDeCompte, groupesDeCompte, nomGroupe, signalerSuppression, radioTexte, etatEnvoi, radioConnecte, santeDe, traceDe };
   const instances = new Map();
   const inst = (code) => {
     const g = racine.groupes[code];
@@ -115,11 +119,13 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
   setInterval(veilleRadio, 20000).unref();
 
   const groupeDe = (compte) => (compte ? groupeDeCompte(compte.id) : null);
-  // ADRASEC vue par ce compte : la sienne ; un administrateur de la carte choisit (code) ou voit la première
+  const groupesDe = (compte) => (compte ? groupesDeCompte(compte.id) : []);
+  // ADRASEC vue par ce compte : la sienne, ou celle qu'il choisit (code) parmi les siennes ; un administrateur de
+  // la carte choisit parmi toutes ou voit la première
   function groupePour(compte, code) {
     if (!compte) return null;
-    const mien = groupeDe(compte);
-    if (code && racine.groupes[code] && (compte.role === 'admin' || mien === code)) return inst(code);
+    const miens = groupesDe(compte), mien = miens[0] || null;
+    if (code && racine.groupes[code] && (compte.role === 'admin' || miens.includes(code))) return inst(code);
     if (mien) return inst(mien);
     if (compte.role === 'admin') { const dep = String((config.departement || {}).code || ''); const c = racine.groupes[dep] ? dep : Object.keys(racine.groupes).sort()[0]; return c ? inst(c) : null; }
     return null;
@@ -151,8 +157,9 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
     const codes = Object.keys(racine.groupes);
     const code = b.groupe ? String(b.groupe) : codes.length === 1 ? codes[0] : null;
     if (!code || !racine.groupes[code]) throw new Error('Choisissez l’ADRASEC de votre département');
-    for (const k of codes) if (k !== code) delete racine.groupes[k].demandes[compte.id];
-    return inst(code).demander(compte, b);
+    const r = inst(code).demander(compte, b);
+    for (const k of codes) if (k !== code) delete racine.groupes[k].demandes[compte.id]; // une demande à la fois
+    return r;
   }
   function demandeDe(compte) {
     if (!compte) return null;
@@ -162,35 +169,54 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
   // Gestion des comptes de la carte (administrateur) : case ADRASEC, ADRASEC du compte et président
   function rolesComptes() {
     const roles = {};
-    for (const g of Object.values(racine.groupes)) for (const [cid, m] of Object.entries(g.membres)) roles[cid] = { groupe: g.code, president: !!m.responsable };
+    // groupe / president : la première ADRASEC du compte (la seule, le plus souvent) ; groupes : toutes
+    for (const code of Object.keys(racine.groupes).sort()) for (const [cid, m] of Object.entries(racine.groupes[code].membres)) {
+      if (roles[cid]) roles[cid].groupes.push(code); else roles[cid] = { groupe: code, president: !!m.responsable, groupes: [code] };
+    }
     return { actif: racine.actif, departement: String((config.departement || {}).code || ''), groupes: listeGroupes(), roles };
   }
   function roleCompte(compteId, b, auteur) {
     const cid = Number(compteId);
     if (!Number.isInteger(cid)) throw new Error('Compte inconnu');
-    const actuel = groupeDeCompte(cid);
+    const actuels = groupesDeCompte(cid), actuel = actuels[0] || null;
     if (!b.groupe) {
-      if (actuel) { delete racine.groupes[actuel].membres[cid]; journal(`[ADRASEC] compte ${cid} retiré de ${nomGroupe(actuel)} par ${auteur}`); }
+      for (const c of actuels) { delete racine.groupes[c].membres[cid]; journal(`[ADRASEC] compte ${cid} retiré de ${nomGroupe(c)} par ${auteur}`); }
       sauver(true);
-      return { groupe: null, president: false };
+      return { groupe: null, president: false, groupes: [] };
     }
     let code = String(b.groupe).toUpperCase();
     // Première ADRASEC : celle du département de la carte, créée à la première case cochée
     if (code === 'AUTO') code = actuel || String((config.departement || {}).code || '') || Object.keys(racine.groupes)[0];
     if (!racine.groupes[code]) { if (!/^(\d{2,3}|2A|2B)$/.test(code)) throw new Error('ADRASEC inconnue'); racine.groupes[code] = vide(code); journal(`[ADRASEC] ${racine.groupes[code].nom} créée par ${auteur}`); }
     if (!racine.actif) racine.actif = true;
-    let m = actuel ? racine.groupes[actuel].membres[cid] : null;
-    if (actuel && actuel !== code) { delete racine.groupes[actuel].membres[cid]; m = { ...m, equipe: null }; }
+    // Déjà membre de cette ADRASEC : sa fiche. Membre d'une seule autre : il change d'ADRASEC (la case des comptes
+    // n'en gère qu'une). Membre de plusieurs : il y est ajouté (les fiches se gèrent dans la page ADRASEC).
+    let m = racine.groupes[code].membres[cid] || null;
+    if (!m && actuels.length === 1) { m = { ...racine.groupes[actuel].membres[cid], equipe: null }; delete racine.groupes[actuel].membres[cid]; }
+    if (!m && actuels.length > 1) m = ficheCommune(cid, auteur);
     m = m || { valide: Date.now(), par: auteur };
     if (b.president !== undefined) m.responsable = !!b.president;
     racine.groupes[code].membres[cid] = m;
     delete racine.groupes[code].demandes[cid];
     sauver(true);
     journal(`[ADRASEC] compte ${cid} : ${m.responsable ? 'président' : 'membre'} de ${nomGroupe(code)} (par ${auteur})`);
-    return { groupe: code, president: !!m.responsable };
+    return { groupe: code, president: !!m.responsable, groupes: groupesDeCompte(cid) };
   }
+  // Nouvelle fiche d'un compte déjà membre d'une autre ADRASEC de la carte : ce qui tient à la personne la suit
+  // (indicatif, qualité, n° SWL, nœud porté) ; l'équipe, la fonction et le rôle de président sont propres à chaque ADRASEC.
+  function ficheCommune(cid, auteur) {
+    const m = { valide: Date.now(), par: auteur };
+    for (const c of groupesDeCompte(cid)) {
+      const a = racine.groupes[c].membres[cid];
+      for (const k of ['indicatif', 'qualite', 'licencie', 'numeroSwl', 'noeud']) if (m[k] == null && a[k] != null && a[k] !== false) m[k] = a[k];
+    }
+    return m;
+  }
+  ctx.ficheCommune = ficheCommune;
   function vue(compte, comptesListe, G) {
-    return { ...G.vue(compte, comptesListe), groupes: compte.role === 'admin' ? listeGroupes() : undefined };
+    // sections : celles que ce compte peut afficher (un administrateur : toutes ; un membre : les siennes)
+    const codes = compte.role === 'admin' ? Object.keys(racine.groupes).sort() : groupesDe(compte);
+    return { ...G.vue(compte, comptesListe), groupes: compte.role === 'admin' ? listeGroupes() : undefined, sections: codes.map((c) => ({ code: c, nom: nomGroupe(c) })) };
   }
 
   // ---- Équipes ADRASEC suivies par un secteur d'alerte de la carte (crise.js / secteurs.js) ----------------------
@@ -206,21 +232,34 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
   }
   const noeudsDe = (g, eid) => [...new Set(Object.values(g.membres).filter((m) => m.equipe === eid && m.noeud).map((m) => m.noeud >>> 0))];
   // Équipes proposées dans le menu d'un secteur : celles des ADRASEC auxquelles ce compte a accès (un administrateur
-  // de la carte : toutes ; un membre : la sienne ; personne d'autre)
+  // de la carte : toutes ; un membre : les siennes ; personne d'autre)
   function equipesPourSecteurs(compte) {
     if (!compte || !racine.actif) return [];
-    const codes = compte.role === 'admin' ? Object.keys(racine.groupes).sort() : [groupeDe(compte)].filter(Boolean);
+    const codes = compte.role === 'admin' ? Object.keys(racine.groupes).sort() : groupesDe(compte);
     return codes.map((c) => racine.groupes[c]).filter(Boolean).map((g) => ({
       code: g.code, nom: g.nom,
       equipes: (g.equipes || []).map((e) => ({ id: cleEquipe(g.code, e.id), nom: e.nom, nbMembres: Object.values(g.membres).filter((m) => m.equipe === e.id).length, nbNoeuds: noeudsDe(g, e.id).length })),
     })).filter((x) => x.equipes.length);
   }
+  // Message radio reçu : il va aux ADRASEC dont un membre porte ce nœud. Un opérateur membre de plusieurs ADRASEC :
+  // c'est le canal utilisé qui décide (le canal du jeu de canaux d'une de ses ADRASEC → celle-là seulement) ; en
+  // message direct ou sur un canal qu'aucune ne déclare, toutes ses ADRASEC le reçoivent.
+  function texteRecu(evt) {
+    if (!racine.actif || !evt || evt.de == null) return;
+    let pour = toutes().filter((i) => i.porteNoeud(evt.de >>> 0));
+    if (pour.length > 1) {
+      const canal = String(evt.canal || '').trim().toLowerCase();
+      const duCanal = canal ? pour.filter((i) => { try { return (canauxSection(i.g.code) || []).some((n) => String(n || '').trim().toLowerCase() === canal); } catch { return false; } }) : [];
+      if (duCanal.length) pour = duCanal;
+    }
+    pour.forEach((i) => i.texteRecu(evt));
+  }
   const peutVoirEquipe = (compte, cle) => { const x = equipeSecteur(cle); return !!x && equipesPourSecteurs(compte).some((s) => s.code === x.g.code); };
 
   return {
-    actif: () => racine.actif, nom: () => 'ADRASEC', groupes: listeGroupes, groupeDe, groupePour, estMembre, nomGroupe,
+    actif: () => racine.actif, nom: () => 'ADRASEC', groupes: listeGroupes, groupeDe, groupesDe, groupePour, estMembre, nomGroupe,
     majGroupe, reglagesGlobaux, demander, demandeDe, vue, rolesComptes, roleCompte,
-    texteRecu: (evt) => { if (racine.actif) toutes().forEach((i) => i.texteRecu(evt)); }, veilleRadio,
+    texteRecu, veilleRadio,
     vueTerrain: (jeton) => { for (const i of toutes()) { const v = i.vueTerrain(jeton); if (v) return v; } return null; },
     estCleEquipe, equipesPourSecteurs, peutVoirEquipe,
     noeudsEquipe: (cle) => { const x = equipeSecteur(cle); return x ? noeudsDe(x.g, x.e.id) : []; },
@@ -362,9 +401,9 @@ function creerGroupe(g, ctx) {
       sauver(true);
       return { ok: true };
     }
-    if (!g.membres[cid]) { const ailleurs = ctx.groupeDeCompte(cid); if (ailleurs && ailleurs !== g.code) throw new Error(`Ce compte est déjà membre de ${ctx.nomGroupe(ailleurs)}`); }
     const nouveau = !g.membres[cid];
-    const m = g.membres[cid] || { valide: Date.now(), par: auteur };
+    // Compte déjà membre d'une autre ADRASEC de la carte : sa nouvelle fiche reprend indicatif, qualité et nœud
+    const m = g.membres[cid] || ctx.ficheCommune(cid, auteur);
     // Qualité : radioamateur licencié (indicatif vérifié) ou SWL (écouteur, sans émission sur les bandes amateurs)
     if (b.qualite !== undefined) { m.qualite = ['radioamateur', 'swl'].includes(b.qualite) ? b.qualite : null; b.licencie = m.qualite === 'radioamateur'; }
     if (b.numeroSwl !== undefined) m.numeroSwl = txt(b.numeroSwl, 20).toUpperCase() || null;
@@ -408,7 +447,7 @@ function creerGroupe(g, ctx) {
   // ---- Demandes d'adhésion (un compte de la carte demande à rejoindre la section) ------------------------------
   function demander(compte, b) {
     if (!ctx.actif()) throw new Error('La section n’est pas encore ouverte');
-    if (ctx.groupeDeCompte(compte.id)) throw new Error('Vous êtes déjà membre d’une ADRASEC');
+    if (g.membres[compte.id]) throw new Error('Vous êtes déjà membre de cette ADRASEC');
     const ind = txt(b.indicatif, 12).toUpperCase();
     if (ind && !INDICATIF.test(ind)) throw new Error('Indicatif invalide (ex. F4ABC)');
     g.demandes = g.demandes || {};
@@ -554,6 +593,7 @@ function creerGroupe(g, ctx) {
 
   // Relevé reçu par radio : « GONIO 125 » / « GIS 125/5 » depuis le nœud d'un membre, sur une recherche en cours
   const vus = new Map();
+  const porteNoeud = (num) => Object.values(g.membres).some((m) => m.noeud === num);
   function texteRecu(evt) {
     if (!ctx.actif() || !evt || !evt.texte) return;
     const lu = Gonio.lireMessage(evt.texte);
@@ -803,8 +843,6 @@ function creerGroupe(g, ctx) {
       if (comptes.length === 1) {
         const c = comptes[0];
         if (g.membres[c.id]) { r.dejaMembres.push({ quoi: fiche.indicatif, identifiant: c.identifiant }); continue; }
-        const ailleurs = ctx.groupeDeCompte(c.id);
-        if (ailleurs && ailleurs !== g.code) { r.ignores.push({ quoi: fiche.indicatif, raison: `ce compte est déjà membre de ${ctx.nomGroupe(ailleurs)}` }); continue; }
         r.rattaches.push({ quoi: fiche.indicatif, identifiant: c.identifiant, equipe: nomEq(fiche.equipe) });
         aAjouter.push([c.id, fiche]);
         continue;
@@ -869,7 +907,7 @@ function creerGroupe(g, ctx) {
       recherches,
       reperes: g.reperes, options: options(), macros: macros(), catalogueOptions: admin ? Object.fromEntries(Object.entries(OPTIONS).map(([k, o]) => [k, { nom: o.nom, aide: o.aide }])) : undefined,
       radio: { connecte: (() => { try { return !!ctx.radioConnecte(); } catch { return false; } })(), tombee: !!(ctx.radioTombee && ctx.radioTombee()) },
-      comptes: admin ? comptesListe.filter((c) => c.statut === 'actif').map((c) => ({ id: c.id, identifiant: c.identifiant, indicatif: c.indicatif || null, role: c.role, adrasec: !!g.membres[c.id], autre: g.membres[c.id] ? null : ctx.groupeDeCompte(c.id) })) : undefined,
+      comptes: admin ? comptesListe.filter((c) => c.statut === 'actif').map((c) => ({ id: c.id, identifiant: c.identifiant, indicatif: c.indicatif || null, role: c.role, adrasec: !!g.membres[c.id], autres: ctx.groupesDeCompte(c.id).filter((k) => k !== g.code).map((k) => ctx.nomGroupe(k)) })) : undefined,
       demandes: admin ? Object.entries(g.demandes || {}).map(([cid, x]) => { const c = comptesListe.find((y) => y.id === Number(cid) && y.statut === 'actif'); return c && !g.membres[cid] ? { compte: c.id, identifiant: c.identifiant, indicatifCompte: c.indicatif || null, ...x } : null; }).filter(Boolean) : undefined,
       comptesEnAttente: compte.role === 'admin' ? comptesListe.filter((c) => c.statut === 'en_attente').length : undefined,
       // Fiches importées d'une autre carte, en attente du compte de la personne (président et responsables)
@@ -884,7 +922,7 @@ function creerGroupe(g, ctx) {
 
   return {
     g, purger, membre, estMembre, estResponsable, estLicencie, signature, demander, refuserDemande, demandeDe,
-    reglages, majMembre, majEquipe, ajouterMc, csvMc, majRepere, diffuserRepere, envoyerMessage, radioChange, trace, option, majRecherche, ajouterReleve, majReleve, retirerReleve, localiser, texteRecu, vue,
+    reglages, majMembre, majEquipe, ajouterMc, csvMc, majRepere, diffuserRepere, envoyerMessage, radioChange, trace, option, majRecherche, ajouterReleve, majReleve, retirerReleve, localiser, texteRecu, porteNoeud, vue,
     diffuserBalise, creerLien, couperLien, vueTerrain, exporter, importer, retirerAttente,
   };
 }
