@@ -46,7 +46,7 @@ Les fichiers des espaces ne partent **pas** dans les sauvegardes de la carte (el
 
 **Administrateur de la carte qui tient aussi l'espace** (cas d'une petite structure : la même personne crée l'espace et en est le responsable). Connecté à la carte **et** à l'espace dans le même navigateur, il retrouve le sélecteur de nœuds **dans l'espace** : *⚙️ Gestion › Nœuds LoRa de l'espace › ➕ Choisir des nœuds dans la liste de la carte*, ou le bouton **➕ Ajouter des nœuds à l'espace** de la fiche d'une équipe. Plus besoin de repasser par la page de gestion des espaces. C'est sa session d'administrateur de la carte qui l'autorise : un responsable qui ne l'a pas ne voit rien de la liste des nœuds de la carte.
 
-**Affichage** : le bouton en haut à droite de la carte donne le choix du fond (**Sombre**, Plan IGN, **Plan IGN sombre**, Photos aériennes, **Topographique (relief)**, OpenStreetMap) et deux surcouches (**Relief ombré**, Noms des lieux). La barre entre la carte et le panneau se **tire à la souris** pour élargir ou rétrécir le panneau (double-clic : largeur d'origine ; au clavier, flèches gauche et droite). Ces choix sont retenus sur l'appareil.
+**Affichage** : le bouton en haut à droite de la carte donne le choix du fond (**Sombre**, Plan IGN, **Plan IGN sombre**, Photos aériennes, **Topographique (relief)**) et deux surcouches (**Relief ombré**, Noms des lieux). La barre entre la carte et le panneau se **tire à la souris** pour élargir ou rétrécir le panneau (double-clic : largeur d'origine ; au clavier, flèches gauche et droite). Ces choix sont retenus sur l'appareil.
 
 **Équipiers** : ils ouvrent la même adresse avec leur compte, sur téléphone ou ordinateur. Ils voient la carte, les interventions, les équipes et la main courante ; ils changent l'état de **leur** équipe.
 
@@ -64,7 +64,7 @@ C'est un rangement, pas une séparation : tous les membres de l'espace voient to
 
 - **📍 Interventions** : *Nouvelle intervention*, sa nature, un intitulé court, **📍 Pointer sur la carte**. Désigner une équipe la passe *en cours* et l'équipe *en intervention* ; **✓ Terminée** libère l'équipe. N'écrivez ni nom de victime ni information médicale nominative.
 - **👥 Équipes** : état de chaque équipe (disponible, en poste, en intervention, en pause, indisponible) et âge de sa dernière position. Un rond = position reçue du nœud ; un carré = emplacement fixe.
-- **🚩 Repères** : **🟢 Nouveau point de rassemblement**, son nom, **📍 Pointer sur la carte**. Tout l'espace le voit ; son bouton **📻 Envoyer aux équipes** le transmet par radio avec sa position et son code DFCI : « tout le monde se retrouve ici ». Les responsables et le poste de coordination posent les repères.
+- **🚩 Repères** : **🟢 Nouveau point de rassemblement**, son nom, **📍 Pointer sur la carte**. Tout l'espace le voit ; son bouton **📻 Envoyer aux équipes** le transmet par radio avec sa position et son code DFCI : « tout le monde se retrouve ici ». Au moment de l'envoi, un **mot à ajouter** est demandé (facultatif) : « repas à 12 h 30 », « rassemblement avant la relève ». Les responsables et le poste de coordination posent les repères.
 - **🗒️ Main courante** : faits, décisions, messages. Les entrées ne se modifient pas ; l'export **CSV** sert de trace après l'événement.
 
 Pour un **DPS**, l'onglet Équipes compare l'effectif prévu à la catégorie choisie (PAPS : 2 · DPS-PE : 4 à 12 · DPS-ME : 12 à 36 · DPS-GE : plus de 36 secouristes). C'est un **repère** : le dimensionnement réel sort de la grille d'évaluation des risques de l'association.

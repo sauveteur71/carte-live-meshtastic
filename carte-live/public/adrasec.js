@@ -434,8 +434,9 @@
       $('.rp-supprimer', f).onclick = async () => { if (!confirm(`Supprimer le point de rassemblement « ${r.nom} » ?`)) return; await api('/api/adrasec/reperes/' + r.id, { method: 'PATCH', body: { supprimer: true } }).catch((e) => alert(e.message)); charger(); };
       $('.rp-diffuser', f).onclick = async () => {
         const c = Number($('.rp-canal', f).value);
-        if (!confirm(`Diffuser « ${r.nom} » par radio sur le canal ${c} ? Tous les nœuds qui ont ce canal le recevront.`)) return;
-        try { const x = await api(`/api/adrasec/reperes/${r.id}/diffuser`, { method: 'POST', body: { canal: c } }); retour.textContent = '✔ Diffusé : ' + x.texte; }
+        const mot = prompt(`Diffuser « ${r.nom} » par radio sur le canal ${c}. Tous les nœuds qui ont ce canal le recevront.\n\nMot à ajouter au message (facultatif) :`, '');
+        if (mot === null) return;
+        try { const x = await api(`/api/adrasec/reperes/${r.id}/diffuser`, { method: 'POST', body: { canal: c, mot } }); retour.textContent = '✔ Diffusé : ' + x.texte; }
         catch (e) { retour.innerHTML = `<span class="erreur">${esc(e.message)}</span>`; }
       };
     }

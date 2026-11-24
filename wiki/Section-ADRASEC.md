@@ -99,7 +99,7 @@ Dans l'onglet **📡 Radiogoniométrie**, bloc **Diffusion aux équipes** (reche
 
 Onglet **👥 Équipes › 🟢 Points de rassemblement** : **Nouveau point de rassemblement**, son nom, **📍 Pointer sur la carte**, Enregistrer. Tout membre de la section peut en poser un (un chef d'équipe sur le terrain n'attend pas le président) ; tous les membres le voient sur la carte.
 
-**📻 Diffuser** l'envoie aux équipes par radio, sur le canal choisi : un point de passage (il s'affiche dans l'application Meshtastic des équipes) et un message avec la position et le code DFCI : « tout le monde se retrouve ici ». L'envoi est noté dans la main courante. Tous les nœuds qui ont ce canal le reçoivent : choisissez le canal chiffré de la section plutôt que le canal public.
+**📻 Diffuser** l'envoie aux équipes par radio, sur le canal choisi : un point de passage (il s'affiche dans l'application Meshtastic des équipes) et un message avec la position et le code DFCI : « tout le monde se retrouve ici ». Au moment de l'envoi, un **mot à ajouter** est demandé (facultatif). L'envoi est noté dans la main courante. Tous les nœuds qui ont ce canal le reçoivent : choisissez le canal chiffré de la section plutôt que le canal public.
 
 ## Options de la section
 

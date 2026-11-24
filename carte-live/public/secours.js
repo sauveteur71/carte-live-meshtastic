@@ -242,7 +242,6 @@
     'Plan IGN sombre': L.tileLayer(wmts('GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2'), { maxZoom: 19, className: 'tuiles-sombres', attribution: ign }),
     'Photos aériennes IGN': L.tileLayer(wmts('ORTHOIMAGERY.ORTHOPHOTOS', 'image/jpeg'), { maxZoom: 19, attribution: ign }),
     'Topographique (relief)': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 19, maxNativeZoom: 17, subdomains: 'abc', attribution: 'Carte &copy; <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a> (CC-BY-SA), données &copy; contributeurs OpenStreetMap' }),
-    'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, subdomains: 'abc', attribution: '&copy; contributeurs <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' }),
   };
   const surcouches = {
     'Relief ombré': L.tileLayer(wmts('ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW', 'image/png', 'estompage_grayscale'), { maxZoom: 19, maxNativeZoom: 15, opacity: 0.4, attribution: ign }),
@@ -525,7 +524,7 @@
       <div class="champs"><button id="p-pointer">📍 Pointer sur la carte</button><span id="p-pos" class="note"></span></div>
       <div class="champs"><button class="principal" id="p-ok">Enregistrer</button><button id="p-annuler">Annuler</button><button class="danger mini" id="p-supprimer" hidden>Supprimer</button><span id="p-retour" class="erreur"></span></div>
     </div>` : ''}
-    <p class="note">Un point de rassemblement est visible de tout l’espace. ${E.radio.peutEnvoyer ? 'Son bouton 📻 l’envoie aux équipes par radio, avec sa position et son code DFCI : « tout le monde se retrouve ici ».' : ''}</p>
+    <p class="note">Un point de rassemblement est visible de tout l’espace. ${E.radio.peutEnvoyer ? 'Son bouton 📻 l’envoie aux équipes par radio, avec sa position, son code DFCI et le mot que vous ajoutez au moment de l’envoi : « tout le monde se retrouve ici ».' : ''}</p>
     <div id="p-liste"></div>`;
   let repEdit = null, posRep = null, contourRep = null;
   const surface = () => !!(E.listes.reperes[$('#p-genre').value] || {}).surface;
@@ -571,8 +570,10 @@
       if ($('.modifier', f)) $('.modifier', f).onclick = () => ouvrirRepere(r);
       if ($('.radio', f)) $('.radio', f).onclick = async () => {
         const qui = E.canal.utilisable ? `à toutes les équipes, sur le canal « ${E.canal.nom} »` : `à toutes les équipes qui portent un nœud (${E.equipes.filter((e) => e.noeud).length})`;
-        if (!confirm(`Envoyer « ${r.nom} » par radio ${qui} ?`)) return;
-        try { const x = await api(`${base}/reperes/${r.id}/diffuser`, { method: 'POST', body: {} }); await rafraichir(true); annoncer(`📻 Envoyé à ${x.destinataires.join(', ')}`); }
+        // Un mot à ajouter au message (facultatif) : « Annuler » n'envoie rien, « OK » sans rien écrit envoie le repère seul
+        const mot = prompt(`Envoyer « ${r.nom} » par radio ${qui}.\n\nMot à ajouter au message (facultatif) :\nex. « rassemblement à 12 h », « repas de midi »`, '');
+        if (mot === null) return;
+        try { const x = await api(`${base}/reperes/${r.id}/diffuser`, { method: 'POST', body: { mot } }); await rafraichir(true); annoncer(`📻 Envoyé à ${x.destinataires.join(', ')}`); }
         catch (e) { alert(e.message); }
       };
     }

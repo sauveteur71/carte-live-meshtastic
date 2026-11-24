@@ -306,7 +306,8 @@ function creerGroupe(g, ctx) {
     const canal = Number(b.canal);
     if (!Number.isInteger(canal) || canal < 0 || canal > 7) throw new Error('Canal 0 à 7');
     const dfci = versDfci(r.lat, r.lon);
-    const texte = [`RASSEMBLEMENT ${r.nom}`, `${r.lat.toFixed(5)},${r.lon.toFixed(5)}${dfci ? ' DFCI ' + dfci : ''}`, r.detail].filter(Boolean).join(' · ');
+    const mot = txt(b.mot, 120);
+    const texte = couper([`RASSEMBLEMENT ${r.nom}`, `${r.lat.toFixed(5)},${r.lon.toFixed(5)}${dfci ? ' DFCI ' + dfci : ''}`, r.detail, mot].filter(Boolean).join(' · '), 200);
     await radioPoint({ idPoint: r.idPoint, lat: r.lat, lon: r.lon, nom: '🟢 Rassemblement', description: [r.nom, r.detail].filter(Boolean).join(' · '), expireS: Math.floor(Date.now() / 1000) + 12 * 3600, canal, texte });
     ajouterMc(compte, { type: 'message-emis', texte: `Point de rassemblement diffusé par radio (canal ${canal}) : ${r.nom}` }, { origine: 'radio' });
     return { ok: true, texte };

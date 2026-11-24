@@ -442,6 +442,11 @@ test('repères : point de rassemblement partout, repères d’un PCS en option, 
   F.diffuserRepere(r.id, {}, chef);
   assert.match(partis[0].texte, /^RASSEMBLEMENT Parking nord · 45\.04210,3\.88530 DFCI \S+ · côté portail$/);
   assert.strictEqual(partis[0].dest, N1);
+  // Mot ajouté au moment de l'envoi (heure du rassemblement, consigne du jour), à la fin du message
+  F.diffuserRepere(r.id, { mot: 'repas à 12 h 30' }, chef);
+  assert.match(partis.at(-1).texte, /· côté portail · repas à 12 h 30$/);
+  F.diffuserRepere(r.id, { mot: 'M'.repeat(200) }, chef);
+  assert.ok(Buffer.byteLength(partis.at(-1).texte) <= 200);
   // PCS : une zone à évacuer se dessine (3 points au moins), son centre sert de position
   assert.throws(() => P.majRepere(null, { genre: 'zone', nom: 'Quartier bas', contour: [[45, 3], [45.1, 3]] }, 'mairie'), /3 à 60 points/);
   const z = P.majRepere(null, { genre: 'zone', nom: 'Quartier bas', contour: [[45, 3], [45.1, 3], [45.1, 3.3]] }, 'mairie');

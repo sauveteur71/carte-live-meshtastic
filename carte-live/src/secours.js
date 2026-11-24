@@ -694,7 +694,9 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
     if (!r || !genresReperes()[r.genre]) throw new Error('Repère inconnu');
     const dfci = versDfci(r.lat, r.lon);
     const tete = r.genre === 'rassemblement' ? `RASSEMBLEMENT ${r.nom}` : `${REPERES[r.genre].nom.toUpperCase()} ${r.nom}`;
-    return envoyer(compte, { texte: [tete, `${r.lat.toFixed(5)},${r.lon.toFixed(5)}${dfci ? ' DFCI ' + dfci : ''}`, r.detail].filter(Boolean).join(' · '), equipe: b.equipe || null });
+    // « mot » : ce que le poste de coordination ajoute au moment de l'envoi (heure du rassemblement, consigne du jour…)
+    const mot = txt(b.mot, 120);
+    return envoyer(compte, { texte: [tete, `${r.lat.toFixed(5)},${r.lon.toFixed(5)}${dfci ? ' DFCI ' + dfci : ''}`, r.detail, mot].filter(Boolean).join(' · '), equipe: b.equipe || null });
   }
 
   // ---- Module radio de la carte : entrée de main courante quand il tombe ou revient (option « alerteRadio ») --------
