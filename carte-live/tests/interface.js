@@ -1081,6 +1081,12 @@ async function essaiSecours(navig, cookie) {
     && gestion.options === 9 && gestion.rapport && gestion.macros === 'Rejoignez le PC' && gestion.attendu && gestion.bord === 5)
     ok('page d’un espace : onglet Repères (point posé sur la carte), équipes filtrées par organisation, options et rapport dans Gestion, tableau de bord');
   else { ko('repères, organisations et options dans la page : ' + JSON.stringify({ rep, filtre, gestion })); await capture(page, 'secours-options'); }
+  await page.click('[data-vue="reperes"]'); await page.waitForTimeout(300);
+  await page.click('#p-rassemblement'); await page.fill('#p-nom', 'Salle des fêtes'); await page.click('#p-pointer'); await page.mouse.click(500, 420); await page.waitForTimeout(200);
+  await page.click('#p-ok'); await page.waitForTimeout(900);
+  const apresGestion = await page.evaluate(() => ({ fiches: document.querySelectorAll('#p-liste .fiche').length, retour: (document.querySelector('#p-retour') || {}).textContent, mdp: !!document.querySelector('#mdp-ok') }));
+  if (apresGestion.fiches === 3 && !apresGestion.retour) ok('repère enregistré après un passage par Gestion : le formulaire du mot de passe ne prend pas le bouton du repère');
+  else { ko('repère après Gestion : ' + JSON.stringify(apresGestion)); await capture(page, 'secours-repere-gestion'); }
   if (envoi.bloc && envoi.choix === 2 && envoi.coupe && /n’est pas connecté/.test(envoi.etat)) ok('main courante : bloc « Écrire au terrain par radio », désactivé tant que le module n’est pas connecté');
   else { ko('bloc d’envoi par radio : ' + JSON.stringify(envoi)); await capture(page, 'secours-envoi'); }
   if (p.onglets === 5 && p.fiches === 1 && p.carte && p.reperes >= 2 && /Gestion/.test(p.gestion) && /Effectif prévu : 6 secouristes/.test(resume)) ok('page d’un espace : interventions, équipes sur la carte, effectif du dispositif');

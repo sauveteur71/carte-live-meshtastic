@@ -689,11 +689,11 @@
       <p class="note">Les responsables et le poste de coordination écrivent aux équipes depuis l’onglet 🗒️ Main courante, ou envoient une intervention avec son bouton 📻. C’est toujours un <b>message direct</b> au nœud de l’équipe (jamais un canal lu par tout le réseau), avec la position et le code DFCI pour une intervention. « reçu » s’affiche quand le nœud a accusé réception.</p>
 
       <h2>Mon mot de passe</h2>
-      <div class="champs"><label>Actuel <input id="p-ancien" type="password" autocomplete="current-password"></label><label>Nouveau <input id="p-nouveau" type="password" autocomplete="new-password"></label></div>
-      <div class="champs"><button id="p-ok">Changer</button><span id="p-retour" class="erreur"></span></div>`;
-    $('#p-ok').onclick = async () => {
-      try { await api(base + '/mot-de-passe', { method: 'PUT', body: { ancien: $('#p-ancien').value, nouveau: $('#p-nouveau').value } }); $('#p-retour').className = 'reussi'; $('#p-retour').textContent = 'Mot de passe changé.'; $('#p-ancien').value = $('#p-nouveau').value = ''; }
-      catch (e) { $('#p-retour').className = 'erreur'; $('#p-retour').textContent = e.message; }
+      <div class="champs"><label>Actuel <input id="mdp-ancien" type="password" autocomplete="current-password"></label><label>Nouveau <input id="mdp-nouveau" type="password" autocomplete="new-password"></label></div>
+      <div class="champs"><button id="mdp-ok">Changer</button><span id="mdp-retour" class="erreur"></span></div>`;
+    $('#mdp-ok').onclick = async () => {
+      try { await api(base + '/mot-de-passe', { method: 'PUT', body: { ancien: $('#mdp-ancien').value, nouveau: $('#mdp-nouveau').value } }); $('#mdp-retour').className = 'reussi'; $('#mdp-retour').textContent = 'Mot de passe changé.'; $('#mdp-ancien').value = $('#mdp-nouveau').value = ''; }
+      catch (e) { $('#mdp-retour').className = 'erreur'; $('#mdp-retour').textContent = e.message; }
     };
     if (!E.moi.responsable) return;
     let centre;
