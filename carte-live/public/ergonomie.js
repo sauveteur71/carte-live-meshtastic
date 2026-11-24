@@ -5,87 +5,8 @@
 // Chargé après app.js et meshcore.js : s'appuie sur leurs fonctions, sans changer leur fonctionnement
 // (les 8 onglets d'origine existent toujours, rangés en sous-rubriques).
 
-// ---- Confirmation dans l'interface (remplace confirm() du navigateur) -----------------------------------------
-function confirmer(texte, { ok = 'Confirmer', annuler = 'Annuler' } = {}) {
-  return new Promise((resoudre) => {
-    let d = document.getElementById('dlg-confirmer');
-    if (!d) {
-      d = document.createElement('dialog');
-      d.id = 'dlg-confirmer'; d.className = 'dlg-confirmer';
-      d.setAttribute('aria-labelledby', 'confirmer-texte');
-      document.body.appendChild(d);
-    }
-    const danger = /supprim|effac|retir|désactiv|termin|forcer|interromp|remettre à zéro|nouvelle clé|seront remplacés/i.test(texte);
-    d.innerHTML = `<p id="confirmer-texte"></p><div class="actions-confirmer"><button type="button" data-r="0">${esc(annuler)}</button><button type="button" data-r="1" class="${danger ? 'danger' : 'principal'}">${esc(ok)}</button></div>`;
-    d.querySelector('p').textContent = texte;
-    const fin = (v) => { d.onclose = null; if (d.open) d.close(); resoudre(v); };
-    d.querySelectorAll('[data-r]').forEach((b) => (b.onclick = () => fin(b.dataset.r === '1')));
-    d.onclose = () => resoudre(false); // Échap
-    d.onclick = (e) => { if (e.target === d) { const r = d.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) fin(false); } };
-    d.showModal();
-    d.querySelector('[data-r="1"]').focus();
-  });
-}
-// Saisie dans l'interface (remplace prompt() du navigateur) : renvoie le texte, ou null si annulé.
-// options.suggestions : fonction optionnelle, appelée au fil de la frappe avec ce qui est tapé, qui renvoie une
-// liste de propositions [{ valeur, libelle, detail }]. Choisir une proposition remplit le champ, qui reste
-// toujours LIBRE : on peut valider un texte qui n'est dans aucune proposition (écouter un nœud encore inconnu,
-// par exemple). Clavier : ↓ ↑ pour parcourir, Entrée pour prendre la proposition visée, Échap pour refermer la
-// liste (un second Échap ferme la boîte). Les appels qui ne passent pas « suggestions » ne changent pas.
-function saisir(texte, defaut = '', options = {}) {
-  return new Promise((resoudre) => {
-    let d = document.getElementById('dlg-saisir');
-    if (!d) { d = document.createElement('dialog'); d.id = 'dlg-saisir'; d.className = 'dlg-confirmer'; d.setAttribute('aria-labelledby', 'saisir-texte'); document.body.appendChild(d); }
-    d.innerHTML = '<form method="dialog"><p id="saisir-texte"></p><input id="saisir-champ" autocomplete="off"><div class="propositions-saisir" id="saisir-props" role="listbox" aria-label="Propositions" hidden></div><div class="actions-confirmer"><button type="button" data-r="0">Annuler</button><button type="submit" class="principal">Valider</button></div></form>';
-    d.querySelector('p').textContent = texte;
-    const champ = d.querySelector('input');
-    champ.value = defaut == null ? '' : String(defaut);
-    let rendu = false;
-    const fin = (v) => { if (rendu) return; rendu = true; d.onclose = null; if (d.open) d.close(); resoudre(v); };
-    d.querySelector('[data-r="0"]').onclick = () => fin(null);
-    d.querySelector('form').onsubmit = (e) => { e.preventDefault(); fin(champ.value); };
-    d.onclose = () => fin(null);
-    const suggerer = typeof options.suggestions === 'function' ? options.suggestions : null;
-    const props = d.querySelector('#saisir-props');
-    if (suggerer) {
-      let choix = [], vise = -1, minuterie = null;
-      champ.setAttribute('role', 'combobox');
-      champ.setAttribute('aria-autocomplete', 'list');
-      champ.setAttribute('aria-controls', 'saisir-props');
-      champ.setAttribute('aria-expanded', 'false');
-      const fermer = () => { props.hidden = true; props.innerHTML = ''; choix = []; vise = -1; champ.setAttribute('aria-expanded', 'false'); champ.removeAttribute('aria-activedescendant'); };
-      const viser = (i) => {
-        vise = i;
-        [...props.children].forEach((b, k) => { const a = k === i; b.classList.toggle('vise', a); b.setAttribute('aria-selected', a ? 'true' : 'false'); if (a) b.scrollIntoView({ block: 'nearest' }); });
-        if (i >= 0) champ.setAttribute('aria-activedescendant', 'saisir-prop-' + i); else champ.removeAttribute('aria-activedescendant');
-      };
-      const prendre = (i) => { const c = choix[i]; if (!c) return; champ.value = String(c.valeur); fermer(); champ.focus(); };
-      const proposer = () => {
-        let l = [];
-        try { l = suggerer(champ.value) || []; } catch { l = []; } // une proposition en panne ne doit pas bloquer la saisie
-        choix = l.slice(0, 10);
-        if (!choix.length) { fermer(); return; }
-        props.innerHTML = choix.map((c, i) => `<button type="button" role="option" id="saisir-prop-${i}" aria-selected="false" data-i="${i}"><b>${esc(c.libelle)}</b>${c.detail ? `<small>${esc(c.detail)}</small>` : ''}</button>`).join('');
-        props.hidden = false;
-        champ.setAttribute('aria-expanded', 'true');
-        viser(-1);
-      };
-      // Au fil de la frappe, mais pas à chaque touche : la liste est refaite après une courte pause
-      champ.addEventListener('input', () => { clearTimeout(minuterie); minuterie = setTimeout(proposer, 120); });
-      props.addEventListener('mousedown', (e) => { const b = e.target.closest('[data-i]'); if (b) { e.preventDefault(); prendre(Number(b.dataset.i)); } });
-      champ.addEventListener('keydown', (e) => {
-        if (props.hidden) { if (e.key === 'ArrowDown') { e.preventDefault(); clearTimeout(minuterie); proposer(); } return; }
-        if (e.key === 'ArrowDown') { e.preventDefault(); viser(vise + 1 >= choix.length ? 0 : vise + 1); }
-        else if (e.key === 'ArrowUp') { e.preventDefault(); viser(vise <= 0 ? choix.length - 1 : vise - 1); }
-        else if ((e.key === 'Enter' || e.key === 'Tab') && vise >= 0) { e.preventDefault(); prendre(vise); }
-        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fermer(); } // Échap referme la liste ; un second ferme la boîte
-      });
-      if (champ.value) setTimeout(proposer, 0);
-    }
-    d.showModal();
-    champ.focus(); champ.select();
-  });
-}
+// Confirmation et saisie dans l'interface (confirmer, saisir) et rendu de l'aide (markdownSimple) : dans commun.js,
+// partagé avec les pages /secours et /adrasec.
 // Annonce avec un bouton « Annuler » pendant 6 secondes (actions réversibles)
 function annonceAnnulable(texte, annuler) {
   let z = document.getElementById('annonces');
@@ -210,16 +131,13 @@ function appliquerNiveau(n, memoriser) {
   rendreAccueil();
   if (document.querySelector('.vue.actif[data-vue="reglages"]')) rendreHubReglages();
 }
-// Ce qui n'apparaît qu'à partir d'un niveau (op = opérateur, exp = expert)
+// Ce qui n'apparaît qu'à partir d'un niveau (op = opérateur, exp = expert). Les entrées du menu Outils portent leur
+// niveau dans index.html (data-niveau) : rien à ajouter ici pour une nouvelle entrée. Restent ici les onglets, les
+// boutons et les couches créés ailleurs.
 function etiqueterNiveaux() {
   const op = ['.onglets [data-onglet="trafic"]', '.onglets [data-onglet="analyse"]', '#btn-couv-mesuree', '#btn-couvrir', '#btn-relier', '#btn-simulation', '#btn-plan-menu', '#btn-rejeu',
-    '#outil-usb', '#outil-ble', '#outil-portee', '#outil-rapport', '#outil-partager', '#lien-client', '#lien-flasher',
     '[data-couche="voisinage"]', '[data-couche="traceroute"]', '[data-couche="federation"]', '[data-couche="releves"]', '[data-couche="routiers"]'];
-  const exp = ['#outil-passerelle', '#outil-trafic', '#outil-france'];
   for (const s of op) document.querySelectorAll(s).forEach((e) => e.classList.add('niv-op'));
-  for (const s of exp) document.querySelectorAll(s).forEach((e) => e.classList.add('niv-exp'));
-  // Liens du menu Outils (topologie, configuration des répéteurs…) : opérateur ; ceux de simulation : expert
-  document.querySelectorAll('.menu-outils a.bascule').forEach((a) => { if (!a.classList.contains('niv-op')) a.classList.add(/topologie|simulation|configurer/i.test(a.textContent) ? 'niv-exp' : 'niv-op'); });
 }
 
 // ---- Rubriques : 5 groupes au-dessus des onglets d'origine ---------------------------------------------------
@@ -470,32 +388,6 @@ async function ficheDiagnostic() {
 
 // ---- Aide intégrée (pages du wiki) ---------------------------------------------------------------------------
 const AIDE_PAR_ONGLET = { reseau: 'La-carte', noeuds: 'La-carte', trafic: 'Contrôle-du-trafic', analyse: 'La-carte', sites: 'Couverture-et-sites', gestion: 'Programmation-à-distance', messages: 'Messages', meshcore: 'MeshCore', reglages: 'Home' };
-function markdownSimple(md) {
-  const enLigne = (t) => esc(t)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-    .replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, '$1<i>$2</i>')
-    .replace(/!\[([^\]]*)\]\((https:[^)\s]+\.(?:jpg|png|webp))\)/g, '<img class="capture-aide" src="$2" alt="$1" loading="lazy">')
-    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (m, a, b) => `<a href="#" data-aide="${(b || a).trim().replace(/ /g, '-')}">${a.trim()}</a>`)
-    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-  const out = [];
-  let liste = null, code = false;
-  const fermerListe = () => { if (liste) { out.push(`</${liste}>`); liste = null; } };
-  for (const l of md.split('\n')) {
-    if (/^```/.test(l)) { fermerListe(); out.push(code ? '</pre>' : '<pre>'); code = !code; continue; }
-    if (code) { out.push(esc(l)); continue; }
-    let m;
-    if ((m = l.match(/^(#{1,4})\s+(.*)/))) { fermerListe(); const n = Math.min(4, m[1].length + 1); out.push(`<h${n}>${enLigne(m[2])}</h${n}>`); }
-    else if ((m = l.match(/^\s*[-*]\s+(.*)/))) { if (liste !== 'ul') { fermerListe(); out.push('<ul>'); liste = 'ul'; } out.push(`<li>${enLigne(m[1])}</li>`); }
-    else if ((m = l.match(/^\s*\d+\.\s+(.*)/))) { if (liste !== 'ol') { fermerListe(); out.push('<ol>'); liste = 'ol'; } out.push(`<li>${enLigne(m[1])}</li>`); }
-    else if (/^\s*\|/.test(l)) { fermerListe(); if (!/^\s*\|[\s:|-]+\|\s*$/.test(l)) out.push(`<p class="ligne-tableau">${enLigne(l.replace(/^\s*\||\|\s*$/g, '').replace(/\|/g, ' · '))}</p>`); }
-    else if (!l.trim()) fermerListe();
-    else { fermerListe(); out.push(`<p>${enLigne(l)}</p>`); }
-  }
-  fermerListe();
-  if (code) out.push('</pre>');
-  return out.join('\n');
-}
 async function ouvrirAide(page) {
   if (!page) { const a = document.querySelector('.onglets button[data-onglet].actif'); page = AIDE_PAR_ONGLET[a ? a.dataset.onglet : 'reseau'] || 'Home'; }
   $('#fiche').hidden = false; etat.selection = null;

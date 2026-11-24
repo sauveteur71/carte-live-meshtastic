@@ -4,6 +4,8 @@ Espace **réservé** aux membres d'une ADRASEC (radiotransmetteurs au service de
 
 Rien de cette section n'apparaît sur la carte publique.
 
+> **Aide et recherche** : en haut à droite, **?** ouvre cette page d'aide et **🔎** (ou **Ctrl+K**) cherche une fonction de la section (« relevé », « équipes », « canaux »…).
+
 ## Organisation : une ADRASEC par département
 
 Une même carte peut héberger les ADRASEC de **plusieurs départements**. Chacune est **séparée** : ses membres, son président, ses équipes, sa main courante et ses recherches de balise. Un membre ne voit que son ADRASEC.

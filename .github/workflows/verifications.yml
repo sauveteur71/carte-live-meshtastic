@@ -52,6 +52,9 @@ jobs:
       - name: Tests de la section ADRASEC (membre de plusieurs ADRASEC, canal utilisé)
         working-directory: carte-live
         run: node --test tests/adrasec.js
+      - name: Garde-fous de l'ergonomie (niveaux du menu, socle commun des pages)
+        working-directory: carte-live
+        run: node --test tests/ergonomie.js
       - name: Textes du serveur traduits en anglais (journal, erreurs, diagnostic, alertes)
         working-directory: carte-live
         run: node outils/textes-serveur.js

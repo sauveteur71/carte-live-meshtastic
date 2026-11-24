@@ -67,6 +67,10 @@ C'est un rangement, pas une séparation : tous les membres de l'espace voient to
 
 Pour un **DPS**, l'onglet Équipes compare l'effectif prévu à la catégorie choisie (PAPS : 2 · DPS-PE : 4 à 12 · DPS-ME : 12 à 36 · DPS-GE : plus de 36 secouristes). C'est un **repère** : le dimensionnement réel sort de la grille d'évaluation des risques de l'association.
 
+## Aide et recherche dans la page
+
+En haut à droite de la page d'un espace : **?** ouvre cette aide dans une fenêtre, et **🔎** (ou **Ctrl+K**) cherche une fonction de la page. Tapez « mot de passe », « nœuds », « organisations » : la recherche ouvre le bon onglet et montre le bloc. Les confirmations (supprimer une équipe, envoyer par radio) s'affichent dans la page.
+
 ## Options de l'espace
 
 Dans **⚙️ Gestion › Options de l'espace**, le responsable active ce dont son dispositif a besoin ; le reste disparaît de l'écran.

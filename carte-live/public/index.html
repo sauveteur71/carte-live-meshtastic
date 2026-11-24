@@ -84,45 +84,47 @@
     </details>
     <button id="btn-rejeu" title="Rejouer les dernières 24 heures">Rejeu</button>
     <button id="btn-chercher-reglage" class="bouton-cherche" title="Chercher un réglage ou une fonction (Ctrl+K)">⚙️🔎</button>
+    <!-- Chaque entrée du menu Outils porte son niveau d’affichage (data-niveau : simple, operateur ou expert) et, au besoin,
+         des mots-clés pour la recherche de fonctions (data-chercher). Rien d’autre à tenir à jour ailleurs. -->
     <details class="menu-couches menu-outils">
       <summary>Outils ▾</summary>
       <div class="menu">
-        <button id="outil-connecter" class="bascule outil-principal" title="Bluetooth, USB ou adresse IP : Meshtastic ou MeshCore, reconnu tout seul">🔌 Connecter un module…</button>
-        <button id="outil-registre" class="bascule" title="Sites, autorisations, dernières visites, énergie et firmware de chaque relais, avec export CSV">🗂️ Registre des relais</button>
+        <button id="outil-connecter" class="bascule outil-principal" data-niveau="simple" data-chercher="bluetooth usb wifi adresse ip module radio companion relier brancher" title="Bluetooth, USB ou adresse IP : Meshtastic ou MeshCore, reconnu tout seul">🔌 Connecter un module…</button>
+        <button id="outil-registre" class="bascule" data-niveau="operateur" data-chercher="inventaire site autorisation propriétaire visite csv" title="Sites, autorisations, dernières visites, énergie et firmware de chaque relais, avec export CSV">🗂️ Registre des relais</button>
         <div class="titre-outils outils-mt">Meshtastic</div>
-        <button id="outil-inviter" class="bascule outils-mt niv-op" title="Nœuds d’un autre preset (LongFast…) autour du réseau : les repérer et les inviter">📣 Nœuds à inviter</button>
-        <button id="outil-usb" class="bascule outils-mt" title="Brancher sur la carte le module relié en USB à ce PC (Chrome ou Edge)">🔌 Module USB de ce PC</button>
-        <button id="outil-ble" class="bascule outils-mt" title="Relier à la carte un module Bluetooth proche de ce PC (Chrome ou Edge)">📶 Module Bluetooth</button>
-        <a id="lien-client" class="bascule outils-mt" target="_blank" rel="noopener" title="Client officiel Meshtastic : gérer un module en USB, Bluetooth ou Wi-Fi depuis ce navigateur">📟 Client Meshtastic</a>
-        <a id="lien-flasher" class="bascule outils-mt" target="_blank" rel="noopener" title="Flasheur officiel : installer ou mettre à jour le firmware d'un module branché en USB">⚡ Flasher un module Meshtastic</a>
+        <button id="outil-inviter" class="bascule outils-mt" data-niveau="operateur" title="Nœuds d’un autre preset (LongFast…) autour du réseau : les repérer et les inviter">📣 Nœuds à inviter</button>
+        <button id="outil-usb" class="bascule outils-mt" data-niveau="operateur" title="Brancher sur la carte le module relié en USB à ce PC (Chrome ou Edge)">🔌 Module USB de ce PC</button>
+        <button id="outil-ble" class="bascule outils-mt" data-niveau="operateur" title="Relier à la carte un module Bluetooth proche de ce PC (Chrome ou Edge)">📶 Module Bluetooth</button>
+        <a id="lien-client" class="bascule outils-mt" data-niveau="operateur" target="_blank" rel="noopener" title="Client officiel Meshtastic : gérer un module en USB, Bluetooth ou Wi-Fi depuis ce navigateur">📟 Client Meshtastic</a>
+        <a id="lien-flasher" class="bascule outils-mt" data-niveau="operateur" target="_blank" rel="noopener" title="Flasheur officiel : installer ou mettre à jour le firmware d'un module branché en USB">⚡ Flasher un module Meshtastic</a>
         <div class="titre-outils outils-mc" hidden>MeshCore</div>
-        <a class="bascule outils-mc" hidden href="https://flasher.meshcore.co.uk" target="_blank" rel="noopener" title="Flasheur officiel MeshCore : installer le firmware companion, répéteur ou room server sur un module branché en USB (Chrome ou Edge)">⚡ Flasher un module MeshCore</a>
-        <a class="bascule outils-mc" hidden href="https://config.meshcore.dev" target="_blank" rel="noopener" title="Outil officiel : configurer en USB un répéteur ou un room server MeshCore (nom, radio, mot de passe…)">🛠️ Configurer un répéteur MeshCore (USB)</a>
-        <a class="bascule outils-mc" hidden href="https://app.meshcore.nz" target="_blank" rel="noopener" title="Application officielle MeshCore dans le navigateur : utiliser un companion en USB ou Bluetooth">📟 Application MeshCore</a>
-        <button class="bascule outils-mc" hidden id="outil-companion-mc" title="Relier à la carte un companion MeshCore branché sur ce PC (onglet MeshCore → Companion)">🔌 Relier un companion MeshCore</button>
+        <a class="bascule outils-mc" data-niveau="operateur" hidden href="https://flasher.meshcore.co.uk" target="_blank" rel="noopener" title="Flasheur officiel MeshCore : installer le firmware companion, répéteur ou room server sur un module branché en USB (Chrome ou Edge)">⚡ Flasher un module MeshCore</a>
+        <a class="bascule outils-mc" data-niveau="expert" hidden href="https://config.meshcore.dev" target="_blank" rel="noopener" title="Outil officiel : configurer en USB un répéteur ou un room server MeshCore (nom, radio, mot de passe…)">🛠️ Configurer un répéteur MeshCore (USB)</a>
+        <a class="bascule outils-mc" data-niveau="operateur" hidden href="https://app.meshcore.nz" target="_blank" rel="noopener" title="Application officielle MeshCore dans le navigateur : utiliser un companion en USB ou Bluetooth">📟 Application MeshCore</a>
+        <button class="bascule outils-mc" data-niveau="operateur" hidden id="outil-companion-mc" title="Relier à la carte un companion MeshCore branché sur ce PC (onglet MeshCore → Companion)">🔌 Relier un companion MeshCore</button>
         <div class="titre-outils">Réseau</div>
-        <button id="outil-fonctions" class="bascule niv-op" hidden title="Activer la section ADRASEC et Winlink, afficher ou masquer des fonctions (administrateurs)">🎚️ Fonctions de la carte</button>
-        <button id="outil-rejoindre" class="bascule niv-op" hidden title="Page publique pour les nouveaux venus : QR du canal, réglages conseillés, règles, relais, dons">🤝 Page « Rejoindre le réseau »</button>
-        <a class="bascule outils-mc" hidden href="topologie.html?reseau=mc" title="Graphe des liaisons MeshCore : points de rupture, répéteurs les plus traversés, trafic en direct, simulation de l’inondation">🕸️ Topologie et simulation MeshCore</a>
-        <button id="outil-passerelle" class="bascule" hidden title="Relayer des messages entre un canal Meshtastic et un canal MeshCore (outil d’appoint, administrateurs)">⇄ Passerelle inter-réseaux</button>
-        <button id="outil-trafic" class="bascule outils-mt" title="Nœuds trop bavards (positions, télémétrie) et paquets réinjectés depuis MQTT">🚦 Contrôle du trafic</button>
-        <a class="bascule outils-mt" href="topologie.html" title="Graphe des liaisons radio : points de rupture, relais les plus traversés, distance aux passerelles, et simulation de la propagation d’un paquet">🕸️ Topologie et simulation</a>
+        <button id="outil-fonctions" class="bascule" data-niveau="operateur" hidden title="Activer la section ADRASEC et Winlink, afficher ou masquer des fonctions (administrateurs)">🎚️ Fonctions de la carte</button>
+        <button id="outil-rejoindre" class="bascule" data-niveau="operateur" hidden title="Page publique pour les nouveaux venus : QR du canal, réglages conseillés, règles, relais, dons">🤝 Page « Rejoindre le réseau »</button>
+        <a class="bascule outils-mc" data-niveau="expert" hidden href="topologie.html?reseau=mc" title="Graphe des liaisons MeshCore : points de rupture, répéteurs les plus traversés, trafic en direct, simulation de l’inondation">🕸️ Topologie et simulation MeshCore</a>
+        <button id="outil-passerelle" class="bascule" data-niveau="expert" hidden title="Relayer des messages entre un canal Meshtastic et un canal MeshCore (outil d’appoint, administrateurs)">⇄ Passerelle inter-réseaux</button>
+        <button id="outil-trafic" class="bascule outils-mt" data-niveau="expert" title="Nœuds trop bavards (positions, télémétrie) et paquets réinjectés depuis MQTT">🚦 Contrôle du trafic</button>
+        <a class="bascule outils-mt" data-niveau="expert" href="topologie.html" title="Graphe des liaisons radio : points de rupture, relais les plus traversés, distance aux passerelles, et simulation de la propagation d’un paquet">🕸️ Topologie et simulation</a>
         <div class="titre-outils">Sur le terrain</div>
-        <button id="outil-portee" class="bascule" title="Écouter un nœud en direct : qui l’entend, avec quel signal, par quels relais, et s’il remonte sur MQTT">📶 Test de portée d’un nœud</button>
-        <button id="outil-terrain" class="bascule" title="Relevé GPS avec photo et note, même sans réseau ; préparer la carte hors connexion ; installer l’application sur le téléphone">📍 Mode terrain</button>
-        <a id="outil-adrasec" class="bascule" hidden href="adrasec" title="Espace réservé aux membres de l’ADRASEC : main courante, radiogoniométrie (recherche de balise), équipes, Winlink">🛰️ Section ADRASEC</a>
-        <a id="outil-secours" class="bascule" hidden href="secours" title="Espaces séparés pour les associations de sécurité civile (dispositifs prévisionnels de secours) et les communes (plan communal de sauvegarde) : créer un espace, lui attribuer des nœuds, nommer son responsable">⛑️ Espaces Secours (DPS, PCS)</a>
+        <button id="outil-portee" class="bascule" data-niveau="operateur" title="Écouter un nœud en direct : qui l’entend, avec quel signal, par quels relais, et s’il remonte sur MQTT">📶 Test de portée d’un nœud</button>
+        <button id="outil-terrain" class="bascule" data-niveau="simple" data-chercher="relevé gps photo hors connexion téléphone" title="Relevé GPS avec photo et note, même sans réseau ; préparer la carte hors connexion ; installer l’application sur le téléphone">📍 Mode terrain</button>
+        <a id="outil-adrasec" class="bascule" data-niveau="simple" data-chercher="adrasec radioamateur main courante radiogoniométrie gonio balise relevé gisement winlink point de rassemblement équipes" hidden href="adrasec" title="Espace réservé aux membres de l’ADRASEC : main courante, radiogoniométrie (recherche de balise), équipes, Winlink">🛰️ Section ADRASEC</a>
+        <a id="outil-secours" class="bascule" data-niveau="simple" data-chercher="dps pcs secours association sécurité civile commune intervention poste équipe main courante point de rassemblement repère nœuds de l’espace canal réservé organisation responsable" hidden href="secours" title="Espaces séparés pour les associations de sécurité civile (dispositifs prévisionnels de secours) et les communes (plan communal de sauvegarde) : créer un espace, lui attribuer des nœuds, nommer son responsable">⛑️ Espaces Secours (DPS, PCS)</a>
         <div class="titre-outils">Partager</div>
-        <button id="outil-france" class="bascule" hidden title="Télécharger et installer le relief de toute la France (administrateur)">🗺️ Toute la France</button>
-        <button id="outil-urgence" class="bascule" hidden title="Configuration de crise pour tous les comptes connectés : bandeau, carte simplifiée, journal horodaté exportable">🚨 Mode urgence</button>
-        <button id="outil-secteurs" class="bascule" hidden title="Prévenir quand un membre d’une équipe sort d’un secteur dessiné sur la carte (ou y entre)">🗺️ Secteurs d’alerte</button>
-        <button id="outil-signalements" class="bascule seul-membre" hidden title="Événements signalés sur la carte et diffusés en LoRa">🚩 Signalements</button>
-        <button id="outil-rapport" class="bascule seul-membre" hidden title="État du réseau sur 7 jours, imprimable en PDF ; archivé chaque lundi">📄 Rapport hebdomadaire</button>
-        <button id="outil-partager" class="bascule" title="Carte publique à intégrer dans un site, exports GeoJSON / GPX, Grafana, Home Assistant">📤 Carte publique et exports</button>
+        <button id="outil-france" class="bascule" data-niveau="expert" hidden title="Télécharger et installer le relief de toute la France (administrateur)">🗺️ Toute la France</button>
+        <button id="outil-urgence" class="bascule" data-niveau="simple" data-chercher="crise catastrophe exercice tableau de crise journal" hidden title="Configuration de crise pour tous les comptes connectés : bandeau, carte simplifiée, journal horodaté exportable">🚨 Mode urgence</button>
+        <button id="outil-secteurs" class="bascule" data-niveau="simple" data-chercher="géorepérage geofence zone périmètre polygone cercle sortie entrée" hidden title="Prévenir quand un membre d’une équipe sort d’un secteur dessiné sur la carte (ou y entre)">🗺️ Secteurs d’alerte</button>
+        <button id="outil-signalements" class="bascule seul-membre" data-niveau="simple" data-chercher="route inondée arbre événement waypoint point de passage" hidden title="Événements signalés sur la carte et diffusés en LoRa">🚩 Signalements</button>
+        <button id="outil-rapport" class="bascule seul-membre" data-niveau="operateur" hidden title="État du réseau sur 7 jours, imprimable en PDF ; archivé chaque lundi">📄 Rapport hebdomadaire</button>
+        <button id="outil-partager" class="bascule" data-niveau="operateur" title="Carte publique à intégrer dans un site, exports GeoJSON / GPX, Grafana, Home Assistant">📤 Carte publique et exports</button>
         <div class="titre-outils">Affichage</div>
-        <button id="outil-theme" class="bascule" title="Interface claire à fort contraste, lisible en plein soleil">☀️ Thème clair (plein soleil)</button>
-        <button id="outil-affichage" class="bascule" title="Niveau d’affichage (simple, opérateur, expert), grand texte, visite guidée">🎚️ Niveau d’affichage, grand texte…</button>
-        <button id="outil-installer" class="bascule" hidden title="Ajouter la carte sur l'écran d'accueil (plein écran, ouverture même sans réseau)">📲 Installer l'application</button>
+        <button id="outil-theme" class="bascule" data-niveau="simple" title="Interface claire à fort contraste, lisible en plein soleil">☀️ Thème clair (plein soleil)</button>
+        <button id="outil-affichage" class="bascule" data-niveau="simple" title="Niveau d’affichage (simple, opérateur, expert), grand texte, visite guidée">🎚️ Niveau d’affichage, grand texte…</button>
+        <button id="outil-installer" class="bascule" data-niveau="simple" hidden title="Ajouter la carte sur l'écran d'accueil (plein écran, ouverture même sans réseau)">📲 Installer l'application</button>
         <small id="note-outils" class="note"></small>
       </div>
     </details>
@@ -481,6 +483,7 @@
   <script src="/vendor/leaflet/leaflet.js"></script>
   <script src="/vendor/protomaps-leaflet/protomaps-leaflet.js"></script>
   <script src="/dfci.js"></script>
+  <script src="/commun.js"></script>
   <script src="/app.js"></script>
   <script src="/animations.js"></script>
   <script src="/meshcore.js"></script>

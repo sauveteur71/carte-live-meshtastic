@@ -19,6 +19,16 @@ Onglet **Couverture** et menu **Couverture radio**. Les calculs utilisent le mod
 
 En vue MeshCore, les calculs utilisent le réglage radio français MeshCore (869,618 MHz, BW 62,5 kHz, SF8, CR8).
 
+## Comparer des sites proposés : cocher, voir la couverture cumulée
+
+Toutes les listes de sites proposés (plan pour couvrir le département ou une zone dessinée, plan à budget, sites routiers, déplacement de relais, relier deux lieux, couvrir un point) ont, dans chaque proposition, une case **Ajouter à ma sélection**.
+
+1. Cochez un ou plusieurs sites (10 au plus). Une barre apparaît en bas de la fiche : « 3 sites cochés ».
+2. **📡 Couverture de ma sélection** dessine la couverture cumulée de ces sites et donne la surface couverte, la part du département et, pour chaque site, ce qu'il est seul à couvrir (un site qui apporte peu fait doublon).
+3. **↩ Revenir à la liste** ramène à l'analyse, telle qu'elle était, vos cases toujours cochées : décochez un site, cochez-en un autre, et comparez, sans relancer le calcul.
+
+Le bouton **📡 Couverture de ce site** montre toujours la couverture d'un seul site.
+
 ## Avant d'installer un relais : autorisations
 
 La carte choisit les emplacements d'après le **relief** : elle ne sait pas si l'on a le droit d'y poser quoi que ce soit. Un avertissement le rappelle dans chaque outil qui propose des sites.

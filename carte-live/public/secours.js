@@ -35,7 +35,8 @@
     }
     await lireSelecteur();
     $('#titre').textContent = 'Espaces Secours';
-    $('#moi').innerHTML = '<a class="bouton mini" href="/">← Carte</a>';
+    $('#moi').innerHTML = '';
+    installerSocle({ zone: $('#moi'), aide: 'Espaces-Secours', carte: true });
     const optionsOrg = (e, choisi, vide = '— sans organisation —') => `<option value="">${esc(vide)}</option>` + e.organisations.map((o) => `<option value="${esc(o.id)}" ${o.id === choisi ? 'selected' : ''}>${esc(o.nom)}</option>`).join('');
     const proposees = (e) => (sel.organisations[e.genre] || []).filter((n) => !e.organisations.some((o) => o.nom.toLowerCase() === n.toLowerCase()));
     const nomNoeud = (n) => [n.court, n.long].filter(Boolean).join(' · ') || n.nom || '';
@@ -114,17 +115,17 @@
         // Organisations
         if ($('.o-choix', f)) $('.o-choix', f).onchange = () => { $('.o-libre', f).hidden = $('.o-choix', f).value !== ''; };
         $('.o-ajout', f).onclick = () => { const nom = $('.o-choix', f).value || $('.o-nom', f).value.trim(); appel('PATCH', { organisation: { nom } }, `Organisation « ${esc(nom)} » ajoutée.`); };
-        for (const b of f.querySelectorAll('.o-suppr')) b.onclick = () => { if (confirm('Retirer cette organisation ? Ses nœuds et ses équipes restent dans l’espace, sans organisation.')) appel('PATCH', { organisation: { id: b.dataset.id, supprimer: true } }, 'Organisation retirée.'); };
+        for (const b of f.querySelectorAll('.o-suppr')) b.onclick = async () => { if (await confirmer('Retirer cette organisation ? Ses nœuds et ses équipes restent dans l’espace, sans organisation.')) appel('PATCH', { organisation: { id: b.dataset.id, supprimer: true } }, 'Organisation retirée.'); };
         // Nœuds attribués
         for (const tr of f.querySelectorAll('tr[data-noeud]')) {
           $('.n-org', tr).onchange = (ev) => appel('PATCH', { attribuer: { noeuds: [tr.dataset.noeud], organisation: ev.target.value || null } }, 'Nœud rangé.');
-          $('.n-retirer', tr).onclick = () => { if (confirm(`Retirer le nœud ${tr.dataset.noeud} de cet espace ? L’équipe qui le porte n’aura plus de position.`)) appel('PATCH', { retirer: [tr.dataset.noeud] }, 'Nœud retiré.'); };
+          $('.n-retirer', tr).onclick = async () => { if (await confirmer(`Retirer le nœud ${tr.dataset.noeud} de cet espace ? L’équipe qui le porte n’aura plus de position.`)) appel('PATCH', { retirer: [tr.dataset.noeud] }, 'Nœud retiré.'); };
         }
         for (const b of f.querySelectorAll('.a-retirer')) b.onclick = () => appel('PATCH', { retirerAttente: b.dataset.nom }, 'Nœud en attente retiré.');
         $('.c-ok', f).onclick = () => appel('PATCH', { canal: $('.c-canal', f).value }, 'Canal enregistré.');
         $('.nommer', f).onclick = () => { $('.zone-nommer', f).hidden = !$('.zone-nommer', f).hidden; };
         $('.r-ok', f).onclick = () => appel('PATCH', { responsable: { identifiant: $('.r-id', f).value, motDePasse: $('.r-mdp', f).value } }, 'Responsable enregistré.');
-        $('.supprimer', f).onclick = () => { if (confirm(`Supprimer l’espace « ${$('.tete b', f).textContent} » ?\nSes membres n’y auront plus accès. Son fichier est gardé dans le dossier secours/corbeille du serveur.`)) appel('DELETE', {}, 'Espace supprimé.'); };
+        $('.supprimer', f).onclick = async () => { if (await confirmer(`Supprimer l’espace « ${$('.tete b', f).textContent} » ?\nSes membres n’y auront plus accès. Son fichier est gardé dans le dossier secours/corbeille du serveur.`)) appel('DELETE', {}, 'Espace supprimé.'); };
       }
     };
     dessiner();
@@ -178,6 +179,8 @@
     </aside>`;
   $('#moi').innerHTML = `<span>${esc(E.moi.identifiant)}${E.moi.responsable ? ' · responsable' : ''}</span><button class="mini" id="sortir">Se déconnecter</button>`;
   $('#sortir').onclick = async () => { await api(base + '/deconnexion', { method: 'POST' }).catch(() => {}); location.reload(); };
+  // Aide « ? » et recherche d'une fonction (Ctrl+K), comme sur la carte
+  installerSocle({ zone: $('#moi'), aide: 'Espaces-Secours', fonctions: fonctionsDePage });
 
   // ---- Carte --------------------------------------------------------------------------------------------------
   const memo = (k, v) => { try { if (v === undefined) return localStorage.getItem('secours-' + k); if (v === null) localStorage.removeItem('secours-' + k); else localStorage.setItem('secours-' + k, v); } catch { /* navigateur sans stockage */ } return null; };
@@ -395,7 +398,7 @@
       if ($('.radio', f)) $('.radio', f).onclick = async () => {
         const a = x.equipe ? E.equipes.find((e) => e.id === x.equipe) : null;
         const qui = a ? `à « ${a.nom} »` : E.canal.utilisable ? `à toutes les équipes, sur le canal « ${E.canal.nom} »` : `à toutes les équipes qui portent un nœud (${E.equipes.filter((e) => e.noeud).length})`;
-        if (!confirm(`Envoyer l’intervention « ${x.titre} » par radio ${qui} ?\nLe message donne le lieu précis, la nature et l’état apparent.`)) return;
+        if (!await confirmer(`Envoyer l’intervention « ${x.titre} » par radio ${qui} ?\nLe message donne le lieu précis, la nature et l’état apparent.`)) return;
         try { const r = await api(`${base}/interventions/${x.id}/diffuser`, { method: 'POST', body: {} }); await rafraichir(true); annoncer(`📻 Envoyé à ${r.destinataires.join(', ')}`); }
         catch (e) { alert(e.message); }
       };
@@ -445,7 +448,7 @@
       const corps = { nom: $('#e-nom').value, genre: $('#e-genre').value, organisation: $('#e-org').value || null, effectif: $('#e-effectif').value, noeud: $('#e-noeud').value || null, consigne: $('#e-consigne').value, couleur: $('#e-couleur').value, lat: posEq ? posEq.lat : null, lon: posEq ? posEq.lon : null };
       if (await agir(() => api(eqEdit ? `${base}/equipes/${eqEdit}` : `${base}/equipes`, { method: eqEdit ? 'PATCH' : 'POST', body: corps }), $('#e-retour'))) fermerEquipe();
     };
-    $('#e-supprimer').onclick = async () => { if (confirm('Supprimer cette équipe ? Ses interventions restent dans la liste, sans équipe.') && await agir(() => api(`${base}/equipes/${eqEdit}`, { method: 'PATCH', body: { supprimer: true } }), $('#e-retour'))) fermerEquipe(); };
+    $('#e-supprimer').onclick = async () => { if (await confirmer('Supprimer cette équipe ? Ses interventions restent dans la liste, sans équipe.') && await agir(() => api(`${base}/equipes/${eqEdit}`, { method: 'PATCH', body: { supprimer: true } }), $('#e-retour'))) fermerEquipe(); };
   }
   function dessinerEquipes() {
     const r = $('#e-resume'), ev = E.evenement, ef = E.effectif;
@@ -521,7 +524,7 @@
       const corps = { genre: $('#p-genre').value, nom: $('#p-nom').value, detail: $('#p-detail').value, ...(surface() ? { contour: contourRep || undefined } : posRep || {}) };
       if (await agir(() => api(repEdit ? `${base}/reperes/${repEdit}` : `${base}/reperes`, { method: repEdit ? 'PATCH' : 'POST', body: corps }), $('#p-retour'))) fermerRepere();
     };
-    $('#p-supprimer').onclick = async () => { if (confirm('Supprimer ce repère ?') && await agir(() => api(`${base}/reperes/${repEdit}`, { method: 'PATCH', body: { supprimer: true } }), $('#p-retour'))) fermerRepere(); };
+    $('#p-supprimer').onclick = async () => { if (await confirmer('Supprimer ce repère ?') && await agir(() => api(`${base}/reperes/${repEdit}`, { method: 'PATCH', body: { supprimer: true } }), $('#p-retour'))) fermerRepere(); };
   }
   function dessinerReperes() {
     if (peutReperes) $('#p-autre').hidden = Object.keys(E.listes.reperes).length < 2;
@@ -541,7 +544,7 @@
       if ($('.radio', f)) $('.radio', f).onclick = async () => {
         const qui = E.canal.utilisable ? `à toutes les équipes, sur le canal « ${E.canal.nom} »` : `à toutes les équipes qui portent un nœud (${E.equipes.filter((e) => e.noeud).length})`;
         // Un mot à ajouter au message (facultatif) : « Annuler » n'envoie rien, « OK » sans rien écrit envoie le repère seul
-        const mot = prompt(`Envoyer « ${r.nom} » par radio ${qui}.\n\nMot à ajouter au message (facultatif) :\nex. « rassemblement à 12 h », « repas de midi »`, '');
+        const mot = await saisir(`Envoyer « ${r.nom} » par radio ${qui}.\n\nMot à ajouter au message (facultatif) :`, '', { exemple: 'rassemblement à 12 h', aide: 'Ajouté à la fin du message. Laissez vide pour envoyer le point seul ; « Annuler » n’envoie rien.' });
         if (mot === null) return;
         try { const x = await api(`${base}/reperes/${r.id}/diffuser`, { method: 'POST', body: { mot } }); await rafraichir(true); annoncer(`📻 Envoyé à ${x.destinataires.join(', ')}`); }
         catch (e) { alert(e.message); }
@@ -679,14 +682,14 @@
     $('#g-o-choix').onchange = () => { $('#g-o-libre').hidden = $('#g-o-choix').value !== ''; };
     $('#g-o-libre').hidden = $('#g-o-choix').value !== '';
     $('#g-o-ajout').onclick = () => agir(() => api(base + '/organisations', { method: 'POST', body: { nom: $('#g-o-choix').value || $('#g-o-nom').value } }), $('#g-o-retour'));
-    for (const b of vG.querySelectorAll('.g-o-suppr')) b.onclick = () => { if (confirm('Retirer cette organisation ? Ses équipes et ses nœuds restent dans l’espace, sans organisation.')) agir(() => api(`${base}/organisations/${b.dataset.id}`, { method: 'PATCH', body: { supprimer: true } }), $('#g-o-retour')); };
+    for (const b of vG.querySelectorAll('.g-o-suppr')) b.onclick = async () => { if (await confirmer('Retirer cette organisation ? Ses équipes et ses nœuds restent dans l’espace, sans organisation.')) agir(() => api(`${base}/organisations/${b.dataset.id}`, { method: 'PATCH', body: { supprimer: true } }), $('#g-o-retour')); };
     for (const tr of vG.querySelectorAll('tr[data-id]')) {
       const c = E.comptes.find((x) => x.id === Number(tr.dataset.id)), maj = (corps) => { return agir(() => api(`${base}/comptes/${c.id}`, { method: 'PATCH', body: corps }), $('#g-c-retour')); };
       $('.c-equipe', tr).onchange = (ev2) => maj({ equipe: ev2.target.value || null });
       $('.c-resp', tr).onclick = () => maj({ responsable: !c.responsable });
       $('.c-actif', tr).onclick = () => maj({ actif: c.statut !== 'actif' });
-      $('.c-mdp', tr).onclick = () => { const m = prompt(`Nouveau mot de passe de ${c.identifiant} (8 caractères au moins) :`); if (m) maj({ motDePasse: m }); };
-      if ($('.c-suppr', tr)) $('.c-suppr', tr).onclick = () => { if (confirm(`Supprimer le compte ${c.identifiant} ?`)) maj({ supprimer: true }); };
+      $('.c-mdp', tr).onclick = async () => { const m = await saisir(`Nouveau mot de passe de ${c.identifiant} :`, '', { aide: '8 caractères au moins. Transmettez-le vous-même à cette personne : elle pourra le changer dans ⚙️ Gestion › Mon mot de passe.' }); if (m) maj({ motDePasse: m }); };
+      if ($('.c-suppr', tr)) $('.c-suppr', tr).onclick = async () => { if (await confirmer(`Supprimer le compte ${c.identifiant} ?`)) maj({ supprimer: true }); };
     }
     // Nœuds de l'espace, pour le responsable qui est aussi administrateur de la carte
     if (adminCarte) {
@@ -708,7 +711,7 @@
       for (const b of vG.querySelectorAll('.gn-attente')) b.onclick = () => adminEspace({ retirerAttente: b.dataset.nom });
       for (const tr of vG.querySelectorAll('tr[data-noeud]')) {
         $('.gn-org', tr).onchange = (ev2) => { ev2.target.blur(); adminEspace({ attribuer: { noeuds: [tr.dataset.noeud], organisation: ev2.target.value || null } }); };
-        $('.gn-retirer', tr).onclick = () => { if (confirm(`Retirer le nœud ${tr.dataset.noeud} de cet espace ? L’équipe qui le porte n’aura plus de position.`)) adminEspace({ retirer: [tr.dataset.noeud] }); };
+        $('.gn-retirer', tr).onclick = async () => { if (await confirmer(`Retirer le nœud ${tr.dataset.noeud} de cet espace ? L’équipe qui le porte n’aura plus de position.`)) adminEspace({ retirer: [tr.dataset.noeud] }); };
       }
     }
     $('#n-ok').onclick = async () => {

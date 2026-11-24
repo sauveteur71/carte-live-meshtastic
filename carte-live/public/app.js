@@ -128,7 +128,7 @@ function blocCoords(lat, lon, opts = {}) {
       <a href="https://www.google.com/maps/search/?api=1&query=${lat.toFixed(6)},${lon.toFixed(6)}" target="_blank" rel="noopener">Google Maps</a>
       <a href="geo:${lat.toFixed(6)},${lon.toFixed(6)}">GPS du téléphone</a></div>
     ${opts.approx ? '<div class="note">Position publique arrondie (≈ 100 m) : connectez-vous pour la position exacte.</div>' : ''}
-    ${opts.couv ? `<div class="actions-prop"><button class="mini principal" data-couv-pt="${lat},${lon}" data-couv-nom="${esc(opts.couv.nom || '')}" data-couv-h="${opts.couv.h || 6}" title="Couverture radio d’un relais posé ici (antenne à ${opts.couv.h || 6} m)">📡 Couverture de ce site</button></div>` : ''}
+    ${opts.couv ? `<div class="actions-prop"><button class="mini principal" data-couv-pt="${lat},${lon}" data-couv-nom="${esc(opts.couv.nom || '')}" data-couv-h="${opts.couv.h || 6}" title="Couverture radio d’un relais posé ici (antenne à ${opts.couv.h || 6} m)">📡 Couverture de ce site</button><label class="case choix-site" title="Cochez plusieurs sites pour voir leur couverture cumulée (10 au plus)"><input type="checkbox" data-choix-site="${lat},${lon}" data-choix-nom="${esc(opts.couv.nom || '')}" data-choix-h="${opts.couv.h || 6}"> Ajouter à ma sélection</label></div>` : ''}
   </div>`;
 }
 // « Couverture de ce site » dans une liste de propositions : la vue précédente (plan, classement) reste disponible
@@ -1931,7 +1931,7 @@ function indexReglages() {
       // Bouton ou lien du menu Outils : lancé directement (encore dans le geste de l'utilisateur, ce qu'exigent l'USB
       // et le Bluetooth) ; case à cocher d'un menu de couches : le menu s'ouvre et la case est montrée
       const lancer = d.classList.contains('menu-outils') && (el.tagName === 'BUTTON' || el.tagName === 'A');
-      ajouter(txt, nomMenu.replace('▾', '').trim(), el.title || '', lancer ? () => { d.open = false; el.click(); } : () => { d.open = true; surligner(el); });
+      ajouter(txt, nomMenu.replace('▾', '').trim(), `${el.title || ''} ${el.dataset.chercher || ''}`, lancer ? () => { d.open = false; el.click(); } : () => { d.open = true; surligner(el); });
     });
   });
   return l;
@@ -3695,6 +3695,44 @@ async function couvertureIci(latlng, hauteur) {
   $('#ajout-site-couv').onclick = () => { etat.sitesCouv = [{ lat: p.lat, lon: p.lon, h: Number($('#h-ici').value) || h, nom: 'Point choisi' }]; basculerMode('couv-plus'); };
 }
 
+// ---- Sites cochés dans une liste de propositions (plan, plan à budget, sites routiers, meilleurs sites…) ---------
+// Chaque proposition a une case « Ajouter à ma sélection » ; une barre en bas de la fiche donne la couverture
+// cumulée des sites cochés. La liste d'origine (et sa couche sur la carte) est gardée : « ↩ Revenir à la liste ».
+const MAX_SITES_COCHES = 10;
+function majSitesCoches() {
+  const z = $('#fiche-contenu');
+  const cases = [...z.querySelectorAll('[data-choix-site]')], coches = cases.filter((c) => c.checked);
+  for (const c of cases) { c.disabled = !c.checked && coches.length >= MAX_SITES_COCHES; const p = c.closest('.proposition'); if (p) p.classList.toggle('site-coche', c.checked); }
+  let b = z.querySelector('.barre-sites-coches');
+  if (!coches.length) { if (b) b.remove(); return; }
+  if (!b) { b = document.createElement('div'); b.className = 'barre-sites-coches'; z.appendChild(b); }
+  b.innerHTML = `<span>${coches.length > 1 ? `${coches.length} sites cochés` : '1 site coché'}${coches.length >= MAX_SITES_COCHES ? ' (maximum)' : ''}</span><button type="button" class="principal" data-voir-coches>📡 Couverture de ma sélection</button><button type="button" data-vider-coches>Tout décocher</button>`;
+  b.querySelector('[data-vider-coches]').onclick = () => { for (const c of cases) c.checked = false; majSitesCoches(); };
+  b.querySelector('[data-voir-coches]').onclick = () => {
+    const sites = coches.map((c) => { const [lat, lon] = c.dataset.choixSite.split(',').map(Number); return { lat, lon, h: Number(c.dataset.choixH) || 6, nom: c.dataset.choixNom || 'Site' }; });
+    // La liste et sa couche sont mises de côté telles quelles (cases cochées et boutons compris)
+    const couche = etat.coucheCouverture;
+    if (couche) { couche.remove(); etat.coucheCouverture = null; }
+    etat.retourListeSites = { noeuds: [...z.childNodes], couche, defilement: z.scrollTop };
+    z.replaceChildren();
+    couvertureMulti(sites);
+  };
+}
+document.addEventListener('change', (e) => { if (e.target.matches && e.target.matches('[data-choix-site]')) majSitesCoches(); });
+function revenirListeSites() {
+  const r = etat.retourListeSites;
+  if (!r) return;
+  etat.retourListeSites = null;
+  if (etat.coucheCouverture) etat.coucheCouverture.remove();
+  etat.coucheCouverture = r.couche || null;
+  if (r.couche) r.couche.addTo(carte);
+  etat.sitesCouv = null;
+  const z = $('#fiche-contenu');
+  z.replaceChildren(...r.noeuds);
+  z.scrollTop = r.defilement || 0;
+  $('#fiche').hidden = false;
+}
+
 // ---- Couverture totale de plusieurs sites -----------------------------------------------------
 async function couvertureMulti(sites) {
   etat.sitesCouv = sites;
@@ -3703,7 +3741,7 @@ async function couvertureMulti(sites) {
   $('#fiche-contenu').innerHTML = `<h2>Couverture de ${sites.length} site${sites.length > 1 ? 's' : ''}</h2><div class="alerte info-lecture"><span class="sablier"></span> Calcul de la couverture cumulée…</div>`;
   const q = sites.map((x) => `${x.lat.toFixed(5)},${x.lon.toFixed(5)},${x.h}`).join(';');
   let r;
-  try { r = await api(`/api/relief/couverture-multi?pts=${q}${etat.vueReseau === 'meshcore' ? '&preset=MESHCORE_FR' : ''}`); } catch (e) { $('#fiche-contenu').innerHTML = `<div class="vide">${esc(e.message)}</div>`; return; }
+  try { r = await api(`/api/relief/couverture-multi?pts=${q}${etat.vueReseau === 'meshcore' ? '&preset=MESHCORE_FR' : ''}`); } catch (e) { $('#fiche-contenu').innerHTML = `<div class="vide">${esc(e.message)}</div>${etat.retourListeSites ? '<div class="actions-prop"><button id="retour-liste-sites">↩ Revenir à la liste</button></div>' : ''}`; const br = $('#retour-liste-sites'); if (br) br.onclick = revenirListeSites; return; }
   if (etat.coucheCouverture) etat.coucheCouverture.remove();
   const e = r.emprise, g = L.layerGroup();
   L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.75, pane: 'couverture', className: 'pixelise' }).addTo(g);
@@ -3720,9 +3758,10 @@ async function couvertureMulti(sites) {
       <div class="mesure"><span>Sites</span><b>${sites.length}</b></div>
     </div>
     <div class="liste-cibles">${sites.map((x, i) => `<div class="ligne-cible"><span class="cible-multi petit"><span>${i + 1}</span></span><span>${esc(x.nom || 'Site')} <small class="mono">${x.lat.toFixed(4)}, ${x.lon.toFixed(4)}</small><br><small>antenne <input class="mini-h" data-h="${i}" type="number" min="0.5" max="80" step="0.5" value="${x.h}"> m · ${r.sites[i].km2} km² seul · <b>${r.sites[i].propreKm2} km²</b> qu’il est seul à couvrir dans le département</small></span>${sites.length > 1 ? `<button class="mini" data-retirer-site="${i}" title="Retirer ce site">✕</button>` : ''}</div>`).join('')}</div>
-    <div class="actions-prop">${sites.length < 10 ? '<button id="ajout-site-multi" class="principal">＋ Ajouter un site</button>' : ''}<button id="recalc-multi">Recalculer</button><button id="gpx-couv-multi">Télécharger (GPX)</button></div>
+    <div class="actions-prop">${etat.retourListeSites ? '<button id="retour-liste-sites" title="Revenir à la liste des sites proposés, vos cases restent cochées">↩ Revenir à la liste</button>' : ''}${sites.length < 10 ? '<button id="ajout-site-multi" class="principal">＋ Ajouter un site</button>' : ''}<button id="recalc-multi">Recalculer</button><button id="gpx-couv-multi">Télécharger (GPX)</button></div>
     <p class="note">Cliquez « Ajouter un site » puis un point de la carte (ou clic droit → « Ajouter à la couverture totale »). Un site qui couvre peu de surface à lui seul fait doublon avec les autres. Turquoise : ≥ 10 dB de marge · jaune : 0 à 10 dB · orange : en limite.</p>`;
   const ba = $('#ajout-site-multi'); if (ba) ba.onclick = () => basculerMode('couv-plus');
+  const brl = $('#retour-liste-sites'); if (brl) brl.onclick = revenirListeSites;
   $('#recalc-multi').onclick = () => { $('#fiche-contenu').querySelectorAll('[data-h]').forEach((el) => { sites[Number(el.dataset.h)].h = Number(el.value) || 6; }); couvertureMulti(sites); };
   $('#fiche-contenu').querySelectorAll('[data-retirer-site]').forEach((b) => (b.onclick = () => couvertureMulti(sites.filter((_, i) => i !== Number(b.dataset.retirerSite)))));
   suivreApprox(r, () => etat.coucheCouverture === g, () => couvertureMulti(sites));
@@ -4459,10 +4498,8 @@ async function evaluerRoutiers() {
       <div class="meta-longue">${esc(x.gestionnaire)} · ${esc(x.type)} · ${x.altitude || x.altMnt} m${x.dansDepartement ? '' : ' · hors du département'}</div>
       <div class="meta-longue">Un relais ici couvrirait ${x.couvertureKm2} km² ${x.nouveauKm2 > 0 ? `→ couverture totale <b>${fmt(x.apresPct, 1, ' %')}</b>` : ''} · relié par radio à ${x.liaisons}${x.liaisons >= 3 ? ' ou plus' : ''} relais${x.liaisons ? '' : ' (isolé)'}</div>
       ${blocCoords(x.lat, x.lon, { alt: x.altitude || x.altMnt, couv: { nom: x.nom, h: r.h || 6 } })}
-      <div class="actions-prop"><button class="mini" data-couv-routier="${k}">Couverture de ce site</button></div>
     </div>`).join('')}
     <p class="note">Source : carte publique ${esc(r.source || 'inforoute43.fr')} (webcams du Département de la Haute-Loire et de la DIR Massif Central). Une installation sur ces sites demande l’accord du gestionnaire : ce classement peut appuyer la demande.</p>`;
-  z.querySelectorAll('[data-couv-routier]').forEach((b) => (b.onclick = () => { const x = r.sites[Number(b.dataset.couvRoutier)]; voirCouvertureSite({ lat: x.lat, lon: x.lon }, x.nom, r.h, { cadrer: true }); }));
 }
 
 // ---- Déplacer des relais existants ------------------------------------------------------------------------
@@ -6403,6 +6440,7 @@ function brancherInterface() {
   $('#deplier').onclick = () => { $('#panneau').classList.remove('replie'); $('#deplier').hidden = true; document.body.classList.remove('panneau-replie'); };
   installerDetachement();
   $('#fermer-fiche').onclick = () => {
+    etat.retourListeSites = null; // la liste de sites mise de côté n'a plus lieu d'être
     const retour = etat.retourFiche; etat.retourFiche = null; // consommé une seule fois : jamais de va-et-vient sans fin
     $('#fiche').hidden = true; etat.selection = null;
     if (etat.trajet) { etat.trajet.remove(); etat.trajet = null; }
@@ -6546,6 +6584,7 @@ function brancherInterface() {
   $('#rejeu-fermer').onclick = fermerRejeu;
   $('#rejeu-curseur').oninput = (e) => placerRejeu(Number(e.target.value));
   $('#btn-effacer').onclick = () => {
+    etat.retourListeSites = null; // la liste de sites mise de côté n'a plus lieu d'être
     etat.ciblesMulti = null;
     etat.sitesCouv = null;
     if (etat.coucheCouverture) etat.coucheCouverture.remove();

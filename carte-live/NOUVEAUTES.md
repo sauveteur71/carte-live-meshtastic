@@ -4,6 +4,17 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## En préparation
 
+### 📡 Couverture : cocher des sites proposés et voir leur couverture cumulée
+- Dans toutes les listes de sites proposés (plan pour couvrir le département ou une zone dessinée, **plan à budget**, **sites routiers**, déplacement de relais, relier deux lieux, couvrir un point), chaque proposition a une case **Ajouter à ma sélection**. Une barre en bas de la fiche compte les sites cochés (10 au plus) et donne la **📡 Couverture de ma sélection** : surface cumulée, part du département et apport propre de chaque site.
+- **↩ Revenir à la liste** ramène à l'analyse d'origine, telle qu'elle était, cases comprises : on peut comparer plusieurs combinaisons sans relancer le calcul.
+- Sites routiers : le bouton « Couverture de ce site » n'apparaît plus en double.
+
+### 🧭 Ergonomie : même aide et mêmes fenêtres sur toutes les pages
+- **Espaces Secours et section ADRASEC** : bouton **?** (aide de la page, dans une fenêtre), **🔎 recherche d'une fonction** (Ctrl+K) qui mène à l'onglet ou au bloc voulu, et **confirmations et saisies dans l'interface** à la place des boîtes du navigateur (38 remplacées). Les messages d'erreur passent par les annonces en bas d'écran.
+- La recherche de ces pages se construit toute seule à partir des onglets et des titres affichés : un bloc ajouté devient cherchable sans liste à tenir.
+- **Menu Outils** : chaque entrée porte son niveau d'affichage (simple, opérateur, expert) et ses mots-clés de recherche directement dans le menu. « radiogoniométrie », « point de rassemblement » ou « PCS » mènent maintenant à la bonne entrée. Registre des relais et Relier un companion MeshCore passent au niveau Opérateur.
+- Envoi d'un point de rassemblement : la fenêtre du mot complémentaire donne un exemple et précise que laisser vide envoie le point seul.
+
 ### 📡 Section ADRASEC : un opérateur membre de plusieurs ADRASEC
 - **Un même compte peut être membre de plusieurs ADRASEC** hébergées sur la carte (un opérateur à cheval sur deux départements). Le président de la seconde ADRASEC l'intègre depuis *⚙️ Gestion › Intégrer un compte de la carte* ; ce n'est plus refusé.
 - **Une fiche par ADRASEC** : l'indicatif, la qualité et le nœud porté sont repris de la première ; l'équipe, la fonction et le rôle de président sont propres à chaque ADRASEC.

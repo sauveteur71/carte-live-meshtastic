@@ -143,6 +143,7 @@
     $('#titre').textContent = E.nom; document.title = E.nom;
     const q = E.moi.qualite === 'swl' ? '<span class="pastille">SWL</span>' : E.moi.licencie ? '<span class="pastille ok">licencié</span>' : E.moi.membre ? '<span class="pastille">non licencié</span>' : '';
     $('#moi').innerHTML = `${E.sections && E.sections.length > 1 ? `<select id="choix-groupe" title="${E.moi.admin ? 'ADRASEC affichée (administrateur de la carte)' : 'Vous êtes membre de plusieurs ADRASEC : choisissez celle à afficher'}">${E.sections.map((x) => `<option value="${esc(x.code)}" ${x.code === E.code ? 'selected' : ''}>${esc(x.nom)}</option>`).join('')}</select> ` : ''}${esc(E.moi.indicatif || E.moi.identifiant)} ${q}${E.moi.admin ? ' <span class="pastille">admin carte</span>' : E.moi.responsable ? ' <span class="pastille ok">président</span>' : ''}`;
+    installerSocle({ zone: $('#moi'), aide: 'Section-ADRASEC', fonctions: fonctionsDePage });
     if ($('#choix-groupe')) $('#choix-groupe').onchange = () => { groupe = $('#choix-groupe').value; memo('groupe', groupe); rechercheChoisie = null; ajoutes = new Set(); charger(); };
     $('#onglets [data-vue="gestion"]').hidden = !E.moi.responsable;
     { const b = $('#onglets [data-vue="gestion"]'), n = (E.demandes || []).length; if (b) b.dataset.nb = n || ''; }
@@ -266,7 +267,7 @@
       $('#gn-annuler').onclick = () => { $('#g-form-nouvelle').hidden = true; };
     }
     const cl = $('#g-cloturer');
-    if (cl) cl.onclick = async () => { const res = prompt('Clôturer la recherche. Résultat (ex. « balise trouvée sur le planeur au lieu-dit… ») :', ''); if (res === null) return; await api('/api/adrasec/recherches/' + r.id, { method: 'PATCH', body: { cloturer: true, resultat: res } }).catch((e) => alert(e.message)); charger(); };
+    if (cl) cl.onclick = async () => { const res = await saisir('Clôturer la recherche. Résultat (ex. « balise trouvée sur le planeur au lieu-dit… ») :', ''); if (res === null) return; await api('/api/adrasec/recherches/' + r.id, { method: 'PATCH', body: { cloturer: true, resultat: res } }).catch((e) => alert(e.message)); charger(); };
     for (const b of v.querySelectorAll('[data-copier]')) b.onclick = () => navigator.clipboard && navigator.clipboard.writeText(b.dataset.copier).then(() => { b.textContent = 'Copié ✓'; });
     for (const s of v.querySelectorAll('[data-releve-equipe]')) s.onchange = async () => { await api('/api/adrasec/releves/' + s.dataset.releveEquipe, { method: 'PATCH', body: { equipe: s.value || null } }).catch((e) => alert(e.message)); charger(); };
     for (const b of v.querySelectorAll('[data-retirer]')) b.onclick = async () => { await api('/api/adrasec/releves/' + b.dataset.retirer, { method: 'DELETE' }).catch((e) => alert(e.message)); charger(); };
@@ -312,7 +313,7 @@
       be.disabled = false;
     };
     const bc = $('#d-lien-creer'); if (bc) bc.onclick = async () => { await api(`/api/adrasec/recherches/${r.id}/lien`, { method: 'POST' }).catch((e) => alert(e.message)); charger(); };
-    const bx = $('#d-couper'); if (bx) bx.onclick = async () => { if (!confirm('Désactiver le lien terrain ? Les équipes qui l’ont ne verront plus la carte.')) return; await api(`/api/adrasec/recherches/${r.id}/lien`, { method: 'DELETE' }).catch((e) => alert(e.message)); charger(); };
+    const bx = $('#d-couper'); if (bx) bx.onclick = async () => { if (!await confirmer('Désactiver le lien terrain ? Les équipes qui l’ont ne verront plus la carte.')) return; await api(`/api/adrasec/recherches/${r.id}/lien`, { method: 'DELETE' }).catch((e) => alert(e.message)); charger(); };
     const bp = $('#d-copier'); if (bp) bp.onclick = () => navigator.clipboard && navigator.clipboard.writeText($('#d-lien').value).then(() => { bp.textContent = 'Copié ✓'; });
     const bq = $('#d-qr'); if (bq) bq.onclick = async () => { const z = $('#d-qr-zone'); if (z.innerHTML) { z.innerHTML = ''; return; } const q = await api('/api/adrasec/qr?u=' + encodeURIComponent($('#d-lien').value)).catch(() => null); if (q) z.innerHTML = `<img src="${q.qr}" alt="QR code du lien terrain" style="background:#fff;padding:6px;border-radius:8px;margin-top:6px">`; };
   }
@@ -431,10 +432,10 @@
       retenirCanal($('.rp-canal', f));
       $('.rp-voir', f).onclick = () => carte.setView([r.lat, r.lon], Math.max(carte.getZoom(), 15));
       $('.rp-modifier', f).onclick = () => { saisieRepere = { id: r.id, nom: r.nom, detail: r.detail || '', lat: r.lat, lon: r.lon }; rendreEquipes(); $('#rp-nom').focus(); };
-      $('.rp-supprimer', f).onclick = async () => { if (!confirm(`Supprimer le point de rassemblement « ${r.nom} » ?`)) return; await api('/api/adrasec/reperes/' + r.id, { method: 'PATCH', body: { supprimer: true } }).catch((e) => alert(e.message)); charger(); };
+      $('.rp-supprimer', f).onclick = async () => { if (!await confirmer(`Supprimer le point de rassemblement « ${r.nom} » ?`)) return; await api('/api/adrasec/reperes/' + r.id, { method: 'PATCH', body: { supprimer: true } }).catch((e) => alert(e.message)); charger(); };
       $('.rp-diffuser', f).onclick = async () => {
         const c = Number($('.rp-canal', f).value);
-        const mot = prompt(`Diffuser « ${r.nom} » par radio sur le canal ${c}. Tous les nœuds qui ont ce canal le recevront.\n\nMot à ajouter au message (facultatif) :`, '');
+        const mot = await saisir(`Diffuser « ${r.nom} » par radio sur le canal ${c}. Tous les nœuds qui ont ce canal le recevront.\n\nMot à ajouter au message (facultatif) :`, '', { exemple: 'rassemblement à 12 h', aide: 'Ajouté à la fin du message. Laissez vide pour diffuser le point seul ; « Annuler » ne diffuse rien.' });
         if (mot === null) return;
         try { const x = await api(`/api/adrasec/reperes/${r.id}/diffuser`, { method: 'POST', body: { canal: c, mot } }); retour.textContent = '✔ Diffusé : ' + x.texte; }
         catch (e) { retour.innerHTML = `<span class="erreur">${esc(e.message)}</span>`; }
@@ -498,7 +499,7 @@
       };
     };
     for (const b of v.querySelectorAll('[data-sortir]')) b.onclick = async () => { await api('/api/adrasec/membres/' + b.dataset.sortir, { method: 'PUT', body: { membre: true, equipe: null } }).catch((x) => alert(x.message)); charger(); };
-    for (const b of v.querySelectorAll('[data-suppr-eq]')) b.onclick = async () => { if (!confirm('Supprimer cette équipe ? Ses membres restent dans la section, sans équipe.')) return; await api('/api/adrasec/equipes/' + b.dataset.supprEq, { method: 'PATCH', body: { supprimer: true } }).catch((x) => alert(x.message)); charger(); };
+    for (const b of v.querySelectorAll('[data-suppr-eq]')) b.onclick = async () => { if (!await confirmer('Supprimer cette équipe ? Ses membres restent dans la section, sans équipe.')) return; await api('/api/adrasec/equipes/' + b.dataset.supprEq, { method: 'PATCH', body: { supprimer: true } }).catch((x) => alert(x.message)); charger(); };
   }
 
   // ---- Winlink --------------------------------------------------------------------------------------------------
@@ -772,7 +773,7 @@
         catch (e) { bR.disabled = false; r.textContent = e.message; }
       };
       $('.at-retirer', f).onclick = async () => {
-        if (!confirm(`Retirer la fiche en attente de ${a.indicatif || a.numeroSwl} ? Elle devra être ressaisie à la main.`)) return;
+        if (!await confirmer(`Retirer la fiche en attente de ${a.indicatif || a.numeroSwl} ? Elle devra être ressaisie à la main.`)) return;
         try { await api('/api/adrasec/attentes/' + encodeURIComponent(a.id), { method: 'DELETE' }); await charger(); } catch (e) { r.textContent = e.message; }
       };
     }
@@ -780,7 +781,7 @@
       try { await api('/api/adrasec/reglages', { method: 'PUT', body: { options: Object.fromEntries([...v.querySelectorAll('.ge-option')].map((x) => [x.value, x.checked])), macros: $('#ge-macros').value.split('\n') } }); await charger(); }
       catch (e) { err(e.message); }
     };
-    $('#ge-copier').onclick = async () => { try { await navigator.clipboard.writeText(lien); $('#ge-copier').textContent = '✔ Copié'; } catch { prompt('Lien à envoyer :', lien); } };
+    $('#ge-copier').onclick = async () => { try { await navigator.clipboard.writeText(lien); $('#ge-copier').textContent = '✔ Copié'; } catch { await saisir('Lien à envoyer :', lien); } };
     $('#ge-ok').onclick = async () => { try { await api('/api/adrasec/reglages', { method: 'PUT', body: { nom: $('#ge-nom').value, conservationJours: $('#ge-cons').value } }); await charger(); } catch (e) { err(e.message); } };
     if ($('#ge-actif')) { $('#ge-actif').onchange = async () => { try { await api('/api/adrasec/reglages', { method: 'PUT', body: { actif: $('#ge-actif').checked } }); await charger(); } catch (e) { err(e.message); } }; brancherGroupes(err); }
     $('#ge-filtre').oninput = () => { const q = $('#ge-filtre').value.trim().toLowerCase(); for (const f of v.querySelectorAll('#ge-fiches .fiche-membre')) f.hidden = !!q && !f.textContent.toLowerCase().includes(q) && !$('.ge-ind', f).value.toLowerCase().includes(q); };
@@ -809,7 +810,7 @@
     for (const f of v.querySelectorAll('.fiche-membre[data-demande]')) {
       const cid = f.dataset.demande, x = E.demandes.find((y) => String(y.compte) === cid);
       $('.ge-accepter', f).onclick = async () => { try { await api('/api/adrasec/membres/' + cid, { method: 'PUT', body: { membre: true, qualite: x.qualite || '', indicatif: x.indicatif || x.indicatifCompte || '', numeroSwl: x.numeroSwl || '' } }); await charger(); } catch (e) { err(e.message); } };
-      $('.ge-refuser', f).onclick = async () => { if (!confirm(`Refuser la demande de ${x.identifiant} ?`)) return; try { await api('/api/adrasec/demandes/' + cid, { method: 'DELETE' }); await charger(); } catch (e) { err(e.message); } };
+      $('.ge-refuser', f).onclick = async () => { if (!await confirmer(`Refuser la demande de ${x.identifiant} ?`)) return; try { await api('/api/adrasec/demandes/' + cid, { method: 'DELETE' }); await charger(); } catch (e) { err(e.message); } };
     }
     // Champs selon la qualité : indicatif pour un radioamateur, numéro d'écouteur pour un SWL
     for (const f of v.querySelectorAll('.fiche-membre[data-compte]')) { const maj = () => { const q = $('.ge-qual', f).value; $('.ge-ind-l', f).hidden = q !== 'radioamateur'; $('.ge-swl-l', f).hidden = q !== 'swl'; }; $('.ge-qual', f).onchange = maj; maj(); }
@@ -823,7 +824,7 @@
       const noeud = !n ? null : hex ? parseInt(hex[1], 16) : /^\d+$/.test(n) ? Number(n) : NaN;
       if (Number.isNaN(noeud)) { err('Nœud : choisissez-le dans la liste en tapant son nom, ou saisissez son identifiant (!a1b2c3d4)'); return; }
       const membre = $('.ge-membre', tr).checked;
-      if (!membre && !confirm('Retirer ce compte de l’ADRASEC ?')) return;
+      if (!membre && !await confirmer('Retirer ce compte de l’ADRASEC ?')) return;
       const q = $('.ge-qual', tr).value;
       const corps = { membre: true, qualite: q, indicatif: q === 'radioamateur' ? $('.ge-ind', tr).value : '', numeroSwl: q === 'swl' ? $('.ge-swl', tr).value : '', equipe: $('.ge-eq', tr).value || null, fonction: $('.ge-fonc', tr).value, noeud };
       if (E.moi.admin) corps.responsable = $('.ge-resp', tr).checked;

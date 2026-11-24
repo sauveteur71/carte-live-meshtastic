@@ -1374,6 +1374,8 @@ code.coupe { word-break: break-all; }
 
 /* ===== Ergonomie 2.15 : rubriques, accueil, niveaux, réglages, aide, accessibilité ===== */
 body[data-niveau="simple"] .niv-op, body[data-niveau="simple"] .niv-exp, body[data-niveau="operateur"] .niv-exp, .titre-vide { display: none !important; }
+/* Niveau porté par l’élément lui-même (menu Outils) */
+body[data-niveau="simple"] [data-niveau="operateur"], body[data-niveau="simple"] [data-niveau="expert"], body[data-niveau="operateur"] [data-niveau="expert"] { display: none !important; }
 .groupes { display: flex; gap: 0; padding: 6px 0 0 2px; position: relative; flex: none; border-bottom: 1px solid var(--bord); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .groupes::-webkit-scrollbar { display: none; }
 .groupes button[data-groupe] { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; background: none; border: 0; border-bottom: 3px solid transparent; padding: 9px 2px 8px; letter-spacing: -0.01em; cursor: pointer; color: var(--texte); font-size: 12.5px; font-weight: 600; white-space: nowrap; position: relative; }
@@ -1927,3 +1929,15 @@ dialog > .elargir:hover, dialog > .elargir:focus-visible { opacity: 1; }
    signalé, mais toujours cliquable — le clic explique pourquoi, un bouton grisé ne dirait rien. */
 .bascule.indispo { opacity: .72; }
 .bascule.indispo::after { content: ' ⚠'; font-size: 11px; }
+
+/* Sites cochés dans une liste de propositions : case dans chaque proposition, barre de sélection en bas de la fiche */
+.proposition .actions-prop { flex-wrap: wrap; align-items: center; }
+label.choix-site { font-size: 12.5px; color: var(--texte); cursor: pointer; padding: 4px 8px; border: 1px solid var(--bord); border-radius: 7px; background: var(--fond); }
+label.choix-site input { width: 16px; height: 16px; accent-color: var(--accent); }
+label.choix-site:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+.proposition.site-coche { border-left-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.barre-sites-coches { position: sticky; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; padding: 10px 12px; background: #0f172a; color: #f8fafc; border: 2px solid var(--accent); border-radius: 10px; box-shadow: 0 -4px 14px rgba(0,0,0,.5); }
+.barre-sites-coches span { margin-right: auto; }
+.barre-sites-coches button { padding: 7px 12px; border-radius: 8px; border: 1px solid var(--bord); background: rgba(255,255,255,.08); color: inherit; cursor: pointer; font-weight: 600; }
+.barre-sites-coches button.principal { background: var(--accent); color: #062019; border-color: var(--accent); }
+body.theme-clair .barre-sites-coches { background: #fff; color: #0f172a; }

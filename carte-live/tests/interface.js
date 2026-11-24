@@ -116,7 +116,43 @@ async function essaiCarteFrancais(contexte) {
     const n = await page.locator('#resultats-reglage > *').count();
     if (n) ok(`Ctrl+K : ${n} résultat(s) pour « mqtt »`); else ko('Ctrl+K : aucun résultat pour « mqtt »');
   } else ko('Ctrl+K n’ouvre pas la recherche');
+  // Mots-clés portés par l'entrée du menu (data-chercher) : « radiogoniométrie » mène à la section ADRASEC, sans liste à part
+  const motsCles = await page.evaluate(() => { const e = document.querySelector('#outil-secours'); const etait = e.hidden; e.hidden = false; const l = indexReglages().filter((x) => /point de rassemblement/.test(x.m)).map((x) => x.t); e.hidden = etait; return l; });
+  if (motsCles.some((t) => /Espaces Secours/.test(t))) ok('recherche : mots-clés portés par l’entrée du menu Outils'); else ko('mots-clés du menu : ' + JSON.stringify(motsCles));
+  // Niveau d'affichage porté par l'entrée (data-niveau) : masquée en Simple, visible en Expert
+  const niveaux = await page.evaluate(() => { const vu = (id) => getComputedStyle(document.querySelector('#' + id)).display !== 'none'; const avant = document.body.dataset.niveau; const r = {}; for (const n of ['simple', 'operateur', 'expert']) { document.body.dataset.niveau = n; r[n] = { trafic: vu('outil-trafic'), usb: vu('outil-usb'), theme: vu('outil-theme') }; } document.body.dataset.niveau = avant; return r; });
+  if (!niveaux.simple.trafic && !niveaux.simple.usb && niveaux.simple.theme && niveaux.operateur.usb && !niveaux.operateur.trafic && niveaux.expert.trafic) ok('menu Outils : niveau d’affichage porté par chaque entrée'); else ko('niveaux du menu Outils : ' + JSON.stringify(niveaux));
   await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  // Sites proposés : cases à cocher, barre de sélection, couverture cumulée puis retour à la liste (cases gardées)
+  const choix = await page.evaluate(async () => {
+    const vraie = window.couvertureMulti;
+    let recus = null;
+    window.couvertureMulti = async (sites) => { recus = sites; document.querySelector('#fiche-contenu').innerHTML = '<h2>Couverture</h2><button id="retour-liste-sites">↩</button>'; document.querySelector('#retour-liste-sites').onclick = revenirListeSites; };
+    document.querySelector('#fiche').hidden = false;
+    const z = document.querySelector('#fiche-contenu');
+    z.innerHTML = '<h2>Liste d’essai</h2>' + Array.from({ length: 12 }, (_, i) => `<div class="proposition">${blocCoords(45 + i / 100, 3.9, { couv: { nom: 'Site ' + (i + 1), h: 6 } })}</div>`).join('');
+    const cases = () => [...z.querySelectorAll('[data-choix-site]')];
+    const cocher = (i) => { const c = cases()[i]; c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); };
+    const r = { cases: cases().length, barreAvant: !!z.querySelector('.barre-sites-coches') };
+    cocher(0); cocher(2);
+    r.barre = (z.querySelector('.barre-sites-coches span') || {}).textContent;
+    r.surlignes = z.querySelectorAll('.proposition.site-coche').length;
+    for (let i = 3; i < 11; i++) cocher(i);
+    r.max = cases().filter((c) => c.checked).length; r.bloquees = cases().filter((c) => c.disabled).length;
+    z.querySelector('[data-voir-coches]').click();
+    await new Promise((ok) => setTimeout(ok, 50));
+    r.envoyes = recus && recus.length; r.premier = recus && recus[0]; r.listePartie = !z.querySelector('[data-choix-site]');
+    document.querySelector('#retour-liste-sites').click();
+    r.retour = cases().length; r.gardees = cases().filter((c) => c.checked).length; r.barreRetour = !!z.querySelector('.barre-sites-coches');
+    z.querySelector('[data-vider-coches]').click();
+    r.vide = cases().filter((c) => c.checked).length; r.barreFin = !!z.querySelector('.barre-sites-coches');
+    window.couvertureMulti = vraie;
+    document.querySelector('#fermer-fiche').click();
+    return r;
+  });
+  if (choix.cases === 12 && !choix.barreAvant && /2 sites cochés/.test(choix.barre) && choix.surlignes === 2 && choix.max === 10 && choix.bloquees === 2 && choix.envoyes === 10 && choix.premier.nom === 'Site 1' && choix.premier.h === 6 && choix.listePartie && choix.retour === 12 && choix.gardees === 10 && choix.barreRetour && choix.vide === 0 && !choix.barreFin)
+    ok('sites proposés : cases à cocher (10 au plus), couverture de la sélection, retour à la liste avec les cases gardées');
+  else ko('sélection de sites proposés : ' + JSON.stringify(choix));
   // Recherche d'un code DFCI : carreau dessiné sur la carte
   await page.locator('#recherche-lieu').fill('KD42F7.5');
   await page.waitForTimeout(400);
@@ -1115,6 +1151,26 @@ async function essaiSecours(navig, cookie) {
     && Math.abs(pan.l - avantL - 200) <= 12 && Number(pan.retenue) === pan.l && pan.apres === pan.l && pan.carte > 300 && !pan.deborde && pan.selecteur)
     ok(`page d’un espace : fonds sombre et relief au choix, panneau élargi à la souris (${avantL} → ${pan.l} px) et largeur retenue`);
   else { ko('fonds de carte et largeur du panneau : ' + JSON.stringify({ fondsDispo, avantL, pan })); await capture(page, 'secours-panneau'); }
+  // Socle commun : aide « ? », recherche d'une fonction (Ctrl+K) et confirmations dans l'interface, comme sur la carte
+  const natives = [];
+  page.on('dialog', (d) => { natives.push(d.type()); d.dismiss().catch(() => {}); });
+  await page.keyboard.press('Control+k'); await page.waitForTimeout(300);
+  const rech = await page.evaluate(() => ({ ouverte: !!document.querySelector('#dlg-recherche-commune[open]'), titres: [...document.querySelectorAll('#dlg-recherche-commune .res-commun b')].map((b) => b.textContent) }));
+  await page.fill('#dlg-recherche-commune input', 'mot de passe'); await page.waitForTimeout(200);
+  rech.trouve = await page.evaluate(() => [...document.querySelectorAll('#dlg-recherche-commune .res-commun b')].map((b) => b.textContent).join('|'));
+  await page.keyboard.press('Enter'); await page.waitForTimeout(500);
+  rech.onglet = await page.evaluate(() => (document.querySelector('#onglets button.actif') || {}).dataset.vue);
+  rech.fermee = await page.evaluate(() => !document.querySelector('#dlg-recherche-commune[open]'));
+  await page.click('.socle-commun [data-socle="aide"]'); await page.waitForTimeout(900);
+  const aide = await page.evaluate(() => { const d = document.querySelector('#dlg-aide-commune[open]'); return { ouverte: !!d, texte: d ? d.querySelector('.corps-aide').textContent.length : 0, titres: d ? d.querySelectorAll('.corps-aide h2, .corps-aide h3').length : 0 }; });
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  await page.click('.c-suppr'); await page.waitForTimeout(300);
+  const conf = await page.evaluate(() => { const d = document.querySelector('#dlg-confirmer[open]'); return { ouverte: !!d, texte: d ? d.querySelector('p').textContent : '', danger: d ? !!d.querySelector('button.danger') : false }; });
+  await page.click('#dlg-confirmer [data-r="0"]'); await page.waitForTimeout(300);
+  conf.comptes = (await (await fetch(BASE + '/api/secours/festival-essai/etat', { headers: { Cookie: chef } })).json()).comptes.length;
+  if (rech.ouverte && rech.titres.length >= 5 && /Mon mot de passe/.test(rech.trouve) && rech.onglet === 'gestion' && rech.fermee && aide.ouverte && aide.texte > 500 && aide.titres >= 3 && conf.ouverte && /Supprimer le compte/.test(conf.texte) && conf.danger && conf.comptes >= 2 && !natives.length)
+    ok('page d’un espace : recherche d’une fonction (Ctrl+K), aide « ? » et confirmation dans l’interface, sans boîte du navigateur');
+  else { ko('socle commun sur la page Secours : ' + JSON.stringify({ rech, aide, conf, natives })); await capture(page, 'secours-socle'); }
   bilanErreurs(erreurs, 'Page d’un espace Secours');
   await ctx.close();
   // Le responsable choisit lui-même les nœuds de son espace (sans session d'administrateur de la carte) ; pas un équipier
@@ -1150,6 +1206,8 @@ async function essaiSecours(navig, cookie) {
     large: document.querySelector('.plein.large').clientWidth, cote: new Set([...document.querySelectorAll('#liste .fiche')].map((f) => Math.round(f.getBoundingClientRect().top))).size, deborde: document.documentElement.scrollWidth > innerWidth }));
   if (sg.puces === 3 && sg.attentes === 'PS01' && !sg.selecteur && sg.noeud && sg.canal && sg.large > 1300 && sg.cote === 1 && !sg.deborde) ok('gestion des espaces : toute la largeur, fiches côte à côte, organisations et canal ; les nœuds se choisissent dans l’espace');
   else { ko('gestion des espaces, fiche : ' + JSON.stringify(sg)); await capture(g.page, 'secours-selecteur'); }
+  const socleAdmin = await g.page.evaluate(() => ({ carte: (document.querySelector('.socle-commun a[href="/"]') || {}).textContent, aide: !!document.querySelector('.socle-commun [data-socle="aide"]') }));
+  if (/Carte/.test(socleAdmin.carte || '') && socleAdmin.aide) ok('gestion des espaces : retour à la carte et aide dans l’en-tête'); else ko('en-tête de la gestion des espaces : ' + JSON.stringify(socleAdmin));
   bilanErreurs(g.erreurs, 'Gestion des espaces Secours');
   await adm.close();
   const suppr = await fetch(BASE + '/api/secours-admin/espaces/festival-essai', { method: 'DELETE', headers: H });
