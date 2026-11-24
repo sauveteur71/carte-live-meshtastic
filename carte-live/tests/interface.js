@@ -1026,8 +1026,9 @@ async function essaiSecours(navig, cookie) {
     attenteAilleurs: (await modifier('pcs-essai', { attendre: { nom: 'ps01' } })).status,
     canalInconnu: (await modifier('festival-essai', { canal: 'CanalAbsent' })).status,
   };
+  await modifier('pcs-essai', { retirerAttente: 'ps01' });
   const fiche = (await (await fetch(BASE + '/api/secours-admin/espaces', { headers: H })).json()).espaces.find((e) => e.code === 'festival-essai');
-  if (JSON.stringify(O) === JSON.stringify({ org: 200, selChef: 403, proposees: true, doublon: 400, attente: 200, attenteAilleurs: 400, canalInconnu: 400 }) && Array.isArray(sel.noeuds)
+  if (JSON.stringify(O) === JSON.stringify({ org: 200, selChef: 403, proposees: true, doublon: 400, attente: 200, attenteAilleurs: 200, canalInconnu: 400 }) && Array.isArray(sel.noeuds)
     && fiche.organisations.length === 2 && fiche.attentes.length === 1 && fiche.attentes[0].nom === 'PS01' && fiche.attentes[0].organisation === fiche.organisations[1].id)
     ok('organisations d’un espace : liste proposée (dont l’ADRASEC), sélecteur réservé à l’administrateur de la carte, nœud attendu par son nom court');
   else ko('organisations et sélecteur : ' + JSON.stringify({ O, organisations: fiche.organisations, attentes: fiche.attentes }));
