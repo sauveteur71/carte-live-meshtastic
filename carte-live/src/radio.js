@@ -595,7 +595,7 @@ function creerSourceRadio(stockage, config, canauxGlobaux, rappels, agents = nul
     envoyerInvitation: (vers, texte) => {
       if (!etat.connecte || etat.noeudLocal == null || enConfiguration) throw new Error('Module radio non connecté');
       const octets = Buffer.from(String(texte || '').trim(), 'utf8');
-      if (!octets.length) throw new Error('Message vide');
+      if (!octets.length) throw new Error('Message vide : écrivez un texte avant d’envoyer');
       if (octets.length > 200) throw new Error(`Message trop long (${octets.length} octets, 200 au maximum)`);
       const id = crypto.randomBytes(4).readUInt32LE(0) >>> 0 || 1;
       envoyer({ packet: { to: vers >>> 0, id, channel: 0, wantAck: true, hopLimit: hopLimitLora, decoded: { portnum: 1, payload: octets } } });

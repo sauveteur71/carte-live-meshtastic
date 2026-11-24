@@ -175,7 +175,7 @@ function creerAlertesOfficielles({ config, journal, departementsSuivis, envoyer,
     // Relais d'une alerte FR-Alert reçue sur un téléphone : texte recopié, diffusé sur les canaux choisis
     async frAlert({ texte, zone }, par) {
       texte = String(texte || '').replace(/\s+/g, ' ').trim();
-      if (!texte) throw new Error('Texte de l’alerte vide');
+      if (!texte) throw new Error('Texte de l’alerte vide : écrivez le texte à diffuser');
       const a = { id: Date.now().toString(36), texte: texte.slice(0, 500), zone: String(zone || '').trim().slice(0, 80), date: Date.now(), par };
       a.envois = await diffuserTexte(`📢 FR-Alert${a.zone ? ' ' + a.zone : ''} : ${a.texte}`.slice(0, 600));
       etat.frAlert.unshift(a);

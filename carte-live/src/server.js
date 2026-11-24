@@ -1150,13 +1150,13 @@ app.post('/api/ecoutes', (req, res) => {
       if (!config.meshcore.actif) throw new Error('MeshCore n’est pas activé dans cette carte');
       let c;
       if (b.type === 'agent') { if (!agents.estAgent(String(b.hote || ''))) throw new Error('Agent inconnu'); c = { type: 'agent', hote: String(b.hote) }; }
-      else { const port = portValide(b.port ?? 5000); if (!hoteValide(b.hote) || !port) throw new Error('Adresse ou port invalide'); c = { type: 'tcp', hote: b.hote, port }; }
+      else { const port = portValide(b.port ?? 5000); if (!hoteValide(b.hote) || !port) throw new Error('Adresse ou port invalide : une adresse IP ou un nom d’hôte (ex. 192.168.1.50) et un port entre 1 et 65535'); c = { type: 'tcp', hote: b.hote, port }; }
       const p = companion.etat().cible;
       if (p && ecoutes.cleCompanion(p) === ecoutes.cleCompanion(c)) throw new Error('ce companion est le companion principal');
       ecoutes.ajouterCompanion(c, b.nom ? String(b.nom).slice(0, 40) : null);
     } else {
       const port = b.hote && agents.estAgent(String(b.hote)) ? 1 : portValide(b.port);
-      if (!hoteValide(b.hote) || !port) throw new Error('Adresse ou port invalide');
+      if (!hoteValide(b.hote) || !port) throw new Error('Adresse ou port invalide : une adresse IP ou un nom d’hôte (ex. 192.168.1.50) et un port entre 1 et 65535');
       const a = sourceRadio.modules().actif;
       if (a && a.hote === b.hote && a.port === port) throw new Error('ce module est le module principal');
       const m = sourceRadio.modules().modules.find((x) => x.hote === b.hote && x.port === port);

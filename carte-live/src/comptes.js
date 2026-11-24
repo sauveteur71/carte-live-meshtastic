@@ -144,7 +144,7 @@ function creerComptes(db, config) {
     if (String(motDePasse).length > 200) throw new Error('Mot de passe trop long');
     indicatif = validerIndicatif(indicatif);
     email = email ? String(email).trim().slice(0, 120) : null;
-    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Adresse e-mail invalide');
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Adresse e-mail invalide (ex. prenom.nom@exemple.fr)');
     return { identifiant, motDePasse: String(motDePasse), indicatif, email };
   }
 
@@ -193,7 +193,7 @@ function creerComptes(db, config) {
     },
     lister: () => q.tous.all().map((c) => ({ ...c, noeuds: lireNoeuds(c.noeuds), deuxFacteurs: !!c.deuxFacteurs })),
     changerNoeuds(id, liste) {
-      if (!q.parId.get(id)) throw new Error('Compte inconnu');
+      if (!q.parId.get(id)) throw new Error('Compte inconnu : il a peut-être été supprimé, rechargez la page');
       q.noeuds.run(JSON.stringify(normaliserNoeuds(liste)), id);
     },
     // Nœud renuméroté (firmware 2.8) : les secteurs des gestionnaires suivent le nouveau numéro
@@ -211,14 +211,14 @@ function creerComptes(db, config) {
     changerRole(id, role) {
       if (!ROLES.includes(role)) throw new Error('Rôle inconnu');
       const c = q.parId.get(id);
-      if (!c) throw new Error('Compte inconnu');
+      if (!c) throw new Error('Compte inconnu : il a peut-être été supprimé, rechargez la page');
       if (c.role === 'admin' && role !== 'admin' && q.nbAdmins.get().n <= 1) throw new Error('Il doit rester au moins un administrateur');
       q.role.run(role, id);
     },
     changerStatut(id, statut) {
       if (!['actif', 'en_attente', 'desactive'].includes(statut)) throw new Error('Statut inconnu');
       const c = q.parId.get(id);
-      if (!c) throw new Error('Compte inconnu');
+      if (!c) throw new Error('Compte inconnu : il a peut-être été supprimé, rechargez la page');
       if (c.role === 'admin' && statut !== 'actif' && q.nbAdmins.get().n <= 1) throw new Error('Il doit rester au moins un administrateur');
       q.statut.run(statut, id);
     },
@@ -231,7 +231,7 @@ function creerComptes(db, config) {
     // ---- Double authentification (TOTP, RFC 6238 : Google Authenticator, Aegis, FreeOTP…) ----
     preparerDeuxFacteurs(id) {
       const c = q.parId.get(id);
-      if (!c) throw new Error('Compte inconnu');
+      if (!c) throw new Error('Compte inconnu : il a peut-être été supprimé, rechargez la page');
       const secret = base32(crypto.randomBytes(20));
       q.totpAttente.run(secret, id);
       const nom = encodeURIComponent(`${config.carte && config.carte.titre ? config.carte.titre.split('·')[0].trim() : 'Carte live'}:${c.identifiant}`);
@@ -246,7 +246,7 @@ function creerComptes(db, config) {
     },
     retirerDeuxFacteurs(id, motDePasse, parAdmin) {
       const c = q.parId.get(id);
-      if (!c) throw new Error('Compte inconnu');
+      if (!c) throw new Error('Compte inconnu : il a peut-être été supprimé, rechargez la page');
       if (!parAdmin && !verifierHash(String(motDePasse || ''), c.hash)) throw new Error('Mot de passe incorrect');
       q.totpRetirer.run(id);
     },
@@ -266,7 +266,7 @@ function creerComptes(db, config) {
     // Lien à usage unique : le jeton n'est rendu qu'une fois ; un nouveau lien annule les précédents
     creerReinit(id, dureeMs, origine) {
       const c = q.parId.get(id);
-      if (!c) throw new Error('Compte inconnu');
+      if (!c) throw new Error('Compte inconnu : il a peut-être été supprimé, rechargez la page');
       q.reinitPurger.run(Date.now());
       q.reinitRetirerCompte.run(id);
       const jeton = crypto.randomBytes(32).toString('base64url');
@@ -287,7 +287,7 @@ function creerComptes(db, config) {
     // Fiche modifiée par un administrateur : identifiant, indicatif, e-mail (la session reste ouverte : elle suit l'id)
     modifierFiche(id, b) {
       const c = q.parId.get(id);
-      if (!c) throw new Error('Compte inconnu');
+      if (!c) throw new Error('Compte inconnu : il a peut-être été supprimé, rechargez la page');
       if (b.identifiant !== undefined) {
         const nouvel = normaliserIdentifiant(b.identifiant);
         const autre = q.parIdentifiant.get(nouvel);
@@ -300,7 +300,7 @@ function creerComptes(db, config) {
     },
     changerEmail(id, email) {
       const e = email ? String(email).trim().slice(0, 120) : null;
-      if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error('Adresse e-mail invalide');
+      if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error('Adresse e-mail invalide (ex. prenom.nom@exemple.fr)');
       q.email.run(e, id);
     },
     changerMotDePasse(id, ancien, nouveau) {

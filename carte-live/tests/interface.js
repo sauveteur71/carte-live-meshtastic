@@ -122,7 +122,7 @@ async function essaiCarteFrancais(contexte) {
   const motsCles = await page.evaluate(() => { const e = document.querySelector('#outil-secours'); const etait = e.hidden; e.hidden = false; const l = indexReglages().filter((x) => /point de rassemblement/.test(x.m)).map((x) => x.t); e.hidden = etait; return l; });
   if (motsCles.some((t) => /Espaces Secours/.test(t))) ok('recherche : mots-clés portés par l’entrée du menu Outils'); else ko('mots-clés du menu : ' + JSON.stringify(motsCles));
   // Niveau d'affichage porté par l'entrée (data-niveau) : masquée en Simple, visible en Expert
-  const niveaux = await page.evaluate(() => { const vu = (id) => getComputedStyle(document.querySelector('#' + id)).display !== 'none'; const avant = document.body.dataset.niveau; const r = {}; for (const n of ['simple', 'operateur', 'expert']) { document.body.dataset.niveau = n; r[n] = { trafic: vu('outil-trafic'), usb: vu('outil-usb'), theme: vu('outil-theme') }; } document.body.dataset.niveau = avant; return r; });
+  const niveaux = await page.evaluate(() => { const vu = (id) => getComputedStyle(document.querySelector('#' + id)).display !== 'none'; const avant = document.body.dataset.niveau; const r = {}; for (const n of ['simple', 'operateur', 'expert']) { document.body.dataset.niveau = n; r[n] = { trafic: vu('outil-trafic'), usb: vu('outil-portee'), theme: vu('outil-theme') }; } document.body.dataset.niveau = avant; return r; });
   if (!niveaux.simple.trafic && !niveaux.simple.usb && niveaux.simple.theme && niveaux.operateur.usb && !niveaux.operateur.trafic && niveaux.expert.trafic) ok('menu Outils : niveau d’affichage porté par chaque entrée'); else ko('niveaux du menu Outils : ' + JSON.stringify(niveaux));
   await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
   // Sites proposés : cases à cocher, barre de sélection, couverture cumulée puis retour à la liste (cases gardées)
@@ -2345,7 +2345,7 @@ async function essaiBoutonsOutils(navig, cookie) {
   else ko('boutons sans aucune action : ' + muets.map((b) => b.cle).join(', '));
 
   // 2. Les 13 boutons signalés par Olivier : chacun a bien son action propre ou un lien utilisable
-  const ATTENDUS = ['#outil-usb', '#outil-ble', '#lien-client', '#lien-flasher', '#outil-passerelle', '#outil-theme', '#outil-installer', '#outil-adrasec'];
+  const ATTENDUS = ['#outil-connecter', '#lien-client', '#lien-flasher', '#outil-passerelle', '#outil-theme', '#outil-installer', '#outil-adrasec'];
   const manque = await page.evaluate((ids) => ids.filter((id) => {
     const b = document.querySelector(id);
     if (!b) return false; // bouton absent de cette édition
@@ -2356,26 +2356,15 @@ async function essaiBoutonsOutils(navig, cookie) {
   if (!manque.length) ok('boutons nommés par Olivier : tous rendus à leur action (' + ATTENDUS.length + ' vérifiés)');
   else ko('boutons toujours inertes : ' + manque.join(', '));
 
-  // 3. Un clic sur « Module USB de ce PC » doit TOUJOURS répondre, même ici où l’USB est impossible
-  const messageApresClic = async (sel) => {
-    await page.evaluate(() => { const z = document.getElementById('annonces'); if (z) z.innerHTML = ''; const m = document.querySelector('.menu-outils'); if (m) m.open = true; });
-    await page.evaluate((s) => document.querySelector(s).click(), sel);
-    await page.waitForTimeout(500);
-    return page.evaluate(() => { const z = document.getElementById('annonces'); return z ? z.textContent.trim() : ''; });
-  };
-  const mUsb = await messageApresClic('#outil-usb');
-  if (/HTTPS|Chrome ou Edge/i.test(mUsb)) ok('clic « Module USB de ce PC » en HTTP : message visible (« ' + mUsb.slice(0, 48) + '… »)');
-  else ko('clic « Module USB de ce PC » : aucun message visible (« ' + mUsb.slice(0, 60) + ' »)');
-  const mBle = await messageApresClic('#outil-ble');
-  if (/HTTPS|Chrome ou Edge/i.test(mBle)) ok('clic « Module Bluetooth » en HTTP : message visible');
-  else ko('clic « Module Bluetooth » : aucun message visible (« ' + mBle.slice(0, 60) + ' »)');
-  // Les deux boutons sont signalés comme inutilisables ici, mais restent cliquables
-  const marques = await page.evaluate(() => ['#outil-usb', '#outil-ble'].map((s) => {
-    const b = document.querySelector(s);
-    return { indispo: b.classList.contains('indispo'), desactive: b.disabled, titre: (b.title || '').slice(0, 20) };
-  }));
-  if (marques.every((m) => m.indispo && !m.desactive)) ok('USB et Bluetooth : signalés inutilisables ici, mais toujours cliquables');
-  else ko('marquage des boutons inutilisables : ' + JSON.stringify(marques));
+  // 3. Une seule porte pour relier un module : « Connecter un module… ». Les anciennes entrées USB, Bluetooth et
+  //    companion ont quitté le menu ; l'écran unique les propose, et dit pourquoi elles sont indisponibles ici (HTTP)
+  await page.evaluate(() => { const m = document.querySelector('.menu-outils'); if (m) m.open = true; document.querySelector('#outil-connecter').click(); });
+  await page.waitForTimeout(700);
+  const porte = await page.evaluate(() => { const d = document.querySelector('dialog[open]'); return { anciennes: ['#outil-usb', '#outil-ble', '#outil-companion-mc'].filter((x) => document.querySelector(x)).length, ouverte: !!d, usb: d ? !!d.querySelector('[data-cx="usb"]') : false, ble: d ? !!d.querySelector('[data-cx="ble"]') : false, raison: d ? (d.querySelector('.alerte.attention') || {}).textContent || '' : '',
+    topoMc: (() => { const l = [...document.querySelectorAll('.menu-outils .menu > *')]; const i = l.findIndex((e) => (e.getAttribute('href') || '').includes('reseau=mc')); let k = i; while (k >= 0 && !l[k].classList.contains('titre-outils')) k--; return k >= 0 ? l[k].textContent.trim() : ''; })() }; });
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  if (!porte.anciennes && porte.ouverte && porte.usb && porte.ble && /HTTPS|Chrome ou Edge/i.test(porte.raison) && porte.topoMc === 'MeshCore') ok('menu Outils : une seule entrée pour relier un module (USB, Bluetooth, raison de l’indisponibilité), topologie MeshCore rangée sous MeshCore');
+  else ko('menu Outils dédoublonné : ' + JSON.stringify(porte));
 
   // 4. Aucune clé parasite dans les couches après ces clics
   const parasites = await page.evaluate(() => Object.keys(etat.couches).filter((k) => k === 'undefined' || k === 'null'));

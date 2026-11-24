@@ -114,7 +114,7 @@ const nombre = (v) => (v === null || v === '' || v === undefined ? null : Number
 function position(b) {
   const lat = nombre(b.lat), lon = nombre(b.lon);
   if (lat == null && lon == null) return { lat: null, lon: null };
-  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Position invalide');
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Position invalide : latitude entre -90 et 90, longitude entre -180 et 180 (ex. 45.043, 3.885)');
   return { lat: +lat.toFixed(6), lon: +lon.toFixed(6) };
 }
 // Numéro de nœud Meshtastic : « !a1b2c3d4 », « a1b2c3d4 » ou nombre décimal
@@ -277,7 +277,7 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
       for (const a of l) if (!MEL.test(a)) throw new Error(`Adresse e-mail invalide : ${a}`);
       ecrire('courriels', JSON.stringify(l));
     }
-    if (b.nom !== undefined) { const n = txt(b.nom, 60); if (!n) throw new Error('Nom manquant'); ecrire('nom', n); }
+    if (b.nom !== undefined) { const n = txt(b.nom, 60); if (!n) throw new Error('Nom manquant : saisissez un nom avant d’enregistrer'); ecrire('nom', n); }
     if (b.lieu !== undefined) ecrire('lieu', txt(b.lieu, 120) || null);
     for (const k of ['debut', 'fin']) if (b[k] !== undefined) { const t = b[k] ? Number(b[k]) : null; if (t != null && !(t > 0)) throw new Error('Date invalide'); ecrire(k, t); }
     if (b.publicAttendu !== undefined) { const n = nombre(b.publicAttendu); if (n != null && !(n >= 0 && n <= 5000000)) throw new Error('Public attendu invalide'); ecrire('public', n == null ? null : Math.round(n)); }
@@ -285,7 +285,7 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
     if (b.conservationJours !== undefined) ecrire('conservation', Math.min(3650, Math.max(7, Math.round(Number(b.conservationJours) || 365))));
     if (b.centre !== undefined) {
       if (!b.centre) { ecrire('centreLat', null); ecrire('centreLon', null); }
-      else { const p = position(b.centre); if (p.lat == null) throw new Error('Position invalide'); ecrire('centreLat', p.lat); ecrire('centreLon', p.lon); ecrire('centreZoom', Math.min(19, Math.max(3, Math.round(Number(b.centre.zoom) || 14)))); }
+      else { const p = position(b.centre); if (p.lat == null) throw new Error('Position invalide : latitude entre -90 et 90, longitude entre -180 et 180 (ex. 45.043, 3.885)'); ecrire('centreLat', p.lat); ecrire('centreLon', p.lon); ecrire('centreZoom', Math.min(19, Math.max(3, Math.round(Number(b.centre.zoom) || 14)))); }
     }
     touche();
     return { ok: true };
@@ -310,7 +310,7 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
   // Nœuds ajoutés à l'espace (ou rangés dans une autre organisation s'ils y sont déjà)
   function attribuer(liste, organisation, auteur) {
     const nums = [...new Set(lireListe(liste))], org = organisationValide(organisation);
-    if (!nums.length) throw new Error('Aucun nœud choisi');
+    if (!nums.length) throw new Error('Aucun nœud choisi : cochez au moins un nœud');
     if (new Set([...noeudsAttribues(), ...nums]).size > NOEUDS_MAX) throw new Error(`${NOEUDS_MAX} nœuds au plus par espace`);
     db.transaction(() => { for (const n of nums) { q.ajouterNoeud.run(n, Date.now(), auteur || null); q.rangerNoeud.run(org, n); } })();
     touche();
@@ -388,15 +388,15 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
   }
   function majEquipe(eid, b) {
     if (eid && b.supprimer) {
-      if (!q.equipe.get(eid)) throw new Error('Équipe inconnue');
+      if (!q.equipe.get(eid)) throw new Error('Équipe inconnue : elle a peut-être été supprimée, rechargez la page');
       db.transaction(() => { q.supprimerEquipe.run(eid); q.detacherEquipe.run(eid); q.detacherInterventions.run(eid); })();
       touche();
       return { ok: true };
     }
     const e = eid ? q.equipe.get(eid) : { id: id(), nom: '', genre: Object.keys(G().equipes)[0], lat: null, lon: null, effectif: null, noeud: null, couleur: COULEURS[q.equipes.all().length % COULEURS.length], etat: 'disponible', etat_heure: Date.now(), consigne: null, cree: Date.now(), organisation: null };
-    if (!e) throw new Error('Équipe inconnue');
+    if (!e) throw new Error('Équipe inconnue : elle a peut-être été supprimée, rechargez la page');
     if (b.nom !== undefined) e.nom = txt(b.nom, 40);
-    if (!e.nom) throw new Error('Nom manquant');
+    if (!e.nom) throw new Error('Nom manquant : saisissez un nom avant d’enregistrer');
     if (b.genre !== undefined) { if (!G().equipes[b.genre]) throw new Error('Type d’équipe inconnu'); e.genre = b.genre; }
     if (b.lat !== undefined || b.lon !== undefined) Object.assign(e, position(b));
     if (b.effectif !== undefined) { const n = nombre(b.effectif); if (n != null && !(n >= 0 && n <= 500)) throw new Error('Effectif invalide'); e.effectif = n == null ? null : Math.round(n); }
@@ -421,7 +421,7 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
   }
   function changerEtat(eid, etat, auteur, origine = 'saisie') {
     const e = q.equipe.get(eid);
-    if (!e) throw new Error('Équipe inconnue');
+    if (!e) throw new Error('Équipe inconnue : elle a peut-être été supprimée, rechargez la page');
     if (!ETATS_EQUIPE[etat]) throw new Error('État inconnu');
     if (e.etat !== etat) {
       q.etatEquipe.run(etat, Date.now(), eid);
@@ -434,7 +434,7 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
   function trace(eid, heures) {
     if (!option('trajets')) throw new Error('Les trajets ne sont pas activés dans cet espace');
     const e = q.equipe.get(eid);
-    if (!e) throw new Error('Équipe inconnue');
+    if (!e) throw new Error('Équipe inconnue : elle a peut-être été supprimée, rechargez la page');
     if (!e.noeud) return { equipe: eid, points: [] };
     const h = Math.min(24, Math.max(1, Number(heures) || 6));
     let pts = [];
@@ -461,7 +461,7 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
     x.priorite = x.priorite || 2;
     x.urgente = x.priorite === 1 ? 1 : 0;
     if (b.lat !== undefined || b.lon !== undefined) Object.assign(x, position(b));
-    if (b.equipe !== undefined) { if (b.equipe && !q.equipe.get(b.equipe)) throw new Error('Équipe inconnue'); x.equipe = b.equipe || null; }
+    if (b.equipe !== undefined) { if (b.equipe && !q.equipe.get(b.equipe)) throw new Error('Équipe inconnue : elle a peut-être été supprimée, rechargez la page'); x.equipe = b.equipe || null; }
     if (b.statut !== undefined) { if (!STATUTS_INTER.includes(b.statut)) throw new Error('Statut inconnu'); x.statut = b.statut; }
     // Une équipe engagée : l'intervention est en cours ; l'équipe passe « en intervention », puis redevient
     // disponible à la clôture si rien d'autre ne la retient
@@ -508,7 +508,7 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
   // ---- Main courante ----------------------------------------------------------------------------------------------
   function ajouterMc(b, auteur, origine = 'saisie', envoi = null) {
     const texte = txt(b.texte, 1000);
-    if (!texte) throw new Error('Texte vide');
+    if (!texte) throw new Error('Texte vide : écrivez quelque chose avant d’enregistrer');
     const x = { id: id(), heure: Date.now(), auteur: auteur || 'radio', type: TYPES_MC.includes(b.type) ? b.type : 'information',
       equipe: b.equipe && q.equipe.get(b.equipe) ? b.equipe : null, intervention: b.intervention && q.intervention.get(b.intervention) ? b.intervention : null, texte, origine, envoi };
     q.ajouterMc.run(x);
@@ -606,7 +606,7 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
     if (!radio) throw new Error('Envoi par radio indisponible sur cette carte');
     if (!peutEnvoyer(compte)) throw new Error('Envoi par radio réservé aux responsables et au poste de coordination');
     const texte = couper(txt(b.texte, 600), 200);
-    if (!texte) throw new Error('Message vide');
+    if (!texte) throw new Error('Message vide : écrivez un texte avant d’envoyer');
     const auteur = signature(compte), inter = b.intervention || null;
     // « Toutes les équipes » : un seul message sur le canal réservé à l'espace, s'il en a un et que l'option est active
     const canal = !b.equipe && option('canal') ? canalReserve() : null;
@@ -621,7 +621,7 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
     let cibles;
     if (b.equipe) {
       const e = q.equipe.get(b.equipe);
-      if (!e) throw new Error('Équipe inconnue');
+      if (!e) throw new Error('Équipe inconnue : elle a peut-être été supprimée, rechargez la page');
       if (!e.noeud) throw new Error(`« ${e.nom} » ne porte pas de nœud : impossible de lui écrire par radio`);
       cibles = [e];
     } else cibles = q.equipes.all().filter((e) => e.noeud);
@@ -751,14 +751,14 @@ ${tableau(['Heure', 'Auteur', 'Type', 'Équipe', 'Texte', 'Radio'], mc.map((m) =
   }
   function affecter(cid, b) {
     const a = q.affectation.get(cid) || { equipe: null, fonction: null };
-    if (b.equipe !== undefined) { if (b.equipe && !q.equipe.get(b.equipe)) throw new Error('Équipe inconnue'); a.equipe = b.equipe || null; }
+    if (b.equipe !== undefined) { if (b.equipe && !q.equipe.get(b.equipe)) throw new Error('Équipe inconnue : elle a peut-être été supprimée, rechargez la page'); a.equipe = b.equipe || null; }
     if (b.fonction !== undefined) a.fonction = txt(b.fonction, 40) || null;
     q.affecter.run(cid, a.equipe, a.fonction);
   }
   function majCompte(cid, b, moi) {
     cid = Number(cid);
     const c = comptes.lister().find((x) => x.id === cid);
-    if (!c) throw new Error('Compte inconnu');
+    if (!c) throw new Error('Compte inconnu : il a peut-être été supprimé, rechargez la page');
     if (b.supprimer) {
       if (moi && moi.id === cid) throw new Error('Vous ne pouvez pas supprimer votre propre compte');
       comptes.supprimer(cid); q.retirerAffectation.run(cid);
@@ -915,7 +915,7 @@ function creerSecours({ config, journal = () => {}, positionDe = () => null, nom
     if (espaces.has(code) || fs.existsSync(fichierDe(code))) throw new Error('Cette adresse est déjà prise par un autre espace');
     if (!GENRES[b.genre]) throw new Error('Type d’espace inconnu');
     const nom = txt(b.nom, 60);
-    if (!nom) throw new Error('Nom manquant');
+    if (!nom) throw new Error('Nom manquant : saisissez un nom avant d’enregistrer');
     const r = b.responsable || {};
     if (!r.identifiant || !r.motDePasse) throw new Error('Identifiant et mot de passe du premier responsable requis');
     const noeuds = verifierNoeuds(code, b.noeuds || []);

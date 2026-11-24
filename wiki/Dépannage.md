@@ -23,8 +23,8 @@ L'adresse du broker est mal écrite (par exemple `mqttgaulix.fr` au lieu de `mqt
 ### « hôte injoignable » (EHOSTUNREACH) pour un module Wi-Fi
 Le serveur n'est pas sur le même réseau que le module. Passez par *Connecter un module* avec l'**agent 1.6** lancé sur un PC de ce réseau, ou par le Bluetooth ou l'USB depuis le navigateur.
 
-### « Module USB de ce PC » ou « Module Bluetooth » : le bouton explique pourquoi c'est impossible
-Chrome n'ouvre l'USB et le Bluetooth que sur une page **sécurisée**. Si la carte est ouverte en `http://` depuis un autre PC (adresse Tailscale en `100.x.x.x`, par exemple), le clic affiche le message *« USB impossible ici : ouvrez la carte en HTTPS (adresse en …ts.net) ou depuis le PC où tourne la carte (localhost) »*, et les deux boutons sont marqués **⚠**. C'est normal : ouvrez la carte en HTTPS (adresse en `…ts.net`), ou depuis la machine où elle tourne (`http://localhost:…`, considéré comme sécurisé). Même message hors de Chrome ou Edge (Firefox et Safari ne gèrent ni l'USB ni le Bluetooth du navigateur).
+### USB et Bluetooth grisés dans « Connecter un module »
+Chrome n'ouvre l'USB et le Bluetooth que sur une page **sécurisée**. Si la carte est ouverte en `http://` depuis un autre PC (adresse Tailscale en `100.x.x.x`, par exemple), les deux boutons de *Outils › 🔌 Connecter un module…* sont grisés et un bandeau dit pourquoi : ouvrez la carte en **HTTPS** (adresse en …ts.net) ou depuis le PC où tourne la carte (`localhost`), dans **Chrome ou Edge**. C'est aussi dans cette fenêtre qu'on débranche un module.
 
 ### Le Bluetooth ne trouve pas le module
 Carte en **HTTPS**, **Chrome ou Edge**, appli du téléphone déconnectée. Sur un ESP32 Meshtastic, le Bluetooth est coupé quand le Wi-Fi est activé. Appairez le module dans Windows si besoin (code affiché ou `123456`).

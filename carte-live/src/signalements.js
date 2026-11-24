@@ -289,7 +289,7 @@ function creerSignalements({ config, radio, administration, companion, reseauMc,
   function envoyerAlerte(b, auteur) {
     const genre = GENRES[b.genre] ? b.genre : 'alerte';
     const texte = String(b.texte || '').trim().replace(/\s+/g, ' ');
-    if (!texte) throw new Error('Texte de l’alerte vide');
+    if (!texte) throw new Error('Texte de l’alerte vide : écrivez le texte à diffuser');
     const entites = String(b.entites || '').split(/[\s,;]+/).map((x) => x.replace(/^#/, '').trim()).filter((x) => /^[\p{L}\p{N}_-]{1,20}$/u.test(x)).slice(0, 6);
     const canal = Number(b.canal);
     const n = alertes.prochain;

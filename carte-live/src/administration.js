@@ -539,7 +539,7 @@ function creerAdministration(radio, stockage) {
     const section = p.section;
     if (section === 'voisinage') {
       const v = valeursVoisinage(p.valeurs || {});
-      if (!Object.keys(v).length) throw new Error('Aucune valeur');
+      if (!Object.keys(v).length) throw new Error('Aucune valeur à envoyer : modifiez au moins un réglage');
       await assurerSession(dest);
       const ModuleConfig = racine.lookupType('meshtastic.ModuleConfig');
       const actuel = versObjet(ModuleConfig, (await admin(dest, { getModuleConfigRequest: MODULE_VOISINAGE })).getModuleConfigResponse).neighborInfo || {};
@@ -552,7 +552,7 @@ function creerAdministration(radio, stockage) {
       if (!CHAMPS[section][k]) throw new Error(`Réglage « ${k} » non modifiable`);
       valeurs[k] = CHAMPS[section][k](v);
     }
-    if (!Object.keys(valeurs).length) throw new Error('Aucune valeur');
+    if (!Object.keys(valeurs).length) throw new Error('Aucune valeur à envoyer : modifiez au moins un réglage');
     const c = await admin(dest, { getConfigRequest: TYPES_CONFIG[section] });
     const actuel = c.getConfigResponse[section];
     if (!actuel) throw new Error('Configuration illisible');
@@ -940,7 +940,7 @@ function creerAdministration(radio, stockage) {
     if (!op) throw new Error('Opération inconnue');
     if (!radio.infos().connecte && !(type === 'firmware' && params && params.hote)) throw new Error('Module radio non connecté : connectez-le dans Réseau > Modules Wi-Fi');
     cibles = [...new Set((cibles || []).map((x) => Number(x) >>> 0))].filter(Boolean);
-    if (!cibles.length) throw new Error('Aucun nœud choisi');
+    if (!cibles.length) throw new Error('Aucun nœud choisi : cochez au moins un nœud');
     if (cibles.length > 30) throw new Error('30 nœuds au maximum par opération');
     if (['position', 'nom', 'lire', 'modifier', 'firmware'].includes(type) && cibles.length > 1) throw new Error('Cette opération se fait nœud par nœud');
     if (type === 'verifier') {
@@ -1244,7 +1244,7 @@ function creerAdministration(radio, stockage) {
     if (!info.connecte) throw new Error('Module radio non connecté');
     texte = String(texte || '').trim();
     const octets = Buffer.from(texte, 'utf8');
-    if (!octets.length) throw new Error('Message vide');
+    if (!octets.length) throw new Error('Message vide : écrivez un texte avant d’envoyer');
     if (octets.length > 200) throw new Error(`Message trop long (${octets.length} octets, 200 au maximum)`);
     const direct = dest != null && dest !== '' && Number(dest) >>> 0 !== 0xffffffff;
     const vers = direct ? Number(dest) >>> 0 : 0xffffffff;

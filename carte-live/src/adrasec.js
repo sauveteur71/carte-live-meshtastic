@@ -177,7 +177,7 @@ function creerAdrasec({ config, journal = () => {}, diffuser = () => {}, positio
   }
   function roleCompte(compteId, b, auteur) {
     const cid = Number(compteId);
-    if (!Number.isInteger(cid)) throw new Error('Compte inconnu');
+    if (!Number.isInteger(cid)) throw new Error('Compte inconnu : il a peut-être été supprimé, rechargez la page');
     const actuels = groupesDeCompte(cid), actuel = actuels[0] || null;
     if (!b.groupe) {
       for (const c of actuels) { delete racine.groupes[c].membres[cid]; journal(`[ADRASEC] compte ${cid} retiré de ${nomGroupe(c)} par ${auteur}`); }
@@ -326,7 +326,7 @@ function creerGroupe(g, ctx) {
       if (b.detail !== undefined) r.detail = txt(b.detail, 200) || null;
       if (b.lat !== undefined || b.lon !== undefined) {
         const lat = Number(b.lat), lon = Number(b.lon);
-        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Position invalide');
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Position invalide : latitude entre -90 et 90, longitude entre -180 et 180 (ex. 45.043, 3.885)');
         r.lat = +lat.toFixed(6); r.lon = +lon.toFixed(6);
       }
       if (r.lat == null) throw new Error('Pointez le point de rassemblement sur la carte');
@@ -343,7 +343,7 @@ function creerGroupe(g, ctx) {
     if (!r) throw new Error('Point de rassemblement inconnu');
     if (!radioPoint) throw new Error('Envoi radio indisponible sur cette carte');
     const canal = Number(b.canal);
-    if (!Number.isInteger(canal) || canal < 0 || canal > 7) throw new Error('Canal 0 à 7');
+    if (!Number.isInteger(canal) || canal < 0 || canal > 7) throw new Error('Canal invalide : choisissez un canal du module, de 0 à 7');
     const dfci = versDfci(r.lat, r.lon);
     const mot = txt(b.mot, 120);
     const texte = couper([`RASSEMBLEMENT ${r.nom}`, `${r.lat.toFixed(5)},${r.lon.toFixed(5)}${dfci ? ' DFCI ' + dfci : ''}`, r.detail, mot].filter(Boolean).join(' · '), 200);
@@ -358,9 +358,9 @@ function creerGroupe(g, ctx) {
     if (!option('messages')) throw new Error('Les messages par radio ne sont pas activés dans cette section');
     if (!ctx.radioTexte) throw new Error('Envoi radio indisponible sur cette carte');
     const texte = couper(txt(b.texte, 600), 200);
-    if (!texte) throw new Error('Message vide');
+    if (!texte) throw new Error('Message vide : écrivez un texte avant d’envoyer');
     const canal = Number(b.canal);
-    if (!Number.isInteger(canal) || canal < 0 || canal > 7) throw new Error('Canal 0 à 7');
+    if (!Number.isInteger(canal) || canal < 0 || canal > 7) throw new Error('Canal invalide : choisissez un canal du module, de 0 à 7');
     envoisRecents = envoisRecents.filter((t) => Date.now() - t < ENVOIS_FENETRE);
     if (envoisRecents.length >= ENVOIS_MAX) throw new Error(`Trop d’envois par radio : ${ENVOIS_MAX} messages au plus par 10 minutes`);
     const r = ctx.radioTexte({ texte, canal }, `ADRASEC ${g.code} (${signature(compte)})`);
@@ -394,7 +394,7 @@ function creerGroupe(g, ctx) {
   }
   function majMembre(compteId, b, auteur, parAdmin = false) {
     const cid = Number(compteId);
-    if (!Number.isInteger(cid)) throw new Error('Compte inconnu');
+    if (!Number.isInteger(cid)) throw new Error('Compte inconnu : il a peut-être été supprimé, rechargez la page');
     if (!parAdmin && g.membres[cid] && g.membres[cid].responsable && (b.membre === false || b.responsable === false)) throw new Error('Seul un administrateur de la carte peut retirer un responsable');
     if (b.membre === false) {
       if (g.membres[cid]) { delete g.membres[cid]; journal(`[ADRASEC] compte ${cid} retiré par ${auteur}`); }
@@ -467,7 +467,7 @@ function creerGroupe(g, ctx) {
   function majEquipe(eid, b) {
     if (eid) {
       const e = g.equipes.find((x) => x.id === eid);
-      if (!e) throw new Error('Équipe inconnue');
+      if (!e) throw new Error('Équipe inconnue : elle a peut-être été supprimée, rechargez la page');
       if (b.supprimer) {
         g.equipes = g.equipes.filter((x) => x !== e);
         for (const m of Object.values(g.membres)) if (m.equipe === eid) m.equipe = null;
@@ -479,7 +479,7 @@ function creerGroupe(g, ctx) {
       }
     } else {
       const nom = txt(b.nom, 30);
-      if (!nom) throw new Error('Nom d’équipe manquant');
+      if (!nom) throw new Error('Nom d’équipe manquant : donnez un nom à l’équipe (ex. Gonio 1)');
       g.equipes.push({ id: id(), nom, couleur: COULEURS_EQ[g.equipes.length % COULEURS_EQ.length], mission: txt(b.mission, 120) || null });
     }
     sauver(true);
@@ -489,7 +489,7 @@ function creerGroupe(g, ctx) {
   // ---- Main courante ----------------------------------------------------------------------------------------
   function ajouterMc(compte, b, extra = {}) {
     const texte = txt(b.texte, 1000);
-    if (!texte) throw new Error('Texte vide');
+    if (!texte) throw new Error('Texte vide : écrivez quelque chose avant d’enregistrer');
     const x = { id: id(), heure: Date.now(), auteur: compte ? signature(compte) : extra.auteur || 'radio', type: TYPES_MC.includes(b.type) ? b.type : 'information',
       equipe: b.equipe && g.equipes.some((e) => e.id === b.equipe) ? b.equipe : (compte && membre(compte) && membre(compte).equipe) || null, texte, complete: b.complete && g.mainCourante.some((y) => y.id === b.complete) ? b.complete : null, ...extra };
     g.mainCourante.push(x);
@@ -633,7 +633,7 @@ function creerGroupe(g, ctx) {
     if (!radioPoint) throw new Error('Envoi radio indisponible sur cette carte');
     r.diffusion = r.diffusion || { idPoint: (crypto.randomBytes(4).readUInt32LE(0) >>> 0) || 1, canal: 0, auto: false, dernier: null };
     const df = r.diffusion;
-    if (b.canal !== undefined) { const c = Number(b.canal); if (!Number.isInteger(c) || c < 0 || c > 7) throw new Error('Canal 0 à 7'); df.canal = c; }
+    if (b.canal !== undefined) { const c = Number(b.canal); if (!Number.isInteger(c) || c < 0 || c > 7) throw new Error('Canal invalide : choisissez un canal du module, de 0 à 7'); df.canal = c; }
     if (b.auto !== undefined) df.auto = !!b.auto;
     if (b.reglageSeul) { sauver(true); return { diffusion: df }; }
     const loc = localiser(r.id);

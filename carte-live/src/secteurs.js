@@ -192,7 +192,7 @@ function valider(b, ancien = {}, equipeExiste = () => true) {
   }
   if (b.equipe !== undefined) {
     // Équipe disparue entre-temps mais déjà rattachée (formulaire renvoyé tel quel) : pas d'erreur, le secteur la garde
-    if (b.equipe && String(b.equipe) !== ancien.equipe && !equipeExiste(String(b.equipe))) throw new Error('Équipe inconnue');
+    if (b.equipe && String(b.equipe) !== ancien.equipe && !equipeExiste(String(b.equipe))) throw new Error('Équipe inconnue : elle a peut-être été supprimée, rechargez la page');
     s.equipe = b.equipe ? String(b.equipe) : null;
   }
   if (b.noeuds !== undefined) s.noeuds = [...new Set((Array.isArray(b.noeuds) ? b.noeuds : []).map((x) => Number(x) >>> 0))].filter(Boolean).slice(0, 200);

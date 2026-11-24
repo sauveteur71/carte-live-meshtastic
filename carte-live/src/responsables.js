@@ -31,7 +31,7 @@ function creerResponsables({ config, comptes, journal = () => {} }) {
     const k = cle(id);
     const p = texte(personne, 60), c = texte(contact, 120);
     const cid = compteId ? Number(compteId) : null;
-    if (cid && !comptes.lister().some((x) => x.id === cid)) throw new Error('Compte inconnu');
+    if (cid && !comptes.lister().some((x) => x.id === cid)) throw new Error('Compte inconnu : il a peut-être été supprimé, rechargez la page');
     if (!p && !cid) {
       if (table[k]) { delete table[k]; sauver(); journal(`[Responsables] ${k} : responsable retiré par ${auteur}`); }
       return null;

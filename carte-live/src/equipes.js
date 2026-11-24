@@ -64,7 +64,7 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
     if (tout) ecrire(); else minuterie = setTimeout(ecrire, 300);
   }
   const trouver = (id) => liste.find((e) => e.id === id);
-  function exiger(id) { const e = trouver(id); if (!e) throw new Error('Équipe inconnue'); return e; }
+  function exiger(id) { const e = trouver(id); if (!e) throw new Error('Équipe inconnue : elle a peut-être été supprimée, rechargez la page'); return e; }
 
   // Branché sur l'administration : la clé n'est lue qu'au moment d'écrire le canal sur le nœud
   administration.brancherEquipes({
@@ -151,7 +151,7 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
       // Zone de sécurité : devenue un secteur d'alerte (cercle rattaché à l'équipe), voir secteurs.js
       if (zone !== null) {
         const lat = Number(zone.lat), lon = Number(zone.lon), rayon = Number(zone.rayon);
-        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Centre de zone invalide');
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Centre de zone invalide : latitude entre -90 et 90, longitude entre -180 et 180 (ex. 45.043, 3.885)');
         if (!(rayon >= 100 && rayon <= 100000)) throw new Error('Rayon de zone invalide (100 m à 100 km)');
       }
       delete e.zone;
@@ -160,7 +160,7 @@ function creerEquipes({ config, administration, journal, positionDe = () => null
       if (zone === null) delete e.zone;
       else {
         const lat = Number(zone.lat), lon = Number(zone.lon), rayon = Number(zone.rayon);
-        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Centre de zone invalide');
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Centre de zone invalide : latitude entre -90 et 90, longitude entre -180 et 180 (ex. 45.043, 3.885)');
         if (!(rayon >= 100 && rayon <= 100000)) throw new Error('Rayon de zone invalide (100 m à 100 km)');
         e.zone = { lat, lon, rayon: Math.round(rayon) };
       }

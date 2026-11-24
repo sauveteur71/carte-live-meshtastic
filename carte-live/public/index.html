@@ -89,23 +89,20 @@
     <details class="menu-couches menu-outils">
       <summary>Outils ▾</summary>
       <div class="menu">
-        <button id="outil-connecter" class="bascule outil-principal" data-niveau="simple" data-chercher="bluetooth usb wifi adresse ip module radio companion relier brancher" title="Bluetooth, USB ou adresse IP : Meshtastic ou MeshCore, reconnu tout seul">🔌 Connecter un module…</button>
+        <button id="outil-connecter" class="bascule outil-principal" data-niveau="simple" data-chercher="bluetooth usb wifi adresse ip module radio companion relier brancher" title="Bluetooth, USB ou adresse IP : module Meshtastic ou companion MeshCore, reconnu tout seul ; c’est aussi ici qu’on le débranche">🔌 Connecter un module…</button>
         <button id="outil-registre" class="bascule" data-niveau="operateur" data-chercher="inventaire site autorisation propriétaire visite csv" title="Sites, autorisations, dernières visites, énergie et firmware de chaque relais, avec export CSV">🗂️ Registre des relais</button>
         <div class="titre-outils outils-mt">Meshtastic</div>
         <button id="outil-inviter" class="bascule outils-mt" data-niveau="operateur" title="Nœuds d’un autre preset (LongFast…) autour du réseau : les repérer et les inviter">📣 Nœuds à inviter</button>
-        <button id="outil-usb" class="bascule outils-mt" data-niveau="operateur" title="Brancher sur la carte le module relié en USB à ce PC (Chrome ou Edge)">🔌 Module USB de ce PC</button>
-        <button id="outil-ble" class="bascule outils-mt" data-niveau="operateur" title="Relier à la carte un module Bluetooth proche de ce PC (Chrome ou Edge)">📶 Module Bluetooth</button>
         <a id="lien-client" class="bascule outils-mt" data-niveau="operateur" target="_blank" rel="noopener" title="Client officiel Meshtastic : gérer un module en USB, Bluetooth ou Wi-Fi depuis ce navigateur">📟 Client Meshtastic</a>
         <a id="lien-flasher" class="bascule outils-mt" data-niveau="operateur" target="_blank" rel="noopener" title="Flasheur officiel : installer ou mettre à jour le firmware d'un module branché en USB">⚡ Flasher un module Meshtastic</a>
         <div class="titre-outils outils-mc" hidden>MeshCore</div>
         <a class="bascule outils-mc" data-niveau="operateur" hidden href="https://flasher.meshcore.co.uk" target="_blank" rel="noopener" title="Flasheur officiel MeshCore : installer le firmware companion, répéteur ou room server sur un module branché en USB (Chrome ou Edge)">⚡ Flasher un module MeshCore</a>
         <a class="bascule outils-mc" data-niveau="expert" hidden href="https://config.meshcore.dev" target="_blank" rel="noopener" title="Outil officiel : configurer en USB un répéteur ou un room server MeshCore (nom, radio, mot de passe…)">🛠️ Configurer un répéteur MeshCore (USB)</a>
         <a class="bascule outils-mc" data-niveau="operateur" hidden href="https://app.meshcore.nz" target="_blank" rel="noopener" title="Application officielle MeshCore dans le navigateur : utiliser un companion en USB ou Bluetooth">📟 Application MeshCore</a>
-        <button class="bascule outils-mc" data-niveau="operateur" hidden id="outil-companion-mc" title="Relier à la carte un companion MeshCore branché sur ce PC (onglet MeshCore → Companion)">🔌 Relier un companion MeshCore</button>
+        <a class="bascule outils-mc" data-niveau="expert" hidden href="topologie.html?reseau=mc" title="Graphe des liaisons MeshCore : points de rupture, répéteurs les plus traversés, trafic en direct, simulation de l’inondation">🕸️ Topologie et simulation MeshCore</a>
         <div class="titre-outils">Réseau</div>
         <button id="outil-fonctions" class="bascule" data-niveau="operateur" hidden title="Activer la section ADRASEC et Winlink, afficher ou masquer des fonctions (administrateurs)">🎚️ Fonctions de la carte</button>
         <button id="outil-rejoindre" class="bascule" data-niveau="operateur" hidden title="Page publique pour les nouveaux venus : QR du canal, réglages conseillés, règles, relais, dons">🤝 Page « Rejoindre le réseau »</button>
-        <a class="bascule outils-mc" data-niveau="expert" hidden href="topologie.html?reseau=mc" title="Graphe des liaisons MeshCore : points de rupture, répéteurs les plus traversés, trafic en direct, simulation de l’inondation">🕸️ Topologie et simulation MeshCore</a>
         <button id="outil-passerelle" class="bascule" data-niveau="expert" hidden title="Relayer des messages entre un canal Meshtastic et un canal MeshCore (outil d’appoint, administrateurs)">⇄ Passerelle inter-réseaux</button>
         <button id="outil-trafic" class="bascule outils-mt" data-niveau="expert" title="Nœuds trop bavards (positions, télémétrie) et paquets réinjectés depuis MQTT">🚦 Contrôle du trafic</button>
         <a class="bascule outils-mt" data-niveau="expert" href="topologie.html" title="Graphe des liaisons radio : points de rupture, relais les plus traversés, distance aux passerelles, et simulation de la propagation d’un paquet">🕸️ Topologie et simulation</a>
