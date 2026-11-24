@@ -180,7 +180,9 @@
   $('#moi').innerHTML = `<span>${esc(E.moi.identifiant)}${E.moi.responsable ? ' · responsable' : ''}</span><button class="mini" id="sortir">Se déconnecter</button>`;
   $('#sortir').onclick = async () => { await api(base + '/deconnexion', { method: 'POST' }).catch(() => {}); location.reload(); };
   // Aide « ? » et recherche d'une fonction (Ctrl+K), comme sur la carte
-  installerSocle({ zone: $('#moi'), aide: 'Espaces-Secours', fonctions: fonctionsDePage });
+  // Les vues ne sont dessinées qu'à leur ouverture : celles qui ne sont pas affichées le sont avant de chercher,
+  // pour que leurs blocs (Gestion › Mon mot de passe, Nœuds LoRa de l'espace…) soient trouvés
+  installerSocle({ zone: $('#moi'), aide: 'Espaces-Secours', fonctions: () => { for (const k of Object.keys(dessins)) if (k !== vueActive) { try { dessins[k](); } catch { /* vue pas prête */ } } return fonctionsDePage(); } });
 
   // ---- Carte --------------------------------------------------------------------------------------------------
   const memo = (k, v) => { try { if (v === undefined) return localStorage.getItem('secours-' + k); if (v === null) localStorage.removeItem('secours-' + k); else localStorage.setItem('secours-' + k, v); } catch { /* navigateur sans stockage */ } return null; };

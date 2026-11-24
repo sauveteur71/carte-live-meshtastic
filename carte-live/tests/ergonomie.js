@@ -28,7 +28,7 @@ test('pages /secours et /adrasec : socle commun, plus de boîte du navigateur', 
     assert.ok(html.indexOf('/commun.js') > 0 && html.indexOf('/commun.js') < html.indexOf(`/${page}.js`), `${page}.html charge commun.js avant ${page}.js`);
     assert.doesNotMatch(js, /(?<![\w.])(confirm|prompt)\(/, `${page}.js : confirm() ou prompt() du navigateur`);
     assert.match(js, /installerSocle\(\{[^}]*aide: '[\w-]+'/, `${page}.js : aide « ? » installée`);
-    assert.match(js, /fonctions: fonctionsDePage/, `${page}.js : recherche d’une fonction installée`);
+    assert.match(js, /fonctions: [^\n]*fonctionsDePage/, `${page}.js : recherche d’une fonction installée`);
   }
   const commun = lire('commun.js');
   for (const f of ['function confirmer(', 'function saisir(', 'function markdownSimple(', 'function installerSocle(', 'function fonctionsDePage(']) assert.ok(commun.includes(f), f);

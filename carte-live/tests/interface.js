@@ -69,6 +69,8 @@ function bilanErreurs(erreurs, quoi) {
   else ok(`${quoi} : aucune erreur JavaScript`);
 }
 
+// ESSAIS=Secours,Adrasec node tests/interface.js : ne lance que les essais dont le nom contient un de ces mots
+const voulu = (nom) => !process.env.ESSAIS || process.env.ESSAIS.split(',').some((m) => nom.toLowerCase().includes(m.trim().toLowerCase()));
 async function essaiCarteFrancais(contexte) {
   console.log('Carte (administrateur, français)');
   const { page, erreurs } = await ouvrir(contexte, '/');
@@ -1161,11 +1163,15 @@ async function essaiSecours(navig, cookie) {
   await page.keyboard.press('Enter'); await page.waitForTimeout(500);
   rech.onglet = await page.evaluate(() => (document.querySelector('#onglets button.actif') || {}).dataset.vue);
   rech.fermee = await page.evaluate(() => !document.querySelector('#dlg-recherche-commune[open]'));
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  if (process.env.DEBOGAGE) console.log(JSON.stringify(rech), await page.evaluate(() => document.querySelector('#vue-gestion').innerHTML.length));
   await page.click('.socle-commun [data-socle="aide"]'); await page.waitForTimeout(900);
   const aide = await page.evaluate(() => { const d = document.querySelector('#dlg-aide-commune[open]'); return { ouverte: !!d, texte: d ? d.querySelector('.corps-aide').textContent.length : 0, titres: d ? d.querySelectorAll('.corps-aide h2, .corps-aide h3').length : 0 }; });
+  await capture(page, 'secours-aide');
   await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
   await page.click('.c-suppr'); await page.waitForTimeout(300);
   const conf = await page.evaluate(() => { const d = document.querySelector('#dlg-confirmer[open]'); return { ouverte: !!d, texte: d ? d.querySelector('p').textContent : '', danger: d ? !!d.querySelector('button.danger') : false }; });
+  await capture(page, 'secours-confirmation');
   await page.click('#dlg-confirmer [data-r="0"]'); await page.waitForTimeout(300);
   conf.comptes = (await (await fetch(BASE + '/api/secours/festival-essai/etat', { headers: { Cookie: chef } })).json()).comptes.length;
   if (rech.ouverte && rech.titres.length >= 5 && /Mon mot de passe/.test(rech.trouve) && rech.onglet === 'gestion' && rech.fermee && aide.ouverte && aide.texte > 500 && aide.titres >= 3 && conf.ouverte && /Supprimer le compte/.test(conf.texte) && conf.danger && conf.comptes >= 2 && !natives.length)
@@ -2874,44 +2880,44 @@ async function essaiSuggestionsNoeuds(navig, cookie) {
     const contexte = await navigateur.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-FR' });
     await contexte.addCookies([cookie]);
     await contexte.addInitScript(() => { try { localStorage.setItem('gaulix_visite', 'true'); if (!localStorage.getItem('gaulix_langue')) localStorage.setItem('gaulix_langue', 'fr'); } catch { /* */ } });
-    await essaiCarteFrancais(contexte);
-    await essaiAnglais(contexte);
-    await essaiConsultation(contexte);
+    if (voulu('essaiCarteFrancais')) await essaiCarteFrancais(contexte);
+    if (voulu('essaiAnglais')) await essaiAnglais(contexte);
+    if (voulu('essaiConsultation')) await essaiConsultation(contexte);
     await contexte.close();
-    await essaiDemoVisiteur(navigateur);
-    await essaiAutresPresets(navigateur, cookie);
-    await essaiRejoindre(navigateur, cookie);
-    await essaiRegistreEtExports(navigateur, cookie);
-    await essaiVue3D(navigateur);
-    await essaiProfil3D(navigateur);
-    await essaiAdrasec(navigateur, cookie);
-    await essaiAdrasecTransfert(navigateur, cookie);
-    await essaiMotDePasseOublie(navigateur, cookie);
-    await essaiSecours(navigateur, cookie);
-    await essaiFrequentation(navigateur, cookie);
-    await essaiPasserelleMembre(navigateur, cookie);
-    await essaiAdministrationALaDemande(navigateur, cookie);
-    await essaiAgentDirect(cookie);
-    await essaiUsbAuto(navigateur, cookie);
-    await essaiEcran150(navigateur);
-    await essaiTelephone(navigateur);
-    await essaiRechercheMessages(navigateur, cookie);
-    await essaiUrgenceEtSecteurs(navigateur, cookie);
-    await essaiSecteursEquipes(navigateur, cookie);
-    await essaiSuggestionsNoeuds(navigateur, cookie);
-    await essaiBandeauMonde(navigateur, cookie);
-    await essaiDonateurs(navigateur, cookie);
-    await essaiPartager(navigateur, cookie);
-    await essaiRegistreAvance(navigateur, cookie);
+    if (voulu('essaiDemoVisiteur')) await essaiDemoVisiteur(navigateur);
+    if (voulu('essaiAutresPresets')) await essaiAutresPresets(navigateur, cookie);
+    if (voulu('essaiRejoindre')) await essaiRejoindre(navigateur, cookie);
+    if (voulu('essaiRegistreEtExports')) await essaiRegistreEtExports(navigateur, cookie);
+    if (voulu('essaiVue3D')) await essaiVue3D(navigateur);
+    if (voulu('essaiProfil3D')) await essaiProfil3D(navigateur);
+    if (voulu('essaiAdrasec')) await essaiAdrasec(navigateur, cookie);
+    if (voulu('essaiAdrasecTransfert')) await essaiAdrasecTransfert(navigateur, cookie);
+    if (voulu('essaiMotDePasseOublie')) await essaiMotDePasseOublie(navigateur, cookie);
+    if (voulu('essaiSecours')) await essaiSecours(navigateur, cookie);
+    if (voulu('essaiFrequentation')) await essaiFrequentation(navigateur, cookie);
+    if (voulu('essaiPasserelleMembre')) await essaiPasserelleMembre(navigateur, cookie);
+    if (voulu('essaiAdministrationALaDemande')) await essaiAdministrationALaDemande(navigateur, cookie);
+    if (voulu('essaiAgentDirect')) await essaiAgentDirect(cookie);
+    if (voulu('essaiUsbAuto')) await essaiUsbAuto(navigateur, cookie);
+    if (voulu('essaiEcran150')) await essaiEcran150(navigateur);
+    if (voulu('essaiTelephone')) await essaiTelephone(navigateur);
+    if (voulu('essaiRechercheMessages')) await essaiRechercheMessages(navigateur, cookie);
+    if (voulu('essaiUrgenceEtSecteurs')) await essaiUrgenceEtSecteurs(navigateur, cookie);
+    if (voulu('essaiSecteursEquipes')) await essaiSecteursEquipes(navigateur, cookie);
+    if (voulu('essaiSuggestionsNoeuds')) await essaiSuggestionsNoeuds(navigateur, cookie);
+    if (voulu('essaiBandeauMonde')) await essaiBandeauMonde(navigateur, cookie);
+    if (voulu('essaiDonateurs')) await essaiDonateurs(navigateur, cookie);
+    if (voulu('essaiPartager')) await essaiPartager(navigateur, cookie);
+    if (voulu('essaiRegistreAvance')) await essaiRegistreAvance(navigateur, cookie);
 
-    await essaiResumeOperations(navigateur, cookie);
+    if (voulu('essaiResumeOperations')) await essaiResumeOperations(navigateur, cookie);
 
-    await essaiBoutonsOutils(navigateur, cookie);
-    await essaiFenetres(navigateur, cookie);
-    await essaiConnexionsRepetees(navigateur, cookie);
-    await essaiPagesPubliques(navigateur);
-    await essaiTopologieFiche(navigateur);
-    await essaiRapportArchives(navigateur, cookie);
+    if (voulu('essaiBoutonsOutils')) await essaiBoutonsOutils(navigateur, cookie);
+    if (voulu('essaiFenetres')) await essaiFenetres(navigateur, cookie);
+    if (voulu('essaiConnexionsRepetees')) await essaiConnexionsRepetees(navigateur, cookie);
+    if (voulu('essaiPagesPubliques')) await essaiPagesPubliques(navigateur);
+    if (voulu('essaiTopologieFiche')) await essaiTopologieFiche(navigateur);
+    if (voulu('essaiRapportArchives')) await essaiRapportArchives(navigateur, cookie);
     code = echecs ? 1 : 0;
     console.log(echecs ? `\n${echecs} problème(s) : captures et journal dans tests/resultats/` : '\nTout est bon ✓');
   } catch (e) {
