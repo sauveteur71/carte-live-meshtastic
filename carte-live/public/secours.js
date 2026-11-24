@@ -641,7 +641,7 @@
         <p class="note">Le nœud attendu rejoint l’espace dès que la carte voit un nœud portant ce nom court. Si plusieurs nœuds portent le même nom, rien n’est attribué : choisissez-le alors dans la liste.</p>
       </details>
       <div id="g-n-retour" class="erreur"></div>
-      <p class="note">Un nœud n’appartient qu’à un espace : ses messages n’apparaissent alors plus dans les messages de la carte.</p>` : '<p class="bandeau">La liste des nœuds de la carte est indisponible pour l’instant : rechargez la page.</p>'}` : ''}
+      <p class="note">Un nœud peut servir à plusieurs espaces (celui d’un coordinateur commun) : chacun voit sa position et ses messages directs ; ce qu’il dit sur le canal réservé d’un espace ne va qu’à cet espace. Ses messages n’apparaissent plus dans les messages de la carte.</p>` : '<p class="bandeau">La liste des nœuds de la carte est indisponible pour l’instant : rechargez la page.</p>'}` : ''}
 
       <h2>Depuis le terrain, par radio</h2>
       <p class="note">Un message texte envoyé par le nœud d’une équipe arrive ici :</p>
@@ -695,7 +695,7 @@
       const lister = () => {
         const r = selRecherche.trim().toLowerCase();
         const tous = adminCarte.noeuds.filter((n) => !n.ici && (!r || `${n.court || ''} ${n.long || ''} ${n.id}`.toLowerCase().includes(r))), vus = tous.slice(0, 60);
-        liste.innerHTML = (vus.length ? vus.map((n) => `<label class="case ligne-noeud"><input type="checkbox" value="${esc(n.id)}" ${selCoches.has(n.id) ? 'checked' : ''} ${n.pris ? 'disabled' : ''}><span><b translate="no">${esc(n.court || '—')}</b> <span translate="no">${esc(n.long || '')}</span> <span class="mono note">${esc(n.id)}</span> <span class="note">${n.pris ? '— déjà dans un autre espace' : n.vu ? `· vu ${depuis(n.vu)}` : ''}</span></span></label>`).join('') : '<div class="vide">Aucun nœud de la carte ne correspond.</div>')
+        liste.innerHTML = (vus.length ? vus.map((n) => `<label class="case ligne-noeud"><input type="checkbox" value="${esc(n.id)}" ${selCoches.has(n.id) ? 'checked' : ''} ><span><b translate="no">${esc(n.court || '—')}</b> <span translate="no">${esc(n.long || '')}</span> <span class="mono note">${esc(n.id)}</span> <span class="note">${n.partage ? '· sert aussi à un autre espace' : n.vu ? `· vu ${depuis(n.vu)}` : ''}</span></span></label>`).join('') : '<div class="vide">Aucun nœud de la carte ne correspond.</div>')
           + (tous.length > vus.length ? `<p class="note">${tous.length - vus.length} autres nœuds : précisez la recherche.</p>` : '');
         $('#g-s-attribuer').textContent = selCoches.size ? `Attribuer les nœuds cochés (${selCoches.size})` : 'Attribuer les nœuds cochés';
       };

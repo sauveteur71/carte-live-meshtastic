@@ -3522,7 +3522,11 @@ function traiterMessageMqtt(topic, message) {
 function versSections(evt) {
   let pris = false;
   try { pris = !!secours.recu(evt); } catch { /* pas encore prêt */ }
-  if (pris) { evt.reserve = true; evt.contenu = null; if (evt.port !== 'texte') evt.resume = 'Réservé à un espace Secours'; }
+  if (pris) {
+    evt.reserve = true; evt.contenu = null; if (evt.port !== 'texte') evt.resume = 'Réservé à un espace Secours';
+    // Un nœud peut aussi être celui d'un membre de l'ADRASEC : son message direct lui parvient, pas ce qui passe sur le canal réservé à un espace
+    if (evt.port === 'texte' && evt.texte && !secours.surCanalReserve(evt)) { try { adrasec.texteRecu(evt); } catch { /* pas encore prêt */ } }
+  }
   else {
     if (evt.port === 'waypoint' && evt.pointRepere) { try { signalements.recu(evt); } catch { /* pas encore prêt */ } }
     versPasserelleRadio(evt);

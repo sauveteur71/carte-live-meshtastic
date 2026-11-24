@@ -12,7 +12,7 @@
 //   donc aucun accès au réseau radio, à ses réglages ni à l'ADRASEC. Sa session est signée avec un secret propre à
 //   l'espace : elle ne vaut ni pour la carte ni pour un autre espace ;
 // - un espace ne voit du réseau que les nœuds que l'administrateur de la carte lui a attribués (position et messages
-//   de ces nœuds-là, rien d'autre). Un nœud n'appartient qu'à un espace à la fois ;
+//   de ces nœuds-là, rien d'autre). Un nœud peut servir à plusieurs espaces (un coordinateur commun à deux entités) ;
 // - l'administrateur de la carte crée l'espace, nomme son premier responsable et attribue les nœuds, mais n'entre
 //   pas dedans : il ne lit ni les interventions ni la main courante.
 // Les fichiers des espaces ne partent pas dans les sauvegardes de la carte (elles sont faites pour être copiées
@@ -872,12 +872,13 @@ function creerSecours({ config, journal = () => {}, positionDe = () => null, nom
   charger();
 
   const espace = (code) => espaces.get(String(code || '').toLowerCase()) || null;
-  // Nœuds en attente (nom court) : attribués dès que la carte voit un seul nœud de ce nom, libre de tout autre espace
-  const possesseur = (num) => { for (const e of espaces.values()) if (e.possedeNoeud(num)) return e; return null; };
+  // Un nœud peut être dans plusieurs espaces (celui qui coordonne plusieurs entités, chacune sur son canal)
+  const possesseurs = (num) => [...espaces.values()].filter((e) => e.possedeNoeud(num));
+  // Nœuds en attente (nom court) : attribués dès que la carte voit un seul nœud de ce nom
   function resoudreAttentes() {
     let connus = null;
     const chercher = (nom) => { if (!connus) { try { connus = noeudsCarte() || []; } catch { connus = []; } } const n = String(nom).toLowerCase(); return connus.filter((x) => String(x.court || '').toLowerCase() === n).map((x) => x.num >>> 0); };
-    for (const e of espaces.values()) { try { e.resoudreAttentes(chercher, (num) => !possesseur(num)); } catch (err) { journal(`[Secours] nœuds en attente de l’espace ${e.code} :`, err.message); } }
+    for (const e of espaces.values()) { try { e.resoudreAttentes(chercher, () => true); } catch (err) { journal(`[Secours] nœuds en attente de l’espace ${e.code} :`, err.message); } }
   }
   const lister = () => { resoudreAttentes(); return [...espaces.values()].map((e) => ({ ...e.decrire(), noeudsAttribues: e.lignesNoeuds(), attentes: e.lignesAttentes(), organisations: e.organisations(), canal: e.canalAttribue(), responsables: e.comptes.lister().filter((c) => c.role === 'admin' && c.statut === 'actif').map((c) => c.identifiant) })).sort((a, b) => a.nom.localeCompare(b.nom)); };
   // Ce que voit le sélecteur de l'administrateur de la carte : les nœuds connus de la carte (nom, dernière écoute) et
@@ -885,16 +886,16 @@ function creerSecours({ config, journal = () => {}, positionDe = () => null, nom
   function selecteur() {
     let connus = [];
     try { connus = noeudsCarte() || []; } catch { /* base pas prête */ }
-    const noeuds = connus.map((n) => { const e = possesseur(n.num); return { num: n.num >>> 0, id: idNoeud(n.num), court: n.court || null, long: n.long || null, vu: n.vu || null, espace: e ? e.code : null }; });
+    const noeuds = connus.map((n) => ({ num: n.num >>> 0, id: idNoeud(n.num), court: n.court || null, long: n.long || null, vu: n.vu || null, espaces: possesseurs(n.num).map((e) => e.code) }));
     let canaux = [];
     try { canaux = radio && radio.canaux ? radio.canaux().filter((c) => c.index > 0 && c.nom).map((c) => c.nom) : []; } catch { /* module absent */ }
     return { noeuds, canaux, associations: ASSOCIATIONS, organisations: Object.fromEntries(Object.entries(GENRES).map(([k, g]) => [k, [...g.organisations, ...ASSOCIATIONS]])) };
   }
 
   // Ce que voit un responsable pour choisir les nœuds de son espace : les nœuds que la carte connaît (nom, dernière
-  // écoute). Un nœud pris par un autre espace est signalé, sans dire par lequel.
+  // écoute). Un nœud qui sert aussi à un autre espace est signalé, sans dire lequel.
   function selecteurEspace(code) {
-    return { noeuds: selecteur().noeuds.map(({ espace: e, ...n }) => ({ ...n, ici: e === code, pris: !!e && e !== code })) };
+    return { noeuds: selecteur().noeuds.map(({ espaces: e, ...n }) => ({ ...n, ici: e.includes(code), partage: e.some((c) => c !== code) })) };
   }
   // Nœuds de l'espace gérés par ses responsables : attribuer, retirer, attendre un nœud par son nom court. Rien d'autre
   // de ce que règle l'administrateur de la carte (canal, responsables), et aucun nom d'un autre espace dans les refus.
@@ -904,10 +905,9 @@ function creerSecours({ config, journal = () => {}, positionDe = () => null, nom
     try { modifier(code, c, auteur); } catch (err) { throw new Error(err.message.replace(/(à|par) l’espace « .*? »/, '$1 un autre espace')); }
     return { ok: true };
   }
-  // Un nœud n'appartient qu'à un espace : sa position et ses messages ne vont jamais à deux organisations
+  // Numéros des nœuds d'une liste. Un nœud peut être attribué à plusieurs espaces.
   function verifierNoeuds(code, liste) {
     const nums = (Array.isArray(liste) ? liste : String(liste || '').split(/[\s,;]+/)).map((x) => String(x).trim()).filter(Boolean).map(numeroNoeud);
-    for (const [c, e] of espaces) if (c !== code) for (const n of nums) if (e.possedeNoeud(n)) throw new Error(`Le nœud ${idNoeud(n)} est déjà attribué à l’espace « ${e.decrire().nom} »`);
     return nums;
   }
   function creer(b, auteur) {
@@ -949,7 +949,6 @@ function creerSecours({ config, journal = () => {}, positionDe = () => null, nom
     if (b.retirer) { const n = e.retirerNoeuds(b.retirer); journal(`[Secours] ${n.length} nœud(s) retiré(s) de l’espace ${e.code} par ${auteur}`); }
     if (b.attendre) {
       const nom = txt(b.attendre.nom, 12);
-      for (const [c, autre] of espaces) if (c !== e.code && autre.lignesAttentes().some((a) => a.nom.toLowerCase() === nom.toLowerCase())) throw new Error(`« ${nom} » est déjà attendu par l’espace « ${autre.decrire().nom} »`);
       e.attendre(nom, org(b.attendre.organisation), auteur);
       resoudreAttentes();
     }
@@ -999,17 +998,21 @@ function creerSecours({ config, journal = () => {}, positionDe = () => null, nom
   const jeton = (e, compte) => `${e.code}.${e.comptes.jeton(compte)}`;
 
   // Message texte : à l'espace qui possède le nœud ; sinon à celui dont c'est le canal réservé
+  const espaceDuCanal = (evt) => [...espaces.values()].find((e) => e.surCanalReserve(evt)) || null;
   function texteRecu(evt) {
-    const sien = evt && evt.de != null ? possesseur(evt.de >>> 0) : null;
-    for (const e of sien ? [sien] : espaces.values()) { try { if (e.texteRecu(evt)) return true; } catch (err) { journal('[Secours] message radio :', err.message); } }
-    return false;
+    if (!evt || evt.de == null) return false;
+    // Sur le canal réservé à un espace : pour cet espace seul. Sinon (message direct) : pour tous les espaces du nœud.
+    const duCanal = espaceDuCanal(evt);
+    let pris = false;
+    for (const e of duCanal ? [duCanal] : possesseurs(evt.de >>> 0)) { try { if (e.texteRecu(evt)) pris = true; } catch (err) { journal('[Secours] message radio :', err.message); } }
+    return pris;
   }
   // Paquet reçu par la carte : vrai s'il revient à un espace (message ou point de passage d'un de ses nœuds, ou
   // message sur son canal réservé). La carte ne le montre alors pas à ses membres : le serveur s'en charge.
   function recu(evt) {
     if (!evt || evt.de == null) return false;
     if (evt.port === 'texte' && evt.texte) return texteRecu(evt);
-    if (evt.port === 'waypoint' && evt.pointRepere) { const e = possesseur(evt.de >>> 0); if (!e) return false; try { e.pointRecu(evt); } catch (err) { journal('[Secours] point de passage :', err.message); } return true; }
+    if (evt.port === 'waypoint' && evt.pointRepere) { const tous = possesseurs(evt.de >>> 0), c = espaceDuCanal(evt), pour = c && tous.includes(c) ? [c] : tous; for (const e of pour) { try { e.pointRecu(evt); } catch (err) { journal('[Secours] point de passage :', err.message); } } return pour.length > 0; }
     return false;
   }
   // Le module radio de la carte tombe ou revient : chaque espace le note (bandeau, main courante)
@@ -1033,7 +1036,7 @@ function creerSecours({ config, journal = () => {}, positionDe = () => null, nom
   setInterval(entretien, 6 * 3600000).unref();
   setTimeout(entretien, 90000).unref();
 
-  return { espace, lister, creer, modifier, supprimer, session, jeton, texteRecu, recu, selecteur, selecteurEspace, noeudsEspace, resoudreAttentes, veilleRadio, entretien, GENRES, CATEGORIES_DPS,
+  return { espace, lister, creer, modifier, supprimer, session, jeton, texteRecu, recu, selecteur, selecteurEspace, noeudsEspace, surCanalReserve: (evt) => !!espaceDuCanal(evt), resoudreAttentes, veilleRadio, entretien, GENRES, CATEGORIES_DPS,
     fermer: () => { for (const m of minuteries) clearInterval(m); for (const e of espaces.values()) e.fermer(); espaces.clear(); } };
 }
 

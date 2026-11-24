@@ -959,7 +959,8 @@ async function essaiSecours(navig, cookie) {
   const r2 = await creer('pcs-essai', 'PCS d’essai', 'pcs', 'mairie.essai', '');
   const doublon = await poster('/api/secours-admin/espaces/pcs-essai', { noeuds: '!a1b2c3d4' }, H, 'PATCH');
   const liste = (await r2.json()).espaces || [];
-  if (r1.ok && r2.ok && liste.length === 2 && doublon.status === 400 && /déjà attribué/.test((await doublon.json()).erreur)) ok('deux espaces créés par l’administrateur de la carte ; un nœud ne peut pas être attribué à deux espaces');
+  const retrait = await poster('/api/secours-admin/espaces/pcs-essai', { retirer: ['!a1b2c3d4'] }, H, 'PATCH');
+  if (r1.ok && r2.ok && liste.length === 2 && doublon.status === 200 && retrait.status === 200) ok('deux espaces créés par l’administrateur de la carte ; un même nœud peut servir à deux espaces');
   else ko('création des espaces : ' + JSON.stringify({ r1: r1.status, r2: r2.status, liste: liste.length, doublon: doublon.status }));
   // Sessions
   const entrer = async (code, id) => { const r = await poster(`/api/secours/${code}/connexion`, { identifiant: id, motDePasse: 'motdepasse-essai' }); return (r.headers.get('set-cookie') || '').split(';')[0]; };

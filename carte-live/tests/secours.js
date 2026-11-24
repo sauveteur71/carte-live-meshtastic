@@ -78,8 +78,7 @@ test('cloisonnement : sessions, comptes et nœuds ne passent pas d’un espace �
   assert.strictEqual(F.comptes.lireJeton(comptesCarte.jeton({ id: 1 })), null, 'une session de la carte n’ouvre pas un espace');
   // Les comptes d'un espace n'existent pas dans l'autre
   assert.throws(() => C.comptes.connecter('chef.dispositif', 'motdepasse-1'), /incorrect/);
-  // Un nœud attribué à un espace ne peut pas l'être à un autre, ni porté par une équipe d'un autre
-  assert.throws(() => secours.modifier('pcs-commune', { noeuds: [idNoeud(N2), idNoeud(N1)] }, 'admin'), /déjà attribué à l’espace « Festival du Velay »/);
+  // Un nœud n'est porté que par une équipe d'un espace qui l'a
   assert.throws(() => C.majEquipe(null, { nom: 'Équipe 1', noeud: idNoeud(N1) }), /n’est pas attribué à votre espace/);
   const vueC = C.etat(C.comptes.connecter('mairie', 'motdepasse-2'));
   assert.deepStrictEqual(vueC.noeuds.map((n) => n.id), [idNoeud(N2)]);
@@ -273,19 +272,17 @@ test('organisations et sélecteur : nœuds choisis dans la liste de la carte, ra
   const crf = F.organisations()[0].id;
   // Le sélecteur montre les nœuds de la carte et l'espace qui les a déjà ; l'ADRASEC figure parmi les organisations proposées
   let sel = secours.selecteur();
-  assert.deepStrictEqual(sel.noeuds.map((n) => [n.id, n.court, n.espace]), [['!a1b2c3d4', 'ALPH', null], ['!0badcafe', 'MAIR', 'pcs-commune'], ['!12345678', 'PS01', null]]);
+  assert.deepStrictEqual(sel.noeuds.map((n) => [n.id, n.court, n.espaces.join()]), [['!a1b2c3d4', 'ALPH', ''], ['!0badcafe', 'MAIR', 'pcs-commune'], ['!12345678', 'PS01', '']]);
   assert.ok(sel.organisations.dps.includes('ADRASEC') && sel.organisations.dps.includes('Ordre de Malte France') && sel.organisations.pcs.includes('Services techniques'));
   assert.deepStrictEqual(sel.canaux, ['Secours43', 'Mairie'], 'le canal principal ne se réserve pas');
   // Une deuxième organisation et ses nœuds dans le même appel ; un nœud d'un autre espace est refusé
   secours.modifier('festival-2027', { organisation: { nom: 'Protection Civile (ADPC, FNPC)' }, attribuer: { noeuds: ['!12345678'], organisation: 'nouvelle' } }, 'admin');
   secours.modifier('festival-2027', { attribuer: { noeuds: [idNoeud(N1)], organisation: crf } }, 'admin');
-  assert.throws(() => secours.modifier('festival-2027', { attribuer: { noeuds: [idNoeud(N2)] } }, 'admin'), /déjà attribué à l’espace « PCS de la commune »/);
   assert.throws(() => secours.modifier('festival-2027', { organisation: { nom: 'croix-rouge française' } }, 'admin'), /existe déjà/);
   assert.throws(() => secours.modifier('festival-2027', { attribuer: { noeuds: [idNoeud(N1)], organisation: 'inconnue' } }, 'admin'), /Organisation inconnue/);
   const pc = F.organisations().find((o) => /Protection/.test(o.nom)).id;
   // Vu d'un responsable : ses nœuds, ceux d'un autre espace signalés sans son nom ; il attribue et retire, rien d'autre
-  assert.deepStrictEqual(secours.selecteurEspace('festival-2027').noeuds.map((n) => [n.court, n.ici, n.pris, n.espace]), [['ALPH', true, false, undefined], ['MAIR', false, true, undefined], ['PS01', true, false, undefined]]);
-  assert.throws(() => secours.noeudsEspace('festival-2027', { attribuer: { noeuds: [idNoeud(N2)] } }, 'chef'), (e) => /déjà attribué à un autre espace/.test(e.message) && !/PCS de la commune/.test(e.message));
+  assert.deepStrictEqual(secours.selecteurEspace('festival-2027').noeuds.map((n) => [n.court, n.ici, n.partage, n.espaces]), [['ALPH', true, false, undefined], ['MAIR', false, true, undefined], ['PS01', true, false, undefined]]);
   secours.noeudsEspace('festival-2027', { retirer: [idNoeud(N1)], canal: 'Mairie', responsable: { identifiant: 'pirate', motDePasse: 'motdepasse-pirate' } }, 'chef');
   assert.ok(!F.possedeNoeud(N1) && F.canalAttribue() == null && !F.comptes.lister().some((c) => c.identifiant === 'pirate'), 'canal et responsables restent à l’administrateur de la carte');
   secours.noeudsEspace('festival-2027', { attribuer: { noeuds: [idNoeud(N1)], organisation: crf } }, 'chef');
@@ -298,7 +295,6 @@ test('organisations et sélecteur : nœuds choisis dans la liste de la carte, ra
   assert.deepStrictEqual(F.etat(chef).organisations.map((o) => o.nom), ['Croix-Rouge française', 'Protection Civile (ADPC, FNPC)']);
   // Nœud pas encore allumé : attendu par son nom court, attribué quand la carte le voit (un seul nœud de ce nom)
   secours.modifier('festival-2027', { attendre: { nom: 'VPSP', organisation: crf } }, 'admin');
-  assert.throws(() => secours.modifier('pcs-commune', { attendre: { nom: 'vpsp' } }, 'admin'), /déjà attendu par l’espace « Festival du Velay »/);
   assert.throws(() => secours.modifier('festival-2027', { attendre: { nom: 'deux mots' } }, 'admin'), /pas d’espace/);
   assert.deepStrictEqual(secours.lister().find((e) => e.code === 'festival-2027').attentes.map((a) => a.nom), ['VPSP']);
   const N4 = 0x0000beef, N5 = 0x0000cafe;
@@ -310,11 +306,22 @@ test('organisations et sélecteur : nœuds choisis dans la liste de la carte, ra
   assert.ok(F.possedeNoeud(N4));
   assert.strictEqual(F.lignesNoeuds().find((n) => n.num === N4).organisation, crf);
   assert.strictEqual(F.lignesAttentes().length, 0);
-  // Un nom attendu déjà porté par un nœud d'un autre espace n'est pas pris
-  secours.modifier('festival-2027', { attendre: { nom: 'MAIR' } }, 'admin');
-  assert.ok(!F.possedeNoeud(N2) && F.lignesAttentes().length === 1);
-  secours.modifier('festival-2027', { retirerAttente: 'mair' }, 'admin');
-  assert.strictEqual(F.lignesAttentes().length, 0);
+  // Nœud partagé : le coordinateur commun (nœud de la mairie) rejoint aussi le festival, attendu par son nom court
+  const P = secours.espace('pcs-commune'), maire = P.comptes.lister()[0];
+  secours.noeudsEspace('festival-2027', { attendre: { nom: 'MAIR' } }, 'chef');
+  assert.ok(F.possedeNoeud(N2) && P.possedeNoeud(N2) && F.lignesAttentes().length === 0);
+  assert.deepStrictEqual(secours.selecteur().noeuds.find((n) => n.num === N2).espaces.sort(), ['festival-2027', 'pcs-commune']);
+  assert.strictEqual(secours.selecteurEspace('pcs-commune').noeuds.find((n) => n.num === N2).partage, true);
+  // Son message direct arrive dans ses deux espaces ; sur le canal réservé d'un espace, dans celui-là seulement
+  assert.strictEqual(secours.recu({ port: 'texte', de: N2, texte: 'coordinateur en place' }), true);
+  const lu = (E, c, t) => E.etat(c).mainCourante.some((m) => m.texte === t);
+  assert.ok(lu(F, chef, 'coordinateur en place') && lu(P, maire, 'coordinateur en place'));
+  secours.modifier('pcs-commune', { canal: 'Mairie' }, 'admin');
+  assert.strictEqual(secours.recu({ port: 'texte', de: N2, texte: 'pour la commune seule', canal: 'Mairie' }), true);
+  assert.ok(lu(P, maire, 'pour la commune seule') && !lu(F, chef, 'pour la commune seule'));
+  secours.modifier('pcs-commune', { canal: '' }, 'admin');
+  secours.noeudsEspace('festival-2027', { retirer: [idNoeud(N2)] }, 'chef');
+  assert.ok(!F.possedeNoeud(N2) && P.possedeNoeud(N2), 'retiré d’un espace, il reste dans l’autre');
   // Organisation retirée : nœuds et équipes restent, sans organisation ; nœud retiré : l'équipe le perd
   secours.modifier('festival-2027', { organisation: { id: crf, supprimer: true } }, 'admin');
   assert.strictEqual(F.lignesNoeuds().find((n) => n.num === N1).organisation, null);
@@ -412,9 +419,9 @@ test('ce qui revient à un espace : points de passage, canal réservé, et rien 
   const mc = F.etat(chef).mainCourante[0];
   assert.deepStrictEqual([mc.texte, mc.auteur, mc.origine], ['ici le renfort', '!12345678 (nœud hors espace)', 'radio']);
   assert.strictEqual(secours.recu({ port: 'texte', de: N3, texte: 'ici le renfort', canal: 'Mairie' }), false);
-  // Le nœud d'un autre espace qui parle sur ce canal : son message reste à son espace, pas à celui du canal
+  // Le canal décide : le nœud d'un autre espace qui parle sur ce canal est lu par l'espace du canal, pas par le sien
   assert.strictEqual(secours.recu({ port: 'texte', de: N2, texte: 'la mairie écoute', canal: 'Secours43' }), true);
-  assert.ok(P.etat(maire).mainCourante.some((m) => m.texte === 'la mairie écoute') && !F.etat(chef).mainCourante.some((m) => m.texte === 'la mairie écoute'));
+  assert.ok(!P.etat(maire).mainCourante.some((m) => m.texte === 'la mairie écoute') && F.etat(chef).mainCourante.some((m) => m.texte === 'la mairie écoute'));
   // « Toutes les équipes » : un seul message sur le canal ; une équipe précise : toujours un message direct
   partis.length = 0;
   assert.deepStrictEqual(F.envoyer(chef, { texte: 'Point de situation à 15 h' }).destinataires, ['toutes les équipes (canal Secours43)']);
