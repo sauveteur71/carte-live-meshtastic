@@ -4058,8 +4058,6 @@ app.get('/api/urgence/journal.csv', (req, res) => {
 // Séparés de tout le reste (voir secours.js) : un fichier par espace, des comptes qui n'existent que dans ce fichier,
 // un cookie à part (secours_session). Aucune de ces routes ne lit la session de la carte, sauf la gestion des
 // espaces (/api/secours-admin), réservée aux administrateurs de la carte, qui ne donne accès à aucun contenu.
-// La page d'un espace appelle ces routes de gestion quand le responsable a aussi sa session d'administrateur de la
-// carte ouverte dans le même navigateur : il attribue alors les nœuds sans changer de page.
 const secours = require('./secours').creerSecours({ config, journal,
   // Envois d'un espace vers le terrain : toujours un message direct au nœud d'une équipe, jamais recopié dans les
   // messages de la carte (discret)
@@ -4125,6 +4123,9 @@ app.get('/api/secours/:code/etat', routeSecours((req, b, e, compte) => {
   const v = e.etat(compte);
   return String(req.query.rev || '') === String(v.rev) ? { rev: v.rev, inchange: true, equipes: v.equipes.map((q) => ({ id: q.id, position: q.position, etat: q.etat, sante: q.sante })), accuses: e.accuses(), radioConnectee: v.radio.connecte, radioTombee: v.radio.tombee } : v;
 }));
+// Nœuds de l'espace : ce sont ses responsables qui les choisissent dans la liste des nœuds de la carte (⚙️ Gestion)
+app.get('/api/secours/:code/selecteur', routeSecours((req, b, e) => secours.selecteurEspace(e.code), { responsable: true }));
+app.post('/api/secours/:code/noeuds', routeSecours((req, b, e, compte) => secours.noeudsEspace(e.code, b, e.signature(compte)), { responsable: true }));
 // Organisations de l'espace (associations d'un DPS, services d'un PCS), repères sur la carte, trajets, rapport de fin
 app.post('/api/secours/:code/organisations', routeSecours((req, b, e) => e.majOrganisation(null, b), { responsable: true }));
 app.patch('/api/secours/:code/organisations/:id', routeSecours((req, b, e) => e.majOrganisation(req.params.id, b), { responsable: true }));

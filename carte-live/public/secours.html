@@ -81,6 +81,11 @@
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .plein { margin: 0 auto; width: 100%; max-width: 860px; padding: 18px 16px 40px; overflow: auto; }
     .plein.etroit { max-width: 460px; }
+    /* Gestion des espaces : toute la largeur de l'écran, les fiches côte à côte */
+    .plein.large { max-width: none; padding: 14px 20px 30px; }
+    .plein.large #liste { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr)); gap: 12px; align-items: start; }
+    .plein.large #liste .fiche { margin: 0; }
+    .plein.large > .champs, .plein.large > p { max-width: 900px; }
     table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
     td, th { padding: 6px 5px; border-bottom: 1px solid var(--bord); text-align: left; vertical-align: top; }
     .leaflet-container { background: #0b1117; font: inherit; }

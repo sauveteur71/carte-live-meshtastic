@@ -283,6 +283,12 @@ test('organisations et sélecteur : nœuds choisis dans la liste de la carte, ra
   assert.throws(() => secours.modifier('festival-2027', { organisation: { nom: 'croix-rouge française' } }, 'admin'), /existe déjà/);
   assert.throws(() => secours.modifier('festival-2027', { attribuer: { noeuds: [idNoeud(N1)], organisation: 'inconnue' } }, 'admin'), /Organisation inconnue/);
   const pc = F.organisations().find((o) => /Protection/.test(o.nom)).id;
+  // Vu d'un responsable : ses nœuds, ceux d'un autre espace signalés sans son nom ; il attribue et retire, rien d'autre
+  assert.deepStrictEqual(secours.selecteurEspace('festival-2027').noeuds.map((n) => [n.court, n.ici, n.pris, n.espace]), [['ALPH', true, false, undefined], ['MAIR', false, true, undefined], ['PS01', true, false, undefined]]);
+  assert.throws(() => secours.noeudsEspace('festival-2027', { attribuer: { noeuds: [idNoeud(N2)] } }, 'chef'), (e) => /déjà attribué à un autre espace/.test(e.message) && !/PCS de la commune/.test(e.message));
+  secours.noeudsEspace('festival-2027', { retirer: [idNoeud(N1)], canal: 'Mairie', responsable: { identifiant: 'pirate', motDePasse: 'motdepasse-pirate' } }, 'chef');
+  assert.ok(!F.possedeNoeud(N1) && F.canalAttribue() == null && !F.comptes.lister().some((c) => c.identifiant === 'pirate'), 'canal et responsables restent à l’administrateur de la carte');
+  secours.noeudsEspace('festival-2027', { attribuer: { noeuds: [idNoeud(N1)], organisation: crf } }, 'chef');
   assert.deepStrictEqual(F.lignesNoeuds().map((n) => [n.id, n.organisation]), [['!12345678', pc], ['!a1b2c3d4', crf]]);
   // Une équipe prend l'organisation de son nœud ; le responsable peut la changer
   const chef = F.comptes.lister()[0];

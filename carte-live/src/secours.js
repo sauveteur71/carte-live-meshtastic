@@ -891,6 +891,19 @@ function creerSecours({ config, journal = () => {}, positionDe = () => null, nom
     return { noeuds, canaux, associations: ASSOCIATIONS, organisations: Object.fromEntries(Object.entries(GENRES).map(([k, g]) => [k, [...g.organisations, ...ASSOCIATIONS]])) };
   }
 
+  // Ce que voit un responsable pour choisir les nœuds de son espace : les nœuds que la carte connaît (nom, dernière
+  // écoute). Un nœud pris par un autre espace est signalé, sans dire par lequel.
+  function selecteurEspace(code) {
+    return { noeuds: selecteur().noeuds.map(({ espace: e, ...n }) => ({ ...n, ici: e === code, pris: !!e && e !== code })) };
+  }
+  // Nœuds de l'espace gérés par ses responsables : attribuer, retirer, attendre un nœud par son nom court. Rien d'autre
+  // de ce que règle l'administrateur de la carte (canal, responsables), et aucun nom d'un autre espace dans les refus.
+  function noeudsEspace(code, b, auteur) {
+    const c = {};
+    for (const k of ['attribuer', 'retirer', 'attendre', 'retirerAttente']) if (b[k] !== undefined) c[k] = b[k];
+    try { modifier(code, c, auteur); } catch (err) { throw new Error(err.message.replace(/(à|par) l’espace « .*? »/, '$1 un autre espace')); }
+    return { ok: true };
+  }
   // Un nœud n'appartient qu'à un espace : sa position et ses messages ne vont jamais à deux organisations
   function verifierNoeuds(code, liste) {
     const nums = (Array.isArray(liste) ? liste : String(liste || '').split(/[\s,;]+/)).map((x) => String(x).trim()).filter(Boolean).map(numeroNoeud);
@@ -1020,7 +1033,7 @@ function creerSecours({ config, journal = () => {}, positionDe = () => null, nom
   setInterval(entretien, 6 * 3600000).unref();
   setTimeout(entretien, 90000).unref();
 
-  return { espace, lister, creer, modifier, supprimer, session, jeton, texteRecu, recu, selecteur, resoudreAttentes, veilleRadio, entretien, GENRES, CATEGORIES_DPS,
+  return { espace, lister, creer, modifier, supprimer, session, jeton, texteRecu, recu, selecteur, selecteurEspace, noeudsEspace, resoudreAttentes, veilleRadio, entretien, GENRES, CATEGORIES_DPS,
     fermer: () => { for (const m of minuteries) clearInterval(m); for (const e of espaces.values()) e.fermer(); espaces.clear(); } };
 }
 

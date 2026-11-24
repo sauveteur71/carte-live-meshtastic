@@ -23,9 +23,9 @@ La [[section ADRASEC|Section-ADRASEC]] reste réservée aux radioamateurs. Les e
 |---|---|
 | **Les données** | Un espace = **un fichier à lui** sur le serveur (dossier `secours/` des données). Rien n'est écrit dans la base de la carte ni dans les données de l'ADRASEC. |
 | **Les comptes** | Les comptes d'un espace **n'existent que dans cet espace**. Un secouriste ou un agent communal n'a pas de compte sur la carte : il ne voit ni le réseau radio, ni ses réglages, ni l'ADRASEC, ni un autre espace. |
-| **Les nœuds** | Un espace ne voit que les nœuds que l'administrateur de la carte lui a **attribués** (leur position, leurs messages). Un nœud n'appartient qu'à un espace à la fois. |
+| **Les nœuds** | Chaque espace est **autonome** : ce sont ses responsables qui choisissent ses nœuds (⚙️ Gestion). Il ne voit que ceux-là (leur position, leurs messages) et un nœud n'appartient qu'à un espace à la fois. |
 | **Les messages** | Les messages et points de passage envoyés par les nœuds d'un espace, et tout ce qui passe sur son **canal réservé**, arrivent dans l'espace et **ne s'affichent pas dans les messages de la carte**. La position de ces nœuds, elle, reste visible sur la carte du réseau. |
-| **L'administrateur de la carte** | Il crée l'espace, attribue les nœuds et nomme le responsable. Il **n'entre pas** dans l'espace : il ne lit ni les interventions ni la main courante. |
+| **L'administrateur de la carte** | Il crée l'espace, nomme le responsable et peut lui réserver un canal. Il **n'entre pas** dans l'espace : il ne lit ni les interventions ni la main courante. |
 
 Les fichiers des espaces ne partent **pas** dans les sauvegardes de la carte (elles sont faites pour être copiées ailleurs). Chaque espace garde ses propres copies quotidiennes sur le serveur (`secours/copies/`, 7 jours).
 
@@ -35,16 +35,14 @@ Les fichiers des espaces ne partent **pas** dans les sauvegardes de la carte (el
 1. **Outils › ⛑️ Espaces Secours (DPS, PCS)** (ou `https://votre-carte/secours`).
 2. **Créer un espace** : son nom, son type (DPS ou PCS), son **adresse** (ex. `festival-2027`), une première **organisation**, l'identifiant et le mot de passe du **premier responsable**.
 3. **Organisations** : ajouter celles qui travaillent ensemble dans l'espace (voir ci-dessous).
-4. **Nœuds de l'espace › ➕ Choisir des nœuds dans la liste de la carte** : chercher un nœud par son nom ou son numéro, cocher, choisir l'organisation où le ranger, **Attribuer**. Un nœud **pas encore allumé** s'ajoute par son **nom court** (ex. `PS01`) : il rejoint l'espace dès que la carte le voit.
-5. **Canal réservé** (facultatif) : un canal du module radio de la carte, réservé à cet espace.
-6. Donner au responsable l'adresse de l'espace (`https://votre-carte/secours/festival-2027`), son identifiant et son mot de passe.
+4. **Canal réservé** (facultatif) : un canal du module radio de la carte, réservé à cet espace.
+5. Donner au responsable l'adresse de l'espace (`https://votre-carte/secours/festival-2027`), son identifiant et son mot de passe.
 
 **Responsable de l'espace** (chef de dispositif, élu ou agent chargé du PCS)
 1. Ouvrir l'adresse de l'espace et se connecter.
-2. **⚙️ Gestion** : régler l'espace (pour un DPS : lieu, dates, public attendu, catégorie), cadrer la carte sur le site puis **Ouvrir la carte sur la vue actuelle**, créer les **comptes** des équipiers.
-3. **👥 Équipes** : créer les postes et les équipes. Pour chacun : son type, son effectif prévu, un **emplacement fixe** (clic sur la carte) et/ou le **nœud LoRa** qu'il porte.
-
-**Administrateur de la carte qui tient aussi l'espace** (cas d'une petite structure : la même personne crée l'espace et en est le responsable). Connecté à la carte **et** à l'espace dans le même navigateur, il retrouve le sélecteur de nœuds **dans l'espace** : *⚙️ Gestion › Nœuds LoRa de l'espace › ➕ Choisir des nœuds dans la liste de la carte*, ou le bouton **➕ Ajouter des nœuds à l'espace** de la fiche d'une équipe. Plus besoin de repasser par la page de gestion des espaces. C'est sa session d'administrateur de la carte qui l'autorise : un responsable qui ne l'a pas ne voit rien de la liste des nœuds de la carte.
+2. **⚙️ Gestion › Nœuds LoRa de l'espace › ➕ Choisir des nœuds dans la liste de la carte** : chercher un nœud par son nom ou son numéro, cocher, choisir l'organisation où le ranger, **Attribuer**. Un nœud **pas encore allumé** s'ajoute par son **nom court** (ex. `PS01`) : il rejoint l'espace dès que la carte le voit. Un nœud déjà pris par un autre espace est grisé.
+3. **⚙️ Gestion** : régler l'espace (pour un DPS : lieu, dates, public attendu, catégorie), cadrer la carte sur le site puis **Ouvrir la carte sur la vue actuelle**, créer les **comptes** des équipiers.
+4. **👥 Équipes** : créer les postes et les équipes. Pour chacun : son type, son effectif prévu, un **emplacement fixe** (clic sur la carte) et/ou le **nœud LoRa** qu'il porte.
 
 **Affichage** : le bouton en haut à droite de la carte donne le choix du fond (**Sombre**, Plan IGN, **Plan IGN sombre**, Photos aériennes, **Topographique (relief)**) et deux surcouches (**Relief ombré**, Noms des lieux). La barre entre la carte et le panneau se **tire à la souris** pour élargir ou rétrécir le panneau (double-clic : largeur d'origine ; au clavier, flèches gauche et droite). Ces choix sont retenus sur l'appareil.
 

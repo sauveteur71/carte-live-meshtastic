@@ -1091,7 +1091,7 @@ async function essaiSecours(navig, cookie) {
   else { ko('bloc d’envoi par radio : ' + JSON.stringify(envoi)); await capture(page, 'secours-envoi'); }
   if (p.onglets === 5 && p.fiches === 1 && p.carte && p.reperes >= 2 && /Gestion/.test(p.gestion) && /Effectif prévu : 6 secouristes/.test(resume)) ok('page d’un espace : interventions, équipes sur la carte, effectif du dispositif');
   else { ko('page d’un espace : ' + JSON.stringify({ p, resume })); await capture(page, 'secours-espace'); }
-  // Fonds de carte (dont sombre et relief), panneau élargi à la souris, liste des nœuds de la carte invisible sans session d'administrateur
+  // Fonds de carte (dont sombre et relief), panneau élargi à la souris, sélecteur de nœuds dans la Gestion du responsable
   const fondsDispo = await page.evaluate(() => [...document.querySelectorAll('.leaflet-control-layers label')].map((l) => l.textContent.trim()));
   await page.evaluate(() => { const r = [...document.querySelectorAll('.leaflet-control-layers-base label')].find((l) => /Plan IGN sombre/.test(l.textContent)); r.querySelector('input').click(); });
   const boite = await page.locator('#poignee').boundingBox(), avantL = await page.evaluate(() => document.querySelector('aside').offsetWidth);
@@ -1100,14 +1100,14 @@ async function essaiSecours(navig, cookie) {
   await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForSelector('#onglets', { timeout: 8000 }).catch(() => {}); await page.waitForTimeout(600);
   pan.apres = await page.evaluate(() => document.querySelector('aside').offsetWidth);
   if (['Sombre', 'Plan IGN', 'Plan IGN sombre', 'Photos aériennes IGN', 'Topographique (relief)', 'Relief ombré', 'Noms des lieux'].every((n) => fondsDispo.includes(n)) && pan.fond === 'Plan IGN sombre' && pan.sombre
-    && Math.abs(pan.l - avantL - 200) <= 12 && Number(pan.retenue) === pan.l && pan.apres === pan.l && pan.carte > 300 && !pan.deborde && !pan.selecteur)
+    && Math.abs(pan.l - avantL - 200) <= 12 && Number(pan.retenue) === pan.l && pan.apres === pan.l && pan.carte > 300 && !pan.deborde && pan.selecteur)
     ok(`page d’un espace : fonds sombre et relief au choix, panneau élargi à la souris (${avantL} → ${pan.l} px) et largeur retenue`);
   else { ko('fonds de carte et largeur du panneau : ' + JSON.stringify({ fondsDispo, avantL, pan })); await capture(page, 'secours-panneau'); }
   bilanErreurs(erreurs, 'Page d’un espace Secours');
   await ctx.close();
-  // Responsable qui est aussi administrateur de la carte (les deux sessions dans le même navigateur) : il attribue les nœuds depuis l'espace
+  // Le responsable choisit lui-même les nœuds de son espace (sans session d'administrateur de la carte) ; pas un équipier
   const deux = await navig.newContext({ viewport: { width: 1366, height: 800 }, locale: 'fr-FR' });
-  await deux.addCookies([cookie, { name: 'secours_session', value: chef.split('=')[1], domain: '127.0.0.1', path: '/' }]);
+  await deux.addCookies([{ name: 'secours_session', value: chef.split('=')[1], domain: '127.0.0.1', path: '/' }]);
   const dx = await ouvrir(deux, '/secours/festival-essai');
   await dx.page.click('[data-vue="equipes"]'); await dx.page.click('#e-nouvelle'); await dx.page.click('#e-plus-noeuds'); await dx.page.waitForTimeout(400);
   const sd = await dx.page.evaluate(() => ({ ouvert: (document.querySelector('#g-selecteur') || {}).open, gestion: document.querySelector('#vue-gestion').classList.contains('actif'), noeud: !!document.querySelector('#vue-gestion tr[data-noeud="!a1b2c3d4"] .gn-org'), lignes: document.querySelectorAll('#g-s-liste > *').length }));
@@ -1115,7 +1115,8 @@ async function essaiSecours(navig, cookie) {
   sd.attendus = await dx.page.evaluate(() => [...document.querySelectorAll('.gn-attente')].map((b) => b.dataset.nom).join());
   await dx.page.click('.gn-attente[data-nom="PC01"]'); await dx.page.waitForTimeout(900);
   sd.apres = await dx.page.evaluate(() => [...document.querySelectorAll('.gn-attente')].map((b) => b.dataset.nom).join());
-  if (sd.ouvert && sd.gestion && sd.noeud && sd.lignes >= 1 && sd.attendus === 'PS01,PC01' && sd.apres === 'PS01') ok('responsable aussi administrateur de la carte : nœuds de l’espace choisis et attendus depuis l’espace, sans repasser par la gestion');
+  sd.equipier = await statut('/api/secours/festival-essai/selecteur', { Cookie: sec }); sd.equipierAjout = (await poster('/api/secours/festival-essai/noeuds', { attendre: { nom: 'PIRA' } }, HS)).status;
+  if (sd.ouvert && sd.gestion && sd.noeud && sd.lignes >= 1 && sd.attendus === 'PS01,PC01' && sd.apres === 'PS01' && sd.equipier === 403 && sd.equipierAjout === 403) ok('responsable d’un espace : il choisit et attend lui-même ses nœuds dans Gestion ; un équipier ne voit pas la liste des nœuds de la carte');
   else { ko('sélecteur de nœuds dans l’espace : ' + JSON.stringify(sd)); await capture(dx.page, 'secours-selecteur-espace'); }
   bilanErreurs(dx.erreurs, 'Sélecteur de nœuds dans un espace');
   await deux.close();
@@ -1133,13 +1134,10 @@ async function essaiSecours(navig, cookie) {
   const g = await ouvrir(adm, '/secours');
   const nb = await g.page.locator('#liste .fiche').count();
   if (nb === 2) ok('gestion des espaces : les deux espaces listés pour l’administrateur de la carte'); else { ko(`gestion des espaces : ${nb} fiche(s)`); await capture(g.page, 'secours-gestion'); }
-  const f1 = g.page.locator('.fiche[data-code="festival-essai"]');
-  await f1.locator('details.selecteur summary').click(); await g.page.waitForTimeout(300);
-  await f1.locator('.s-attente').fill('VPSP'); await f1.locator('.s-attendre').click(); await g.page.waitForTimeout(900);
-  const f2 = g.page.locator('.fiche[data-code="festival-essai"]');
-  const sg = await f2.evaluate((el) => ({ puces: el.querySelectorAll('.puce').length, attentes: [...el.querySelectorAll('.a-retirer')].map((b) => b.dataset.nom).join(), ouvert: el.querySelector('details.selecteur').open, recherche: !!el.querySelector('.s-recherche'), noeud: !!el.querySelector('tr[data-noeud="!a1b2c3d4"] .n-org'), canal: !!el.querySelector('.c-canal'), deborde: document.documentElement.scrollWidth > innerWidth }));
-  if (sg.puces === 4 && sg.attentes === 'PS01,VPSP' && sg.ouvert && sg.recherche && sg.noeud && sg.canal && !sg.deborde) ok('gestion des espaces : organisations, nœuds rangés, sélecteur resté ouvert, nœud attendu ajouté par son nom court');
-  else { ko('gestion des espaces, sélecteur : ' + JSON.stringify(sg)); await capture(g.page, 'secours-selecteur'); }
+  const sg = await g.page.locator('.fiche[data-code="festival-essai"]').evaluate((el) => ({ puces: el.querySelectorAll('.puce').length, attentes: [...el.querySelectorAll('.a-retirer')].map((b) => b.dataset.nom).join(), selecteur: !!el.querySelector('details.selecteur'), noeud: !!el.querySelector('tr[data-noeud="!a1b2c3d4"] .n-retirer'), canal: !!el.querySelector('.c-canal'),
+    large: document.querySelector('.plein.large').clientWidth, cote: new Set([...document.querySelectorAll('#liste .fiche')].map((f) => Math.round(f.getBoundingClientRect().top))).size, deborde: document.documentElement.scrollWidth > innerWidth }));
+  if (sg.puces === 3 && sg.attentes === 'PS01' && !sg.selecteur && sg.noeud && sg.canal && sg.large > 1300 && sg.cote === 1 && !sg.deborde) ok('gestion des espaces : toute la largeur, fiches côte à côte, organisations et canal ; les nœuds se choisissent dans l’espace');
+  else { ko('gestion des espaces, fiche : ' + JSON.stringify(sg)); await capture(g.page, 'secours-selecteur'); }
   bilanErreurs(g.erreurs, 'Gestion des espaces Secours');
   await adm.close();
   const suppr = await fetch(BASE + '/api/secours-admin/espaces/festival-essai', { method: 'DELETE', headers: H });

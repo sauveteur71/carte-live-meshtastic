@@ -36,24 +36,13 @@
     await lireSelecteur();
     $('#titre').textContent = 'Espaces Secours';
     $('#moi').innerHTML = '<a class="bouton mini" href="/">← Carte</a>';
-    // Ce qui est ouvert ou saisi dans une fiche survit à son redessin (après chaque enregistrement)
-    const ouverts = new Set(), recherches = new Map(), coches = new Map();
     const optionsOrg = (e, choisi, vide = '— sans organisation —') => `<option value="">${esc(vide)}</option>` + e.organisations.map((o) => `<option value="${esc(o.id)}" ${o.id === choisi ? 'selected' : ''}>${esc(o.nom)}</option>`).join('');
     const proposees = (e) => (sel.organisations[e.genre] || []).filter((n) => !e.organisations.some((o) => o.nom.toLowerCase() === n.toLowerCase()));
     const nomNoeud = (n) => [n.court, n.long].filter(Boolean).join(' · ') || n.nom || '';
-    // Lignes du sélecteur : les nœuds que la carte connaît, filtrés par la recherche (60 au plus à l'écran)
-    function lignesSelecteur(e) {
-      const r = (recherches.get(e.code) || '').trim().toLowerCase(), c = coches.get(e.code) || new Set();
-      const tous = sel.noeuds.filter((n) => n.espace !== e.code && (!r || `${n.court || ''} ${n.long || ''} ${n.id}`.toLowerCase().includes(r)));
-      const vus = tous.slice(0, 60);
-      return (vus.length ? vus.map((n) => { const autre = n.espace ? espaces.find((x) => x.code === n.espace) : null;
-        return `<label class="case ligne-noeud"><input type="checkbox" value="${esc(n.id)}" ${c.has(n.id) ? 'checked' : ''} ${autre ? 'disabled' : ''}><span><b translate="no">${esc(n.court || '—')}</b> <span translate="no">${esc(n.long || '')}</span> <span class="mono note">${esc(n.id)}</span> <span class="note">${autre ? `— déjà dans « ${esc(autre.nom)} »` : n.vu ? `· vu ${depuis(n.vu)}` : ''}</span></span></label>`; }).join('') : '<div class="vide">Aucun nœud de la carte ne correspond.</div>')
-        + (tous.length > vus.length ? `<p class="note">${tous.length - vus.length} autres nœuds : précisez la recherche.</p>` : '');
-    }
     const dessiner = (message = '') => {
-      page.innerHTML = `<div class="plein">
+      page.innerHTML = `<div class="plein large">
         <h2>Espaces Secours de cette carte</h2>
-        <p class="note">Chaque espace est séparé de tout le reste : son propre fichier de données, ses propres comptes (sans aucun accès à la carte ni à la section ADRASEC), et il ne voit du réseau que les nœuds que vous lui attribuez ici. Vous créez l’espace et nommez son responsable ; vous n’entrez pas dedans. Les messages de ces nœuds ne s’affichent plus dans les messages de la carte.</p>
+        <p class="note">Chaque espace est séparé de tout le reste : son propre fichier de données, ses propres comptes (sans aucun accès à la carte ni à la section ADRASEC), et il ne voit du réseau que les nœuds que ses responsables y ajoutent (⚙️ Gestion de l’espace). Vous créez l’espace et nommez son responsable ; vous n’entrez pas dedans. Les messages de ces nœuds ne s’affichent plus dans les messages de la carte.</p>
         ${message}
         <div id="liste">${espaces.length ? espaces.map((e) => `
           <div class="fiche" data-code="${esc(e.code)}">
@@ -69,15 +58,9 @@
 
             <h3>Nœuds de l’espace</h3>
             ${e.noeudsAttribues.length ? `<table><tbody>${e.noeudsAttribues.map((n) => `<tr data-noeud="${esc(n.id)}"><td><b translate="no">${esc(n.nom || '—')}</b><br><span class="mono note">${esc(n.id)}</span></td>
-              <td><select class="n-org" aria-label="Organisation du nœud">${optionsOrg(e, n.organisation)}</select></td><td><button class="mini danger n-retirer">Retirer</button></td></tr>`).join('')}</tbody></table>` : '<p class="note">Aucun nœud attribué : les équipes de cet espace n’ont pas encore de position ni de message par radio.</p>'}
+              <td><select class="n-org" aria-label="Organisation du nœud">${optionsOrg(e, n.organisation)}</select></td><td><button class="mini danger n-retirer">Retirer</button></td></tr>`).join('')}</tbody></table>` : '<p class="note">Aucun nœud pour l’instant : le responsable les ajoute depuis l’espace.</p>'}
             ${e.attentes.length ? `<p class="note">En attente (pas encore vus par la carte, attribués dès qu’ils s’allument) :</p><div class="puces">${e.attentes.map((a) => `<span class="pastille puce att"><span class="mono" translate="no">${esc(a.nom)}</span>${a.organisation && e.organisations.find((o) => o.id === a.organisation) ? ' · ' + esc(e.organisations.find((o) => o.id === a.organisation).nom) : ''} <button class="mini a-retirer" data-nom="${esc(a.nom)}" aria-label="Ne plus attendre ${esc(a.nom)}">✕</button></span>`).join('')}</div>` : ''}
-            <details class="selecteur" ${ouverts.has(e.code) ? 'open' : ''}><summary>➕ Choisir des nœuds dans la liste de la carte</summary>
-              <label>Chercher (nom court, nom long ou numéro) <input class="s-recherche" type="search" value="${esc(recherches.get(e.code) || '')}" placeholder="ex. PS01, Poste scène, !a1b2c3d4" autocapitalize="off" spellcheck="false"></label>
-              <div class="s-liste">${ouverts.has(e.code) ? lignesSelecteur(e) : ''}</div>
-              <div class="champs"><label>Ranger dans <select class="s-org">${optionsOrg(e, null)}</select></label><button class="mini principal s-attribuer">Attribuer les nœuds cochés</button></div>
-              <div class="champs"><label>Nœud pas encore allumé : son nom court <input class="s-attente mono" maxlength="12" placeholder="ex. PS01" autocapitalize="off" spellcheck="false"></label><button class="mini s-attendre">L’attendre</button></div>
-              <p class="note">Le nœud attendu rejoint l’espace (et l’organisation choisie ci-dessus) dès que la carte voit un nœud portant ce nom court. Si plusieurs nœuds portent le même nom, rien n’est attribué : choisissez-le alors dans la liste.</p>
-            </details>
+            <p class="note">Les nœuds se choisissent dans l’espace, par ses responsables : ⚙️ Gestion › Nœuds LoRa de l’espace. Vous pouvez seulement en retirer ici.</p>
 
             <h3>Canal réservé</h3>
             <div class="champs"><label>Canal du module radio de la carte réservé à cet espace <select class="c-canal"><option value="">— aucun —</option>${[...new Set([...(e.canal ? [e.canal] : []), ...sel.canaux])].map((c) => `<option ${c === e.canal ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label><button class="mini c-ok">Enregistrer</button></div>
@@ -106,7 +89,7 @@
           <label>Identifiant du premier responsable <input id="n-rid" autocomplete="off"></label>
           <label>Son mot de passe (8 caractères au moins) <input id="n-rmdp" type="password" autocomplete="new-password"></label>
         </div>
-        <p class="note">Les nœuds s’attribuent ensuite, dans la fiche de l’espace.</p>
+        <p class="note">Le responsable ajoute ensuite lui-même les nœuds de ses équipes, dans ⚙️ Gestion de son espace.</p>
         <div class="champs"><button id="n-creer" class="principal">Créer l’espace</button><span id="n-retour" class="erreur"></span></div>
       </div>`;
       // Adresse proposée d'après le nom, tant qu'elle n'a pas été saisie à la main
@@ -121,9 +104,8 @@
         const org = $('#n-org').value === '-' ? null : $('#n-org').value || $('#n-org-nom').value.trim();
         try {
           espaces = (await api('/api/secours-admin/espaces', { method: 'POST', body: { nom: $('#n-nom').value, genre: $('#n-genre').value, code: $('#n-code').value, responsable: { identifiant: $('#n-rid').value, motDePasse: $('#n-rmdp').value }, organisations: org ? [org] : [] } })).espaces;
-          ouverts.add($('#n-code').value);
           await lireSelecteur();
-          dessiner('<p class="reussi">Espace créé. Attribuez-lui ses nœuds ci-dessous, puis donnez son adresse, l’identifiant et le mot de passe au responsable.</p>');
+          dessiner('<p class="reussi">Espace créé. Donnez son adresse, l’identifiant et le mot de passe au responsable : il y ajoutera les nœuds de ses équipes.</p>');
         } catch (e) { $('#n-retour').textContent = e.message; }
       };
       for (const f of page.querySelectorAll('.fiche[data-code]')) {
@@ -139,16 +121,6 @@
           $('.n-retirer', tr).onclick = () => { if (confirm(`Retirer le nœud ${tr.dataset.noeud} de cet espace ? L’équipe qui le porte n’aura plus de position.`)) appel('PATCH', { retirer: [tr.dataset.noeud] }, 'Nœud retiré.'); };
         }
         for (const b of f.querySelectorAll('.a-retirer')) b.onclick = () => appel('PATCH', { retirerAttente: b.dataset.nom }, 'Nœud en attente retiré.');
-        // Sélecteur
-        const d = $('.selecteur', f), liste = $('.s-liste', f);
-        const cocher = () => { const s = coches.get(c) || new Set(); for (const x of liste.querySelectorAll('input[type=checkbox]')) { if (x.checked) s.add(x.value); else s.delete(x.value); } coches.set(c, s); $('.s-attribuer', f).textContent = s.size ? `Attribuer les nœuds cochés (${s.size})` : 'Attribuer les nœuds cochés'; };
-        const lister = () => { liste.innerHTML = lignesSelecteur(e); cocher(); };
-        d.ontoggle = () => { if (d.open) { ouverts.add(c); lister(); } else ouverts.delete(c); };
-        liste.onchange = cocher;
-        $('.s-recherche', f).oninput = (ev) => { cocher(); recherches.set(c, ev.target.value); lister(); };
-        if (d.open) cocher();
-        $('.s-attribuer', f).onclick = () => { cocher(); const n = [...(coches.get(c) || [])]; if (!n.length) { retour.textContent = 'Cochez au moins un nœud dans la liste.'; return; } coches.delete(c); appel('PATCH', { attribuer: { noeuds: n, organisation: $('.s-org', f).value || null } }, `${n.length} nœud${n.length > 1 ? 's' : ''} attribué${n.length > 1 ? 's' : ''}.`); };
-        $('.s-attendre', f).onclick = () => { const nom = $('.s-attente', f).value.trim(); appel('PATCH', { attendre: { nom, organisation: $('.s-org', f).value || null } }, `« ${esc(nom)} » sera attribué dès qu’il s’allumera.`); };
         $('.c-ok', f).onclick = () => appel('PATCH', { canal: $('.c-canal', f).value }, 'Canal enregistré.');
         $('.nommer', f).onclick = () => { $('.zone-nommer', f).hidden = !$('.zone-nommer', f).hidden; };
         $('.r-ok', f).onclick = () => appel('PATCH', { responsable: { identifiant: $('.r-id', f).value, motDePasse: $('.r-mdp', f).value } }, 'Responsable enregistré.');
@@ -342,11 +314,9 @@
   const optionsEquipes = (choisi, vide = '— aucune —') => `<option value="">${esc(vide)}</option>` + E.equipes.map((e) => `<option value="${esc(e.id)}" ${e.id === choisi ? 'selected' : ''}>${esc(e.nom)}</option>`).join('');
   // Saisie commencée dans l'onglet Gestion : il n'est pas redessiné tant qu'elle n'est pas enregistrée ou abandonnée
   let saisieGestion = false;
-  // Le responsable qui est aussi administrateur de la carte (sa session de la carte est ouverte dans ce navigateur)
-  // attribue les nœuds d'ici, sans repasser par la page de gestion des espaces. C'est sa session d'administrateur qui
-  // l'autorise : un responsable sans elle ne voit rien de la liste des nœuds de la carte.
+  // Les responsables choisissent les nœuds de leur espace dans la liste des nœuds que la carte connaît
   let adminCarte = null;
-  const lireAdminCarte = async () => { try { adminCarte = await api('/api/secours-admin/selecteur'); } catch { adminCarte = null; } };
+  const lireAdminCarte = async () => { try { adminCarte = await api(base + '/selecteur'); } catch { adminCarte = null; } };
   if (E.moi.responsable) await lireAdminCarte();
   let selOuvert = false, selRecherche = '';
   const selCoches = new Set();
@@ -671,10 +641,7 @@
         <p class="note">Le nœud attendu rejoint l’espace dès que la carte voit un nœud portant ce nom court. Si plusieurs nœuds portent le même nom, rien n’est attribué : choisissez-le alors dans la liste.</p>
       </details>
       <div id="g-n-retour" class="erreur"></div>
-      <p class="note">Vous voyez la liste des nœuds de la carte parce que votre session d’administrateur de la carte est ouverte dans ce navigateur. Les autres responsables de l’espace ne la voient pas.</p>` : `
-      ${E.attentes.length ? `<p class="note">Attendus, pas encore allumés : <span class="mono" translate="no">${E.attentes.map((a) => esc(a.nom)).join(', ')}</span></p>` : ''}
-      ${E.noeuds.length ? `<p translate="no" class="mono">${E.noeuds.map((n) => esc(n.nom ? `${n.nom} (${n.id})` : n.id) + (nomOrg(n.organisation) ? ` — ${esc(nomOrg(n.organisation))}` : '')).join('<br>')}</p>` : '<p class="bandeau">Aucun nœud n’est attribué à cet espace. Demandez à l’administrateur de la carte d’y ajouter les nœuds que porteront vos équipes.</p>'}
-      <p class="note">Seul l’administrateur de la carte attribue des nœuds : l’espace ne voit que ceux-là.</p>`}` : ''}
+      <p class="note">Un nœud n’appartient qu’à un espace : ses messages n’apparaissent alors plus dans les messages de la carte.</p>` : '<p class="bandeau">La liste des nœuds de la carte est indisponible pour l’instant : rechargez la page.</p>'}` : ''}
 
       <h2>Depuis le terrain, par radio</h2>
       <p class="note">Un message texte envoyé par le nœud d’une équipe arrive ici :</p>
@@ -724,11 +691,11 @@
     // Nœuds de l'espace, pour le responsable qui est aussi administrateur de la carte
     if (adminCarte) {
       const retour = $('#g-n-retour'), liste = $('#g-s-liste'), d = $('#g-selecteur');
-      const adminEspace = (corps) => agir(async () => { await api('/api/secours-admin/espaces/' + code, { method: 'PATCH', body: corps }); await lireAdminCarte(); }, retour);
+      const adminEspace = (corps) => agir(async () => { await api(base + '/noeuds', { method: 'POST', body: corps }); await lireAdminCarte(); }, retour);
       const lister = () => {
         const r = selRecherche.trim().toLowerCase();
-        const tous = adminCarte.noeuds.filter((n) => n.espace !== code && (!r || `${n.court || ''} ${n.long || ''} ${n.id}`.toLowerCase().includes(r))), vus = tous.slice(0, 60);
-        liste.innerHTML = (vus.length ? vus.map((n) => `<label class="case ligne-noeud"><input type="checkbox" value="${esc(n.id)}" ${selCoches.has(n.id) ? 'checked' : ''} ${n.espace ? 'disabled' : ''}><span><b translate="no">${esc(n.court || '—')}</b> <span translate="no">${esc(n.long || '')}</span> <span class="mono note">${esc(n.id)}</span> <span class="note">${n.espace ? '— déjà dans un autre espace' : n.vu ? `· vu ${depuis(n.vu)}` : ''}</span></span></label>`).join('') : '<div class="vide">Aucun nœud de la carte ne correspond.</div>')
+        const tous = adminCarte.noeuds.filter((n) => !n.ici && (!r || `${n.court || ''} ${n.long || ''} ${n.id}`.toLowerCase().includes(r))), vus = tous.slice(0, 60);
+        liste.innerHTML = (vus.length ? vus.map((n) => `<label class="case ligne-noeud"><input type="checkbox" value="${esc(n.id)}" ${selCoches.has(n.id) ? 'checked' : ''} ${n.pris ? 'disabled' : ''}><span><b translate="no">${esc(n.court || '—')}</b> <span translate="no">${esc(n.long || '')}</span> <span class="mono note">${esc(n.id)}</span> <span class="note">${n.pris ? '— déjà dans un autre espace' : n.vu ? `· vu ${depuis(n.vu)}` : ''}</span></span></label>`).join('') : '<div class="vide">Aucun nœud de la carte ne correspond.</div>')
           + (tous.length > vus.length ? `<p class="note">${tous.length - vus.length} autres nœuds : précisez la recherche.</p>` : '');
         $('#g-s-attribuer').textContent = selCoches.size ? `Attribuer les nœuds cochés (${selCoches.size})` : 'Attribuer les nœuds cochés';
       };

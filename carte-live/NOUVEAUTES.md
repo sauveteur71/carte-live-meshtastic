@@ -4,12 +4,13 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## En préparation
 
-### ⛑️ Espaces Secours : fonds de carte, panneau élargissable, nœuds attribués depuis l'espace
+### ⛑️ Espaces Secours : fonds de carte, panneau élargissable, chaque espace gère ses nœuds
 - **Fonds de carte au choix** dans un espace, comme sur la carte du réseau : Sombre, Plan IGN, Plan IGN sombre, Photos aériennes, Topographique (relief), OpenStreetMap, avec en surcouche le **relief ombré** et les noms des lieux. Le choix est retenu sur l'appareil.
 - **Panneau de droite élargissable** : la barre entre la carte et le panneau se tire à la souris (double-clic : largeur d'origine ; flèches au clavier). La largeur est retenue sur l'appareil.
 - **Mot ajouté à l'envoi d'un repère** : le bouton 📻 d'un point de rassemblement (espace Secours comme section ADRASEC) demande un mot à joindre au message avant de l'envoyer — « repas à 12 h 30 », « rassemblement avant la manœuvre ». Laisser vide envoie le repère seul.
 - **Fond OpenStreetMap retiré** de la carte d'un espace : leurs serveurs refusent ce genre d'usage et renvoyaient des tuiles « Access blocked ». Les autres fonds (Sombre, Plan IGN, photos, topographique) ne sont pas concernés.
-- **Nœuds attribués depuis l'espace** quand le responsable est aussi l'administrateur de la carte (connecté aux deux dans le même navigateur) : le sélecteur de nœuds apparaît dans *⚙️ Gestion* de l'espace et depuis la fiche d'une équipe, sans repasser par la page de gestion des espaces. Un responsable sans session d'administrateur de la carte ne voit toujours rien de la liste des nœuds.
+- **Chaque espace gère ses propres nœuds** : ce sont désormais les **responsables de l'espace** qui choisissent ses nœuds, dans *⚙️ Gestion › Nœuds LoRa de l'espace* (recherche dans la liste de la carte, nœud attendu par son nom court, rangement par organisation, retrait). L'administrateur de la carte crée l'espace, nomme son responsable et réserve un canal ; il peut seulement retirer un nœud. Un nœud pris par un autre espace est grisé, sans dire par lequel.
+- **Page de gestion des espaces sur toute la largeur** de l'écran, les fiches côte à côte : moins de défilement.
 
 ## 2.32.0
 
