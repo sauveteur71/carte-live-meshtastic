@@ -5,6 +5,7 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 ## En préparation
 
 - Gestion des espaces Secours : le titre et le texte d'introduction sont centrés (au lieu de rester collés à gauche sur un grand écran).
+- Recherche de sites (plan pour couvrir le département, zone dessinée à la main, plan à budget) : nouveau plafond d'altitude facultatif pour écarter les propositions trop hautes, souvent au-dessus de la limite des arbres (rien où fixer une antenne) et difficiles d'accès.
 
 ## 2.35.0
 

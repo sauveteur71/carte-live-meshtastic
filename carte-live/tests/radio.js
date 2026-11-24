@@ -1024,6 +1024,45 @@ test('Relief : relief grossier pendant le téléchargement du précis, calculs m
   } finally { liberer(); global.fetch = fetchAvant; if (R) R.arreter(); }
 });
 
+test('Relief : plafond d’altitude des propositions de sites (planDepartement, planBudget)', async () => {
+  const { creerRelief } = require('../src/relief');
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'relief-altmax-'));
+  // Un seul point haut candidat (sommet OSM), altitude déclarée 1200 m : indépendante du relief (plat) utilisé pour la propagation
+  fs.writeFileSync(path.join(dossier, 'sommets-osm-43.json'), JSON.stringify({ date: Date.now(), liste: [{ lat: 45.1, lon: 3.9, nom: 'Pic d’essai', ele: 1200 }] }));
+  const fetchAvant = global.fetch;
+  global.fetch = async (url, o = {}) => {
+    if (/geopf/i.test(String(url))) { const n = JSON.parse(o.body).lon.split('|').length; return { ok: true, status: 200, json: async () => ({ elevations: new Array(n).fill(0) }) }; }
+    throw new Error('hors ligne (essai)');
+  };
+  let R;
+  const fournisseurs = { presetCourant: () => 'LONG_FAST', noeudsReseau: () => [], liensMesures: () => [], envDefaut: () => 10, reliefGrossier: () => null, apresTelechargement: () => {} };
+  try {
+    R = creerRelief({ fichierBase: path.join(dossier, 'carte-live.db'), departement: { code: '07' }, zone: [44.2, 3.8, 45.4, 4.9] }, () => {}, fournisseurs, { code: '43' });
+    for (let k = 0; k < 400 && R.etat().classement !== 'pret'; k++) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(R.etat().classement, 'pret', 'classement calculé');
+    assert.equal(R.sommets().length, 1);
+    assert.equal(R.sommets()[0].alt, 1200);
+    // Sans plafond : le seul candidat (1200 m) est proposé
+    const sans = R.planDepartement({ objectifPct: 10, max: 3 });
+    assert.equal(sans.altMax, null);
+    assert.equal(sans.candidats, 1);
+    assert.equal(sans.sites.length, 1, 'le site à 1200 m est proposé sans plafond');
+    // Plafond sous son altitude : le site est écarté
+    const avecPlafondBas = R.planDepartement({ objectifPct: 10, max: 3, altMax: 1000 });
+    assert.equal(avecPlafondBas.altMax, 1000);
+    assert.equal(avecPlafondBas.candidats, 0);
+    assert.equal(avecPlafondBas.sites.length, 0, 'le site à 1200 m est écarté par un plafond à 1000 m');
+    // Plafond au-dessus de son altitude : toujours proposé
+    const avecPlafondHaut = R.planDepartement({ objectifPct: 10, max: 3, altMax: 1500 });
+    assert.equal(avecPlafondHaut.sites.length, 1, 'le site à 1200 m reste proposé sous un plafond à 1500 m');
+    // Même filtre répercuté sur le plan à budget
+    const budgetSans = R.planBudget({ n: 1 });
+    assert.equal(budgetSans.sites.length, 1);
+    const budgetFiltre = R.planBudget({ n: 1, altMax: 1000 });
+    assert.equal(budgetFiltre.sites.length, 0, 'plan à budget : le site à 1200 m est aussi écarté par le plafond');
+  } finally { global.fetch = fetchAvant; if (R) R.arreter(); }
+});
+
 test('Cache du relief : espace occupé, purge par ancienneté, zone verrouillée ou récente gardée, plafond LRU', async () => {
   const { creerCacheRelief } = require('../src/relief-cache');
   const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-relief-'));

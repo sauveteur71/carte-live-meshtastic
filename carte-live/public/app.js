@@ -4390,7 +4390,8 @@ async function planZoneDessinee(polys, nom, opts = {}) {
   carte.fitBounds(L.latLngBounds(polys.flat()).pad(0.15), { maxZoom: 13 });
   let r;
   const hs = Number(($('#plan-hs') || {}).value) || 6;
-  try { r = await postJson('/api/relief/plan-zone', { polygones: polys, objectif, max, acces, reseau, realiste, hs }); } catch (e) { z.innerHTML = `<h2>🖊 ${esc(nom)}</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  const altmax = Number(($('#plan-altmax') || {}).value) || null;
+  try { r = await postJson('/api/relief/plan-zone', { polygones: polys, objectif, max, acces, reseau, realiste, hs, altmax }); } catch (e) { z.innerHTML = `<h2>🖊 ${esc(nom)}</h2><div class="vide">${esc(e.message)}</div>`; return; }
   const e2 = r.emprise;
   L.imageOverlay(r.image, [[e2.sud, e2.ouest], [e2.nord, e2.est]], { opacity: 0.75, pane: 'couverture', className: 'pixelise' }).addTo(g);
   r.sites.forEach((x) => L.marker([x.lat, x.lon], { icon: L.divIcon({ className: 'relais-a-installer', html: `<div class="epingle"><b>${x.rang}</b></div>`, iconSize: [34, 44], iconAnchor: [17, 42] }), pane: 'traces', zIndexOffset: 900 })
@@ -4400,7 +4401,7 @@ async function planZoneDessinee(polys, nom, opts = {}) {
     .bindTooltip(`<b>${x.rang}${String.fromCharCode(97 + j)} · ${esc(nomSommet(o))}</b> (à la place du site ${x.rang})<br>${o.alt} m${o.commune ? ' · ' + esc(o.commune) : ''}<br>+${o.gainKm2} km² au lieu de +${x.gainKm2} km²${o.acces ? '<br>' + ACCES[o.acces.type].icone + ' ' + ACCES[o.acces.type].nom : ''}`, { className: 'info' }).addTo(g)));
   const nomAcces = { tous: 'tous les points hauts', voiture: 'accessibles en voiture', '4x4': 'accessibles en 4×4 ou voiture', pied: 'accessibles à pied, en 4×4 ou voiture' }[r.filtreAcces];
   z.innerHTML = `<h2>🖊 ${esc(nom)}</h2>
-    <div class="ident">${r.zones > 1 ? r.zones + ' zones · ' : ''}${r.surfaceZoneKm2} km² · objectif ${r.objectifPct} % · au plus ${r.max} sites · ${esc(nomAcces)} · ${r.avecReseau ? `avec le réseau actuel (${r.reseau.length} relais à portée)` : 'sans le réseau actuel'}${r.parametres && r.parametres.hs != null ? ` · antenne des sites <b>${fmt(r.parametres.hs, 1, ' m')} au-dessus du sol</b>` : ''}</div>
+    <div class="ident">${r.zones > 1 ? r.zones + ' zones · ' : ''}${r.surfaceZoneKm2} km² · objectif ${r.objectifPct} % · au plus ${r.max} sites · ${esc(nomAcces)}${r.altMax != null ? ` · altitude ≤ ${r.altMax} m` : ''} · ${r.avecReseau ? `avec le réseau actuel (${r.reseau.length} relais à portée)` : 'sans le réseau actuel'}${r.parametres && r.parametres.hs != null ? ` · antenne des sites <b>${fmt(r.parametres.hs, 1, ' m')} au-dessus du sol</b>` : ''}</div>
     <div class="parametres compact"><label>Accès des nouveaux relais <select id="zone-acces">${Object.entries({ voiture: '🚗 En voiture', '4x4': '🚙 En 4×4 ou voiture', pied: '🥾 À pied ou mieux', tous: 'Tous les points hauts' }).map(([k, v]) => `<option value="${k}" ${k === r.filtreAcces ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
     ${r.filtreAcces !== 'tous' && r.accesEtat && r.accesEtat.faits < r.accesEtat.total ? `<div class="alerte attention">Accès aux sites en cours d’évaluation (OpenStreetMap) : ${r.accesEtat.faits}/${r.accesEtat.total} points. Seuls les sites déjà évalués sont proposés.</div>` : ''}
     ${r.horsReliefKm2 > 2 ? `<div class="alerte attention">${r.horsReliefKm2} km² de la zone sortent du relief chargé (département et ses abords) : ils ne sont pas étudiés.</div>` : ''}
@@ -4427,11 +4428,12 @@ async function planZoneDessinee(polys, nom, opts = {}) {
 async function planDepartement() {
   const objectif = Number($('#plan-objectif').value) || 95, max = Number($('#plan-max').value) || 15;
   const acces = $('#plan-acces').value, reseau = $('#plan-reseau').checked;
+  const altmax = Number(($('#plan-altmax') || {}).value) || '';
   $('#fiche').hidden = false;
   etat.selection = null;
   $('#fiche-contenu').innerHTML = '<h2>Plan de couverture</h2><div class="alerte info-lecture"><span class="sablier"></span> Recherche des sites…</div>';
   let r;
-  try { r = await api(`/api/relief/plan?objectif=${objectif}&max=${max}&acces=${acces}&reseau=${reseau ? 1 : 0}&realiste=${$('#plan-realiste').checked ? 1 : 0}`); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Plan de couverture</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  try { r = await api(`/api/relief/plan?objectif=${objectif}&max=${max}&acces=${acces}&reseau=${reseau ? 1 : 0}&realiste=${$('#plan-realiste').checked ? 1 : 0}${altmax ? `&altmax=${altmax}` : ''}`); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Plan de couverture</h2><div class="vide">${esc(e.message)}</div>`; return; }
   if (etat.coucheCouverture) etat.coucheCouverture.remove();
   const e = r.emprise, g = L.layerGroup();
   L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.7, pane: 'couverture', className: 'pixelise' }).addTo(g);
@@ -4443,7 +4445,7 @@ async function planDepartement() {
   if (r.sites.length) carte.fitBounds(L.latLngBounds(r.sites.map((x) => [x.lat, x.lon])).pad(0.3), { maxZoom: 11 });
   const nomAcces = { tous: 'tous les points hauts', voiture: 'accessibles en voiture', '4x4': 'accessibles en 4×4 ou voiture', pied: 'accessibles à pied, en 4×4 ou voiture' }[r.filtreAcces];
   $('#fiche-contenu').innerHTML = `<h2>Plan pour couvrir le département</h2>
-    <div class="ident">Objectif ${r.objectifPct} % · au plus ${r.max} sites · ${esc(nomAcces)} · ${r.avecReseau ? `en complément du réseau actuel (${r.reseau.length} relais)` : 'sans tenir compte du réseau actuel'}${r.parametres && r.parametres.hs != null ? ` · antenne des sites ${fmt(r.parametres.hs, 1, ' m')} au-dessus du sol (fixée par le classement des points hauts ; réglable pour une zone dessinée)` : ''}</div>
+    <div class="ident">Objectif ${r.objectifPct} % · au plus ${r.max} sites · ${esc(nomAcces)}${r.altMax != null ? ` · altitude ≤ ${r.altMax} m` : ''} · ${r.avecReseau ? `en complément du réseau actuel (${r.reseau.length} relais)` : 'sans tenir compte du réseau actuel'}${r.parametres && r.parametres.hs != null ? ` · antenne des sites ${fmt(r.parametres.hs, 1, ' m')} au-dessus du sol (fixée par le classement des points hauts ; réglable pour une zone dessinée)` : ''}</div>
     <div class="barre-couv"><i style="width:${r.departPct}%" class="actuel"></i><i style="width:${Math.max(0, r.finalPct - r.departPct)}%" class="ajout"></i></div>
     ${avertissementSites()}
     <div class="alerte ${r.atteint ? 'info-lecture' : 'attention'}">${r.atteint ? `✔ Objectif atteint avec <b>${r.sites.length} site${r.sites.length > 1 ? 's' : ''}</b> : ${fmt(r.departPct, 1, ' %')} → <b>${fmt(r.finalPct, 1, ' %')}</b> du département.` : `Objectif non atteint : ${fmt(r.departPct, 1, ' %')} → <b>${fmt(r.finalPct, 1, ' %')}</b> avec ${r.sites.length} site${r.sites.length > 1 ? 's' : ''}. ${r.sites.length >= r.max ? 'Augmentez le nombre de sites' : 'Les sites restants n’apportent presque rien'}${r.filtreAcces !== 'tous' ? ' ou élargissez l’accès' : ''}.`}</div>
@@ -4585,7 +4587,7 @@ async function planBudget(o) {
   const z = $('#fiche-contenu');
   z.innerHTML = '<h2>💶 Plan à budget</h2><div class="alerte info-lecture"><span class="sablier"></span> Recherche des meilleurs emplacements…</div>';
   let r;
-  try { r = await api(`/api/relief/budget?n=${encodeURIComponent(o.n)}&acces=${encodeURIComponent(o.acces)}&secteur=${encodeURIComponent(o.secteur)}&solaire=${encodeURIComponent(o.solaire)}&mat=${encodeURIComponent(o.mat)}`); } catch (e) { z.innerHTML = `<h2>💶 Plan à budget</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  try { r = await api(`/api/relief/budget?n=${encodeURIComponent(o.n)}&acces=${encodeURIComponent(o.acces)}&secteur=${encodeURIComponent(o.secteur)}&solaire=${encodeURIComponent(o.solaire)}&mat=${encodeURIComponent(o.mat)}${o.altmax ? `&altmax=${encodeURIComponent(o.altmax)}` : ''}`); } catch (e) { z.innerHTML = `<h2>💶 Plan à budget</h2><div class="vide">${esc(e.message)}</div>`; return; }
   if (etat.coucheCouverture) etat.coucheCouverture.remove();
   const g = L.layerGroup();
   r.sites.forEach((x) => L.marker([x.lat, x.lon], { icon: L.divIcon({ className: 'relais-a-installer', html: `<div class="epingle"><b>${x.rang}</b></div>`, iconSize: [34, 44], iconAnchor: [17, 42] }), pane: 'traces', zIndexOffset: 900 })
@@ -4667,6 +4669,7 @@ async function rendreSites() {
         <label>Sites au plus <input id="plan-max" type="number" min="1" max="40" step="1" value="15"></label>
         <label title="Hauteur de l’antenne des relais proposés, au-dessus du sol (zone dessinée)">Antenne (m au-dessus du sol) <input id="plan-hs" type="number" min="1" max="60" step="0.5" value="6"></label>
         <label>Accès exigé <select id="plan-acces"><option value="voiture">🚗 En voiture</option><option value="4x4">🚙 En 4×4 ou voiture</option><option value="pied">🥾 À pied ou mieux</option><option value="tous">Tous les points hauts</option></select></label>
+        <label title="Écarte les sites au-dessus de cette altitude : souvent hors forêt (rien où fixer une antenne) et plus difficiles d’accès">Altitude max (m) <input id="plan-altmax" type="number" min="0" max="3000" step="50" placeholder="aucune limite"></label>
       </div>
       <label class="case"><input type="checkbox" id="plan-reseau" checked> En complément du réseau actuel</label>
       <label class="case"><input type="checkbox" id="plan-realiste" checked> Sites réalistes : zones protégées écartées, châteaux d’eau et pylônes privilégiés, électricité</label>
@@ -4683,6 +4686,7 @@ async function rendreSites() {
       <div class="parametres compact">
         <label>Relais à poser <input id="budget-n" type="number" min="1" max="15" step="1" value="3"></label>
         <label>Accès exigé <select id="budget-acces"><option value="voiture">🚗 En voiture</option><option value="4x4">🚙 En 4×4 ou voiture</option><option value="pied">🥾 À pied ou mieux</option><option value="tous">Tous les points hauts</option></select></label>
+        <label title="Écarte les sites au-dessus de cette altitude">Altitude max (m) <input id="budget-altmax" type="number" min="0" max="3000" step="50" placeholder="aucune limite"></label>
         <label>Relais secteur (€) <input id="budget-secteur" type="number" min="0" step="10" value="120"></label>
         <label>Relais solaire (€) <input id="budget-solaire" type="number" min="0" step="10" value="220"></label>
         <label>Mât + fixations (€) <input id="budget-mat" type="number" min="0" step="10" value="90"></label>
@@ -4751,9 +4755,9 @@ async function rendreSites() {
   if (bd) bd.onclick = () => optimiserRelais(Number($('#dep-rayon').value), $('#dep-acces').value);
   const bb = $('#budget-calculer');
   if (bb) {
-    try { const v = localStorage.getItem('gaulix_budget'); if (v) { const o = JSON.parse(v); for (const k of ['n', 'acces', 'secteur', 'solaire', 'mat']) if (o[k] != null) $('#budget-' + k).value = o[k]; } } catch { /* ignoré */ }
+    try { const v = localStorage.getItem('gaulix_budget'); if (v) { const o = JSON.parse(v); for (const k of ['n', 'acces', 'altmax', 'secteur', 'solaire', 'mat']) if (o[k] != null && $('#budget-' + k)) $('#budget-' + k).value = o[k]; } } catch { /* ignoré */ }
     bb.onclick = () => {
-      const o = Object.fromEntries(['n', 'acces', 'secteur', 'solaire', 'mat'].map((k) => [k, $('#budget-' + k).value]));
+      const o = Object.fromEntries(['n', 'acces', 'altmax', 'secteur', 'solaire', 'mat'].map((k) => [k, $('#budget-' + k).value]));
       try { localStorage.setItem('gaulix_budget', JSON.stringify(o)); } catch { /* ignoré */ }
       planBudget(o);
     };
@@ -4763,10 +4767,12 @@ async function rendreSites() {
   { const zs = $('#zone-suppr'); if (zs) zs.onclick = async () => { const zm = $('#zone-memo'); const l = lireLs('gaulix_zones', []); const k = Number(zm.value); if (zm.value === '' || !l[k]) return; if (!(await confirmer(`Oublier la zone « ${l[k].nom} » ?`))) return; l.splice(k, 1); ecrireLs('gaulix_zones', l); zm.innerHTML = '<option value="">Zones enregistrées…</option>' + l.map((z, i) => `<option value="${i}">${esc(z.nom)}</option>`).join(''); }; }
   const pc = $('#plan-calculer');
   if (pc) {
-    try { const v = localStorage.getItem('gaulix_plan'); if (v) { const o = JSON.parse(v); $('#plan-objectif').value = o.objectif; $('#plan-max').value = o.max; $('#plan-acces').value = o.acces; $('#plan-reseau').checked = o.reseau; if (o.hs && $('#plan-hs')) $('#plan-hs').value = o.hs; } } catch { /* ignoré */ }
-    if ($('#plan-hs')) $('#plan-hs').onchange = () => { try { localStorage.setItem('gaulix_plan', JSON.stringify({ objectif: $('#plan-objectif').value, max: $('#plan-max').value, acces: $('#plan-acces').value, reseau: $('#plan-reseau').checked, hs: $('#plan-hs').value })); } catch { /* ignoré */ } };
+    try { const v = localStorage.getItem('gaulix_plan'); if (v) { const o = JSON.parse(v); $('#plan-objectif').value = o.objectif; $('#plan-max').value = o.max; $('#plan-acces').value = o.acces; $('#plan-reseau').checked = o.reseau; if (o.hs && $('#plan-hs')) $('#plan-hs').value = o.hs; if (o.altmax && $('#plan-altmax')) $('#plan-altmax').value = o.altmax; } } catch { /* ignoré */ }
+    const sauverPlan = () => { try { localStorage.setItem('gaulix_plan', JSON.stringify({ objectif: $('#plan-objectif').value, max: $('#plan-max').value, acces: $('#plan-acces').value, reseau: $('#plan-reseau').checked, hs: ($('#plan-hs') || {}).value, altmax: ($('#plan-altmax') || {}).value })); } catch { /* ignoré */ } };
+    if ($('#plan-hs')) $('#plan-hs').onchange = sauverPlan;
+    if ($('#plan-altmax')) $('#plan-altmax').onchange = sauverPlan;
     pc.onclick = () => {
-      try { localStorage.setItem('gaulix_plan', JSON.stringify({ objectif: $('#plan-objectif').value, max: $('#plan-max').value, acces: $('#plan-acces').value, reseau: $('#plan-reseau').checked, hs: ($('#plan-hs') || {}).value })); } catch { /* ignoré */ }
+      sauverPlan();
       planDepartement();
     };
   }

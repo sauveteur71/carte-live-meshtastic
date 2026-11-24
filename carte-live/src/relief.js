@@ -674,7 +674,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   const compter = (b) => { let n = 0; for (let w = 0; w < b.length; w++) { let x = b[w]; while (x) { x &= x - 1; n++; } } return n; };
   // realiste : zones protégées écartées, préférence pour les supports existants et le secteur proche (facteur de realisme.js)
   const facteurRealisme = (s, realiste) => (!realiste || !s.realisme ? 1 : s.realisme.facteur);
-  function planGlouton(couvertures, deja, existants, min, { max = 12, cible = Infinity, gainMin = 40, realiste = false, alternatives = 0 } = {}) {
+  function planGlouton(couvertures, deja, existants, min, { max = 12, cible = Infinity, gainMin = 40, realiste = false, alternatives = 0, altMax = null } = {}) {
     const choisis = [];
     const cumul = Uint32Array.from(deja);
     for (let etape = 0; etape < max; etape++) {
@@ -683,6 +683,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       const notes = alternatives ? [] : null;
       for (const c of couvertures) {
         if (!accessible(c.s, min)) continue;
+        if (altMax != null && c.s.alt > altMax) continue;
         const fr = facteurRealisme(sommets[c.s.id] || c.s, realiste);
         if (!fr) continue;
         if (choisis.some((x) => distanceM(x.s, c.s) < 4000) || existants.some((n) => distanceM(n, c.s) < 2000)) continue;
@@ -708,13 +709,13 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     return choisis;
   }
   // Plan pour couvrir le département : objectif en %, nombre maximal de sites, niveau d'accès exigé
-  function planDepartement({ objectifPct = 95, max = 15, acces: filtre = null, avecReseau = true, realiste = false } = {}) {
+  function planDepartement({ objectifPct = 95, max = 15, acces: filtre = null, avecReseau = true, realiste = false, altMax = null } = {}) {
     if (!dernierCalcul) return null;
     const min = niveauMin(filtre);
     const deja = avecReseau ? dernierCalcul.deja : new Uint32Array(dernierCalcul.deja.length);
     const depart = compter(deja);
     const cible = Math.ceil((Math.min(100, Math.max(10, objectifPct)) / 100) * nbZone);
-    const choisis = planGlouton(dernierCalcul.couvertures, deja, avecReseau ? dernierCalcul.existants : [], min, { max: Math.min(40, Math.max(1, max)), cible, gainMin: 8, realiste });
+    const choisis = planGlouton(dernierCalcul.couvertures, deja, avecReseau ? dernierCalcul.existants : [], min, { max: Math.min(40, Math.max(1, max)), cible, gainMin: 8, realiste, altMax });
     const finale = choisis.length ? choisis[choisis.length - 1].total : depart;
     // Image : déjà couvert par le réseau (bleu), apporté par les nouveaux sites (turquoise), non couvert (rouge pâle)
     const cumul = Uint32Array.from(deja);
@@ -728,9 +729,9 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       const c = deja[w] & b ? [96, 165, 250, 95] : cumul[w] & b ? [62, 230, 196, 140] : [255, 92, 108, 70];
       rgba[o] = c[0]; rgba[o + 1] = c[1]; rgba[o + 2] = c[2]; rgba[o + 3] = c[3];
     }
-    const candidats = dernierCalcul.couvertures.filter((c) => accessible(c.s, min)).length;
+    const candidats = dernierCalcul.couvertures.filter((c) => accessible(c.s, min) && (altMax == null || c.s.alt <= altMax)).length;
     return {
-      objectifPct, max, filtreAcces: filtre || 'tous', avecReseau, realiste, realismeEtat: realisme.etat(), candidats, accesEtat: acces.etat(),
+      objectifPct, max, filtreAcces: filtre || 'tous', altMax: altMax ?? null, avecReseau, realiste, realismeEtat: realisme.etat(), candidats, accesEtat: acces.etat(),
       surfaceDepartementKm2: Math.round(nbZone * aireCelleKm2),
       departPct: +((depart / nbZone) * 100).toFixed(1),
       finalPct: +((finale / nbZone) * 100).toFixed(1),
@@ -760,7 +761,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     }
     return false;
   }
-  async function planZone({ polygone, polygones, objectifPct = 95, max = 10, acces: filtre = null, avecReseau = true, realiste = false, hs = null } = {}) {
+  async function planZone({ polygone, polygones, objectifPct = 95, max = 10, acces: filtre = null, avecReseau = true, realiste = false, hs = null, altMax = null } = {}) {
     if (etat.mnt !== 'pret') throw new Error('relief pas encore chargé : réessayez dans une minute');
     // Une ou plusieurs zones (la réunion est étudiée comme un seul secteur)
     const brutes = Array.isArray(polygones) && polygones.length ? polygones : [polygone];
@@ -823,7 +824,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     const depart = compter(deja);
     const min = niveauMin(filtre);
     const cible = Math.ceil((Math.min(100, Math.max(10, objectifPct)) / 100) * nb);
-    const choisis = planGlouton(couvertures, deja, existants, min, { max: Math.min(30, Math.max(1, max)), cible, gainMin: 4, realiste, alternatives: 3 });
+    const choisis = planGlouton(couvertures, deja, existants, min, { max: Math.min(30, Math.max(1, max)), cible, gainMin: 4, realiste, alternatives: 3, altMax });
     const finale = choisis.length ? choisis[choisis.length - 1].total : depart;
     // Image sur le rectangle de la zone : bleu déjà couvert, turquoise apporté, rouge non couvert
     const cumul = Uint32Array.from(deja);
@@ -839,8 +840,8 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       rgba[o] = c[0]; rgba[o + 1] = c[1]; rgba[o + 2] = c[2]; rgba[o + 3] = c[3];
     }
     return {
-      zone: true, zones: polys.length, objectifPct, max, filtreAcces: filtre || 'tous', avecReseau, realiste, realismeEtat: realisme.etat(), accesEtat: acces.etat(),
-      candidats: couvertures.filter((c) => accessible(c.s, min)).length,
+      zone: true, zones: polys.length, objectifPct, max, filtreAcces: filtre || 'tous', altMax: altMax ?? null, avecReseau, realiste, realismeEtat: realisme.etat(), accesEtat: acces.etat(),
+      candidats: couvertures.filter((c) => accessible(c.s, min) && (altMax == null || c.s.alt <= altMax)).length,
       surfaceZoneKm2: Math.round(nb * aireCelleKm2), horsReliefKm2: horsRelief,
       departPct: +((depart / nb) * 100).toFixed(1), finalPct: +((finale / nb) * 100).toFixed(1), atteint: finale >= cible,
       reseau: existants.map((n) => ({ nom: n.nom, lat: n.lat, lon: n.lon })),
@@ -859,12 +860,12 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
   // ---- Plan à budget : « j'ai N relais à poser » -------------------------------------------------------------
   // Choisit les N sites qui apportent le plus de surface (sites réalistes par défaut), puis chiffre chaque étape :
   // surface et habitants gagnés (communes dont le bourg devient couvert), coût estimé (solaire ou secteur, mât si aucun support).
-  function planBudget({ n = 3, acces: filtre = null, avecReseau = true, realiste = true, communes = [], couts = {} } = {}) {
+  function planBudget({ n = 3, acces: filtre = null, avecReseau = true, realiste = true, communes = [], couts = {}, altMax = null } = {}) {
     if (!dernierCalcul) return null;
     const cout = { secteur: 120, solaire: 220, mat: 90, ...couts };
     const min = niveauMin(filtre);
     const deja = avecReseau ? dernierCalcul.deja : new Uint32Array(dernierCalcul.deja.length);
-    const choisis = planGlouton(dernierCalcul.couvertures, deja, avecReseau ? dernierCalcul.existants : [], min, { max: Math.min(15, Math.max(1, n)), gainMin: 4, realiste });
+    const choisis = planGlouton(dernierCalcul.couvertures, deja, avecReseau ? dernierCalcul.existants : [], min, { max: Math.min(15, Math.max(1, n)), gainMin: 4, realiste, altMax });
     const bit = (b, lat, lon) => { const k = celle(lat, lon); if (k < 0) return false; const z = indexZone[k]; return z >= 0 && !!(b[z >>> 5] & (1 << (z & 31))); };
     const cs = communes.filter((c) => { const k = celle(c.lat, c.lon); return k >= 0 && indexZone[k] >= 0; });
     const popTotale = cs.reduce((t, c) => t + (c.population || 0), 0);
@@ -892,7 +893,7 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     });
     const popFinale = avant.reduce((t, c) => t + c.population, 0);
     return {
-      n, filtreAcces: filtre || 'tous', avecReseau, realiste, couts: cout, realismeEtat: realisme.etat(),
+      n, filtreAcces: filtre || 'tous', altMax: altMax ?? null, avecReseau, realiste, couts: cout, realismeEtat: realisme.etat(),
       surfaceDepartementKm2: Math.round(nbZone * aireCelleKm2),
       departPct: +((compter(deja) / nbZone) * 100).toFixed(1),
       finalPct: sites.length ? sites[sites.length - 1].totalPct : +((compter(deja) / nbZone) * 100).toFixed(1),

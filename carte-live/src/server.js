@@ -950,7 +950,8 @@ app.get('/api/relief/budget', async (req, res) => {
   const filtre = ['voiture', '4x4', 'pied'].includes(req.query.acces) ? req.query.acces : null;
   const couts = {};
   for (const k of ['secteur', 'solaire', 'mat']) if (req.query[k] !== undefined && Number.isFinite(Number(req.query[k]))) couts[k] = Math.min(Math.max(Number(req.query[k]), 0), 10000);
-  const r = RR.planBudget({ n: Number(req.query.n) || 3, acces: filtre, avecReseau: req.query.reseau !== '0', realiste: req.query.realiste !== '0', communes, couts });
+  const altMax = req.query.altmax !== undefined && Number.isFinite(Number(req.query.altmax)) ? Number(req.query.altmax) : null;
+  const r = RR.planBudget({ n: Number(req.query.n) || 3, acces: filtre, avecReseau: req.query.reseau !== '0', realiste: req.query.realiste !== '0', communes, couts, altMax });
   if (!r) return res.status(503).json({ erreur: 'Le classement des sites est en cours de calcul, réessayez dans une minute' });
   res.json(r);
 });
@@ -976,7 +977,8 @@ app.post('/api/relief/simulation', async (req, res) => {
 app.get('/api/relief/plan', (req, res) => {
   const filtre = ['voiture', '4x4', 'pied'].includes(req.query.acces) ? req.query.acces : null;
   const RR = R(req);
-  const o = { objectifPct: Number(req.query.objectif) || 95, max: Number(req.query.max) || 15, acces: filtre, avecReseau: req.query.reseau !== '0', realiste: req.query.realiste === '1' };
+  const altMax = req.query.altmax !== undefined && Number.isFinite(Number(req.query.altmax)) ? Number(req.query.altmax) : null;
+  const o = { objectifPct: Number(req.query.objectif) || 95, max: Number(req.query.max) || 15, acces: filtre, avecReseau: req.query.reseau !== '0', realiste: req.query.realiste === '1', altMax };
   // Même demande dans les 10 minutes (carte publique très consultée) : résultat déjà calculé
   const cle = JSON.stringify(['plan', RR.code, o, Math.floor(Date.now() / 600000), (RR.classement() || {}).date]);
   let rep = cacheCouverture.get(cle);
@@ -1000,7 +1002,8 @@ app.post('/api/relief/plan-zone', async (req, res) => {
   const RR = R(req);
   planZoneEnCours++;
   try {
-    const r = await RR.planZone({ polygone: b.polygone, polygones: b.polygones, objectifPct: Number(b.objectif) || 95, max: Number(b.max) || 10, acces: filtre, avecReseau: b.reseau !== false, realiste: !!b.realiste, hs: b.hs });
+    const altMax = b.altmax !== undefined && Number.isFinite(Number(b.altmax)) ? Number(b.altmax) : null;
+    const r = await RR.planZone({ polygone: b.polygone, polygones: b.polygones, objectifPct: Number(b.objectif) || 95, max: Number(b.max) || 10, acces: filtre, avecReseau: b.reseau !== false, realiste: !!b.realiste, hs: b.hs, altMax });
     const id = crypto.randomBytes(6).toString('hex');
     cacheCouverture.set(id, { image: r.image });
     if (cacheCouverture.size > 60) cacheCouverture.delete(cacheCouverture.keys().next().value);
