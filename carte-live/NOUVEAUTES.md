@@ -4,6 +4,8 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## En préparation
 
+## 2.34.0
+
 ### 📡 Couverture : cocher des sites proposés et voir leur couverture cumulée
 - Dans toutes les listes de sites proposés (plan pour couvrir le département ou une zone dessinée, **plan à budget**, **sites routiers**, déplacement de relais, relier deux lieux, couvrir un point), chaque proposition a une case **Ajouter à ma sélection**. Une barre en bas de la fiche compte les sites cochés (10 au plus) et donne la **📡 Couverture de ma sélection** : surface cumulée, part du département et apport propre de chaque site.
 - **↩ Revenir à la liste** ramène à l'analyse d'origine, telle qu'elle était, cases comprises : on peut comparer plusieurs combinaisons sans relancer le calcul.
