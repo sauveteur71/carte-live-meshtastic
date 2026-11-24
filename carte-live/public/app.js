@@ -1935,6 +1935,12 @@ function indexReglages() {
       ajouter(txt, nomMenu.replace('▾', '').trim(), `${el.title || ''} ${el.dataset.chercher || ''}`, lancer ? () => { d.open = false; el.click(); } : () => { d.open = true; surligner(el); });
     });
   });
+  // Mode urgence, Secteurs d'alerte, Espaces Secours, section ADRASEC : sortis du menu Outils (Vague 3, point 8),
+  // repris en tuiles dans la rubrique Opérations ; toujours cherchables depuis #operations-sources.
+  document.querySelectorAll('#operations-sources .bascule').forEach((el) => {
+    if (el.hidden) return;
+    ajouter(el.textContent, 'Opérations', `${el.title || ''} ${el.dataset.chercher || ''}`, () => el.click());
+  });
   return l;
 }
 function ouvrirRechercheReglages() {

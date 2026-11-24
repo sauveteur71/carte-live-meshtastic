@@ -109,12 +109,8 @@
         <div class="titre-outils">Sur le terrain</div>
         <button id="outil-portee" class="bascule" data-niveau="operateur" title="Écouter un nœud en direct : qui l’entend, avec quel signal, par quels relais, et s’il remonte sur MQTT">📶 Test de portée d’un nœud</button>
         <button id="outil-terrain" class="bascule" data-niveau="simple" data-chercher="relevé gps photo hors connexion téléphone" title="Relevé GPS avec photo et note, même sans réseau ; préparer la carte hors connexion ; installer l’application sur le téléphone">📍 Mode terrain</button>
-        <a id="outil-adrasec" class="bascule" data-niveau="simple" data-chercher="adrasec radioamateur main courante radiogoniométrie gonio balise relevé gisement winlink point de rassemblement équipes" hidden href="adrasec" title="Espace réservé aux membres de l’ADRASEC : main courante, radiogoniométrie (recherche de balise), équipes, Winlink">🛰️ Section ADRASEC</a>
-        <a id="outil-secours" class="bascule" data-niveau="simple" data-chercher="dps pcs secours association sécurité civile commune intervention poste équipe main courante point de rassemblement repère nœuds de l’espace canal réservé organisation responsable" hidden href="secours" title="Espaces séparés pour les associations de sécurité civile (dispositifs prévisionnels de secours) et les communes (plan communal de sauvegarde) : créer un espace, lui attribuer des nœuds, nommer son responsable">⛑️ Espaces Secours (DPS, PCS)</a>
         <div class="titre-outils">Partager</div>
         <button id="outil-france" class="bascule" data-niveau="expert" hidden title="Télécharger et installer le relief de toute la France (administrateur)">🗺️ Toute la France</button>
-        <button id="outil-urgence" class="bascule" data-niveau="simple" data-chercher="crise catastrophe exercice tableau de crise journal" hidden title="Configuration de crise pour tous les comptes connectés : bandeau, carte simplifiée, journal horodaté exportable">🚨 Mode urgence</button>
-        <button id="outil-secteurs" class="bascule" data-niveau="simple" data-chercher="géorepérage geofence zone périmètre polygone cercle sortie entrée" hidden title="Prévenir quand un membre d’une équipe sort d’un secteur dessiné sur la carte (ou y entre)">🗺️ Secteurs d’alerte</button>
         <button id="outil-signalements" class="bascule seul-membre" data-niveau="simple" data-chercher="route inondée arbre événement waypoint point de passage" hidden title="Événements signalés sur la carte et diffusés en LoRa">🚩 Signalements</button>
         <button id="outil-rapport" class="bascule seul-membre" data-niveau="operateur" hidden title="État du réseau sur 7 jours, imprimable en PDF ; archivé chaque lundi">📄 Rapport hebdomadaire</button>
         <button id="outil-partager" class="bascule" data-niveau="operateur" title="Carte publique à intégrer dans un site, exports GeoJSON / GPX, Grafana, Home Assistant">📤 Carte publique et exports</button>
@@ -125,6 +121,15 @@
         <small id="note-outils" class="note"></small>
       </div>
     </details>
+    <!-- Sorties du menu Outils (Vague 3, point 8) : Mode urgence, Secteurs d’alerte, Espaces Secours, section ADRASEC
+         ne sont plus des lignes de menu parmi 25 autres. Leur visibilité (rôle du compte, accès ADRASEC) reste réglée
+         ailleurs par leur id ; la rubrique « Opérations » (rendreHubOperations, ergonomie.js) les reprend en tuiles. -->
+    <div id="operations-sources" hidden>
+      <button id="outil-urgence" class="bascule" data-chercher="crise catastrophe exercice tableau de crise journal opérations" hidden title="Configuration de crise pour tous les comptes connectés : bandeau, carte simplifiée, journal horodaté exportable">🚨 Mode urgence</button>
+      <button id="outil-secteurs" class="bascule" data-chercher="géorepérage geofence zone périmètre polygone cercle sortie entrée opérations" hidden title="Prévenir quand un membre d’une équipe sort d’un secteur dessiné sur la carte (ou y entre)">🗺️ Secteurs d’alerte</button>
+      <a id="outil-secours" class="bascule" data-chercher="dps pcs secours association sécurité civile commune intervention poste équipe main courante point de rassemblement repère nœuds de l’espace canal réservé organisation responsable opérations" hidden href="secours" title="Espaces séparés pour les associations de sécurité civile (dispositifs prévisionnels de secours) et les communes (plan communal de sauvegarde) : créer un espace, lui attribuer des nœuds, nommer son responsable">⛑️ Espaces Secours (DPS, PCS)</a>
+      <a id="outil-adrasec" class="bascule" data-chercher="adrasec radioamateur main courante radiogoniométrie gonio balise relevé gisement winlink point de rassemblement équipes opérations" hidden href="adrasec" title="Espace réservé aux membres de l’ADRASEC : main courante, radiogoniométrie (recherche de balise), équipes, Winlink">🛰️ Section ADRASEC</a>
+    </div>
     <button id="btn-effacer" hidden title="Effacer la couverture affichée">Effacer</button>
     <button id="btn-admin" class="admin">Connexion</button>
   </div>
@@ -139,12 +144,14 @@
   <aside class="panneau" id="panneau">
     <nav class="groupes" role="tablist" aria-label="Rubriques">
       <button data-groupe="reseau" role="tab" class="actif" title="Tableau de bord, nœuds, trafic, statistiques">Réseau</button>
+      <button data-groupe="operations" role="tab" hidden title="Mode urgence, secteurs d’alerte, Espaces Secours, section ADRASEC : tout ce qui sert le jour J">🚨 Opérations</button>
       <button data-groupe="messages" role="tab" title="Lire et écrire sur les canaux Meshtastic et MeshCore">Messages</button>
       <button data-groupe="couverture" role="tab" title="Couverture radio, sites, plans">Couverture</button>
       <button data-groupe="gerer" role="tab" title="Gérer les nœuds à distance : programmation, équipes, clés, firmware">Gérer</button>
       <button data-groupe="reglages" role="tab" title="Tous les réglages au même endroit">Réglages</button>
       <button class="aide-onglet" id="btn-aide" title="Aide sur cet écran" aria-label="Aide sur cet écran">?</button>
     </nav>
+    <div class="fil-position" id="fil-position" aria-live="polite"></div>
     <nav class="onglets" aria-label="Sous-rubriques">
       <button data-onglet="reseau" class="actif">Réseau</button>
       <button data-onglet="noeuds">Nœuds</button>
@@ -154,12 +161,14 @@
       <button data-onglet="gestion" id="onglet-gestion" hidden title="Programmer les nœuds à distance par LoRa">Programmer</button>
       <button data-onglet="messages" id="onglet-messages" hidden>Messages</button>
       <button data-onglet="reglages" hidden>Réglages</button>
+      <button data-onglet="operations" hidden>Opérations</button>
       <button data-onglet="meshcore" class="onglet-mc" hidden title="Réseau MeshCore : nœuds, paquets, companion">MeshCore</button>
       <button class="detacher" id="detacher" title="Détacher le panneau dans une fenêtre à part (deuxième écran)" aria-label="Détacher le panneau">⧉</button>
       <button class="replier" id="replier" title="Replier le panneau">‹</button>
     </nav>
 
     <section data-vue="reglages" class="vue"><div id="hub-reglages"></div></section>
+    <section data-vue="operations" class="vue"><div id="hub-operations"></div></section>
 
     <section data-vue="reseau" class="vue actif">
       <div id="accueil"></div>

@@ -125,6 +125,8 @@
     for (const b of document.querySelectorAll('#onglets button')) b.classList.toggle('actif', b.dataset.vue === v);
     for (const s of document.querySelectorAll('.vue')) s.classList.toggle('actif', s.id === 'vue-' + v);
     if (v === 'winlink') rendreWinlink();
+    const ba = document.querySelector(`#onglets button[data-vue="${v}"]`);
+    if (ba) majFilPosition(`Section ADRASEC · ${E.nom} › ${(ba.textContent || '').trim()}`);
   }
 
   // Canaux du module radio de la carte : pour diffuser un point de rassemblement ou écrire aux équipes
@@ -143,7 +145,7 @@
     $('#titre').textContent = E.nom; document.title = E.nom;
     const q = E.moi.qualite === 'swl' ? '<span class="pastille">SWL</span>' : E.moi.licencie ? '<span class="pastille ok">licencié</span>' : E.moi.membre ? '<span class="pastille">non licencié</span>' : '';
     $('#moi').innerHTML = `${E.sections && E.sections.length > 1 ? `<select id="choix-groupe" title="${E.moi.admin ? 'ADRASEC affichée (administrateur de la carte)' : 'Vous êtes membre de plusieurs ADRASEC : choisissez celle à afficher'}">${E.sections.map((x) => `<option value="${esc(x.code)}" ${x.code === E.code ? 'selected' : ''}>${esc(x.nom)}</option>`).join('')}</select> ` : ''}${esc(E.moi.indicatif || E.moi.identifiant)} ${q}${E.moi.admin ? ' <span class="pastille">admin carte</span>' : E.moi.responsable ? ' <span class="pastille ok">président</span>' : ''}`;
-    installerSocle({ zone: $('#moi'), aide: 'Section-ADRASEC', fonctions: fonctionsDePage });
+    installerSocle({ zone: $('#moi'), aide: 'Section-ADRASEC', fonctions: fonctionsDePage, miette: `Section ADRASEC · ${E.nom} › ${(document.querySelector('#onglets button.actif') || {}).textContent || ''}` });
     if ($('#choix-groupe')) $('#choix-groupe').onchange = () => { groupe = $('#choix-groupe').value; memo('groupe', groupe); rechercheChoisie = null; ajoutes = new Set(); charger(); };
     $('#onglets [data-vue="gestion"]').hidden = !E.moi.responsable;
     { const b = $('#onglets [data-vue="gestion"]'), n = (E.demandes || []).length; if (b) b.dataset.nb = n || ''; }

@@ -159,6 +159,7 @@ if (PAGE_AUTONOME) {
 .propositions-saisir button.vise small, .propositions-saisir button:hover small { color: #06382c; }
 .tete-commun { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .tete-commun h2 { margin: 0; font-size: 17px; flex: 1; }
+.fil-position { font-size: 13px; color: var(--doux); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tete-commun button, .btn-commun { min-height: 36px; min-width: 36px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--bord); background: var(--surface-2); color: var(--texte); cursor: pointer; font: inherit; font-weight: 650; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
 .btn-commun:hover, .tete-commun button:hover { border-color: var(--accent); }
 .corps-aide { overflow: auto; max-height: calc(100vh - 150px); line-height: 1.55; font-size: 15px; }
@@ -266,15 +267,24 @@ function fonctionsDePage() {
 }
 // Une page hors de la carte pose ses boutons d'en-tête : « ? » (aide), 🔎 (recherche, Ctrl+K) et, si demandé, le retour à la carte.
 // zone : élément de l'en-tête ; aide : page du wiki ; fonctions : voir ouvrirRechercheCommune ; carte : true pour le lien « ← Carte »
-function installerSocle({ zone, aide, fonctions, carte = false }) {
+function installerSocle({ zone, aide, fonctions, carte = false, miette = '' }) {
   if (!zone) return;
+  // Fil de position (Vague 3, point 9) : « où suis-je », à gauche des boutons ? / 🔎 / ← Carte. Chaque page le tient
+  // à jour en appelant majFilPosition(texte) quand son onglet actif change ; rien d'autre à brancher ici.
+  let f = zone.querySelector('.fil-position');
+  if (!f) { f = document.createElement('span'); f.className = 'fil-position'; zone.insertBefore(f, zone.firstChild); }
+  if (miette) f.textContent = miette;
   let b = zone.querySelector('.socle-commun');
   if (!b) { b = document.createElement('span'); b.className = 'socle-commun'; b.style.cssText = 'display:inline-flex;gap:6px;align-items:center'; zone.appendChild(b); }
   b.innerHTML = `${carte ? '<a class="btn-commun" href="/" title="Revenir à la carte du réseau">← Carte</a>' : ''}${fonctions ? '<button type="button" class="btn-commun" data-socle="chercher" title="Chercher une fonction de cette page (Ctrl+K)" aria-label="Chercher une fonction (Ctrl+K)">🔎</button>' : ''}${aide ? '<button type="button" class="btn-commun" data-socle="aide" title="Aide de cette page" aria-label="Aide de cette page">?</button>' : ''}`;
   const ba = b.querySelector('[data-socle="aide"]'); if (ba) ba.onclick = () => ouvrirAideCommune(aide);
   const bc = b.querySelector('[data-socle="chercher"]'); if (bc) bc.onclick = () => ouvrirRechercheCommune(fonctions);
   window.socleFonctions = fonctions || null;
+  window.socleZoneFil = f;
 }
+// À appeler après installerSocle, chaque fois que l'onglet actif de la page change : met à jour le fil de position
+// sans retoucher aux boutons ? / 🔎 / ← Carte.
+function majFilPosition(texte) { if (window.socleZoneFil) window.socleZoneFil.textContent = texte || ''; }
 if (PAGE_AUTONOME) document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && window.socleFonctions) { e.preventDefault(); ouvrirRechercheCommune(window.socleFonctions); }
 });

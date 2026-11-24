@@ -1,11 +1,11 @@
 # Secteurs d'alerte et mode urgence
 
-Deux outils pour suivre des équipes de terrain (ADRASEC, secours, recherche de personne) : les **secteurs d'alerte** préviennent quand un intervenant sort d'une zone (ou y entre), le **mode urgence** met toute la carte en configuration de crise. Menu *Outils › 🗺️ Secteurs d'alerte* et *Outils › 🚨 Mode urgence* (gestionnaires et administrateurs), ou Ctrl+K.
+Deux outils pour suivre des équipes de terrain (ADRASEC, secours, recherche de personne) : les **secteurs d'alerte** préviennent quand un intervenant sort d'une zone (ou y entre), le **mode urgence** met toute la carte en configuration de crise. Rubrique *🚨 Opérations* › *🗺️ Secteurs d’alerte* et *🚨 Mode urgence* (gestionnaires et administrateurs), ou Ctrl+K.
 
 ## Secteurs d'alerte (géorepérage)
 
 ### Créer un secteur (administrateur)
-1. *Outils › 🗺️ Secteurs d'alerte* (ou fiche d'une équipe › *🗺️ Définir un secteur*).
+1. *🚨 Opérations › 🗺️ Secteurs d'alerte* (ou fiche d'une équipe › *🗺️ Définir un secteur*).
 2. **⬠ Dessiner un polygone** : touchez la carte à chaque sommet (3 au moins), puis **✔ Terminer** ; ou **◯ Cercle** : touchez le centre, donnez le rayon en mètres.
 3. Rattachez-le à une **équipe** (tous ses membres du moment) et/ou à des **nœuds** : `!a1b2c3d4` pour Meshtastic, clé publique complète (64 caractères) pour MeshCore.
    - La liste **Équipe** propose les **équipes de la carte** (un canal chiffré par équipe), celles de *Programmer › 👥 Équipes*. Un lien y mène depuis la fenêtre. Si aucune équipe n'existe encore, la fenêtre le dit et explique quoi faire : créer une équipe, ou surveiller des nœuds un par un dans *Autres nœuds suivis*.
@@ -49,7 +49,7 @@ Chaque entrée, sortie (confirmée ou probable), perte de contact, retour du con
 Le cercle de sécurité d'une équipe (versions précédentes) est repris **automatiquement** en secteur « Zone de sécurité *équipe* » au premier démarrage, avec une marge de 100 m.
 
 ## Mode urgence
-Inspiré du mode urgence de l'application MeshWave, adapté à une carte de supervision. Un administrateur l'active (*Outils › 🚨 Mode urgence › Activer*, motif facultatif) ; il reste actif après un redémarrage, jusqu'à ce qu'un administrateur le termine. Les gestionnaires voient le tableau de crise et ajoutent des notes au journal.
+Inspiré du mode urgence de l'application MeshWave, adapté à une carte de supervision. Un administrateur l'active (*🚨 Opérations › 🚨 Mode urgence › Activer*, motif facultatif) ; il reste actif après un redémarrage, jusqu'à ce qu'un administrateur le termine. Les gestionnaires voient le tableau de crise et ajoutent des notes au journal.
 
 Pendant la crise :
 - **bandeau rouge « URGENCE »** (durée, motif) dans l'en-tête et cadre rouge autour de l'écran, pour **tous les comptes connectés** ; rien n'est montré au public ;

@@ -182,7 +182,7 @@
   // Aide « ? » et recherche d'une fonction (Ctrl+K), comme sur la carte
   // Les vues ne sont dessinées qu'à leur ouverture : celles qui ne sont pas affichées le sont avant de chercher,
   // pour que leurs blocs (Gestion › Mon mot de passe, Nœuds LoRa de l'espace…) soient trouvés
-  installerSocle({ zone: $('#moi'), aide: 'Espaces-Secours', fonctions: () => { for (const k of Object.keys(dessins)) if (k !== vueActive) { try { dessins[k](); } catch { /* vue pas prête */ } } return fonctionsDePage(); } });
+  installerSocle({ zone: $('#moi'), aide: 'Espaces-Secours', fonctions: () => { for (const k of Object.keys(dessins)) if (k !== vueActive) { try { dessins[k](); } catch { /* vue pas prête */ } } return fonctionsDePage(); }, miette: `Espace Secours · ${E.nom} › ${(document.querySelector('#onglets button.actif') || {}).textContent || ''}` });
 
   // ---- Carte --------------------------------------------------------------------------------------------------
   const memo = (k, v) => { try { if (v === undefined) return localStorage.getItem('secours-' + k); if (v === null) localStorage.removeItem('secours-' + k); else localStorage.setItem('secours-' + k, v); } catch { /* navigateur sans stockage */ } return null; };
@@ -733,6 +733,7 @@
     for (const x of document.querySelectorAll('#onglets button')) x.classList.toggle('actif', x === b);
     for (const v of document.querySelectorAll('.vue')) v.classList.toggle('actif', v.id === 'vue-' + vueActive);
     dessins[vueActive]();
+    majFilPosition(`Espace Secours · ${E.nom} › ${(b.textContent || '').trim()}`);
   };
 
   // ---- Rafraîchissement : toutes les 5 s ; le détail ne revient que s'il a changé, les positions à chaque fois -----

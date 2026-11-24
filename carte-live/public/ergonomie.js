@@ -141,7 +141,18 @@ function etiqueterNiveaux() {
 }
 
 // ---- Rubriques : 5 groupes au-dessus des onglets d'origine ---------------------------------------------------
-const GROUPES = { reseau: ['reseau', 'noeuds', 'trafic', 'analyse', 'meshcore'], messages: ['messages', 'meshcore'], couverture: ['sites'], gerer: ['gestion', 'meshcore'], reglages: ['reglages'] };
+const GROUPES = { reseau: ['reseau', 'noeuds', 'trafic', 'analyse', 'meshcore'], operations: ['operations'], messages: ['messages', 'meshcore'], couverture: ['sites'], gerer: ['gestion', 'meshcore'], reglages: ['reglages'] };
+// Vague 3, point 8 : Mode urgence, Secteurs d’alerte, Espaces Secours et section ADRASEC ne sont plus des lignes
+// perdues dans le menu Outils (25 entrées) ; ce sont les 4 sources d’#operations-sources (index.html), montrées
+// ou non selon le rôle du compte (déjà réglé ailleurs : etat.gestion, etat.admin, accès ADRASEC). La rubrique
+// Opérations n’apparaît elle-même que si au moins une de ces 4 fonctions est ouverte à ce compte.
+const SOURCES_OPERATIONS = [
+  { id: 'outil-urgence', ic: '🚨' },
+  { id: 'outil-secteurs', ic: '🗺️' },
+  { id: 'outil-secours', ic: '⛑️' },
+  { id: 'outil-adrasec', ic: '🛰️' },
+];
+const operationsDisponibles = () => SOURCES_OPERATIONS.some(({ id }) => { const e = document.getElementById(id); return e && !e.hidden; });
 const LIBELLES = {
   reseau: { reseau: 'Vue d’ensemble', meshcore: 'MeshCore' },
   messages: { messages: 'Meshtastic', meshcore: 'MeshCore' },
@@ -174,17 +185,56 @@ function majGroupes() {
     const g = b.dataset.groupe;
     b.classList.toggle('actif', g === ergo.groupe);
     b.setAttribute('aria-selected', g === ergo.groupe ? 'true' : 'false');
-    b.hidden = g !== 'reglages' && !GROUPES[g].some((o) => ongletVisible(o) && (o !== 'meshcore' || g === 'reseau' || (g === 'messages' && etat.membre) || (g === 'gerer' && etat.gestion)));
+    b.hidden = g === 'operations' ? !operationsDisponibles() : g !== 'reglages' && !GROUPES[g].some((o) => ongletVisible(o) && (o !== 'meshcore' || g === 'reseau' || (g === 'messages' && etat.membre) || (g === 'gerer' && etat.gestion)));
     // Nouveaux messages : la pastille de l'onglet Messages remonte sur la rubrique
     if (g === 'messages') { const p = (bOnglet('messages') || document).querySelector('.pastille, .badge, span'); let c = b.querySelector('.pastille-groupe'); const n = p ? p.textContent.trim() : ''; if (n && n !== '0') { if (!c) { c = document.createElement('span'); c.className = 'pastille-groupe'; b.appendChild(c); } c.textContent = n; } else if (c) c.remove(); }
   });
+  // La disponibilité des 4 fonctions arrive parfois après coup (accès ADRASEC validé par l'API) : le hub se
+  // retient à jour tant qu'il est à l'écran.
+  if (ergo.groupe === 'operations' && document.querySelector('.vue.actif[data-vue="operations"]')) rendreHubOperations();
+  majFilPositionCarte();
+}
+// Fil de position (Vague 3, point 9) : « Rubrique › Onglet », cliquable pour remonter à la rubrique. Couvre la
+// carte ; les pages séparées (Espaces Secours, section ADRASEC) ont le leur, posé par installerSocle (commun.js).
+function majFilPositionCarte() {
+  const f = document.getElementById('fil-position');
+  if (!f) return;
+  const bg = document.querySelector(`.groupes button[data-groupe="${ergo.groupe}"]`);
+  if (!bg || bg.hidden) { f.innerHTML = ''; return; }
+  const trad = (t) => (window.LANGUE && window.LANGUE !== 'fr' && typeof tr === 'function' ? tr(t) : t);
+  const nomRub = trad((bg.textContent || '').trim());
+  const bo = document.querySelector('.onglets button[data-onglet].actif');
+  const onglets = GROUPES[ergo.groupe] || [];
+  const nomOnglet = bo && onglets.includes(bo.dataset.onglet) && bo.dataset.onglet !== 'reglages' && bo.dataset.onglet !== 'operations' && onglets.length > 1 ? trad((bo.dataset.libelle || bo.textContent || '').trim()) : '';
+  f.innerHTML = `<button type="button" data-fil-rubrique>${esc(nomRub)}</button>${nomOnglet && nomOnglet !== nomRub ? ' › <span translate="no">' + esc(nomOnglet) + '</span>' : ''}`;
+  const br = f.querySelector('[data-fil-rubrique]'); if (br) br.onclick = () => allerGroupe(ergo.groupe);
 }
 function allerGroupe(g) {
   ergo.groupe = g;
   if (g === 'reglages') { bOnglet('reglages').click(); majGroupes(); if ($('#panneau').classList.contains('replie')) { const r = $('#deplier'); if (r) r.click(); } return; }
+  if (g === 'operations') { bOnglet('operations').click(); rendreHubOperations(); majGroupes(); if ($('#panneau').classList.contains('replie')) { const r = $('#deplier'); if (r) r.click(); } return; }
   const premier = GROUPES[g].find((o) => ongletVisible(o));
   if (!premier) { majGroupes(); return; }
   cliquerOnglet(premier, g);
+}
+// ---- Rubrique Opérations : les 4 fonctions du jour J, reprises en tuiles --------------------------------------
+function rendreHubOperations() {
+  const z = $('#hub-operations');
+  if (!z) return;
+  const ligne = (ic, nom, aide, id) => `<button type="button" class="ligne-reglage" data-go="${id}"><span class="ic" aria-hidden="true">${ic}</span><span><b>${esc(nom)}</b><small>${esc(aide)}</small></span><span class="chevron" aria-hidden="true">›</span></button>`;
+  const actions = {};
+  const lignes = [];
+  for (const { id, ic } of SOURCES_OPERATIONS) {
+    const el = document.getElementById(id);
+    if (!el || el.hidden) continue;
+    const a = 'o' + lignes.length;
+    actions[a] = () => el.click();
+    lignes.push(ligne(ic, (el.textContent || '').trim(), el.title || '', a));
+  }
+  z.innerHTML = lignes.length
+    ? `<div class="hub-reglages"><h3>🚨 Opérations</h3><p class="note">Ce qui sert le jour J, réuni ici plutôt que perdu dans le menu Outils.</p><div class="liste-reglages">${lignes.join('')}</div></div>`
+    : `<div class="hub-reglages"><p class="note">Aucune de ces fonctions n’est ouverte à ce compte pour l’instant.</p></div>`;
+  z.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => actions[b.dataset.go]()));
 }
 function cliquerOnglet(o, g) {
   const b = bOnglet(o);

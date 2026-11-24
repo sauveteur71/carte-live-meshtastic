@@ -1,6 +1,6 @@
 # Section ADRASEC
 
-Espace **réservé** aux membres d'une ADRASEC (radiotransmetteurs au service de la sécurité civile), dans l'édition française de la carte : **main courante**, **radiogoniométrie** pour la recherche de balise, **équipes** et **Winlink**. On l'ouvre par **Outils › 🛰️ Section ADRASEC** (lien visible des seuls membres validés et des administrateurs), ou directement à l'adresse `/adrasec`.
+Espace **réservé** aux membres d'une ADRASEC (radiotransmetteurs au service de la sécurité civile), dans l'édition française de la carte : **main courante**, **radiogoniométrie** pour la recherche de balise, **équipes** et **Winlink**. On l'ouvre par **🚨 Opérations › 🛰️ Section ADRASEC** (lien visible des seuls membres validés et des administrateurs), ou directement à l'adresse `/adrasec`.
 
 Rien de cette section n'apparaît sur la carte publique.
 
@@ -21,7 +21,7 @@ Une même carte peut héberger les ADRASEC de **plusieurs départements**. Chacu
 ## Mise en route
 
 **Administrateur de la carte**
-1. **Outils › 🛰️ Section ADRASEC › ⚙️ Gestion** : cocher **Section ADRASEC activée sur la carte**.
+1. **🚨 Opérations › 🛰️ Section ADRASEC › ⚙️ Gestion** : cocher **Section ADRASEC activée sur la carte**.
 2. **ADRASEC hébergées** : saisir le numéro du département et le nom (ex. *ADRASEC 43*), puis **Créer l'ADRASEC**.
 3. Nommer le président : ouvrir l'ADRASEC, intégrer son compte comme membre et cocher **Président / responsable**.
 

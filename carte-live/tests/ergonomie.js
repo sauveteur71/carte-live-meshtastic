@@ -13,13 +13,37 @@ test('menu Outils : chaque entrée porte son niveau d’affichage (data-niveau)'
   const a = h.indexOf('<details class="menu-couches menu-outils">');
   const menu = h.slice(a, h.indexOf('</details>', a));
   const entrees = menu.match(/<(?:button|a)\b[^>]*class="bascule[^"]*"[^>]*>/g) || [];
-  assert.ok(entrees.length >= 25, 'entrées du menu Outils trouvées');
+  assert.ok(entrees.length >= 20, 'entrées du menu Outils trouvées');
   for (const e of entrees) assert.match(e, /data-niveau="(simple|operateur|expert)"/, 'entrée sans niveau : ' + e.slice(0, 90));
   // Les listes tenues à la main dans ergonomie.js ne nomment plus les entrées du menu
   const e = lire('ergonomie.js'), f = e.slice(e.indexOf('function etiqueterNiveaux'), e.indexOf('// ---- Rubriques'));
   assert.ok(f.length > 50 && !/#outil-|#lien-/.test(f), 'etiqueterNiveaux ne nomme plus les entrées du menu Outils');
   // Celles qui doivent rester visibles au niveau Simple (dont le réglage du niveau lui-même)
-  for (const id of ['outil-affichage', 'outil-theme', 'outil-urgence', 'outil-secours', 'outil-adrasec']) assert.match(menu, new RegExp(`id="${id}"[^>]*data-niveau="simple"`), id);
+  for (const id of ['outil-affichage', 'outil-theme']) assert.match(menu, new RegExp(`id="${id}"[^>]*data-niveau="simple"`), id);
+  // Vague 3, point 8 : Mode urgence, Secteurs d'alerte, Espaces Secours, section ADRASEC sont sortis du menu
+  for (const id of ['outil-urgence', 'outil-secteurs', 'outil-secours', 'outil-adrasec']) assert.ok(!menu.includes(`id="${id}"`), `${id} ne doit plus être dans le menu Outils`);
+});
+
+test('rubrique Opérations (Vague 3, point 8) : les 4 fonctions du jour J, hors du menu Outils', () => {
+  const h = lire('index.html');
+  assert.match(h, /data-groupe="operations"/, 'bouton de rubrique Opérations');
+  assert.match(h, /data-onglet="operations"/, 'onglet (caché) Opérations');
+  assert.match(h, /data-vue="operations"/, 'vue Opérations');
+  const src = h.slice(h.indexOf('id="operations-sources"'), h.indexOf('id="operations-sources"') + 1500);
+  for (const id of ['outil-urgence', 'outil-secteurs', 'outil-secours', 'outil-adrasec']) assert.match(src, new RegExp(`id="${id}"`), id);
+  const e = lire('ergonomie.js');
+  assert.ok(e.includes('function rendreHubOperations'), 'rendreHubOperations existe');
+  assert.ok(e.includes('operationsDisponibles'), 'visibilité de la rubrique selon le rôle du compte');
+  // Toujours cherchables (Ctrl+K) une fois sorties du menu
+  assert.ok(lire('app.js').includes('#operations-sources'), 'indexReglages retrouve les 4 fonctions déplacées');
+});
+
+test('fil de position (Vague 3, point 9) : « où suis-je », sur la carte et sur les pages séparées', () => {
+  assert.match(lire('index.html'), /id="fil-position"/, 'fil de position sur la carte');
+  assert.ok(lire('ergonomie.js').includes('function majFilPositionCarte'), 'mise à jour du fil sur la carte');
+  const commun = lire('commun.js');
+  assert.ok(commun.includes('function majFilPosition('), 'fil de position partagé (commun.js)');
+  for (const page of ['secours', 'adrasec']) assert.match(lire(page + '.js'), /majFilPosition\(/, `${page}.js tient son fil à jour`);
 });
 
 test('pages /secours et /adrasec : socle commun, plus de boîte du navigateur', () => {

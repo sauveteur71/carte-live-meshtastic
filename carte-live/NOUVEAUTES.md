@@ -4,6 +4,11 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## En préparation
 
+### 🚨 Rubrique Opérations, et repère « où suis-je »
+- **Nouvelle rubrique Opérations**, à côté de Réseau, Messages, Couverture, Gérer et Réglages : Mode urgence, Secteurs d'alerte, Espaces Secours et section ADRASEC — tout ce qui sert le jour J — ne sont plus des lignes perdues parmi 25 dans le menu Outils. La rubrique n'apparaît que si au moins une de ces fonctions est ouverte au compte ; chacune garde sa propre condition (rôle de gestion, administrateur, accès ADRASEC validé).
+- **Fil de position** (« Rubrique › Onglet ») affiché en permanence sous les rubriques de la carte, cliquable pour y revenir. Les espaces Secours et la section ADRASEC ont le leur, à côté du bouton d'aide : « Espace Secours · *Nom* › *Onglet* » ou « Section ADRASEC · *Nom* › *Onglet* ».
+- Ces 4 fonctions restent cherchables (Ctrl+K) une fois sorties du menu.
+
 ## 2.34.0
 
 ### 📡 Couverture : cocher des sites proposés et voir leur couverture cumulée

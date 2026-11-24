@@ -32,7 +32,7 @@ Les fichiers des espaces ne partent **pas** dans les sauvegardes de la carte (el
 ## Mise en route
 
 **Administrateur de la carte**
-1. **Outils › ⛑️ Espaces Secours (DPS, PCS)** (ou `https://votre-carte/secours`).
+1. **🚨 Opérations › ⛑️ Espaces Secours (DPS, PCS)** (ou `https://votre-carte/secours`).
 2. **Créer un espace** : son nom, son type (DPS ou PCS), son **adresse** (ex. `festival-2027`), une première **organisation**, l'identifiant et le mot de passe du **premier responsable**.
 3. **Organisations** : ajouter celles qui travaillent ensemble dans l'espace (voir ci-dessous).
 4. **Canal réservé** (facultatif) : un canal du module radio de la carte, réservé à cet espace.
