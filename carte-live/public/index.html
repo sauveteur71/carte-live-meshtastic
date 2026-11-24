@@ -394,7 +394,7 @@
     </form>
     <form id="form-reinit" data-pan="reinit" hidden>
       <h3>Choisir un nouveau mot de passe</h3>
-      <label>Nouveau mot de passe <input name="nouveau" type="password" autocomplete="new-password" required minlength="8"></label>
+      <label>Nouveau mot de passe <input data-notion="motDePasse" name="nouveau" type="password" autocomplete="new-password" required minlength="8"></label>
       <label>Confirmer <input name="confirmation" type="password" autocomplete="new-password" required minlength="8"></label>
       <p class="erreur"></p>
       <div class="actions"><button type="submit" class="principal">Enregistrer</button></div>
@@ -402,8 +402,8 @@
     <form id="form-inscription" data-pan="inscription" hidden>
       <p class="note" id="note-inscription"></p>
       <label>Identifiant <input name="identifiant" autocomplete="username" required minlength="3" maxlength="32"></label>
-      <label>Indicatif radio (facultatif) <input name="indicatif" placeholder="F4XXX" maxlength="16"></label>
-      <label>E-mail (facultatif) <input name="email" type="email" autocomplete="email"></label>
+      <label>Indicatif radio (facultatif) <input data-notion="indicatif" name="indicatif" placeholder="F4XXX" maxlength="16"></label>
+      <label>E-mail (facultatif) <input data-notion="email" name="email" type="email" autocomplete="email"></label>
       <label>Mot de passe <input name="motDePasse" type="password" autocomplete="new-password" required minlength="8"></label>
       <label>Confirmer le mot de passe <input name="confirmation" type="password" autocomplete="new-password" required minlength="8"></label>
       <p class="erreur"></p>
@@ -454,7 +454,7 @@
       <h3>1. Compte administrateur</h3>
       <div class="grille-form">
         <label>Identifiant <input name="identifiant" required minlength="3" maxlength="32" autocomplete="username"></label>
-        <label>Indicatif radio <input name="indicatif" placeholder="F4XXX" maxlength="16"></label>
+        <label>Indicatif radio <input data-notion="indicatif" name="indicatif" placeholder="F4XXX" maxlength="16"></label>
         <label>Mot de passe <input name="motDePasse" type="password" required minlength="8" autocomplete="new-password"></label>
         <label>Confirmer <input name="confirmation" type="password" required minlength="8" autocomplete="new-password"></label>
         <label id="champ-code-installation" hidden>Code d'installation <input name="code" type="password" autocomplete="off"><small id="aide-code-installation">Valeur de ADMIN_MOT_DE_PASSE dans le fichier .env</small></label>
@@ -463,12 +463,12 @@
       <div class="grille-form">
         <label>Département <select name="departement"></select></label>
         <label>Nom de la carte <input name="titre" placeholder="Réseau Meshtastic · …" maxlength="80"></label>
-        <label>Serveur MQTT <input name="mqttUrl" placeholder="mqtt://serveur:1883"></label>
-        <label>Sujet racine <input name="mqttRacine" placeholder="msh/EU_868"></label>
+        <label>Serveur MQTT <input data-notion="mqttUrl" name="mqttUrl" placeholder="mqtt://serveur:1883"></label>
+        <label>Sujet racine <input data-notion="mqttRacine" name="mqttRacine" placeholder="msh/EU_868"></label>
         <label>Utilisateur MQTT <input name="mqttUtilisateur" autocomplete="off"></label>
         <label>Mot de passe MQTT <input name="mqttMotDePasse" type="password" autocomplete="new-password"></label>
         <div class="large-col"><button type="button" id="inst-tester-mqtt">🔌 Tester ce serveur MQTT (10 s)</button> <span id="inst-test-mqtt" class="note"></span></div>
-        <label class="large-col">Canaux à déchiffrer <textarea name="canaux" rows="3" placeholder="LongFast=AQ==&#10;MonCanal=clé en base64"></textarea><small>Un canal par ligne : nom=clé (AQ== = clé publique par défaut)</small></label>
+        <label class="large-col">Canaux à déchiffrer <textarea data-notion="canauxCles" name="canaux" rows="3" placeholder="LongFast=AQ==&#10;MonCanal=clé en base64"></textarea><small>Un canal par ligne : nom=clé (AQ== = clé publique par défaut)</small></label>
         <label>Inscriptions <select name="inscriptions"><option value="validation">Sur validation de l'admin</option><option value="ouvertes">Ouvertes à tous</option><option value="fermees">Fermées</option></select></label>
       </div>
       <p class="erreur"></p>

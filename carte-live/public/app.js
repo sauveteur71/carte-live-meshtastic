@@ -1840,6 +1840,7 @@ document.addEventListener('click', (ev) => {
 const sansAccent = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 function surligner(el) {
   if (!el) return;
+  for (let d = el.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) d.open = true; // bloc replié : on l'ouvre
   el.scrollIntoView({ block: 'center', behavior: 'smooth' });
   el.classList.add('flash-recherche');
   setTimeout(() => el.classList.remove('flash-recherche'), 2600);
@@ -4266,7 +4267,7 @@ async function rendreDonateursAdmin() {
 function allerPlan() {
   const b = document.querySelector('.onglets button[data-onglet="sites"]');
   if (b) b.click();
-  setTimeout(() => { const bp = $('#bloc-plan'); if (bp) { bp.scrollIntoView({ behavior: 'smooth', block: 'start' }); bp.classList.add('surbrillance'); setTimeout(() => bp.classList.remove('surbrillance'), 1500); } }, 300);
+  setTimeout(() => { const bp = $('#bloc-plan'); if (bp) { bp.open = true; bp.scrollIntoView({ behavior: 'smooth', block: 'start' }); bp.classList.add('surbrillance'); setTimeout(() => bp.classList.remove('surbrillance'), 1500); } }, 300);
 }
 
 // ---- Zone dessinée à la main : clic = un point, double-clic ou « Terminer » pour fermer ------------------
@@ -4454,6 +4455,16 @@ async function planDepartement() {
   $('#plan-gpx').onclick = () => telechargerGpx('plan-couverture.gpx', r.sites.map((x) => ({ lat: x.lat, lon: x.lon, alt: x.alt, nom: `${x.rang} - ${nomSommet(x)}`, desc: `+${x.gainKm2} km², cumul ${x.totalPct} %${x.acces ? ', accès ' + ACCES[x.acces.type].nom : ''}` })));
   const pc = $('#plan-couv'); if (pc) pc.onclick = () => couvertureMulti(r.sites.map((x) => ({ lat: x.lat, lon: x.lon, h: (r.parametres && r.parametres.hs) || 6, nom: nomSommet(x) })));
 }
+
+// Blocs repliables de l'onglet Couverture (plan, plan à budget, sites routiers, déplacement) : repliés, l'onglet tient
+// sans défilement ; le plan est ouvert par défaut, et chaque choix est gardé sur l'appareil
+const PLIS_PLAN_DEFAUT = { 'bloc-plan': true };
+const pliPlan = (id) => { const m = lireLs('gaulix_plis_couverture', null) || PLIS_PLAN_DEFAUT; return m[id] ? 'open' : ''; };
+document.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (!d.matches || !d.matches('details.pli-plan[id]')) return;
+  const m = { ...(lireLs('gaulix_plis_couverture', null) || PLIS_PLAN_DEFAUT) }; m[d.id] = d.open; ecrireLs('gaulix_plis_couverture', m);
+}, true);
 
 // ---- Sites routiers (webcams du Département et de la DIR Massif Central) ---------------------------------
 async function dessinerRoutiers() {
@@ -4643,8 +4654,8 @@ async function rendreSites() {
       <p class="note">Zone desservie aujourd’hui par les relais et passerelles détectés${c && c.reseauActuel ? ` : <b>${fmt(c.reseauActuel.pct, 1, ' %')}</b> du département avec ${c.reseauActuel.relais.length} relais` : ''}.</p>
       <div class="actions-prop"><button id="sites-couv-reseau" class="principal">Couverture calculée</button><button id="sites-couv-mesuree">📶 Couverture mesurée</button></div>
     </div>
-    <div class="bloc-plan" id="bloc-plan">
-      <h3>🎯 Plan pour couvrir ${e.departement ? esc(e.departement.nom || 'le département') : 'le département'}</h3>
+    <details class="bloc-plan pli-plan" id="bloc-plan" ${pliPlan('bloc-plan')}>
+      <summary><h3>🎯 Plan pour couvrir ${e.departement ? esc(e.departement.nom || 'le département') : 'le département'}</h3><small>où poser des relais pour atteindre un objectif de couverture</small></summary>
       <div class="parametres compact">
         <label>Objectif (%) <input id="plan-objectif" type="number" min="10" max="100" step="1" value="95"></label>
         <label>Sites au plus <input id="plan-max" type="number" min="1" max="40" step="1" value="15"></label>
@@ -4659,10 +4670,10 @@ async function rendreSites() {
       <div class="actions-prop"><button id="zone-dessiner">🖊 Dessiner une zone</button>
         <select id="zone-memo" title="Zones déjà dessinées dans ce navigateur"><option value="">Zones enregistrées…</option>${lireLs('gaulix_zones', []).map((z, k) => `<option value="${k}">${esc(z.nom)}</option>`).join('')}</select>
         <button id="zone-suppr" class="mini" title="Oublier la zone choisie">🗑</button></div>
-    </div>
-    <div class="bloc-plan" id="bloc-budget">
-      <h3>💶 Plan à budget</h3>
-      <p class="note">« J’ai de quoi poser N relais : où les mettre ? » Gain de surface et d’habitants à chaque relais, coût estimé.</p>
+    </details>
+    <details class="bloc-plan pli-plan" id="bloc-budget" ${pliPlan('bloc-budget')}>
+      <summary><h3>💶 Plan à budget</h3><small>« j’ai de quoi poser N relais : où les mettre ? »</small></summary>
+      <p class="note">Gain de surface et d’habitants à chaque relais, coût estimé.</p>
       <div class="parametres compact">
         <label>Relais à poser <input id="budget-n" type="number" min="1" max="15" step="1" value="3"></label>
         <label>Accès exigé <select id="budget-acces"><option value="voiture">🚗 En voiture</option><option value="4x4">🚙 En 4×4 ou voiture</option><option value="pied">🥾 À pied ou mieux</option><option value="tous">Tous les points hauts</option></select></label>
@@ -4671,21 +4682,21 @@ async function rendreSites() {
         <label>Mât + fixations (€) <input id="budget-mat" type="number" min="0" step="10" value="90"></label>
       </div>
       <div class="actions-prop"><button id="budget-calculer" class="principal">Où poser mes relais ?</button></div>
-    </div>
-    <div class="bloc-plan" id="bloc-routiers">
-      <h3>🛣️ Sites routiers (Département, DIR)</h3>
-      <p class="note">Webcams et stations routières : souvent un mât, l’électricité, parfois une liaison réseau. Classement selon la surface qu’un relais y couvrirait en plus du réseau actuel, de quoi préparer une demande au Département ou à la DIR Massif Central.</p>
+    </details>
+    <details class="bloc-plan pli-plan" id="bloc-routiers" ${pliPlan('bloc-routiers')}>
+      <summary><h3>🛣️ Sites routiers (Département, DIR)</h3><small>webcams et stations routières : un mât, l’électricité</small></summary>
+      <p class="note">Souvent un mât, l’électricité, parfois une liaison réseau. Classement selon la surface qu’un relais y couvrirait en plus du réseau actuel, de quoi préparer une demande au Département ou à la DIR Massif Central.</p>
       <div class="actions-prop"><button id="routiers-evaluer" class="principal">Évaluer ces sites pour des relais</button></div>
-    </div>
-    <div class="bloc-plan" id="bloc-deplacer">
-      <h3>🔀 Déplacer des relais existants</h3>
+    </details>
+    <details class="bloc-plan pli-plan" id="bloc-deplacer" ${pliPlan('bloc-deplacer')}>
+      <summary><h3>🔀 Déplacer des relais existants</h3><small>un point haut proche où un relais couvrirait plus</small></summary>
       <p class="note">Pour chaque relais (rôle routeur), la carte cherche les points hauts proches où il couvrirait plus de surface, sans perdre le contact radio avec le réseau.</p>
       <div class="parametres compact">
         <label>Chercher dans un rayon de <select id="dep-rayon"><option value="3">3 km</option><option value="6" selected>6 km</option><option value="10">10 km</option></select></label>
         <label>Accès exigé <select id="dep-acces"><option value="voiture">🚗 En voiture</option><option value="4x4" selected>🚙 En 4×4 ou voiture</option><option value="pied">🥾 À pied ou mieux</option><option value="tous">Tous les points hauts</option></select></label>
       </div>
       <div class="actions-prop"><button id="dep-calculer" class="principal">Où déplacer mes relais ?</button></div>
-    </div>
+    </details>
     <h3>🧭 Outils sur la carte</h3>
     <div class="outils-couv">
       <button data-outil="btn-couv-ici">📍 Couverture depuis un point<small>zone couverte par une antenne placée où vous cliquez (puis ＋ d’autres sites)</small></button>
@@ -5095,7 +5106,7 @@ async function rendreModules(force) {
   zone.innerHTML = blocUsbNavigateur() + (connus.length ? connus.map(ligne).join('') : '<div class="vide">Aucun module enregistré.</div>')
     + (ecs.length ? `<h4 class="titre-ecoute">Modules en écoute (${ecs.length})</h4>${ecs.map(ligneEcoute).join('')}<p class="note">Un module en écoute sert de passerelle supplémentaire : ce qu’il entend (SNR, voisins, parcours des messages) s’ajoute à la carte. Les envois et l’administration passent par le module principal.</p>` : '') + `
     <form id="form-module" class="parametres compact">
-      <label>Adresse IP <input name="hote" placeholder="192.168.1.50" required></label>
+      <label>Adresse IP <input data-notion="hoteModule" name="hote" placeholder="192.168.1.50" required></label>
       <label>Nom (facultatif) <input name="nom" placeholder="Maison"></label>
       <button type="submit">Ajouter</button>
     </form>
@@ -5535,7 +5546,7 @@ async function ficheFirmware() {
     <div class="alerte attention">« Vérifier » ouvre une courte connexion au module : un autre client connecté à lui en Wi-Fi (appli, MeshMonitor) est déconnecté un instant.</div>
     ${r.modules.map(ligne).join('') || '<div class="vide">Aucun module enregistré en IP (Réseau › Modules).</div>'}
     <h3>Autre module</h3>
-    <form id="f-fw-ip" class="parametres compact"><label>Adresse IP <input name="hote" placeholder="192.168.0.42" required></label><button type="submit">Ajouter à la liste</button></form>
+    <form id="f-fw-ip" class="parametres compact"><label>Adresse IP <input data-notion="hoteModule" name="hote" placeholder="192.168.0.42" required></label><button type="submit">Ajouter à la liste</button></form>
     <p class="erreur" id="fw-retour"></p>`;
   const brancher = (el) => {
     el.querySelector('[data-verifier]').onclick = async (ev) => {
@@ -5659,7 +5670,7 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
         ${m.dernier && m.dernier.statut === 'echec' && m.dernier.detail ? `<small class="detail">${esc(m.dernier.detail)}</small>` : ''}
         ${m.etat === 'membre' ? `<button class="mini" data-retirer="${m.num}" title="Retirer le canal de ce nœud">Retirer</button>` : ''}
         <small class="detail ${m.sansNouvelle ? 'sans-nouvelle' : ''}">${m.position ? `📍 position ${m.position.heure ? ilYa(m.position.heure) : 'connue'} <a href="#" data-voir-pos="${m.position.lat},${m.position.lon}">voir</a>` : '📍 position inconnue'}${m.sansNouvelle ? ' · ⚠ sans nouvelle' : ''}</small></div>`; }).join('') : '<div class="vide">Aucun nœud dans cette équipe.</div>'}</div>
-      <div class="champ-ajout"><input type="text" data-saisie placeholder="!a1b2c3d4, !e5f6a7b8…" aria-label="Nœuds à ajouter"><button class="principal" data-ajouter>➕ Ajouter${sel.length ? ` (+ ${sel.length} coché${sel.length > 1 ? 's' : ''})` : ''}</button></div>
+      <div class="champ-ajout"><input data-notion="listeNoeuds" type="text" data-saisie placeholder="!a1b2c3d4, !e5f6a7b8…" aria-label="Nœuds à ajouter"><button class="principal" data-ajouter>➕ Ajouter${sel.length ? ` (+ ${sel.length} coché${sel.length > 1 ? 's' : ''})` : ''}</button></div>
       <label>Suivi des positions <select data-suivi>${[[0, 'à la demande'], [5, 'toutes les 5 min'], [10, 'toutes les 10 min'], [15, 'toutes les 15 min'], [30, 'toutes les 30 min'], [60, 'toutes les heures']].map(([v, t]) => `<option value="${v}" ${e.suiviMin === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <label class="case"><input type="checkbox" data-positions ${e.positions ? 'checked' : ''}> Positions des membres sur le canal d’équipe (s’applique aux prochains envois)</label>
       ${(e.sos || []).map((x) => `<div class="alerte ${x.pris ? 'info-lecture' : 'critique'} sos-eq">🆘 <b>${esc(x.nom)}</b> demande de l’aide ${ilYa(x.heure)} : « ${esc(x.texte)} »${x.position ? ` · <a href="#" data-voir-pos="${x.position.lat},${x.position.lon}">📍 voir</a> <small class="mono">${esc((window.DFCI && DFCI.versDfci(x.position.lat, x.position.lon)) || '')}</small>` : ''}${x.pris ? ` <small>· pris en compte par ${esc(x.prisPar || '?')} ${ilYa(x.pris)}</small>` : ` <button class="mini principal" data-sos-pris="${x.id}">✔ Pris en compte</button>`}</div>`).join('')}
@@ -5688,7 +5699,7 @@ meshtastic --host 192.168.1.50 --dest '!a1b2c3d4' --set security.is_managed true
       <label>Description <input id="eq-desc" maxlength="120" placeholder="Équipe cynophile, secteur nord…"></label>
     </div>
     <label class="case"><input type="checkbox" id="eq-pos"> Partager les positions des membres sur ce canal</label>
-    <details><summary>Importer une clé existante (sinon une clé AES-256 est générée)</summary><input id="eq-cle" type="password" autocomplete="off" placeholder="clé base64 (16 ou 32 octets)"></details>
+    <details><summary>Importer une clé existante (sinon une clé AES-256 est générée)</summary><input data-notion="cleCanal" id="eq-cle" type="password" autocomplete="off" placeholder="clé base64 (16 ou 32 octets)"></details>
     <div class="actions-prop"><button id="eq-creer" class="principal">Créer l’équipe</button></div>
     <p class="erreur" id="eq-retour"></p>
     <p class="note">Retirer un nœud n’efface le canal que s’il est joignable. Pour un nœud <b>perdu ou volé</b>, retirez-le puis faites <b>🔑 Nouvelle clé</b> : les autres membres la reçoivent, l’ancien nœud ne comprend plus rien. Les envois se suivent dans Programmer › Opérations récentes ; un nœud absent est repris toutes les 10 min pendant 2 h.</p></div>`;
@@ -6740,7 +6751,7 @@ function ouvrirGestion() {
     <h3>Adresse e-mail</h3>
     <p class="note">Sert à recevoir un lien si vous oubliez votre mot de passe. Elle n’est montrée qu’aux administrateurs.</p>
     <form id="form-email" class="parametres compact">
-      <label>E-mail <input name="email" type="email" autocomplete="email" value="${esc(c.email || '')}" placeholder="prenom@exemple.fr"></label>
+      <label>E-mail <input data-notion="email" name="email" type="email" autocomplete="email" value="${esc(c.email || '')}" placeholder="prenom@exemple.fr"></label>
       <button type="submit">Enregistrer</button>
     </form>
     <p class="erreur" id="retour-email"></p>

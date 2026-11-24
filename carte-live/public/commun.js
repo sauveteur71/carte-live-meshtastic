@@ -278,3 +278,110 @@ function installerSocle({ zone, aide, fonctions, carte = false }) {
 if (PAGE_AUTONOME) document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && window.socleFonctions) { e.preventDefault(); ouvrirRechercheCommune(window.socleFonctions); }
 });
+
+// ---- Aide dans les champs : une notion = une explication, un exemple, un format, écrits une seule fois -----------
+// Un champ dit ce qu'il attend par data-notion="…" ; rien d'autre à écrire à l'endroit du champ. Quand on entre dans
+// le champ, une bulle s'affiche dessous (sans déplacer la page) : ce qui est attendu, un exemple, et, au fil de la
+// frappe, si ce qui est tapé a la bonne forme. Le serveur reste seul juge à l'enregistrement : la bulle prévient,
+// elle n'empêche rien. Un « ? » discret au bord droit du champ signale qu'une aide existe.
+// verifier(valeur) → '' si la forme est bonne, sinon ce qui ne va pas. Les règles reprennent celles du serveur.
+const NOTIONS = {
+  noeud: { nom: 'Nœud', aide: 'Le nom du nœud tel qu’il apparaît sur la carte, ou son numéro : il commence par « ! » suivi de 8 caractères (chiffres et lettres a à f). On le lit sur la fiche du nœud ou dans l’appli Meshtastic.', exemple: '!a1b2c3d4' },
+  numeroNoeud: { nom: 'Numéro de nœud', aide: 'Il commence par « ! » suivi de 8 caractères (chiffres et lettres a à f). On le lit sur la fiche du nœud ou dans l’appli Meshtastic. Le numéro décimal est accepté aussi.', exemple: '!a1b2c3d4',
+    verifier: (v) => ((/^!?[0-9a-f]{8}$/i.test(v) && /[a-f!]/i.test(v)) || (/^\d{1,10}$/.test(v) && Number(v) > 0 && Number(v) <= 0xffffffff) ? '' : 'attendu : « ! » puis 8 caractères (0 à 9, a à f)') },
+  listeNoeuds: { nom: 'Numéros de nœuds', aide: 'Un ou plusieurs numéros de nœud, séparés par des virgules. Chacun commence par « ! » suivi de 8 caractères ; on le lit sur la fiche du nœud.', exemple: '!a1b2c3d4, !e5f6a7b8',
+    verifier: (v) => { const faux = v.split(/[,;\s]+/).filter(Boolean).find((x) => !/^!?[0-9a-f]{8}$/i.test(x)); return faux ? `« ${faux.slice(0, 16)} » : attendu « ! » puis 8 caractères (0 à 9, a à f)` : ''; } },
+  noeudsSuivis: { nom: 'Nœuds suivis', aide: 'Les nœuds à surveiller, séparés par des virgules : un numéro Meshtastic (« ! » puis 8 caractères) ou la clé publique d’un nœud MeshCore (64 caractères), lus sur leur fiche.', exemple: '!a1b2c3d4' },
+  nomCourt: { nom: 'Nom court du nœud', aide: 'Les 4 caractères affichés sur l’écran du module et dans sa pastille sur la carte (réglé dans l’appli Meshtastic). Respectez majuscules et minuscules.', exemple: 'PS01' },
+  indicatif: { nom: 'Indicatif radioamateur', aide: 'L’indicatif délivré par l’ANFR, sans espace. Un suffixe « /P » ou « /M » est accepté.', exemple: 'F4ABC',
+    verifier: (v) => (/^[A-Z0-9]{1,3}[0-9][A-Z0-9]{0,4}[A-Z](\/[A-Z0-9]{1,4})?$/.test(v.toUpperCase()) ? '' : 'ne ressemble pas à un indicatif (ex. F4ABC)') },
+  swl: { nom: 'Numéro d’écouteur (SWL)', aide: 'Votre numéro d’écouteur si vous en avez un. Facultatif.', exemple: 'F-12345' },
+  departement: { nom: 'Département', aide: 'Le numéro du département, à 2 ou 3 chiffres ; 2A ou 2B pour la Corse.', exemple: '43',
+    verifier: (v) => (/^(\d{2,3}|2A|2B)$/i.test(v) ? '' : '2 ou 3 chiffres (ex. 43, 2A, 971)') },
+  mqttUrl: { nom: 'Adresse du serveur MQTT (broker)', aide: 'Le protocole, le nom ou l’adresse IP du serveur, puis le port. mqtt:// pour une liaison simple (port 1883), mqtts:// si elle est chiffrée (port 8883), ws:// ou wss:// pour un broker en WebSocket.', exemple: 'mqtt://192.168.1.10:1883',
+    verifier: (v) => (/^(mqtts?|wss?):\/\/[^\s]+$/.test(v) ? '' : 'doit commencer par mqtt://, mqtts://, ws:// ou wss://') },
+  brokers: { nom: 'Brokers MQTT supplémentaires', aide: 'Une adresse par ligne, écrite comme celle du broker principal. La carte les écoute en même temps (5 au plus).', exemple: 'mqtt://autre-serveur:1883',
+    verifier: (v) => { const faux = v.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).find((l) => !/^(mqtts?|wss?):\/\/[^\s]+$/.test(l)); return faux ? `« ${faux.slice(0, 30)} » doit commencer par mqtt://, mqtts://, ws:// ou wss://` : ''; } },
+  mqttRacine: { nom: 'Sujet racine MQTT', aide: 'Le début commun des sujets où les passerelles Meshtastic publient. Il est réglé dans le module MQTT de chaque passerelle : « msh » suivi de la région. Sans « / » à la fin.', exemple: 'msh/EU_868',
+    verifier: (v) => (/\s/.test(v) ? 'pas d’espace dans un sujet MQTT' : /[#+]/.test(v) ? 'pas de « # » ni de « + » : la carte les ajoute elle-même' : '') },
+  mqttSujets: { nom: 'Sujets MQTT supplémentaires', aide: 'D’autres sujets à écouter en plus du sujet racine, un par ligne ou séparés par des virgules. « # » à la fin prend tout ce qui suit.', exemple: 'msh/FR/43/#' },
+  canauxCles: { nom: 'Canaux à déchiffrer', aide: 'Un canal par ligne : son nom, le signe « = », puis sa clé en base64, telle qu’elle est affichée dans l’appli Meshtastic. Le canal public LongFast a la clé « AQ== ». Sans la clé d’un canal, ses messages restent illisibles.', exemple: 'LongFast=AQ==',
+    verifier: (v) => { const faux = v.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).find((l) => !/^[^=\s][^=]*=\s*[A-Za-z0-9+/_-]+={0,2}$/.test(l)); return faux ? `« ${faux.slice(0, 24)} » : attendu Nom=clé en base64` : ''; } },
+  cleCanal: { nom: 'Clé de canal', aide: 'La clé du canal en base64, telle qu’elle est affichée dans l’appli Meshtastic (16 ou 32 octets). Laissez vide pour qu’une clé soit tirée au hasard.', exemple: '1PG7OiApB1nwvP+rz05pAQ==',
+    verifier: (v) => { if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(v)) return 'ce n’est pas du base64'; let n = 0; try { n = atob(v.replace(/-/g, '+').replace(/_/g, '/')).length; } catch { return 'ce n’est pas du base64'; } return n === 16 || n === 32 ? '' : `clé de ${n} octets : il en faut 16 ou 32`; } },
+  iata: { nom: 'Code de zone MeshCore', aide: 'Le code qui désigne votre secteur dans les sujets MQTT MeshCore : par convention le code de l’aéroport le plus proche, en 3 lettres.', exemple: 'LPY',
+    verifier: (v) => (/^[A-Z0-9]{2,8}$/i.test(v) ? '' : '2 à 8 lettres ou chiffres, sans espace') },
+  iataVoisins: { nom: 'Zones voisines', aide: 'Les codes de zone des secteurs voisins à écouter aussi, séparés par des virgules.', exemple: 'CFE, LYS, EBU',
+    verifier: (v) => { const faux = v.split(/[,;\s]+/).filter(Boolean).find((x) => !/^[A-Z0-9]{2,8}$/i.test(x)); return faux ? `« ${faux} » : 2 à 8 lettres ou chiffres` : ''; } },
+  racineMc: { nom: 'Racine des sujets MeshCore', aide: 'Le début des sujets MQTT où les observateurs MeshCore publient. Gardez « meshcore » sauf si votre broker en utilise un autre.', exemple: 'meshcore',
+    verifier: (v) => (/[\s#+]/.test(v) ? 'pas d’espace, de « # » ni de « + »' : '') },
+  hoteModule: { nom: 'Adresse du module', aide: 'L’adresse IP du module sur votre réseau Wi-Fi (affichée sur son écran ou dans votre box), ou son nom. Le module doit être allumé et joignable depuis le serveur de la carte.', exemple: '192.168.1.50',
+    verifier: (v) => (/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i.test(v) ? '' : /:\/\//.test(v) ? 'l’adresse seule, sans « http:// »' : 'une adresse IP ou un nom, sans espace') },
+  latitude: { nom: 'Latitude', aide: 'En degrés décimaux, avec un point : positive au nord. Un clic droit sur la carte donne les coordonnées d’un lieu.', exemple: '45.04300',
+    verifier: (v) => (/,/.test(v) ? 'un point, pas une virgule (45.043)' : v.trim() !== '' && Number.isFinite(Number(v)) && Math.abs(Number(v)) <= 90 ? '' : 'un nombre entre -90 et 90') },
+  longitude: { nom: 'Longitude', aide: 'En degrés décimaux, avec un point : positive à l’est de Greenwich. Un clic droit sur la carte donne les coordonnées d’un lieu.', exemple: '3.88500',
+    verifier: (v) => (/,/.test(v) ? 'un point, pas une virgule (3.885)' : v.trim() !== '' && Number.isFinite(Number(v)) && Math.abs(Number(v)) <= 180 ? '' : 'un nombre entre -180 et 180') },
+  locator: { nom: 'QTH locator', aide: 'Le carré Maidenhead de l’endroit où vous êtes : 4, 6 ou 8 caractères. Plus il est long, plus il est précis (8 caractères : quelques centaines de mètres).', exemple: 'JN15XC33',
+    verifier: (v) => (v.length >= 4 && /^[A-R]{2}(\d{2}([A-X]{2}(\d{2}([A-X]{2})?)?)?)?$/i.test(v) ? '' : '2 lettres, 2 chiffres, puis 2 lettres et 2 chiffres (ex. JN15XC33)') },
+  gisement: { nom: 'Gisement', aide: 'La direction d’où vient le signal, lue sur la boussole : 0° au nord, 90° à l’est, 180° au sud, 270° à l’ouest. Par rapport au nord géographique.', exemple: '125',
+    verifier: (v) => { const n = Number(String(v).replace(',', '.')); return v.trim() !== '' && n >= 0 && n <= 360 ? '' : 'un nombre entre 0 et 360'; } },
+  incertitude: { nom: 'Incertitude du relevé', aide: 'De combien de degrés vous pouvez vous tromper, de chaque côté. 5° avec une antenne directive bien tenue, 10 à 15° pour un relevé rapide. Vide : 5°.', exemple: '5',
+    verifier: (v) => { const n = Number(String(v).replace(',', '.')); return n >= 0.5 && n <= 45 ? '' : 'entre 0,5 et 45 degrés'; } },
+  identifiant: { nom: 'Identifiant', aide: 'Le nom avec lequel la personne se connectera : un pseudo ou « NOM Prénom ». 3 à 32 caractères.', exemple: 'DELAGE Fabrice',
+    verifier: (v) => (v.trim().length >= 3 && v.trim().length <= 32 ? '' : '3 à 32 caractères') },
+  motDePasse: { nom: 'Mot de passe', aide: '8 caractères au moins. Une phrase courte de plusieurs mots se retient mieux qu’un mot compliqué.', exemple: '',
+    verifier: (v) => (v.length >= 8 ? '' : `encore ${8 - v.length} caractère${8 - v.length > 1 ? 's' : ''} (8 au moins)`) },
+  email: { nom: 'Adresse e-mail', aide: 'Elle sert à recevoir un lien si le mot de passe est oublié, et les alertes si vous les demandez.', exemple: 'prenom.nom@exemple.fr',
+    verifier: (v) => (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) ? '' : 'il manque quelque chose (ex. prenom.nom@exemple.fr)') },
+  courriels: { nom: 'Adresses e-mail', aide: 'Une ou plusieurs adresses, séparées par des virgules.', exemple: 'pc@exemple.fr, astreinte@exemple.fr',
+    verifier: (v) => { const faux = v.split(/[,;\s]+/).filter(Boolean).find((x) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)); return faux ? `« ${faux} » n’est pas une adresse e-mail` : ''; } },
+  codeEspace: { nom: 'Adresse de l’espace', aide: 'Le mot qui suit /secours/ dans l’adresse de la page, à donner aux membres. 3 à 32 caractères : lettres minuscules, chiffres et tirets. Il ne se change plus ensuite.', exemple: 'festival-2027',
+    verifier: (v) => (/^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/.test(v) ? '' : /[A-Z]/.test(v) ? 'en minuscules' : /[^a-z0-9-]/.test(v) ? 'lettres minuscules, chiffres et tirets seulement (pas d’espace ni d’accent)' : '3 à 32 caractères') },
+};
+if (typeof window !== 'undefined') window.NOTIONS = NOTIONS;
+(() => {
+  if (typeof document === 'undefined') return;
+  const st = document.createElement('style');
+  st.textContent = `
+[data-notion]:not(textarea) { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Ccircle cx='8' cy='8' r='7' fill='none' stroke='%239fb3c8' stroke-width='1.3'/%3E%3Ctext x='8' y='11.6' text-anchor='middle' font-family='sans-serif' font-size='10' font-weight='700' fill='%239fb3c8'%3E?%3C/text%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 6px center; padding-right: 26px !important; }
+[data-notion][aria-invalid="true"] { border-color: #ffb547 !important; box-shadow: 0 0 0 1px #ffb547; }
+#bulle-notion { position: fixed; z-index: 5000; max-width: min(380px, calc(100vw - 16px)); padding: 9px 11px; border-radius: 9px; background: #0f172a; color: #f8fafc; border: 1px solid #5b7189; box-shadow: 0 6px 18px rgba(0,0,0,.55); font: 13.5px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; pointer-events: none; }
+#bulle-notion b { display: block; margin-bottom: 2px; }
+#bulle-notion .ex { display: block; margin-top: 5px; color: #cbd7e2; }
+#bulle-notion .ex code { font-family: ui-monospace, Menlo, Consolas, monospace; background: rgba(255,255,255,.1); padding: 1px 5px; border-radius: 4px; color: #f8fafc; }
+#bulle-notion .etat { display: block; margin-top: 6px; font-weight: 650; }
+#bulle-notion .etat.bon { color: #3ee6c4; } #bulle-notion .etat.faux { color: #ffb547; }`;
+  document.head.appendChild(st);
+  let bulle = null, champ = null;
+  const fermer = () => { if (bulle) bulle.remove(); bulle = null; champ = null; };
+  const etat = (c, n) => {
+    const v = c.value;
+    if (!n.verifier || !String(v).trim()) return null; // champ vide : rien à dire (facultatif ou pas, le serveur le sait)
+    let m = '';
+    try { m = n.verifier(String(v).trim()) || ''; } catch { m = ''; }
+    return m;
+  };
+  const marquer = (c, n) => { const m = etat(c, n); if (m) c.setAttribute('aria-invalid', 'true'); else c.removeAttribute('aria-invalid'); return m; };
+  const placer = () => {
+    if (!bulle || !champ) return;
+    const r = champ.getBoundingClientRect(), h = bulle.offsetHeight, l = bulle.offsetWidth;
+    const dessous = r.bottom + 6 + h <= innerHeight || r.top - 6 - h < 0;
+    bulle.style.top = Math.round(dessous ? r.bottom + 6 : r.top - 6 - h) + 'px';
+    bulle.style.left = Math.round(Math.max(8, Math.min(r.left, innerWidth - l - 8))) + 'px';
+  };
+  const montrer = (c) => {
+    const n = NOTIONS[c.dataset.notion];
+    if (!n) return;
+    if (!bulle) { bulle = document.createElement('div'); bulle.id = 'bulle-notion'; bulle.setAttribute('role', 'status'); bulle.setAttribute('aria-live', 'polite'); document.body.appendChild(bulle); }
+    champ = c;
+    const m = marquer(c, n);
+    bulle.innerHTML = `<b>${escCommun(c.dataset.notionNom || n.nom)}</b>${escCommun(c.dataset.notionAide || n.aide)}${n.exemple ? `<span class="ex">Exemple : <code>${escCommun(n.exemple)}</code></span>` : ''}${m === null ? '' : m ? `<span class="etat faux">⚠ ${escCommun(m)}</span>` : '<span class="etat bon">✔ forme reconnue</span>'}`;
+    placer();
+  };
+  document.addEventListener('focusin', (e) => { const c = e.target; if (c && c.matches && c.matches('[data-notion]') && !c.readOnly && !c.disabled) montrer(c); else fermer(); });
+  document.addEventListener('focusout', (e) => { const c = e.target; if (c && c.matches && c.matches('[data-notion]')) { const n = NOTIONS[c.dataset.notion]; if (n) marquer(c, n); } fermer(); });
+  document.addEventListener('input', (e) => { if (e.target === champ) montrer(champ); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && bulle) fermer(); }, true);
+  addEventListener('scroll', placer, true);
+  addEventListener('resize', placer);
+})();

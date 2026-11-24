@@ -155,6 +155,28 @@ async function essaiCarteFrancais(contexte) {
   if (choix.cases === 12 && !choix.barreAvant && /2 sites cochés/.test(choix.barre) && choix.surlignes === 2 && choix.max === 10 && choix.bloquees === 2 && choix.envoyes === 10 && choix.premier.nom === 'Site 1' && choix.premier.h === 6 && choix.listePartie && choix.retour === 12 && choix.gardees === 10 && choix.barreRetour && choix.vide === 0 && !choix.barreFin)
     ok('sites proposés : cases à cocher (10 au plus), couverture de la sélection, retour à la liste avec les cases gardées');
   else ko('sélection de sites proposés : ' + JSON.stringify(choix));
+  // Onglet Couverture : blocs repliables (le plan ouvert, les autres sur une ligne), choix gardé ; la recherche ouvre le bloc replié
+  await page.evaluate(() => ouvrirOnglet('sites')); await page.waitForTimeout(800);
+  // Le relief n'est pas chargé dans cet essai : l'onglet est dessiné comme s'il l'était (sans points hauts ni classement)
+  await page.evaluate(async () => { window.__relief = etat.relief; etat.relief = { ...(etat.relief || {}), mnt: 'pret' }; etat.sommets = etat.sommets || []; try { await rendreSites(); } catch (e) { console.warn('rendreSites : ' + e.message); } });
+  await page.waitForTimeout(300);
+  const plis = await page.evaluate(async () => {
+    const l = [...document.querySelectorAll('details.pli-plan')];
+    if (!l.length) return null;
+    const r = { nb: l.length, ouverts: l.filter((d) => d.open).map((d) => d.id).join() };
+    const b = document.querySelector('#bloc-budget'); b.open = true; await new Promise((ok) => setTimeout(ok, 100));
+    r.memo = JSON.parse(localStorage.getItem('gaulix_plis_couverture') || '{}')['bloc-budget'];
+    b.open = false; document.querySelector('#bloc-plan').open = false; await new Promise((ok) => setTimeout(ok, 100));
+    surligner(document.querySelector('#plan-objectif'));
+    r.rouvert = document.querySelector('#bloc-plan').open;
+    return r;
+  });
+  await capture(page, 'couverture-plis');
+  await page.evaluate(() => { etat.relief = window.__relief; });
+  if (plis && plis.nb === 4 && plis.ouverts === 'bloc-plan' && plis.memo === true && plis.rouvert) ok('onglet Couverture : 4 blocs repliables, le plan ouvert par défaut, choix gardé, bloc rouvert par la recherche');
+  else if (!plis) console.log('  – blocs repliables de l’onglet Couverture : non vérifiés (relief pas encore chargé dans cet essai)');
+  else ko('blocs repliables de l’onglet Couverture : ' + JSON.stringify(plis));
+  await groupe('reseau');
   // Recherche d'un code DFCI : carreau dessiné sur la carte
   await page.locator('#recherche-lieu').fill('KD42F7.5');
   await page.waitForTimeout(400);
@@ -1168,6 +1190,23 @@ async function essaiSecours(navig, cookie) {
   await page.click('.socle-commun [data-socle="aide"]'); await page.waitForTimeout(900);
   const aide = await page.evaluate(() => { const d = document.querySelector('#dlg-aide-commune[open]'); return { ouverte: !!d, texte: d ? d.querySelector('.corps-aide').textContent.length : 0, titres: d ? d.querySelectorAll('.corps-aide h2, .corps-aide h3').length : 0 }; });
   await capture(page, 'secours-aide');
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  // Aide dans le champ : la bulle dit ce qui est attendu, puis juge la forme au fil de la frappe, sans déplacer la page
+  const hauteurAvant = await page.evaluate(() => document.querySelector('#vue-gestion').scrollHeight);
+  await page.focus('#mdp-nouveau'); await page.waitForTimeout(150);
+  const bulle = { vide: await page.evaluate(() => (document.querySelector('#bulle-notion') || {}).textContent || '') };
+  await page.keyboard.type('abc'); await page.waitForTimeout(150);
+  bulle.court = await page.evaluate(() => (document.querySelector('#bulle-notion .etat') || {}).textContent || '');
+  await capture(page, 'secours-bulle');
+  await page.keyboard.type('defgh'); await page.waitForTimeout(150);
+  bulle.bon = await page.evaluate(() => (document.querySelector('#bulle-notion .etat') || {}).textContent || '');
+  bulle.hauteur = (await page.evaluate(() => document.querySelector('#vue-gestion').scrollHeight)) === hauteurAvant;
+  await page.fill('#mdp-nouveau', 'abc'); await page.evaluate(() => document.querySelector('#mdp-nouveau').blur()); await page.waitForTimeout(100);
+  bulle.apres = await page.evaluate(() => ({ partie: !document.querySelector('#bulle-notion'), invalide: document.querySelector('#mdp-nouveau').getAttribute('aria-invalid') }));
+  await page.fill('#mdp-nouveau', ''); await page.evaluate(() => { const c = document.querySelector('#mdp-nouveau'); c.focus(); c.blur(); });
+  if (/Mot de passe/.test(bulle.vide) && /8 caractères au moins/.test(bulle.vide) && /encore 5 caractères/.test(bulle.court) && /forme reconnue/.test(bulle.bon) && bulle.hauteur && bulle.apres.partie && bulle.apres.invalide === 'true')
+    ok('aide dans le champ : explication à l’entrée, forme jugée au fil de la frappe, champ marqué en sortant, page non déplacée');
+  else ko('aide dans le champ : ' + JSON.stringify(bulle));
   await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
   await page.click('.c-suppr'); await page.waitForTimeout(300);
   const conf = await page.evaluate(() => { const d = document.querySelector('#dlg-confirmer[open]'); return { ouverte: !!d, texte: d ? d.querySelector('p').textContent : '', danger: d ? !!d.querySelector('button.danger') : false }; });
@@ -2360,7 +2399,7 @@ async function essaiBoutonsOutils(navig, cookie) {
   //    companion ont quitté le menu ; l'écran unique les propose, et dit pourquoi elles sont indisponibles ici (HTTP)
   await page.evaluate(() => { const m = document.querySelector('.menu-outils'); if (m) m.open = true; document.querySelector('#outil-connecter').click(); });
   await page.waitForTimeout(700);
-  const porte = await page.evaluate(() => { const d = document.querySelector('dialog[open]'); return { anciennes: ['#outil-usb', '#outil-ble', '#outil-companion-mc'].filter((x) => document.querySelector(x)).length, ouverte: !!d, usb: d ? !!d.querySelector('[data-cx="usb"]') : false, ble: d ? !!d.querySelector('[data-cx="ble"]') : false, raison: d ? (d.querySelector('.alerte.attention') || {}).textContent || '' : '',
+  const porte = await page.evaluate(() => { const d = document.querySelector('#fiche').hidden ? null : document.querySelector('#fiche-contenu'); return { anciennes: ['#outil-usb', '#outil-ble', '#outil-companion-mc'].filter((x) => document.querySelector(x)).length, ouverte: !!d, usb: d ? !!d.querySelector('[data-cx="usb"]') : false, ble: d ? !!d.querySelector('[data-cx="ble"]') : false, raison: d ? (d.querySelector('.alerte.attention') || {}).textContent || '' : '',
     topoMc: (() => { const l = [...document.querySelectorAll('.menu-outils .menu > *')]; const i = l.findIndex((e) => (e.getAttribute('href') || '').includes('reseau=mc')); let k = i; while (k >= 0 && !l[k].classList.contains('titre-outils')) k--; return k >= 0 ? l[k].textContent.trim() : ''; })() }; });
   await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
   if (!porte.anciennes && porte.ouverte && porte.usb && porte.ble && /HTTPS|Chrome ou Edge/i.test(porte.raison) && porte.topoMc === 'MeshCore') ok('menu Outils : une seule entrée pour relier un module (USB, Bluetooth, raison de l’indisponibilité), topologie MeshCore rangée sous MeshCore');

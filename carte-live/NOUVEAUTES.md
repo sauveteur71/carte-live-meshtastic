@@ -14,6 +14,14 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 - La recherche de ces pages se construit toute seule à partir des onglets et des titres affichés : un bloc ajouté devient cherchable sans liste à tenir.
 - **Menu Outils** : chaque entrée porte son niveau d'affichage (simple, opérateur, expert) et ses mots-clés de recherche directement dans le menu. « radiogoniométrie », « point de rassemblement » ou « PCS » mènent maintenant à la bonne entrée. Registre des relais et Relier un companion MeshCore passent au niveau Opérateur.
 - Envoi d'un point de rassemblement : la fenêtre du mot complémentaire donne un exemple et précise que laisser vide envoie le point seul.
+- **Une seule entrée pour relier un module** : « 🔌 Connecter un module… » (Bluetooth, USB, adresse IP, et le débranchement). Les entrées « Module USB de ce PC », « Module Bluetooth » et « Relier un companion MeshCore » quittent le menu. « Topologie et simulation MeshCore » est rangée sous MeshCore.
+- **Onglet Couverture sans défilement** : plan, plan à budget, sites routiers et déplacement de relais sont des blocs repliables (une ligne chacun, le plan ouvert par défaut, choix gardé sur l'appareil). Dans un espace Secours, les deux rappels « par radio » de la Gestion se replient aussi.
+
+### 💬 Aide dans les champs et erreurs qui disent quoi faire
+- **Aide dans le champ** : en entrant dans un champ qui attend une valeur précise, une bulle dit ce qui est attendu, donne un **exemple** et, **au fil de la frappe**, si la forme est bonne (« encore 5 caractères », « doit commencer par mqtt:// », « un point, pas une virgule »). Un petit « ? » au bord du champ signale cette aide. La bulle ne déplace pas la page et n'empêche pas d'enregistrer.
+- Une cinquantaine de champs en profitent d'emblée : adresse du broker MQTT, sujet racine, canaux et clés, adresse IP d'un module, code de zone MeshCore, indicatif, QTH locator, gisement et incertitude, latitude et longitude, numéros de nœuds, nom court, adresse d'un espace Secours, identifiants, mots de passe, e-mails.
+- Chaque notion est écrite une seule fois : la même explication partout où elle est demandée, sur la carte comme dans les espaces Secours et la section ADRASEC.
+- **Messages d'erreur** : les refus les plus courants disent maintenant ce qui est attendu, avec un exemple (« Position invalide : latitude entre -90 et 90, longitude entre -180 et 180 (ex. 45.043, 3.885) », « Canal invalide : choisissez un canal du module, de 0 à 7 »…).
 
 ### 📡 Section ADRASEC : un opérateur membre de plusieurs ADRASEC
 - **Un même compte peut être membre de plusieurs ADRASEC** hébergées sur la carte (un opérateur à cheval sur deux départements). Le président de la seconde ADRASEC l'intègre depuis *⚙️ Gestion › Intégrer un compte de la carte* ; ce n'est plus refusé.

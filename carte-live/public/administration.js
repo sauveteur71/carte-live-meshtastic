@@ -407,7 +407,7 @@ async function formulaireAction(act) {
   }
   if (act === 'position') {
     f.innerHTML = `<form id="f-act" class="form-gestion">
-      <div class="grille-2"><label>Latitude <input name="lat" required value="${n && n.lat != null ? n.lat.toFixed(6) : ''}"></label><label>Longitude <input name="lon" required value="${n && n.lon != null ? n.lon.toFixed(6) : ''}"></label></div>
+      <div class="grille-2"><label>Latitude <input data-notion="latitude" name="lat" required value="${n && n.lat != null ? n.lat.toFixed(6) : ''}"></label><label>Longitude <input data-notion="longitude" name="lon" required value="${n && n.lon != null ? n.lon.toFixed(6) : ''}"></label></div>
       <label>Altitude (m, facultatif) <input name="alt" type="number" value="${n && n.alt != null ? n.alt : ''}"></label>
       <div class="actions-prop"><button type="button" id="choisir-pos">📍 Choisir sur la carte</button><button type="submit" class="principal">Définir la position fixe</button><button type="button" id="retirer-pos">Retirer la position fixe</button></div>
       <p class="note">Le nœud passe en position fixe : il diffuse ces coordonnées au lieu de celles de son GPS. Astuce : la barre de recherche et le clic droit donnent les coordonnées d’un lieu.</p>${pied}</form>`;
@@ -750,12 +750,12 @@ async function ouvrirBroker() {
     <h4>Réglages</h4>
     <form id="f-broker" class="form-edit">
       <div class="grille-edit">
-        <label>Adresse <input name="url" value="${esc(m.url.includes('***') ? '' : m.url)}" placeholder="mqtt://serveur:1883 ou mqtts://serveur:8883"></label>
-        <label>Racine des sujets <input name="racine" value="${esc(m.racine)}" placeholder="msh/EU_868"></label>
+        <label>Adresse <input data-notion="mqttUrl" name="url" value="${esc(m.url.includes('***') ? '' : m.url)}" placeholder="mqtt://serveur:1883 ou mqtts://serveur:8883"></label>
+        <label>Racine des sujets <input data-notion="mqttRacine" name="racine" value="${esc(m.racine)}" placeholder="msh/EU_868"></label>
         <label>Utilisateur <input name="utilisateur" value="${esc(m.utilisateur || '')}" autocomplete="off"></label>
         <label>Mot de passe <input name="motDePasse" type="password" placeholder="${m.motDePasseDefini ? '(inchangé)' : ''}" autocomplete="new-password"></label>
-        <label style="grid-column: 1 / -1">Sujets supplémentaires (séparés par des virgules) <input name="sujetsSupplementaires" value="${esc(m.sujetsSupplementaires || '')}"></label>
-        <label style="grid-column: 1 / -1">Brokers supplémentaires écoutés en même temps (5 au plus, un par ligne) <textarea name="brokers" rows="3" spellcheck="false" autocomplete="off" placeholder="mqtts://nom:motdepasse@broker-voisin:8883|msh/EU_868">${esc(m.brokersReglage || '')}</textarea></label>
+        <label style="grid-column: 1 / -1">Sujets supplémentaires (séparés par des virgules) <input data-notion="mqttSujets" name="sujetsSupplementaires" value="${esc(m.sujetsSupplementaires || '')}"></label>
+        <label style="grid-column: 1 / -1">Brokers supplémentaires écoutés en même temps (5 au plus, un par ligne) <textarea data-notion="brokers" name="brokers" rows="3" spellcheck="false" autocomplete="off" placeholder="mqtts://nom:motdepasse@broker-voisin:8883|msh/EU_868">${esc(m.brokersReglage || '')}</textarea></label>
       </div>
       <p class="note">Brokers supplémentaires : une ligne par broker, « adresse » ou « adresse|racine » (racine vide = celle du broker principal). Chacun est écouté pour Meshtastic et pour MeshCore ; un paquet reçu par plusieurs brokers n’est compté qu’une fois. Identifiant et mot de passe dans l’adresse ; un mot de passe affiché <span class="mono">***</span> reste celui déjà enregistré. Ligne effacée = broker retiré.</p>
       <div class="actions-prop"><button type="button" id="broker-tester">🔌 Tester ces réglages (10 s)</button><button type="submit" class="principal">Enregistrer et redémarrer</button></div>
@@ -928,7 +928,7 @@ async function rendreComptes() {
     <h3>Ajouter un compte</h3>
     <form id="form-ajout-compte" class="parametres compact">
       <label>Identifiant <input name="identifiant" required minlength="3" maxlength="32" placeholder="pseudo ou NOM Prénom"></label>
-      <label>Indicatif <input name="indicatif"></label>
+      <label>Indicatif <input data-notion="indicatif" name="indicatif"></label>
       <label>Mot de passe provisoire <input name="motDePasse" type="password" required minlength="8" autocomplete="new-password"></label>
       <label>Rôle <select name="role"><option value="membre">Membre</option><option value="gestionnaire">Gestionnaire de secteur</option><option value="admin">Administrateur</option></select></label>
       <button type="submit">Créer</button>
@@ -964,8 +964,8 @@ async function rendreComptes() {
     tr.querySelector('[data-fiche]').onclick = () => {
       const c = liste.find((x) => String(x.id) === String(id)) || {};
       const td = tr.querySelector('td'), td2 = td.nextElementSibling;
-      td.innerHTML = `<input class="fiche-ident" value="${esc(c.identifiant)}" maxlength="32" title="Identifiant de connexion : pseudo ou NOM Prénom"><input class="fiche-email" type="email" value="${esc(c.email || '')}" placeholder="e-mail" maxlength="120">`;
-      td2.innerHTML = `<input class="fiche-ind" value="${esc(c.indicatif || '')}" placeholder="F4ABC" maxlength="16"><div class="actions-fiche"><button class="mini bouton-enregistrer" data-ok>✔ Enregistrer</button><button class="mini" data-annuler>Annuler</button></div>`;
+      td.innerHTML = `<input class="fiche-ident" value="${esc(c.identifiant)}" maxlength="32" title="Identifiant de connexion : pseudo ou NOM Prénom"><input data-notion="email" class="fiche-email" type="email" value="${esc(c.email || '')}" placeholder="e-mail" maxlength="120">`;
+      td2.innerHTML = `<input data-notion="indicatif" class="fiche-ind" value="${esc(c.indicatif || '')}" placeholder="F4ABC" maxlength="16"><div class="actions-fiche"><button class="mini bouton-enregistrer" data-ok>✔ Enregistrer</button><button class="mini" data-annuler>Annuler</button></div>`;
       td.querySelector('.fiche-ident').focus();
       td2.querySelector('[data-annuler]').onclick = () => rendreComptes();
       td2.querySelector('[data-ok]').onclick = enregistrerFiches;
@@ -1014,11 +1014,11 @@ async function rendreReglages() {
         <label>Nom de la carte <input name="titre" value="${esc(r.titre)}" maxlength="80"></label>
         <label>Département <select name="departement"></select><small>Fixe la zone, le contour et le centrage de la carte</small></label>
         <div class="large-col note-source">${r.depuisPage && r.depuisPage.mqtt ? `⚠️ Le serveur MQTT est réglé ici : ces valeurs <b>remplacent celles du .env</b>${r.env && r.env.mqtt.url ? ` (MQTT_URL=${esc(r.env.mqtt.url)})` : ''}. <button type="button" class="mini" data-revenir-env="mqtt">Revenir au .env</button>` : 'ℹ️ Serveur MQTT lu dans le fichier .env. Une valeur changée ici le remplacera (le .env ne sera plus lu pour elle).'}</div>
-        <label>Serveur MQTT <input name="mqttUrl" value="${esc(r.mqtt.url)}"></label>
-        <label>Sujet racine <input name="mqttRacine" value="${esc(r.mqtt.racine)}"></label>
+        <label>Serveur MQTT <input data-notion="mqttUrl" name="mqttUrl" value="${esc(r.mqtt.url)}"></label>
+        <label>Sujet racine <input data-notion="mqttRacine" name="mqttRacine" value="${esc(r.mqtt.racine)}"></label>
         <label>Utilisateur MQTT <input name="mqttUtilisateur" value="${esc(r.mqtt.utilisateur)}" autocomplete="off"></label>
         <label>Mot de passe MQTT <input name="mqttMotDePasse" type="password" placeholder="${r.mqtt.motDePasseDefini ? '•••••• (inchangé)' : ''}" autocomplete="new-password"></label>
-        <label>Sujets supplémentaires <input name="mqttSujets" value="${esc(r.mqtt.sujetsSupplementaires)}" placeholder="séparés par des virgules"></label>
+        <label>Sujets supplémentaires <input data-notion="mqttSujets" name="mqttSujets" value="${esc(r.mqtt.sujetsSupplementaires)}" placeholder="séparés par des virgules"></label>
         <label>Inscriptions <select name="inscriptions">${[['validation', 'Sur validation de l’admin'], ['ouvertes', 'Ouvertes à tous'], ['fermees', 'Fermées']].map(([v, l]) => `<option value="${v}" ${r.inscriptions === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <label>Positions publiques <select name="precisionPublique">${[[3, 'Arrondies à ≈ 100 m'], [2, 'Arrondies à ≈ 1 km'], [4, 'Arrondies à ≈ 10 m'], [-1, 'Exactes']].map(([v, l]) => `<option value="${v}" ${r.precisionPublique === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <label>Conservation (jours) <input name="retentionJours" type="number" min="1" max="90" value="${r.retentionJours}"></label>

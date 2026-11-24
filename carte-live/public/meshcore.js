@@ -882,8 +882,8 @@ Notez-le : sans lui, il faudra repasser par l’USB.`))) return;
       <div class="grille-edit">
         <label>Modèle <select name="modele"><option value="">(aucun : identification seulement)</option>${l.map((m) => `<option value="${m.id}">${esc(m.nom)}</option>`).join('')}</select></label>
         <label>Nom <input name="name" maxlength="31" value="${esc(v.name || n.nom || '')}" placeholder="ex. FR43PYVE_Rep"></label>
-        <label>Latitude <input name="lat" inputmode="decimal" value="${esc(v.lat || (n.lat != null ? n.lat.toFixed(6) : ''))}"></label>
-        <label>Longitude <input name="lon" inputmode="decimal" value="${esc(v.lon || (n.lon != null ? n.lon.toFixed(6) : ''))}"></label>
+        <label>Latitude <input data-notion="latitude" name="lat" inputmode="decimal" value="${esc(v.lat || (n.lat != null ? n.lat.toFixed(6) : ''))}"></label>
+        <label>Longitude <input data-notion="longitude" name="lon" inputmode="decimal" value="${esc(v.lon || (n.lon != null ? n.lon.toFixed(6) : ''))}"></label>
         <label style="grid-column:1/-1">Contact (infos propriétaire) <input name="owner" maxlength="120" value="${esc(v['owner.info'] || '')}" placeholder="E-Mail|Telegram|INDICATIF"></label>
         <label>Nouveau mot de passe admin <input name="admin" type="password" autocomplete="new-password" maxlength="15" placeholder="vide = inchangé"></label>
         <label>Confirmation <input name="admin2" type="password" autocomplete="new-password" maxlength="15"></label>
@@ -1345,7 +1345,7 @@ function mcRendreCompanion() {
       <div class="actions-prop">${mc.nav.etat === 'relie' || mc.nav.etat === 'connexion' || mc.nav.etat === 'reconnexion' ? '<button data-mc-act="nav-stop">Débrancher</button>' : '<button data-mc-act="usb" class="principal-usb">🔌 USB</button><button data-mc-act="ble">📶 Bluetooth</button>'}</div>
     </div>
     <form id="mc-f-wifi" class="parametres compact">
-      <label>Companion Wi-Fi <input name="hote" placeholder="192.168.1.50" value="${esc(c.cible && c.cible.type === 'tcp' ? c.cible.hote : '')}" required></label>
+      <label>Companion Wi-Fi <input data-notion="hoteModule" name="hote" placeholder="192.168.1.50" value="${esc(c.cible && c.cible.type === 'tcp' ? c.cible.hote : '')}" required></label>
       <label>Port <input name="port" type="number" value="${c.cible && c.cible.type === 'tcp' ? c.cible.port : 5000}" min="1" max="65535" style="width:80px"></label>
       <button type="submit" class="principal">Relier</button>
       <button type="button" id="mc-wifi-ecoute" title="En plus du companion principal, pour l'écoute seulement">👂 En écoute</button>
@@ -1359,12 +1359,12 @@ function mcRendreCompanion() {
     <div class="note">${e.republication.actif ? `${e.republication.connecte ? '● connecté' : '○ en attente'} · ${e.republication.publies} paquet(s) publié(s) sur <span class="mono">${esc(e.republication.sujet)}</span>${e.republication.refus ? ` · <b style="color:var(--attention)">${esc(e.republication.refus)}</b>` : ''}` : 'désactivée'}</div>
     <form id="mc-f-reglages" class="form-edit">
       <div class="grille-edit">
-        <label>Code de zone (IATA) <input name="iata" value="${esc(e.reglages.iata)}" maxlength="8"><small>code de l’aéroport le plus proche (ex. LPY = Le Puy-en-Velay)</small></label>
-        <label>Racine des sujets <input name="racine" value="${esc(e.reglages.racine)}"></label>
+        <label>Code de zone (IATA) <input data-notion="iata" name="iata" value="${esc(e.reglages.iata)}" maxlength="8"><small>code de l’aéroport le plus proche (ex. LPY = Le Puy-en-Velay)</small></label>
+        <label>Racine des sujets <input data-notion="racineMc" name="racine" value="${esc(e.reglages.racine)}"></label>
         <label class="case"><input type="checkbox" name="republier" ${e.reglages.republier ? 'checked' : ''}> Republier les paquets du companion</label>
         <label>Paquets conservés <select name="perimetre">${[['departement', 'captés dans le département'], ['voisins', 'captés dans le département et ses voisins'], ['national', 'tout le flux national (lourd)']].map(([v, t]) => `<option value="${v}" ${e.reglages.perimetre === v ? 'selected' : ''}>${t}</option>`).join('')}</select><small>${e.reglages.horsPerimetre ? `${e.reglages.horsPerimetre} paquets ignorés depuis le démarrage` : 'selon la position de l’observateur qui les capte'}</small></label>
         <label>Liaisons déduites des chemins <select name="liensOctetsMin">${[[1, 'tous les chemins (1 octet compris)'], [2, 'chemins en 2 octets ou plus'], [3, 'chemins en 3 octets seulement']].map(([v, t]) => `<option value="${v}" ${Number(e.reglages.liensOctetsMin || 2) === v ? 'selected' : ''}>${t}</option>`).join('')}</select><small>à 1 octet, deux répéteurs peuvent avoir le même préfixe : liaisons parfois fausses</small></label>
-        <label>Codes de zone voisins <input name="iataVoisins" value="${esc(e.reglages.iataVoisins || '')}" placeholder="ex. CFE, LYS, EBU"><small>pour les observateurs sans position connue</small></label>
+        <label>Codes de zone voisins <input data-notion="iataVoisins" name="iataVoisins" value="${esc(e.reglages.iataVoisins || '')}" placeholder="ex. CFE, LYS, EBU"><small>pour les observateurs sans position connue</small></label>
         <label>Relevé automatique de l’état des répéteurs <select name="supervisionHeures">${[[0, 'jamais'], [1, 'toutes les heures'], [3, 'toutes les 3 h'], [6, 'toutes les 6 h'], [12, 'toutes les 12 h'], [24, 'une fois par jour']].map(([v, t]) => `<option value="${v}" ${Number(e.reglages.supervisionHeures ?? 3) === v ? 'selected' : ''}>${t}</option>`).join('')}</select><small>par le companion, sans rien cocher (lignes « 🤖 automatique » de Programmer)</small></label>
         <label>Délai maximal d’un relevé, par nœud <input name="plafondReleveMin" type="number" min="1" max="30" value="${e.reglages.plafondReleveMin ?? 4}"><small>minutes (4 par défaut) : télémétrie, état, chemin, trace. Passé ce délai, le nœud est déclaré sans réponse et la carte passe au suivant, pour ne pas bloquer les relevés des autres.</small></label>
         <label>Délai maximal d’une lecture complète, par nœud <input name="plafondLectureMin" type="number" min="5" max="240" value="${e.reglages.plafondLectureMin ?? 60}"><small>minutes (60 par défaut) : lecture de tous les réglages, programmation, mise en service. Trop bas, un répéteur lent est déclaré sans réponse avant la fin.</small></label>

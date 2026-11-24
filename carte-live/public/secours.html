@@ -137,6 +137,11 @@
       #poignee { display: none; }
     }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+    /* Rappels repliés dans Gestion : une ligne tant qu'on n'en a pas besoin */
+    details.rappel { border: 1px solid var(--bord); border-radius: 10px; padding: 8px 12px; margin: 14px 0; background: var(--surface-2); }
+    details.rappel > summary { cursor: pointer; font-weight: 700; font-size: 16px; min-height: 28px; }
+    details.rappel > summary small { font-weight: 400; color: var(--doux); font-size: 13.5px; margin-left: 6px; }
+    details.rappel[open] > summary { margin-bottom: 6px; }
   </style>
 </head>
 <body>

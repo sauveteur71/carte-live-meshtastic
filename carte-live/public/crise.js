@@ -115,7 +115,7 @@ function champsSecteur(s = {}) {
       <label>Équipe <select data-c="equipe">${opt('', '— aucune —', s.equipe || '')}${ad.length && eq.length ? `<optgroup label="Équipes de la carte">${optCarte}</optgroup>` : optCarte}${optAdrasec}${optAutre}</select></label>
     </div>
     ${aideEquipe}
-    <label>Autres nœuds suivis <input data-c="noeuds" value="${esc(noeuds)}" placeholder="!a1b2c3d4, clé publique MeshCore (64 caractères)…"></label>
+    <label>Autres nœuds suivis <input data-notion="noeudsSuivis" data-c="noeuds" value="${esc(noeuds)}" placeholder="!a1b2c3d4, clé publique MeshCore (64 caractères)…"></label>
     <small class="note">L’équipe : tous ses membres du moment. Nœuds Meshtastic par identifiant (!a1b2c3d4), nœuds MeshCore par leur clé publique complète.</small>
     <div class="parametres compact">
       <label>Alerte <select data-c="sens">${opt('sortie', 'à la sortie du secteur', s.sens || 'sortie')}${opt('entree', 'à l’entrée (zone à éviter)', s.sens || 'sortie')}${opt('deux', 'à l’entrée et à la sortie', s.sens || 'sortie')}</select></label>

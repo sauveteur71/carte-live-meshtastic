@@ -80,15 +80,15 @@
         <div class="champs">
           <label>Nom <input id="n-nom" placeholder="ex. Festival du Velay 2027" maxlength="60"></label>
           <label>Type <select id="n-genre"><option value="dps">${NOMS_GENRE.dps}</option><option value="pcs">${NOMS_GENRE.pcs}</option></select></label>
-          <label>Adresse (minuscules, chiffres, tirets) <input id="n-code" class="mono" placeholder="festival-2027" maxlength="32" autocapitalize="off" spellcheck="false"></label>
+          <label>Adresse (minuscules, chiffres, tirets) <input data-notion="codeEspace" id="n-code" class="mono" placeholder="festival-2027" maxlength="32" autocapitalize="off" spellcheck="false"></label>
         </div>
         <div class="champs">
           <label>Première organisation (d’autres s’ajoutent ensuite) <select id="n-org"></select></label>
           <label id="n-org-libre" hidden>Son nom <input id="n-org-nom" maxlength="60"></label>
         </div>
         <div class="champs">
-          <label>Identifiant du premier responsable <input id="n-rid" autocomplete="off"></label>
-          <label>Son mot de passe (8 caractères au moins) <input id="n-rmdp" type="password" autocomplete="new-password"></label>
+          <label>Identifiant du premier responsable <input data-notion="identifiant" id="n-rid" autocomplete="off"></label>
+          <label>Son mot de passe (8 caractères au moins) <input data-notion="motDePasse" id="n-rmdp" type="password" autocomplete="new-password"></label>
         </div>
         <p class="note">Le responsable ajoute ensuite lui-même les nœuds de ses équipes, dans ⚙️ Gestion de son espace.</p>
         <div class="champs"><button id="n-creer" class="principal">Créer l’espace</button><span id="n-retour" class="erreur"></span></div>
@@ -592,6 +592,9 @@
 
   // Gestion (responsable) et « mon compte » (tous)
   const vG = $('#vue-gestion');
+  // Rappels repliés (« par radio ») : ouverts à la demande, l'état est gardé d'un rafraîchissement à l'autre
+  const rappels = new Set();
+  vG.addEventListener('toggle', (e) => { const d = e.target; if (d.matches && d.matches('details.rappel')) { if (d.open) rappels.add(d.dataset.rappel); else rappels.delete(d.dataset.rappel); } }, true);
   vG.addEventListener('input', () => { saisieGestion = true; });
   const versChamp = (t) => { if (!t) return ''; const d = new Date(t - new Date(t).getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
   function dessinerGestion() {
@@ -612,7 +615,7 @@
       ${Object.entries(E.catalogueOptions).map(([k, o]) => `<label class="case"><input type="checkbox" class="g-option" value="${esc(k)}" ${E.options[k] ? 'checked' : ''}><span><b>${esc(o.nom)}</b> — <span class="note">${esc(o.aide)}</span></span></label>`).join('')}
       ${E.catalogueOptions.canal ? `<p class="note">Canal réservé : ${E.canal.nom ? `« <span translate="no">${esc(E.canal.nom)}</span> »${E.canal.utilisable || !E.options.canal ? '' : ' — introuvable sur le module radio de la carte pour l’instant'}` : 'aucun. L’administrateur de la carte peut en réserver un à cet espace.'}</p>` : ''}
       <label style="margin-top:8px">Messages-types (un par ligne, 12 au plus, 200 caractères chacun) <textarea id="g-macros" rows="5" spellcheck="true">${esc(E.macros.join('\n'))}</textarea></label>
-      <label style="margin-top:8px">Adresses e-mail prévenues d’une intervention urgente (${E.courriel.disponible ? '5 au plus, séparées par des virgules' : 'l’envoi d’e-mails n’est pas réglé sur cette carte : demandez-le à son administrateur'}) <input id="g-courriels" type="text" inputmode="email" autocapitalize="off" spellcheck="false" value="${esc(E.courriel.adresses.join(', '))}" placeholder="pc@exemple.fr, astreinte@exemple.fr"></label>
+      <label style="margin-top:8px">Adresses e-mail prévenues d’une intervention urgente (${E.courriel.disponible ? '5 au plus, séparées par des virgules' : 'l’envoi d’e-mails n’est pas réglé sur cette carte : demandez-le à son administrateur'}) <input data-notion="courriels" id="g-courriels" type="text" inputmode="email" autocapitalize="off" spellcheck="false" value="${esc(E.courriel.adresses.join(', '))}" placeholder="pc@exemple.fr, astreinte@exemple.fr"></label>
       <p class="note">Pour un SMS, utilisez l’adresse e-mail-vers-SMS de votre opérateur ou de votre service d’alerte, s’il en propose une : la carte n’envoie pas de SMS elle-même.</p>
       <div class="champs"><button class="principal" id="g-options-ok">Enregistrer les options</button>${E.options.rapport ? `<a class="bouton" href="${base}/rapport.html" download>⬇ Rapport de fin</a>` : ''}<span id="g-options-retour" class="erreur"></span></div>
 
@@ -629,7 +632,7 @@
           <div class="champs" style="margin-top:4px"><button class="mini c-resp">${c.responsable ? 'Retirer responsable' : 'Nommer responsable'}</button><button class="mini c-mdp">Nouveau mot de passe</button><button class="mini c-actif">${c.statut === 'actif' ? 'Désactiver' : 'Réactiver'}</button>${c.id !== E.moi.id ? '<button class="mini danger c-suppr">Supprimer</button>' : ''}</div></td></tr>`).join('')}</tbody></table>
       <div id="g-c-retour" class="erreur"></div>
       <h3>Ajouter un compte</h3>
-      <div class="champs"><label>Identifiant <input id="n-id" autocomplete="off" maxlength="32"></label><label>Mot de passe (8 caractères au moins) <input id="n-mdp" type="password" autocomplete="new-password"></label></div>
+      <div class="champs"><label>Identifiant <input data-notion="identifiant" id="n-id" autocomplete="off" maxlength="32"></label><label>Mot de passe (8 caractères au moins) <input data-notion="motDePasse" id="n-mdp" type="password" autocomplete="new-password"></label></div>
       <div class="champs"><label>Équipe <select id="n-equipe">${optionsEquipes(null)}</select></label><label>Fonction <input id="n-fonction" maxlength="40" placeholder="ex. Chef de poste"></label></div>
       <div class="champs"><label class="case"><input type="checkbox" id="n-resp"> Responsable</label><button class="principal" id="n-ok">Créer le compte</button><span id="n-retour" class="erreur"></span></div>
 
@@ -642,13 +645,13 @@
         <label>Chercher (nom court, nom long ou numéro) <input id="g-s-recherche" type="search" value="${esc(selRecherche)}" placeholder="ex. PS01, Poste scène, !a1b2c3d4" autocapitalize="off" spellcheck="false"></label>
         <div class="s-liste" id="g-s-liste"></div>
         <div class="champs"><label>Ranger dans <select id="g-s-org">${optionsOrgs(null)}</select></label><button class="mini principal" id="g-s-attribuer">Attribuer les nœuds cochés</button></div>
-        <div class="champs"><label>Nœud pas encore allumé : son nom court <input id="g-s-attente" class="mono" maxlength="12" placeholder="ex. PS01" autocapitalize="off" spellcheck="false"></label><button class="mini" id="g-s-attendre">L’attendre</button></div>
+        <div class="champs"><label>Nœud pas encore allumé : son nom court <input data-notion="nomCourt" id="g-s-attente" class="mono" maxlength="12" placeholder="ex. PS01" autocapitalize="off" spellcheck="false"></label><button class="mini" id="g-s-attendre">L’attendre</button></div>
         <p class="note">Le nœud attendu rejoint l’espace dès que la carte voit un nœud portant ce nom court. Si plusieurs nœuds portent le même nom, rien n’est attribué : choisissez-le alors dans la liste.</p>
       </details>
       <div id="g-n-retour" class="erreur"></div>
       <p class="note">Un nœud peut servir à plusieurs espaces (celui d’un coordinateur commun) : chacun voit sa position et ses messages directs ; ce qu’il dit sur le canal réservé d’un espace ne va qu’à cet espace. Ses messages n’apparaissent plus dans les messages de la carte.</p>` : '<p class="bandeau">La liste des nœuds de la carte est indisponible pour l’instant : rechargez la page.</p>'}` : ''}
 
-      <h2>Depuis le terrain, par radio</h2>
+      <details class="rappel" data-rappel="depuis" ${rappels.has('depuis') ? 'open' : ''}><summary>Depuis le terrain, par radio <small>les messages que la carte comprend</small></summary>
       <p class="note">Un message texte envoyé par le nœud d’une équipe arrive ici :</p>
       <table><tbody>
         <tr><td class="mono">INTER chute au virage 4</td><td>crée une intervention à la position du nœud</td></tr>
@@ -656,13 +659,13 @@
         <tr><td class="mono">DISPO · POSTE · PAUSE · INDISPO</td><td>change l’état de l’équipe</td></tr>
         ${E.options.points ? '<tr><td>un point de passage (application Meshtastic)</td><td>crée une intervention à cet endroit ; supprimé, il la termine</td></tr>' : ''}
         <tr><td>tout autre message</td><td>est noté dans la main courante</td></tr>
-      </tbody></table>
+      </tbody></table></details>
 
-      <h2>Vers le terrain, par radio</h2>
-      <p class="note">Les responsables et le poste de coordination écrivent aux équipes depuis l’onglet 🗒️ Main courante, ou envoient une intervention avec son bouton 📻. C’est toujours un <b>message direct</b> au nœud de l’équipe (jamais un canal lu par tout le réseau), avec la position et le code DFCI pour une intervention. « reçu » s’affiche quand le nœud a accusé réception.</p>
+      <details class="rappel" data-rappel="vers" ${rappels.has('vers') ? 'open' : ''}><summary>Vers le terrain, par radio <small>comment un message part vers une équipe</small></summary>
+      <p class="note">Les responsables et le poste de coordination écrivent aux équipes depuis l’onglet 🗒️ Main courante, ou envoient une intervention avec son bouton 📻. C’est toujours un <b>message direct</b> au nœud de l’équipe (jamais un canal lu par tout le réseau), avec la position et le code DFCI pour une intervention. « reçu » s’affiche quand le nœud a accusé réception.</p></details>
 
       <h2>Mon mot de passe</h2>
-      <div class="champs"><label>Actuel <input id="mdp-ancien" type="password" autocomplete="current-password"></label><label>Nouveau <input id="mdp-nouveau" type="password" autocomplete="new-password"></label></div>
+      <div class="champs"><label>Actuel <input id="mdp-ancien" type="password" autocomplete="current-password"></label><label>Nouveau <input data-notion="motDePasse" id="mdp-nouveau" type="password" autocomplete="new-password"></label></div>
       <div class="champs"><button id="mdp-ok">Changer</button><span id="mdp-retour" class="erreur"></span></div>`;
     $('#mdp-ok').onclick = async () => {
       try { await api(base + '/mot-de-passe', { method: 'PUT', body: { ancien: $('#mdp-ancien').value, nouveau: $('#mdp-nouveau').value } }); $('#mdp-retour').className = 'reussi'; $('#mdp-retour').textContent = 'Mot de passe changé.'; $('#mdp-ancien').value = $('#mdp-nouveau').value = ''; }

@@ -13,6 +13,12 @@
 
 ![Vue d’ensemble](https://raw.githubusercontent.com/sauveteur71/carte-live-meshtastic/main/docs/captures/fr-carte.jpg)
 
+## Aide dans les champs
+
+Un champ qui attend une valeur précise porte un petit **?** à son bord droit. En y entrant, une bulle s'affiche juste à côté : ce qui est attendu, un **exemple**, puis, au fil de la frappe, si la forme est bonne (« doit commencer par mqtt:// », « un point, pas une virgule », « encore 3 caractères »). En sortant du champ, il reste bordé d'orange tant que la forme n'est pas reconnue.
+
+La bulle prévient, elle n'empêche rien : c'est toujours le serveur qui accepte ou refuse à l'enregistrement, et son message dit alors ce qui est attendu. La même aide apparaît partout où la même notion est demandée (adresse du broker MQTT, clé de canal, indicatif, numéro de nœud, QTH locator, latitude et longitude…), sur la carte, dans les espaces Secours et dans la section ADRASEC.
+
 ## Nœuds et réseaux
 - Sélecteur **Meshtastic / MeshCore / Les deux** en haut du panneau. En changeant de réseau, les traces de l'autre réseau sont effacées.
 - **Légende et filtres** : relais, clients, clients muets, traceurs, inconnus, inactifs, passerelles MQTT en ligne, nœuds en alerte.

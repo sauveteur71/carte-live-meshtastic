@@ -46,8 +46,8 @@
       cadre(`<h2>Rejoindre une ADRASEC</h2><p>Connecté en tant que <b>${esc(acces.identifiant)}</b>.</p>
         <label>ADRASEC de votre département <select id="ad-groupe">${gr.length > 1 ? '<option value="">— choisir —</option>' : ''}${gr.map((x) => `<option value="${esc(x.code)}">${esc(x.nom)}</option>`).join('')}</select></label>
         <label>Vous êtes <select id="ad-qualite"><option value="radioamateur">radioamateur licencié</option><option value="swl">SWL (écouteur)</option><option value="">autre bénévole</option></select></label>
-        <label title="Votre indicatif radioamateur (vérifié ensuite par le président)">Indicatif <input id="ad-ind" class="mono" value="${esc(acces.indicatif || '')}" placeholder="F4ABC"></label>
-        <label title="Votre numéro d’écouteur si vous en avez un (ex. F-12345)" id="ad-swl-l" hidden>Numéro SWL (facultatif) <input id="ad-swl" class="mono" placeholder="F-12345"></label>
+        <label title="Votre indicatif radioamateur (vérifié ensuite par le président)">Indicatif <input data-notion="indicatif" id="ad-ind" class="mono" value="${esc(acces.indicatif || '')}" placeholder="F4ABC"></label>
+        <label title="Votre numéro d’écouteur si vous en avez un (ex. F-12345)" id="ad-swl-l" hidden>Numéro SWL (facultatif) <input data-notion="swl" id="ad-swl" class="mono" placeholder="F-12345"></label>
         <label>Message au président (facultatif) <textarea id="ad-msg" rows="3" placeholder="ex. Membre depuis 2019, équipe gonio de Monistrol"></textarea></label>
         <div class="ligne-champs"><button id="ad-envoyer" class="principal">Demander à rejoindre</button><span id="ad-retour" class="erreur"></span></div>`);
       const majQ = () => { const q = $('#ad-qualite').value; $('#ad-ind').closest('label').hidden = q !== 'radioamateur'; $('#ad-swl-l').hidden = q !== 'swl'; };
@@ -246,11 +246,11 @@
       </div>
       <h3>Nouveau relevé</h3>
       <div class="ligne-champs"><label title="Équipe qui a fait ce relevé : son nom et sa couleur s’affichent sur la carte et dans la main courante">Équipe qui donne le relevé <select id="g-equipe"><option value="">— aucune —</option>${E.equipes.map((e) => `<option value="${e.id}" ${e.id === equipeChoisie() ? 'selected' : ''}>● ${esc(e.nom)}</option>`).join('')}</select></label></div>
-      <div class="ligne-champs"><label>Gisement vrai (°) <input id="g-gis" inputmode="decimal" placeholder="0 à 360"></label><label>Incertitude ± (°) <input id="g-inc" inputmode="decimal"></label><label>Force <select id="g-force"><option value="">—</option><option>S1-S3 faible</option><option>S4-S6 moyen</option><option>S7-S9 fort</option><option>Saturé</option></select></label></div>
+      <div class="ligne-champs"><label>Gisement vrai (°) <input data-notion="gisement" id="g-gis" inputmode="decimal" placeholder="0 à 360"></label><label>Incertitude ± (°) <input data-notion="incertitude" id="g-inc" inputmode="decimal"></label><label>Force <select id="g-force"><option value="">—</option><option>S1-S3 faible</option><option>S4-S6 moyen</option><option>S7-S9 fort</option><option>Saturé</option></select></label></div>
       <div class="note">Position de l’équipe :</div>
       <div class="choix-pos"><button data-pos="gps">📍 Mon GPS</button><button data-pos="equipe" ${noeudEquipe(equipeChoisie()) ? '' : 'disabled title="Aucun membre de cette équipe n’a de nœud suivi (Gestion › Nœud porté)"'}>📡 Nœud de l’équipe</button><button data-pos="noeud" ${E.moi.noeud ? '' : 'disabled title="Aucun nœud associé à votre compte"'}>📡 Mon nœud</button><button data-pos="carte">🖱 Clic sur la carte</button><button data-pos="locator">⌗ Locator</button></div>
       <div id="g-pos-detail" class="note">${posReleve ? `Retenue : <b class="mono">${posReleve.lat.toFixed(5)}, ${posReleve.lon.toFixed(5)}</b> (${esc(posReleve.source)})` : 'Aucune position choisie.'}</div>
-      <div id="g-loc-zone" hidden><label>QTH-locator (6 à 10 caractères) <input id="g-loc" placeholder="JN15XC33"></label></div>
+      <div id="g-loc-zone" hidden><label>QTH-locator (6 à 10 caractères) <input data-notion="locator" id="g-loc" placeholder="JN15XC33"></label></div>
       <label>Note <input id="g-note" placeholder="ex. réflexion probable, antenne Yagi 3 él."></label>
       <div class="ligne-champs"><button class="principal" id="g-envoyer">Envoyer le relevé</button><span class="erreur" id="g-erreur"></span></div>
       <p class="note">Par radio : depuis le nœud associé à son compte, un membre envoie « <b class="mono">GONIO 125</b> » ou « <b class="mono">GIS 125/5</b> » (gisement puis incertitude) ; le relevé arrive ici avec la position du nœud.</p>` : `<p class="note">Recherche clôturée le ${heure(r.fin)}${r.resultat ? ' : ' + esc(r.resultat) : ''}.</p>`}
@@ -585,7 +585,7 @@
   function blocGroupes(titre) {
     return `<h2>${titre}</h2>
       ${E && E.groupes && E.groupes.length ? `<div class="liste-groupes">${E.groupes.map((x) => `<div class="ligne-groupe${E && x.code === E.code ? ' actif' : ''}"><b>${esc(x.nom)}</b> <span class="note">${x.membres} membre${x.membres > 1 ? 's' : ''} · ${x.presidents ? x.presidents + ' président' + (x.presidents > 1 ? 's' : '') : '<span class="attention">pas de président</span>'}</span>${E && x.code === E.code ? ' <span class="pastille">affichée</span>' : ` <button class="mini" data-voir-groupe="${esc(x.code)}">Ouvrir</button>`}</div>`).join('')}</div>` : ''}
-      <div class="ligne-champs"><label title="Numéro du département (43, 07, 2A, 971…)">Département <input id="gr-code" class="mono" maxlength="3" placeholder="43" style="width:80px"></label><label>Nom <input id="gr-nom" placeholder="ADRASEC 43"></label><button id="gr-creer" class="principal">Créer l’ADRASEC</button></div>
+      <div class="ligne-champs"><label title="Numéro du département (43, 07, 2A, 971…)">Département <input data-notion="departement" id="gr-code" class="mono" maxlength="3" placeholder="43" style="width:80px"></label><label>Nom <input id="gr-nom" placeholder="ADRASEC 43"></label><button id="gr-creer" class="principal">Créer l’ADRASEC</button></div>
       <p class="note">Ensuite, ajoutez son président : ouvrez l’ADRASEC, intégrez son compte comme membre et cochez <b>Président</b>. Il gérera lui-même ses membres.</p>`;
   }
   function brancherGroupes(err) {
@@ -616,14 +616,14 @@
           <label class="case" title="${peutResp ? 'Président (ou responsable) de cette ADRASEC : gère les membres, les équipes, les missions et les réglages de l’ADRASEC, sans être administrateur de la carte.' : 'Seul un administrateur de la carte nomme les présidents.'}"><input type="checkbox" class="ge-resp" ${m && m.responsable ? 'checked' : ''} ${peutResp ? '' : 'disabled'}> Président / responsable</label></div>
         <div class="ligne-champs">
           <label title="Radioamateur licencié : à choisir seulement après avoir vérifié son certificat d’opérateur (ou l’autorisation ANFR) ; ouvre la rédaction et les sessions Winlink. SWL : écouteur, fait des relevés mais n’émet pas sur les bandes amateurs.">Qualité <select class="ge-qual">${Object.entries(QUALITES).map(([k, t]) => `<option value="${k}" ${qual === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-          <label class="ge-ind-l" title="Indicatif radioamateur, ex. F4ABC. Il signe la main courante et les messages Winlink.">Indicatif <input type="text" class="ge-ind mono" value="${esc((m && m.indicatif) || c.indicatif || '')}" placeholder="F4ABC"></label>
-          <label class="ge-swl-l" title="Numéro d’écouteur (facultatif), ex. F-12345 ; il signe la main courante.">N° SWL <input type="text" class="ge-swl mono" value="${esc((m && m.numeroSwl) || '')}" placeholder="F-12345"></label>
+          <label class="ge-ind-l" title="Indicatif radioamateur, ex. F4ABC. Il signe la main courante et les messages Winlink.">Indicatif <input data-notion="indicatif" type="text" class="ge-ind mono" value="${esc((m && m.indicatif) || c.indicatif || '')}" placeholder="F4ABC"></label>
+          <label class="ge-swl-l" title="Numéro d’écouteur (facultatif), ex. F-12345 ; il signe la main courante.">N° SWL <input data-notion="swl" type="text" class="ge-swl mono" value="${esc((m && m.numeroSwl) || '')}" placeholder="F-12345"></label>
         </div>
         <div class="ligne-champs">
           <label title="Équipe d’intervention du membre (créées dans l’onglet Équipes)">Équipe <select class="ge-eq"><option value="">—</option>${E.equipes.map((e) => `<option value="${e.id}" ${m && m.equipe === e.id ? 'selected' : ''}>${esc(e.nom)}</option>`).join('')}</select></label>
           <label title="Rôle dans l’ADRASEC, ex. chef d’équipe, opérateur gonio, transmissions">Fonction <input type="text" class="ge-fonc" value="${esc((m && m.fonction) || '')}" placeholder="ex. opérateur gonio"></label>
         </div>
-        <label title="Facultatif. Le module Meshtastic que ce membre emporte sur le terrain : sa position s’affiche en direct pour l’équipe, sert de position par défaut pour ses relevés, et ses messages « GONIO 125 » arrivent comme relevés. Commencez à taper son nom pour le choisir dans la liste des nœuds connus.">Nœud porté sur le terrain (facultatif) <input type="text" class="ge-noeud" list="ge-noeuds" value="${m && m.noeud ? '!' + (m.noeud >>> 0).toString(16).padStart(8, '0') + (m.nomNoeud ? ' · ' + esc(m.nomNoeud) : '') : ''}" placeholder="tapez le nom du nœud, ou !a1b2c3d4"></label>
+        <label title="Facultatif. Le module Meshtastic que ce membre emporte sur le terrain : sa position s’affiche en direct pour l’équipe, sert de position par défaut pour ses relevés, et ses messages « GONIO 125 » arrivent comme relevés. Commencez à taper son nom pour le choisir dans la liste des nœuds connus.">Nœud porté sur le terrain (facultatif) <input data-notion="noeud" type="text" class="ge-noeud" list="ge-noeuds" value="${m && m.noeud ? '!' + (m.noeud >>> 0).toString(16).padStart(8, '0') + (m.nomNoeud ? ' · ' + esc(m.nomNoeud) : '') : ''}" placeholder="tapez le nom du nœud, ou !a1b2c3d4"></label>
         <div class="ligne-champs"><button class="ge-sauver principal">Enregistrer</button><span class="ge-retour note"></span></div>
       </div>`;
   }

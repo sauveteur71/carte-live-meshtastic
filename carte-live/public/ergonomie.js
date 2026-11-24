@@ -538,7 +538,7 @@ async function dlgFonctionsCarte() {
       <ol class="etapes-fonction">
         <li>Sur le serveur, dans le dossier de la carte : <span class="mono">docker compose --profile winlink up -d</span> (lance Pat).</li>
         <li>Réglez la station dans Pat (indicatif, mot de passe Winlink, locator) : <span class="mono">http://127.0.0.1:8081/ui/config</span> sur le serveur. La carte ne voit jamais ce mot de passe.</li>
-        <li>Ici : <label class="ligne-mini">Adresse de Pat <input data-pat-url value="${esc(patUrl || 'http://pat:8080')}" placeholder="http://pat:8080"></label> <label class="ligne-mini">Indicatif de la station <input data-pat-ind value="${esc((vars.PAT_INDICATIF && vars.PAT_INDICATIF.valeur) || '')}" placeholder="F4ABC" size="9"></label>
+        <li>Ici : <label class="ligne-mini">Adresse de Pat <input data-pat-url value="${esc(patUrl || 'http://pat:8080')}" placeholder="http://pat:8080"></label> <label class="ligne-mini">Indicatif de la station <input data-notion="indicatif" data-pat-ind value="${esc((vars.PAT_INDICATIF && vars.PAT_INDICATIF.valeur) || '')}" placeholder="F4ABC" size="9"></label>
           <button type="button" data-wl-activer class="principal">${patUrl ? 'Enregistrer' : 'Activer Winlink'}</button>${patUrl ? ' <button type="button" data-wl-couper>Désactiver</button>' : ''}<br><small>La carte redémarre (quelques secondes) pour prendre le réglage.</small></li>
       </ol></div></div>`;
   d.innerHTML = `<button class="fermer" type="button" data-fermer title="Fermer">×</button><h3>🎚️ Fonctions de la carte</h3>
