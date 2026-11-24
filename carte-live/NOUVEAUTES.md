@@ -4,6 +4,8 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## En préparation
 
+- Gestion des espaces Secours : le titre et le texte d'introduction sont centrés (au lieu de rester collés à gauche sur un grand écran).
+
 ## 2.35.0
 
 ### 🚨 Rubrique Opérations, et repère « où suis-je »
