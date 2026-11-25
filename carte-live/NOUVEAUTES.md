@@ -4,6 +4,11 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## En préparation
 
+## 2.38.0
+
+### 🔷 Des formes en plus des couleurs pour les nœuds Meshtastic
+- **Légende et marqueurs Meshtastic : une forme par catégorie**, comme c'était déjà le cas côté MeshCore. Jusqu'ici seule la couleur distinguait relais, clients, clients muets/cachés, traceurs/capteurs et inconnus — repérable difficilement pour les daltoniens ou sur un petit écran. Désormais : losange pour les relais/routeurs, rond plein pour les clients, anneau creux pour les muets/cachés, triangle pour les traceurs/capteurs, carré pour les inconnus.
+
 ## 2.37.0
 
 ### 🚨 Alerter les habitants, et carte publique plus vivante
