@@ -4,8 +4,12 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## En préparation
 
-- Mur des donateurs : le message affiché est désormais « Merci à *Nom* pour son don de *X* € ! » (au lieu de « *Nom* a donné... »). La croix qui masque le bandeau ne le coupe plus pour toujours : il réapparaît automatiquement une semaine plus tard.
+## 2.37.0
+
+### 🚨 Alerter les habitants, et carte publique plus vivante
 - **Espaces Secours (PCS) : alerter les habitants.** Option à activer par espace (désactivée par défaut), réservée aux responsables d'un PCS : un message part sur le **canal principal** du module (celui que tout nœud Meshtastic/MeshCore du secteur lit, à la différence du canal réservé de l'espace) pour prévenir directement la population — à réserver aux alertes qui concernent vraiment tout le monde (évacuation, danger immédiat). Limité à 3 envois par heure. Noté dans la main courante comme un message public normal (contrairement aux échanges internes de l'espace, jamais gardés par la carte).
+- Mur des donateurs : le message affiché est désormais « Merci à *Nom* pour son don de *X* € ! » (au lieu de « *Nom* a donné... »). La croix qui masque le bandeau ne le coupe plus pour toujours : il réapparaît automatiquement une semaine plus tard.
+- **Carte publique : badges de rôle colorés et compteur de paquets en direct.** Dans les info-bulles des nœuds, un petit badge reprend désormais la couleur et la forme du marqueur (relais, passerelle, nœud ; répéteur ou room server MeshCore), pour relier plus vite un nœud à sa légende. Le témoin « en direct » pulse maintenant à chaque paquet reçu et affiche un compteur de paquets par minute.
 
 ## 2.36.0
 
