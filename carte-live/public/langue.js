@@ -7,7 +7,7 @@
 (function () {
   const LANGUES = { fr: 'Français', en: 'English', es: 'Español', de: 'Deutsch', it: 'Italiano', pt: 'Português', nl: 'Nederlands', pl: 'Polski', cs: 'Čeština' };
   const LOCALES = { fr: 'fr-FR', en: 'en-GB', es: 'es-ES', de: 'de-DE', it: 'it-IT', pt: 'pt-PT', nl: 'nl-NL', pl: 'pl-PL', cs: 'cs-CZ' };
-  const DEFAUT = 'en'; // langue par défaut de l'édition quand celle du navigateur n'est pas proposée
+  const DEFAUT = 'fr'; // langue par défaut de l'édition quand celle du navigateur n'est pas proposée (édition France)
   const lire = () => { try { return localStorage.getItem('gaulix_langue'); } catch { return null; } };
   const nav = String(navigator.language || '').slice(0, 2).toLowerCase();
   let choix = lire() || (LANGUES[nav] ? nav : DEFAUT);
