@@ -385,12 +385,13 @@ function visible(n) {
 }
 
 function iconeNoeud(n, alerte) {
-  const classes = ['mk', n.statut];
+  const cat = categorie(n);
+  const classes = ['mk', n.statut, cat.cle];
   if (n.infrastructure) classes.push('infra');
   if (n.passerelle) classes.push(passerelleEnLigne(n) ? 'passerelle' : 'passerelle-hs');
   if (alerte && etat.legende.alertes) classes.push('alerte');
   if (etat.autresPresets && etat.autresPresets.nums.has(n.num)) classes.push('autre-preset');
-  const coul = categorie(n).couleur;
+  const coul = cat.couleur;
   const montrerNom = n.infrastructure || n.passerelle || carte.getZoom() >= 11;
   return L.divIcon({
     className: '',
@@ -6158,14 +6159,14 @@ function rendreLegende() {
       <div class="leg-ligne"><span class="pastille-leg anneau"></span><span class="leg-nom">Passerelles MQTT en ligne (5 min) <small>${nbMqtt}</small></span>${bouton(lg.seulMqtt, 'data-leg="seulMqtt"', 'Seules')}</div>
       ${CATEGORIES.map((c) => {
         const seul = lg.cat[c.cle] && CATEGORIES.every((x) => x.cle === c.cle || !lg.cat[x.cle]);
-        return `<div class="leg-ligne"><span class="pastille-leg" style="background:${c.couleur}"></span><span class="leg-nom">${c.nom} <small>${nb(c)}</small></span>
+        return `<div class="leg-ligne"><span class="pastille-leg mt ${c.cle}" style="--mtc:${c.couleur}"></span><span class="leg-nom">${c.nom} <small>${nb(c)}</small></span>
           <button class="pilule seul ${seul ? 'on' : ''}" data-seul="${c.cle}" title="N’afficher que cette catégorie">Seul</button>${bouton(lg.cat[c.cle], `data-cat="${c.cle}"`, lg.cat[c.cle] ? 'Affiché' : 'Masqué')}</div>`;
       }).join('')}
       <div class="leg-ligne"><span class="pastille-leg inactif"></span><span class="leg-nom">Inactifs (plus de ${etat.config.seuils.inactifHeures} h)</span>${bouton(etat.couches.inactifs, 'data-leg="inactifs"', etat.couches.inactifs ? 'Affiché' : 'Masqué')}</div>
       <div class="leg-ligne"><span class="pastille-leg alerte"></span><span class="leg-nom">Nœuds en alerte</span>${bouton(lg.alertes, 'data-leg="alertes"', lg.alertes ? 'Signalés' : 'Normaux')}</div>
       <div class="leg-ligne">${tous ? '' : '<button class="pilule tout" data-tout>Tout réafficher</button>'}${boutonLiens()}</div>
       <div class="leg-sep"></div>
-      <div class="rang">◆ relais · ● nœud · halo = actif, pâle = inactif</div>
+      <div class="rang">◆ relais · ● client · ○ muet/caché · ▲ traceur/capteur · ■ inconnu · halo = actif, pâle = inactif</div>
       <div class="rang">Liens (SNR) : ${SNR.map((x) => `<span><i class="trait" style="background:${x.hex}"></i>${x.nom}</span>`).join('')}</div>
       <div class="rang">— radio · - - voisinage · ··· traceroute</div>${htmlMc}`}
       ${legendeCouches()}

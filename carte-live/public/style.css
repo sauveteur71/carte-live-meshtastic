@@ -476,6 +476,11 @@ svg.profil .curseur-profil text.mauvais { fill: #ff8a95; }
 .mk.autre-preset .c::before { content: ""; position: absolute; inset: -7px; border-radius: 50%; border: 2px dashed #ff9f1c; }
 .badge.autre-preset { background: rgba(255,159,28,.18); border-color: #ff9f1c; color: #ffc46b; }
 .mk.infra.passerelle .c::after, .mk.infra.passerelle-hs .c::after { border-radius: 3px; }
+/* Une forme par catégorie (même principe que les rôles MeshCore ci-dessous) : relais = losange (déjà posé par
+   .mk.infra), client = rond plein, muet/caché = anneau creux, traceur/capteur = triangle, inconnu = carré */
+.mk.discret .c { width: 12px; height: 12px; background: rgba(11,17,23,.9) !important; border: 3px solid var(--cat); }
+.mk.traceur .c { width: 13px; height: 12px; border: 0; border-radius: 0; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.mk.inconnu .c { border-radius: 2px; }
 
 .legende { padding: 6px 10px; min-width: 300px; max-width: 360px; }
 .leg-pli summary { cursor: pointer; font-weight: 600; color: var(--texte); font-size: 12px; padding: 2px 0; list-style: none; }
@@ -490,6 +495,11 @@ svg.profil .curseur-profil text.mauvais { fill: #ff8a95; }
 .pastille-leg.anneau { border: 2.5px solid #22c55e; background: transparent; width: 11px; height: 11px; }
 .pastille-leg.inactif { background: #8fa3b8; opacity: .35; }
 .pastille-leg.alerte { background: transparent; border: 2.5px solid var(--critique); width: 11px; height: 11px; }
+.pastille-leg.mt { background: var(--mtc); }
+.pastille-leg.mt.relais { transform: rotate(45deg); border-radius: 2px; }
+.pastille-leg.mt.discret { background: transparent; border: 2.5px solid var(--mtc); }
+.pastille-leg.mt.traceur { border-radius: 0; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.pastille-leg.mt.inconnu { border-radius: 2px; }
 .pilule { border: 1px solid var(--bord); background: transparent; color: var(--doux); border-radius: 99px; padding: 2px 10px; font-size: 12px; cursor: pointer; min-width: 62px; }
 .pilule.on { background: rgba(34,197,94,.15); border-color: rgba(34,197,94,.55); color: #86efac; }
 .pilule.seul { min-width: 0; padding: 2px 8px; }
