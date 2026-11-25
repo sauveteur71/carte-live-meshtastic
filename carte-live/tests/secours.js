@@ -21,6 +21,7 @@ function monter() {
   const partis = [], accuses = new Map();
   const radio = { panne: null, connecte: () => !radio.panne,
     envoyerTexte: ({ texte, dest, canal }, auteur) => { if (radio.panne) throw new Error(radio.panne); const id = partis.length + 1; partis.push({ id, texte, dest, canal, auteur }); accuses.set(id, 'envoye'); return { id, dest }; },
+    alerterPublic: (texte, auteur) => { if (radio.panne) throw new Error(radio.panne); const id = partis.length + 1; partis.push({ id, texte, dest: undefined, canal: 0, auteur }); accuses.set(id, 'envoye'); return { id }; },
     etatEnvoi: (n) => (accuses.has(n) ? { statut: accuses.get(n) } : null),
     canaux: () => [{ index: 0, nom: 'LongFast' }, { index: 1, nom: 'Secours43' }, { index: 2, nom: 'Mairie' }] };
   // Ce que la carte sait de ses nœuds (sélecteur, batterie, trajets) et son serveur d'e-mails, simulés
@@ -210,6 +211,39 @@ test('envois vers le terrain : message direct aux nœuds des équipes, droits, a
   // Limite de temps d'antenne : 30 messages par 10 minutes
   assert.throws(() => { for (let k = 0; k < 40; k++) F.envoyer(chef, { texte: 'essai ' + k, equipe: alpha.id }); }, /30 messages au plus par 10 minutes/);
   // Sans module radio fourni (essais, carte sans émission) : envoi refusé proprement
+  secours.fermer();
+});
+
+test('alerte aux habitants (PCS) : option désactivée par défaut, réservée aux responsables, canal principal, limite propre', () => {
+  const { secours, partis } = monter();
+  commune(secours);
+  const M = secours.espace('pcs-commune');
+  const maire = M.comptes.connecter('mairie', 'motdepasse-2');
+  // Genre DPS : jamais possible, même responsable et option activée
+  secours.creer({ code: 'festival-2028', nom: 'Festival', genre: 'dps', responsable: { identifiant: 'chef.dps', motDePasse: 'motdepasse-9' } }, 'admin');
+  const F = secours.espace('festival-2028');
+  const chefDps = F.comptes.connecter('chef.dps', 'motdepasse-9');
+  assert.throws(() => F.alerterHabitants(chefDps, { texte: 'essai' }), /réservée aux espaces PCS/);
+  // PCS, option encore désactivée (défaut) : refusé
+  assert.strictEqual(M.etat(maire).radio.peutAlerterHabitants, false);
+  assert.throws(() => M.alerterHabitants(maire, { texte: 'Évacuation quartier bas' }), /non activée/);
+  M.reglages({ options: { alerteHabitants: true } });
+  assert.strictEqual(M.etat(maire).radio.peutAlerterHabitants, true);
+  // Un équipier (non responsable) n'y a pas droit, même option activée
+  const terrain = M.majEquipe(null, { nom: 'Équipe de terrain', genre: 'terrain' });
+  const agent = M.creerCompte({ identifiant: 'agent.un', motDePasse: 'motdepasse-6', equipe: terrain.id });
+  assert.throws(() => M.alerterHabitants(agent, { texte: 'essai' }), /réservée aux responsables/);
+  assert.strictEqual(M.etat(agent).radio.peutAlerterHabitants, false);
+  // Responsable, option active : part sur le canal principal (index 0), jamais le canal réservé de l'espace
+  const r = M.alerterHabitants(maire, { texte: 'Évacuation quartier bas, rejoignez le centre d’accueil' });
+  assert.deepStrictEqual(r.destinataires, ['habitants (canal principal)']);
+  assert.deepStrictEqual(partis.at(-1), { id: partis.at(-1).id, texte: 'Évacuation quartier bas, rejoignez le centre d’accueil', dest: undefined, canal: 0, auteur: 'espace Secours pcs-commune' });
+  assert.ok(M.etat(maire).mainCourante.some((m) => m.type === 'alerte-habitants' && /→ habitants \(canal principal\)/.test(m.texte)));
+  assert.throws(() => M.alerterHabitants(maire, { texte: '   ' }), /Message vide/);
+  // Limite propre (3 par heure), indépendante de celle des envois au terrain
+  M.alerterHabitants(maire, { texte: 'deuxième alerte' });
+  M.alerterHabitants(maire, { texte: 'troisième alerte' });
+  assert.throws(() => M.alerterHabitants(maire, { texte: 'quatrième alerte' }), /3 au plus par heure/);
   secours.fermer();
 });
 

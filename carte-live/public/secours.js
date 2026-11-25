@@ -556,7 +556,7 @@
 
   // Main courante
   const vMc = $('#vue-mc');
-  const LIB_MC = { information: 'Information', 'message-recu': 'Message reçu', 'message-emis': 'Message émis', decision: 'Décision', mouvement: 'Mouvement', intervention: 'Intervention', fin: 'Fin' };
+  const LIB_MC = { information: 'Information', 'message-recu': 'Message reçu', 'message-emis': 'Message émis', decision: 'Décision', mouvement: 'Mouvement', intervention: 'Intervention', fin: 'Fin', 'alerte-habitants': 'Alerte habitants' };
   vMc.innerHTML = `<label>Nouvelle entrée <textarea id="m-texte" maxlength="1000" placeholder="Fait, décision, message reçu ou transmis…"></textarea></label>
     <div class="champs"><label>Type <select id="m-type">${['information', 'decision', 'message-recu', 'message-emis', 'mouvement'].map((k) => `<option value="${k}">${LIB_MC[k]}</option>`).join('')}</select></label>
       <button class="principal" id="m-ok">Noter</button><a class="bouton" href="${base}/main-courante.csv" download>⬇ CSV</a></div>
@@ -568,12 +568,27 @@
       <label>Message (court : 200 caractères au plus) <input id="r-texte" maxlength="200" placeholder="ex. Rejoignez le poste scène"></label>
       <div class="champs"><button class="principal" id="r-ok">Envoyer</button><span id="r-retour" class="erreur"></span></div>
       <p class="note" id="r-etat"></p></div>` : ''}
+    ${E.radio.peutAlerterHabitants ? `<div class="cadre"><b>📢 Alerter les habitants</b>
+      <p class="note">Part sur le canal <b>principal</b> du module (pas le canal réservé de l’espace) : tout nœud Meshtastic/MeshCore à portée le reçoit, pas seulement vos équipes. À réserver aux alertes qui concernent vraiment toute la population.</p>
+      <label>Message (court : 200 caractères au plus) <input id="h-texte" maxlength="200" placeholder="ex. Évacuation quartier bas, rejoignez le centre d’accueil"></label>
+      <div class="champs"><button class="principal" id="h-ok">Envoyer aux habitants</button><span id="h-retour" class="erreur"></span></div></div>` : ''}
     <div id="m-liste"></div>`;
   if (E.radio.peutEnvoyer) $('#r-ok').onclick = async () => {
     const z = $('#r-retour'); z.className = 'erreur'; z.textContent = '';
     try {
       const r = await api(base + '/envoi', { method: 'POST', body: { texte: $('#r-texte').value, equipe: $('#r-dest').value || null } });
       $('#r-texte').value = ''; z.className = 'reussi'; z.textContent = `Envoyé à ${r.destinataires.join(', ')}`;
+      await rafraichir(true);
+    } catch (e) { z.textContent = e.message; }
+  };
+  if (E.radio.peutAlerterHabitants) $('#h-ok').onclick = async () => {
+    const z = $('#h-retour'); z.className = 'erreur'; z.textContent = '';
+    const texte = $('#h-texte').value.trim();
+    if (!texte) { z.textContent = 'Message vide'; return; }
+    if (!await confirmer(`Envoyer ce message sur le canal principal ?\nIl sera lu par tout le réseau, pas seulement vos équipes :\n« ${texte} »`)) return;
+    try {
+      const r = await api(base + '/alerter-habitants', { method: 'POST', body: { texte } });
+      $('#h-texte').value = ''; z.className = 'reussi'; z.textContent = `Envoyé (${r.destinataires.join(', ')})`;
       await rafraichir(true);
     } catch (e) { z.textContent = e.message; }
   };

@@ -67,7 +67,7 @@ const GENRES = {
 const CATEGORIES_DPS = { paps: { nom: 'PAPS', min: 2, max: 2 }, pe: { nom: 'DPS-PE', min: 4, max: 12 }, me: { nom: 'DPS-ME', min: 12, max: 36 }, ge: { nom: 'DPS-GE', min: 37, max: null } };
 const ETATS_EQUIPE = { disponible: 'Disponible', poste: 'En poste', intervention: 'En intervention', pause: 'En pause', indisponible: 'Indisponible' };
 const STATUTS_INTER = ['a-faire', 'en-cours', 'terminee'];
-const TYPES_MC = ['information', 'message-recu', 'message-emis', 'decision', 'mouvement', 'intervention', 'fin'];
+const TYPES_MC = ['information', 'message-recu', 'message-emis', 'decision', 'mouvement', 'intervention', 'fin', 'alerte-habitants'];
 const COULEURS = ['#ff8a1f', '#4cc9f0', '#b48cff', '#3ee68a', '#ff5c6c', '#ffd23f', '#e07bff', '#80ed99'];
 const MOTS_RADIO = { DISPO: 'disponible', DISPONIBLE: 'disponible', POSTE: 'poste', PAUSE: 'pause', INDISPO: 'indisponible', INDISPONIBLE: 'indisponible' };
 // Organisations proposées à la création (associations agréées de sécurité civile les plus courantes ; la liste des
@@ -84,6 +84,7 @@ const OPTIONS = {
   priorites: { nom: 'Priorités et tableau de bord', aide: 'Trois niveaux de priorité par intervention, et un résumé chiffré en tête de liste.', defaut: true },
   couches: { nom: 'Repères du PCS', aide: 'Zones à évacuer, centres d’accueil, points d’eau, accès des secours, dangers.', defaut: true, genres: ['pcs'] },
   rapport: { nom: 'Rapport de fin', aide: 'Un document figé : équipes, interventions, main courante et accusés radio.', defaut: true },
+  alerteHabitants: { nom: 'Alerter les habitants', aide: 'Un responsable peut envoyer un message sur le canal principal du module (celui que tout le réseau lit) : les habitants qui ont un nœud Meshtastic/MeshCore à portée le reçoivent. À réserver aux alertes qui concernent vraiment toute la population (évacuation, danger immédiat) : le canal principal n’est pas celui de l’espace, tout le réseau le voit.', defaut: false, genres: ['pcs'] },
   alerteRadio: { nom: 'Alerte si la radio de la carte tombe', aide: 'Un bandeau et une entrée de main courante quand le module radio de la carte se déconnecte.', defaut: true },
   courriel: { nom: 'Alerte par e-mail', aide: 'Une intervention urgente est aussi envoyée par e-mail aux adresses choisies.', defaut: false },
 };
@@ -104,6 +105,7 @@ const COURRIELS_MAX = 5, COURRIELS_HEURE = 20;
 const MEL = /^[^\s@<>,;]{1,64}@[^\s@<>,;]{1,190}\.[a-z]{2,}$/i;
 const COPIES_GARDEES = 7;
 const ENVOIS_MAX = 30, ENVOIS_FENETRE = 10 * 60000; // messages radio par espace et par 10 minutes (temps d'antenne)
+const ALERTE_HAB_MAX = 3, ALERTE_HAB_FENETRE = 3600000; // canal principal, lu par tout le réseau : beaucoup plus rare
 const ACCUSES = { envoye: 'envoyé', relaye: 'relayé', recu: 'reçu', echec: 'non remis' };
 // Texte ramené à n octets (limite d'un message Meshtastic), sans couper un caractère en deux
 function couper(t, n) { t = String(t || ''); while (Buffer.byteLength(t) > n) t = [...t].slice(0, -1).join(''); return t; }
@@ -591,6 +593,7 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
     return !!e && e.genre === 'pc';
   }
   let envoisRecents = [];
+  let alertesRecentes = [];
   // Accusé d'une entrée de main courante : relu auprès du module tant qu'il peut encore changer, puis retenu dans
   // le fichier de l'espace (le module oublie ses envois au bout d'un moment, et le rapport de fin en a besoin)
   function accuse(m) {
@@ -645,6 +648,25 @@ function ouvrirEspace(fichier, code, ctx, creation = null) {
       }
     })();
     return { ok: true, destinataires: cibles.map((e) => e.nom) };
+  }
+  // Alerter les habitants (PCS seulement, option à activer) : message sur le canal PRINCIPAL du module (index 0),
+  // celui que tout nœud du réseau lit par défaut — à la différence du canal réservé de l'espace (envoyer() ci-dessus),
+  // que seuls les nœuds de l'espace connaissent. Réservé aux responsables, limité à 3 envois par heure (temps
+  // d'antenne partagé par tout le réseau), et jamais discret : la carte garde ce message comme un message public normal.
+  function alerterHabitants(compte, b) {
+    if (genre() !== 'pcs') throw new Error('Alerte aux habitants réservée aux espaces PCS');
+    if (!option('alerteHabitants')) throw new Error('Alerte aux habitants non activée pour cet espace : demandez-le à l’administrateur de la carte');
+    if (!estResponsable(compte)) throw new Error('Alerte aux habitants réservée aux responsables de l’espace');
+    if (!radio || !radio.alerterPublic) throw new Error('Envoi par radio indisponible sur cette carte');
+    const texte = couper(txt(b.texte, 600), 200);
+    if (!texte) throw new Error('Message vide : écrivez un texte avant d’envoyer');
+    alertesRecentes = alertesRecentes.filter((t) => Date.now() - t < ALERTE_HAB_FENETRE);
+    if (alertesRecentes.length + 1 > ALERTE_HAB_MAX) throw new Error(`Trop d’alertes aux habitants : ${ALERTE_HAB_MAX} au plus par heure`);
+    const auteur = signature(compte);
+    const r = radio.alerterPublic(texte, `espace Secours ${code}`);
+    alertesRecentes.push(Date.now());
+    ajouterMc({ texte: `→ habitants (canal principal) : ${texte}`, type: 'alerte-habitants' }, auteur, 'radio', r.id);
+    return { ok: true, destinataires: ['habitants (canal principal)'] };
   }
   // Message d'intervention envoyé par radio, limité à l'essentiel : lieu précis (repère du site, puis position et
   // code DFCI), nature, état apparent. Sans lieu saisi, l'intitulé en tient lieu. À l'équipe engagée, sinon à celle
@@ -811,7 +833,8 @@ ${tableau(['Heure', 'Auteur', 'Type', 'Équipe', 'Texte', 'Radio'], mc.map((m) =
       equipes, interventions: q.interventions.all(Date.now() - 12 * 3600000),
       mainCourante: q.mainCourante.all(300).map((m) => (m.envoi != null ? { ...m, accuse: accuse(m) } : m)),
       // tombee : le module était connecté et ne l'est plus (une carte sans module radio n'affiche pas d'alerte)
-      radio: { disponible: !!radio, connecte: !!radio && !!radio.connecte(), tombee: !!radioTombee(), peutEnvoyer: peutEnvoyer(compte), accuses: ACCUSES },
+      radio: { disponible: !!radio, connecte: !!radio && !!radio.connecte(), tombee: !!radioTombee(), peutEnvoyer: peutEnvoyer(compte), accuses: ACCUSES,
+        peutAlerterHabitants: genre() === 'pcs' && option('alerteHabitants') && estResponsable(compte) && !!radio && !!radio.alerterPublic },
       noeuds: estResponsable(compte) ? lignesNoeuds() : undefined, attentes: estResponsable(compte) ? lignesAttentes() : undefined,
       comptes: estResponsable(compte) ? listerComptes() : undefined,
     };
@@ -839,7 +862,7 @@ ${tableau(['Heure', 'Auteur', 'Type', 'Équipe', 'Texte', 'Radio'], mc.map((m) =
     attribuer, retirerNoeuds, attendre, retirerAttente, resoudreAttentes, lignesNoeuds, lignesAttentes, majOrganisation, organisations,
     canalAttribue, definirCanal: (nom) => { ecrire('canal', txt(nom, 40) || null); touche(); }, surCanalReserve,
     majEquipe, changerEtat, trace, majIntervention: (iid, b, auteur) => majIntervention(iid, b, auteur), ajouterMc: (b, compte) => ajouterMc(b, signature(compte)), csvMc, texteRecu, pointRecu,
-    envoyer, diffuserIntervention, peutEnvoyer, majRepere, diffuserRepere, radioChange, rapport, option,
+    envoyer, alerterHabitants, diffuserIntervention, peutEnvoyer, majRepere, diffuserRepere, radioChange, rapport, option,
     // Accusés des envois de la dernière heure : la page les relit sans recharger tout l'état
     accuses: () => q.mainCourante.all(300).filter((m) => m.envoi != null && Date.now() - m.heure < 3600000).map((m) => ({ id: m.id, accuse: accuse(m) })),
     estResponsable, signature, creerCompte, majCompte, nommerResponsable, etat, rev: () => rev, purger, copier,

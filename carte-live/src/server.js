@@ -4071,6 +4071,9 @@ const secours = require('./secours').creerSecours({ config, journal,
   radio: {
     connecte: () => { try { return !!signalements.canaux().mt.connecte; } catch { return false; } },
     envoyerTexte: ({ texte, dest, canal }, auteur) => administration.envoyerTexte({ texte, dest, canal, discret: true }, auteur),
+    // Alerte aux habitants (PCS) : canal PRINCIPAL (index 0), celui que tout le réseau lit, jamais discret — la
+    // carte garde ce message comme un message public normal (à la différence des envois ci-dessus, internes à l'espace)
+    alerterPublic: (texte, auteur) => administration.envoyerTexte({ texte, canal: 0, discret: false }, auteur),
     etatEnvoi: (id) => administration.etatEnvoi(id),
     canaux: () => { try { return signalements.canaux().mt.canaux; } catch { return []; } },
   },
@@ -4162,6 +4165,7 @@ app.post('/api/secours/:code/interventions', routeSecours((req, b, e, compte) =>
 app.patch('/api/secours/:code/interventions/:id', routeSecours((req, b, e, compte) => e.majIntervention(req.params.id, b, e.signature(compte))));
 app.post('/api/secours/:code/interventions/:id/diffuser', routeSecours((req, b, e, compte) => e.diffuserIntervention(req.params.id, b, compte)));
 app.post('/api/secours/:code/envoi', routeSecours((req, b, e, compte) => e.envoyer(compte, b)));
+app.post('/api/secours/:code/alerter-habitants', routeSecours((req, b, e, compte) => e.alerterHabitants(compte, b), { responsable: true }));
 app.post('/api/secours/:code/main-courante', routeSecours((req, b, e, compte) => e.ajouterMc(b, compte)));
 app.get('/api/secours/:code/main-courante.csv', (req, res) => {
   const x = sessionSecours(req);
