@@ -406,7 +406,7 @@ function creerAdministrationMc(config, companion, reseauMc, journal, surFin = ()
         const releve = ['statut', 'telemetrie'].includes(t.type);
         const sessionOuverte = releve && !t.motDePasse && sessions[n.cle] && Date.now() - sessions[n.cle] < SESSION_MS;
         if (sessionOuverte) etape(t, n.cle, 'session déjà ouverte sur ce nœud : pas de nouvelle connexion');
-        else if (t.type !== 'tracer' && (!SANS_ADMIN.includes(t.type) || t.motDePasse || motsDePasse[n.cle])) await seConnecter(t, n).catch((e) => { if (!SANS_ADMIN.includes(t.type) || automatique(t)) throw e; /* relevé automatique : nœud injoignable, inutile d'insister */ etape(t, n.cle, 'connexion : ' + e.message + ' (on continue sans)', false); });
+        else if (t.type !== 'tracer' && (!SANS_ADMIN.includes(t.type) || t.motDePasse || motsDePasse[n.cle])) await seConnecter(t, n).catch((e) => { if (!SANS_ADMIN.includes(t.type) || !automatique(t)) throw e; /* relevé automatique : nœud injoignable, inutile d'insister */ etape(t, n.cle, 'connexion : ' + e.message + ' (on continue sans)', false); });
         switch (t.type) {
           case 'lire':
             if (Array.isArray(t.params.cles)) { await lireConfig(t, n, t.params.cles); break; }
