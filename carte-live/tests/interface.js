@@ -1824,7 +1824,7 @@ async function essaiDonateurs(navig, cookie) {
     await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
     await attendre(page);
     const m = await mesurer(page, CARTE);
-    if (m.visible && m.dedans && /42BARBE 🇫🇷 a donné pour soutenir le projet/.test(m.texte || '') && m.croix) ok(`${nom} : bandeau des donateurs visible (« ${m.texte} »)`); else ko(`${nom} : bandeau ` + JSON.stringify(m));
+    if (m.visible && m.dedans && /Merci à 42BARBE 🇫🇷 pour son don !/.test(m.texte || '') && m.croix) ok(`${nom} : bandeau des donateurs visible (« ${m.texte} »)`); else ko(`${nom} : bandeau ` + JSON.stringify(m));
     if (m.visible && !m.chevauche.length) ok(`${nom} : bandeau sans chevauchement de la barre du haut, de la recherche, du panneau, de la légende ni des boutons`); else ko(`${nom} : bandeau chevauche ` + JSON.stringify(m.chevauche));
     if (nom === 'ordinateur') {
       if (m.liens.length === 1 && m.liens[0][0] === 'Faire un don' && m.liens[0][1] === 'https://www.helloasso.com/associations/asso-essai/formulaires/form-1' && m.liens[0][2] === '_blank' && m.liens[0][3] === 'noopener') ok('ordinateur : lien « Faire un don » des réglages, nouvel onglet, pas de lien GitHub'); else ko('ordinateur : liens ' + JSON.stringify(m.liens));
@@ -1837,8 +1837,9 @@ async function essaiDonateurs(navig, cookie) {
     await capture(page, 'donateurs-' + nom.normalize('NFD').replace(/[^a-z]/g, ''));
     if (nom === 'téléphone') {
       await page.click('#bandeau-donateurs .fermer-bandeau');
-      const ferme = await page.evaluate(() => ({ parti: !document.getElementById('bandeau-donateurs'), memo: localStorage.getItem('gaulix_donateurs_masque') }));
-      if (ferme.parti && ferme.memo === '1') ok('téléphone : croix = bandeau fermé et mémorisé'); else ko('téléphone : croix ' + JSON.stringify(ferme));
+      const ferme = await page.evaluate(() => ({ parti: !document.getElementById('bandeau-donateurs'), memo: Number(localStorage.getItem('gaulix_donateurs_masque')) }));
+      // La croix masque une semaine (horodatage mémorisé), pas pour toujours : on vérifie juste que l'instant du clic est bien enregistré
+      if (ferme.parti && ferme.memo > 0 && Date.now() - ferme.memo < 10000) ok('téléphone : croix = bandeau fermé et mémorisé une semaine'); else ko('téléphone : croix ' + JSON.stringify(ferme));
     }
     bilanErreurs(erreurs, 'donateurs (' + nom + ')');
     await ctx.close();
@@ -1854,7 +1855,7 @@ async function essaiDonateurs(navig, cookie) {
     await capture(page, 'donateurs-publique-' + (nom === 'téléphone' ? 'telephone' : 'ordinateur'));
     if (nom === 'ordinateur') {
       await page.click('#bandeau-donateurs .fermer-bandeau');
-      if (await page.evaluate(() => !document.getElementById('bandeau-donateurs') && localStorage.getItem('publique_donateurs_masque') === '1')) ok('page publique : croix = bandeau fermé'); else ko('page publique : croix');
+      if (await page.evaluate(() => !document.getElementById('bandeau-donateurs') && Date.now() - Number(localStorage.getItem('publique_donateurs_masque')) < 10000)) ok('page publique : croix = bandeau fermé'); else ko('page publique : croix');
     }
     bilanErreurs(erreurs, 'donateurs (page publique, ' + nom + ')');
     await ctx.close();

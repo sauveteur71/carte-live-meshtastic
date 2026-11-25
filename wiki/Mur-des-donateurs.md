@@ -1,6 +1,6 @@
 # Mur des donateurs
 
-Un bandeau discret sur la carte (et sur la carte publique) remercie ceux qui ont soutenu le projet : « 42B*** 🇫🇷 a donné pour soutenir le projet ». Il se ferme d'une croix (mémorisé dans le navigateur) et disparaît de lui-même en mode urgence. Tout est désactivé par défaut.
+Un bandeau discret sur la carte (et sur la carte publique) remercie ceux qui ont soutenu le projet : « Merci à 42B*** 🇫🇷 pour son don ! ». Il se ferme d'une croix (mémorisée dans le navigateur) et réapparaît de lui-même une semaine plus tard ; il disparaît aussi de lui-même en mode urgence. Tout est désactivé par défaut.
 
 ## Deux sources, chacune activable séparément
 *Outils › 📤 Carte publique et exports*, rubrique **Mur des donateurs** en bas de la fiche (visible seulement par un administrateur) :

@@ -118,6 +118,7 @@ const STYLE_DONATEURS = `
 @media (max-width: 700px) { .bandeau-donateurs { border-radius: 12px; left: 8px; right: 8px; transform: none; max-width: none; font-size: 12px; padding: 6px 10px; } .bandeau-donateurs .don-liens { display: none; } }`;
 const donPub = { liste: [], liens: {}, index: 0 };
 let donPubTimer = null;
+const DON_PUB_MASQUE_MS = 7 * 24 * 60 * 60 * 1000; // la croix masque le bandeau une semaine, pas pour toujours
 async function chargerDonateursPub() {
   try { const r = await (await fetch('/api/donateurs')).json(); donPub.liste = Array.isArray(r.liste) ? r.liste : []; donPub.liens = r.liens || {}; } catch { return; }
   rendreBandeauDonateursPub();
@@ -125,13 +126,16 @@ async function chargerDonateursPub() {
 function paysDrapeauPub(code) { if (typeof code !== 'string' || !/^[A-Z]{2}$/i.test(code)) return ''; const base = 0x1f1e6; return [...code.toUpperCase()].map((c) => String.fromCodePoint(base + c.charCodeAt(0) - 65)).join(''); }
 function rendreBandeauDonateursPub() {
   let b = document.getElementById('bandeau-donateurs');
-  try { if (localStorage.getItem('publique_donateurs_masque') === '1') { if (b) b.remove(); clearInterval(donPubTimer); return; } } catch { /* stockage indisponible : bandeau affiché quand même */ }
+  try {
+    const masqueDepuis = Number(localStorage.getItem('publique_donateurs_masque'));
+    if (masqueDepuis && Date.now() - masqueDepuis < DON_PUB_MASQUE_MS) { if (b) b.remove(); clearInterval(donPubTimer); return; }
+  } catch { /* stockage indisponible : bandeau affiché quand même */ }
   if (!donPub.liste.length) { if (b) b.remove(); clearInterval(donPubTimer); return; }
   const afficher = () => {
     const x = donPub.liste[donPub.index % donPub.liste.length];
-    const montant = Number.isFinite(Number(x.montant)) && x.montant != null ? ` ${esc(String(x.montant))} ${x.devise === 'USD' ? '$' : '€'}` : '';
+    const montant = Number.isFinite(Number(x.montant)) && x.montant != null ? ` de ${esc(String(x.montant))} ${x.devise === 'USD' ? '$' : '€'}` : '';
     const t = b.querySelector('.don-texte');
-    if (t) t.innerHTML = `${esc(x.nom)}${x.pays ? ' ' + paysDrapeauPub(x.pays) : ''} a ${x.source === 'github' ? 'parrainé' : 'donné'}${montant} pour soutenir le projet`;
+    if (t) t.innerHTML = `Merci à ${esc(x.nom)}${x.pays ? ' ' + paysDrapeauPub(x.pays) : ''} pour son ${x.source === 'github' ? 'parrainage' : 'don'}${montant} !`;
   };
   const liens = [donPub.liens.helloasso ? `<a href="${esc(donPub.liens.helloasso)}" target="_blank" rel="noopener">Faire un don</a>` : '',
     donPub.liens.github ? `<a href="${esc(donPub.liens.github)}" target="_blank" rel="noopener">GitHub Sponsors</a>` : ''].filter(Boolean).map((l) => ' · ' + l).join('');
@@ -149,8 +153,8 @@ function rendreBandeauDonateursPub() {
   placer();
   if (b.dataset.liens !== liens) {
     b.dataset.liens = liens;
-    b.innerHTML = `💜 <span class="don-texte"></span>${blocLiens}<button type="button" class="fermer-bandeau" title="Masquer le mur des donateurs" aria-label="Masquer le mur des donateurs">✕</button>`;
-    b.querySelector('.fermer-bandeau').onclick = () => { try { localStorage.setItem('publique_donateurs_masque', '1'); } catch { /* ignoré */ } b.remove(); clearInterval(donPubTimer); };
+    b.innerHTML = `💜 <span class="don-texte"></span>${blocLiens}<button type="button" class="fermer-bandeau" title="Masquer le mur des donateurs pendant une semaine" aria-label="Masquer le mur des donateurs pendant une semaine">✕</button>`;
+    b.querySelector('.fermer-bandeau').onclick = () => { try { localStorage.setItem('publique_donateurs_masque', String(Date.now())); } catch { /* ignoré */ } b.remove(); clearInterval(donPubTimer); };
   }
   afficher();
 }
