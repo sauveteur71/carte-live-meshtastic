@@ -410,7 +410,9 @@ function dessinerMt() {
     const infra = n.infrastructure || n.passerelle;
     if (!infra && !opt.clients) continue;
     const icon = L.divIcon({ className: '', html: `<div class="mk ${infra ? (n.passerelle ? 'gw' : '') : 'cl'} ${n.statut}"><div class="c"></div></div>`, iconSize: [14, 14], iconAnchor: [7, 7] });
-    const m = L.marker([n.lat, n.lon], { icon, zIndexOffset: infra ? 500 : 0 }).bindTooltip(`<b>${esc(n.nomLong || n.id)}</b> <small>Meshtastic</small><br>${esc(n.roleFr || n.role || '')}${n.passerelle ? ' · passerelle MQTT' : ''}<br><small>vu ${n.dernierVu ? new Date(n.dernierVu).toLocaleString('fr-FR') : '–'}</small>`).addTo(couche);
+    // Badge devant le nom : même couleur et même forme que le marqueur (losange bleu relais, carré turquoise passerelle, rond violet nœud)
+    const badge = `<span class="badge-role ${infra ? 'losange' : 'rond'}" style="background:${n.passerelle ? '#3ee6c4' : infra ? '#60a5fa' : '#c084fc'}"></span>`;
+    const m = L.marker([n.lat, n.lon], { icon, zIndexOffset: infra ? 500 : 0 }).bindTooltip(`${badge}<b>${esc(n.nomLong || n.id)}</b> <small>Meshtastic</small><br>${esc(n.roleFr || n.role || '')}${n.passerelle ? ' · passerelle MQTT' : ''}<br><small>vu ${n.dernierVu ? new Date(n.dernierVu).toLocaleString('fr-FR') : '–'}</small>`).addTo(couche);
     etat.marqueurs.set(n.num, m);
   }
 }
@@ -461,8 +463,9 @@ function dessinerMc() {
     const relais = ROLES_MC_RELAIS.has(n.role);
     if (!relais && !opt.clients) continue;
     const cls = n.role === 'salon' ? 'salon' : relais ? '' : 'autre';
+    const badge = `<span class="badge-role ${relais || n.role === 'salon' ? 'carre' : 'rond'}" style="background:${n.role === 'salon' ? '#fbbf24' : relais ? '#f97316' : '#fdba74'}"></span>`;
     const m = L.marker([n.lat, n.lon], { icon: L.divIcon({ className: '', html: `<div class="mkc ${cls}"><div class="c"></div></div>`, iconSize: [14, 14], iconAnchor: [7, 7] }), zIndexOffset: relais ? 450 : 0 })
-      .bindTooltip(`<b>${esc(n.nom || n.id)}</b> <small>MeshCore</small><br>${esc(n.roleFr || n.role || '')}<br><small>vu ${n.dernierVu ? new Date(n.dernierVu).toLocaleString('fr-FR') : '–'}</small>`).addTo(mcp.coucheNoeuds);
+      .bindTooltip(`${badge}<b>${esc(n.nom || n.id)}</b> <small>MeshCore</small><br>${esc(n.roleFr || n.role || '')}<br><small>vu ${n.dernierVu ? new Date(n.dernierVu).toLocaleString('fr-FR') : '–'}</small>`).addTo(mcp.coucheNoeuds);
     mcp.marqueurs.set(n.cle, m);
   }
 }
@@ -483,6 +486,21 @@ function animerMc(p) {
 }
 
 // ---- Direct (WebSocket public : sans texte, positions des particuliers arrondies) ----------------
+// Compteur « paquets/min » façon tableau de bord : fenêtre glissante de 60 s, recalculée chaque seconde
+const pktMin = { horodatages: [] };
+function compterPaquet() {
+  pktMin.horodatages.push(Date.now());
+  const temoin = document.getElementById('temoin');
+  if (temoin.classList.contains('ok')) { temoin.classList.remove('pouls'); void temoin.offsetWidth; temoin.classList.add('pouls'); }
+}
+setInterval(() => {
+  const seuil = Date.now() - 60000;
+  while (pktMin.horodatages.length && pktMin.horodatages[0] < seuil) pktMin.horodatages.shift();
+  const el = document.getElementById('pkt-min'), v = document.getElementById('pkt-min-val');
+  if (!el) return;
+  el.hidden = pktMin.horodatages.length === 0;
+  v.textContent = pktMin.horodatages.length;
+}, 1000);
 function connecterWs() {
   const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
   const temoin = document.getElementById('temoin');
@@ -493,8 +511,9 @@ function connecterWs() {
     if (m.genre === 'paquet') {
       const n = etat.noeuds.get(m.de);
       if (n) n.dernierVu = m.heure || Date.now();
+      compterPaquet();
       animerMt(m);
-    } else if (m.genre === 'mc-paquet') animerMc(m);
+    } else if (m.genre === 'mc-paquet') { compterPaquet(); animerMc(m); }
   };
   ws.onclose = () => { temoin.className = 'direct'; setTimeout(connecterWs, 5000); };
 }
