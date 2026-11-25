@@ -58,6 +58,15 @@
     .axe-actif { mix-blend-mode: screen; }
     .direct { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #64748b; margin-right: 5px; vertical-align: 1px; }
     .direct.ok { background: #3ee6c4; box-shadow: 0 0 6px #3ee6c4; }
+    .direct.ok.pouls { animation: pouls-direct .6s ease-out; }
+    @keyframes pouls-direct { 0% { transform: scale(2.2); box-shadow: 0 0 10px 4px #3ee6c4; } 100% { transform: scale(1); box-shadow: 0 0 6px #3ee6c4; } }
+    #pkt-min { color: var(--doux); font-size: 11px; margin-left: 2px; }
+    #pkt-min b { color: var(--accent); }
+    /* Badge de rôle coloré devant le nom, dans les tooltips (mêmes couleurs/formes que les marqueurs) */
+    .badge-role { display: inline-block; width: 9px; height: 9px; margin-right: 5px; vertical-align: 1px; background: #60a5fa; }
+    .badge-role.losange { transform: rotate(45deg); }
+    .badge-role.carre { border-radius: 2px; }
+    .badge-role.rond { border-radius: 50%; width: 7px; height: 7px; }
     .tuiles-sombres { filter: invert(1) hue-rotate(185deg) brightness(.82) contrast(.9) saturate(.55); }
     .etiquettes-claires { filter: brightness(2.8) contrast(1.25); }
     .pixelise { image-rendering: pixelated; }
@@ -75,7 +84,7 @@
 </head>
 <body class="vue-meshtastic">
   <div id="carte"></div>
-  <div class="bandeau"><b id="titre">Réseau Meshtastic</b><small id="sous"><span class="direct" id="temoin"></span>carte publique en direct</small>
+  <div class="bandeau"><b id="titre">Réseau Meshtastic</b><small id="sous"><span class="direct" id="temoin"></span>carte publique en direct<span id="pkt-min" hidden> · <b id="pkt-min-val">0</b>/min</span></small>
     <div class="chiffres">
       <span class="mt"><b id="n-relais">–</b> relais</span><span class="mt"><b id="n-gw">–</b> passerelles</span><span class="mt"><b id="n-actifs">–</b> nœuds actifs</span>
       <span class="mc"><b id="n-mc-rep">–</b> répéteurs MeshCore</span><span class="mc"><b id="n-mc-actifs">–</b> nœuds MeshCore actifs</span>
