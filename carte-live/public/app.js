@@ -8318,13 +8318,17 @@ function paysDrapeau(code) {
 }
 function texteDon(x) {
   // Données venues du serveur, mais échappées quand même (montant compris)
-  const montant = Number.isFinite(Number(x.montant)) && x.montant != null ? ` ${esc(String(x.montant))} ${x.devise === 'USD' ? '$' : '€'}` : '';
-  return `${esc(x.nom)}${x.pays ? ' ' + paysDrapeau(x.pays) : ''} a ${x.source === 'github' ? 'parrainé' : 'donné'}${montant} pour soutenir le projet`;
+  const montant = Number.isFinite(Number(x.montant)) && x.montant != null ? ` de ${esc(String(x.montant))} ${x.devise === 'USD' ? '$' : '€'}` : '';
+  return `Merci à ${esc(x.nom)}${x.pays ? ' ' + paysDrapeau(x.pays) : ''} pour son ${x.source === 'github' ? 'parrainage' : 'don'}${montant} !`;
 }
 let minuterieDon = null;
+const DON_MASQUE_MS = 7 * 24 * 60 * 60 * 1000; // la croix masque le bandeau une semaine, pas pour toujours
 function rendreBandeauDonateurs() {
   let b = document.getElementById('bandeau-donateurs');
-  try { if (localStorage.getItem('gaulix_donateurs_masque') === '1') { if (b) b.remove(); clearInterval(minuterieDon); return; } } catch { /* stockage indisponible : bandeau affiché quand même */ }
+  try {
+    const masqueDepuis = Number(localStorage.getItem('gaulix_donateurs_masque'));
+    if (masqueDepuis && Date.now() - masqueDepuis < DON_MASQUE_MS) { if (b) b.remove(); clearInterval(minuterieDon); return; }
+  } catch { /* stockage indisponible : bandeau affiché quand même */ }
   if (!don.liste.length) { if (b) b.remove(); clearInterval(minuterieDon); return; }
   const afficher = () => { const x = don.liste[don.index % don.liste.length]; const t = b.querySelector('.don-texte'); if (t) t.innerHTML = texteDon(x); };
   const liens = [don.liens.helloasso ? `<a href="${esc(don.liens.helloasso)}" target="_blank" rel="noopener">Faire un don</a>` : '',
@@ -8340,8 +8344,8 @@ function rendreBandeauDonateurs() {
   }
   if (b.dataset.liens !== liens) {
     b.dataset.liens = liens;
-    b.innerHTML = `💜 <span class="don-texte"></span>${blocLiens}<button type="button" class="fermer-bandeau" title="Masquer le mur des donateurs" aria-label="Masquer le mur des donateurs">✕</button>`;
-    b.querySelector('.fermer-bandeau').onclick = () => { try { localStorage.setItem('gaulix_donateurs_masque', '1'); } catch { /* ignoré */ } b.remove(); clearInterval(minuterieDon); };
+    b.innerHTML = `💜 <span class="don-texte"></span>${blocLiens}<button type="button" class="fermer-bandeau" title="Masquer le mur des donateurs pendant une semaine" aria-label="Masquer le mur des donateurs pendant une semaine">✕</button>`;
+    b.querySelector('.fermer-bandeau').onclick = () => { try { localStorage.setItem('gaulix_donateurs_masque', String(Date.now())); } catch { /* ignoré */ } b.remove(); clearInterval(minuterieDon); };
   }
   afficher();
 }

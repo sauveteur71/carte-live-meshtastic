@@ -4,6 +4,8 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## En préparation
 
+- Mur des donateurs : le message affiché est désormais « Merci à *Nom* pour son don de *X* € ! » (au lieu de « *Nom* a donné... »). La croix qui masque le bandeau ne le coupe plus pour toujours : il réapparaît automatiquement une semaine plus tard.
+
 ## 2.36.0
 
 ### 🌐 Langue par défaut corrigée, et relevés de capteurs qui ne se bloquent plus
