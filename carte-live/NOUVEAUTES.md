@@ -4,6 +4,11 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## En préparation
 
+## 2.36.0
+
+### 🌐 Langue par défaut corrigée, et relevés de capteurs qui ne se bloquent plus
+- **Langue par défaut de l'édition France** : un visiteur dont le navigateur n'est pas réglé en fr/en/es/de/it/pt/nl/pl/cs voyait la carte démarrer en anglais au lieu du français. Corrigé (le sélecteur manuel de langue, lui, fonctionnait déjà).
+- **Relevés automatiques de capteurs MeshCore** : quand un mot de passe administrateur est mémorisé pour un nœud, un échec de connexion admin avant un relevé automatique (statut, télémétrie) bloquait tout le cycle au lieu de continuer sans session — reproductible à chaque tentative sur un maillage instable. Les relevés automatiques reprennent désormais normalement même quand la session admin échoue.
 - Gestion des espaces Secours : le titre et le texte d'introduction sont centrés (au lieu de rester collés à gauche sur un grand écran).
 - Recherche de sites (plan pour couvrir le département, zone dessinée à la main, plan à budget) : nouveau plafond d'altitude facultatif pour écarter les propositions trop hautes, souvent au-dessus de la limite des arbres (rien où fixer une antenne) et difficiles d'accès.
 
