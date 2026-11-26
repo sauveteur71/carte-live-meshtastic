@@ -1,6 +1,12 @@
 # ============================================================
 #  Broker Mosquitto (facultatif) à placer à côté de la carte live
 #  1883 : réseau local · 8883 : Internet chiffré TLS (redirigé par la box)
+#
+#  Les deux ports ne se règlent qu'à UN seul endroit : MQTT_PORT_LOCAL et
+#  MQTT_PORT_TLS dans le .env à la racine du dépôt (voir .env.exemple).
+#  Ils pilotent à la fois le port publié par Docker et le port écouté par
+#  Mosquitto (mosquitto.conf est généré depuis mosquitto.conf.modele au
+#  démarrage) : plus besoin de modifier deux fichiers pour changer un port.
 # ============================================================
 
 services:
@@ -8,11 +14,20 @@ services:
     image: eclipse-mosquitto:2
     container_name: mqtt-meshtastic
     restart: unless-stopped
+    environment:
+      MQTT_PORT_LOCAL: ${MQTT_PORT_LOCAL:-1883}
+      MQTT_PORT_TLS: ${MQTT_PORT_TLS:-8883}
     ports:
-      - "1883:1883"   # réseau local uniquement
-      - "8883:8883"   # Internet, chiffré TLS (redirigé par la box)
+      - "${MQTT_PORT_LOCAL:-1883}:${MQTT_PORT_LOCAL:-1883}"   # réseau local uniquement
+      - "${MQTT_PORT_TLS:-8883}:${MQTT_PORT_TLS:-8883}"       # Internet, chiffré TLS (redirigé par la box)
     volumes:
       - ./mosquitto/config:/mosquitto/config
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
       - ./mosquitto/certs:/mosquitto/certs:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        sed -e "s/__MQTT_PORT_LOCAL__/$$MQTT_PORT_LOCAL/" -e "s/__MQTT_PORT_TLS__/$$MQTT_PORT_TLS/"
+        /mosquitto/config/mosquitto.conf.modele > /mosquitto/config/mosquitto.conf &&
+        exec /usr/sbin/mosquitto -c /mosquitto/config/mosquitto.conf

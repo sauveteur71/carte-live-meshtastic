@@ -1,6 +1,12 @@
 # ============================================================
 #  Mosquitto — exemple de broker pour la carte live Meshtastic
 #  (comptes dans passwd, droits dans acl : voir acl.exemple)
+#
+#  Ce fichier est un MODÈLE : ne le modifiez pas pour changer un port.
+#  Les ports (__MQTT_PORT_LOCAL__, __MQTT_PORT_TLS__) sont remplacés au
+#  démarrage du conteneur par MQTT_PORT_LOCAL / MQTT_PORT_TLS, réglés une
+#  seule fois dans le .env à la racine du dépôt. Le fichier généré
+#  (mosquitto.conf, à côté de celui-ci) est recréé à chaque démarrage.
 # ============================================================
 
 persistence true
@@ -23,13 +29,13 @@ max_packet_size 16384
 max_queued_messages 200
 
 # ---- Réseau local uniquement (NE PAS rediriger ce port sur la box) ----
-listener 1883
+listener __MQTT_PORT_LOCAL__
 protocol mqtt
 
 # ---- Internet : MQTT chiffré pour les passerelles distantes ----
 # Port à rediriger sur la box vers le serveur. Certificat Let's Encrypt de votre domaine
 # (ex. mqtt.mondomaine.fr), copié par copier-certificat.sh sur un NAS Synology.
-listener 8883
+listener __MQTT_PORT_TLS__
 protocol mqtt
 certfile /mosquitto/certs/cert.pem
 cafile /mosquitto/certs/chain.pem
