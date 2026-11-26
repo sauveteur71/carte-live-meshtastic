@@ -4,6 +4,8 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## En préparation
 
+- `/api/public/statistiques` : compteurs agrégés publics (nœuds, actifs, passerelles, liens), accessibles en cross-origin, pour affichage en dehors de la carte elle-même.
+
 ## 2.40.0
 
 ### 🗺️ La carte peut être réglée sur une région, ou la France entière

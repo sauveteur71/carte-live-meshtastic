@@ -2040,6 +2040,17 @@ app.get('/api/etat', (req, res) => {
   res.json({ stats: reseau.statistiques(), alertes: estMembre(req) ? dernieresAlertes : alertesPubliques(dernieresAlertes), meshmonitor: sourceMM ? sourceMM.etat() : null, radio: sourceRadio ? sourceRadio.etat() : null, ecoutes: resumeEcoutes() });
 });
 
+// Statistiques publiques minimales (compteurs agrégés seulement, aucune donnée nominative), pensées pour être
+// affichées en dehors de la carte elle-même (ex. une page vitrine séparée) : accès cross-origin autorisé exprès,
+// comme /api/federation plus bas. À la différence de /api/etat, aucune alerte ni état interne n'est renvoyé ici.
+app.get('/api/public/statistiques', (req, res) => {
+  const s = reseau.statistiques();
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.set('Cache-Control', 'public, max-age=60').json({
+    noeuds: s.noeuds, actifs: s.actifs, passerelles: s.passerelles, passerellesEnLigne: s.passerellesEnLigne, liens: s.liens,
+  });
+});
+
 // Canaux Meshtastic publics (clé par défaut) : les seuls lisibles en démonstration (messages, recherche)
 const canauxPublicsMt = () => config.canaux.filter((c) => !c.cle || c.cle === 'AQ==' || c.cle === '1PG7OiApB1nwvP+rz05pAQ==').map((c) => c.nom);
 app.get('/api/messages', (req, res) => {
