@@ -4,6 +4,11 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## En préparation
 
+## 2.39.0
+
+### 📡 Couverture calculée sur les seuls nœuds actifs
+- **Nouvelle option « Nœuds actifs uniquement »**, dans le panneau « Couverture calculée » et dans le panneau « Plan pour couvrir » (réglages des calculs). Jusqu'ici, ces deux outils comptaient tout relais ou passerelle entendu dans les dernières 24 h, même en panne ou coupé depuis des heures — ce qui gonflait le pourcentage de couverture affiché par rapport à ce que le réseau dessert réellement à l'instant T. Avec l'option cochée, seuls les nœuds considérés « actifs » par le tableau de bord (même seuil que le compteur de nœuds actifs) entrent dans le calcul, aussi bien côté Meshtastic que MeshCore.
+
 ## 2.38.0
 
 ### 🔷 Des formes en plus des couleurs pour les nœuds Meshtastic
