@@ -30,9 +30,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: '8.11.1'
+          gradle-version: '8.10.2'
       - name: Clé de signature
         env:
           ANDROID_CLE: ${{ secrets.ANDROID_CLE }}
@@ -49,18 +49,12 @@ jobs:
           gradle --no-daemon assembleRelease
           v=$(node -p "require('../carte-live/package.json').version")
           cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/carte-live-$v.apk"
-          # Paquet AAB pour Google Play (sans recherche de mise à jour GitHub), à déposer dans la Play Console
-          gradle --no-daemon -Pplay bundleRelease
-          cp app/build/outputs/bundle/release/app-release.aab "$RUNNER_TEMP/carte-live-$v-google-play.aab"
-          echo "AAB=$RUNNER_TEMP/carte-live-$v-google-play.aab" >> "$GITHUB_ENV"
           echo "APK=$RUNNER_TEMP/carte-live-$v.apk" >> "$GITHUB_ENV"
           echo "VERSION=$v" >> "$GITHUB_ENV"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: carte-live-android
-          path: |
-            ${{ env.APK }}
-            ${{ env.AAB }}
+          path: ${{ env.APK }}
       - name: Jointe à la version
         if: github.event_name == 'workflow_run'
         env:
