@@ -74,11 +74,16 @@ async function pngAsync(largeur, hauteur, rgba) {
 }
 
 // Contour d'un département : fichier détaillé s'il existe (Haute-Loire), sinon contour simplifié national
-// Un « département » de la carte peut aussi être une région (code "R" + code région, ex. R84) : le contour,
-// le nom et le rectangle englobant deviennent alors ceux de l'union des départements qui la composent. Le reste
-// du calcul de relief (creerRelief, masque, points hauts…) ne connaît que des anneaux de polygone : il fonctionne
-// sans changement, qu'ils viennent d'un seul département ou de plusieurs regroupés ici.
+// Un « département » de la carte peut aussi être une région (code "R" + code région, ex. R84) ou la France
+// entière (code "FR") : le contour, le nom et le rectangle englobant deviennent alors ceux de l'union des
+// départements qui la composent. Le reste du calcul de relief (creerRelief, masque, points hauts…) ne connaît
+// que des anneaux de polygone : il fonctionne sans changement, qu'ils viennent d'un seul département ou de
+// plusieurs regroupés ici. Prévenir : la France entière revient à fusionner les 96 départements métropolitains
+// en une seule grille de relief (plusieurs dizaines de millions de cellules à 250 m, plusieurs heures de
+// téléchargement IGN la première fois, plusieurs centaines de Mo de RAM) — bien plus lourd qu'un département
+// ou qu'une région.
 const estCodeRegion = (code) => /^R\d{2}$/i.test(String(code || ''));
+const estFranceEntiere = (code) => /^FR$/i.test(String(code || ''));
 function regionDeCode(code) {
   const { calculerRegions } = require('./voisins'); // évite une dépendance circulaire au chargement du module
   const c = String(code).toUpperCase().slice(1);
@@ -96,18 +101,28 @@ function contourDepartementSeul(code) {
     return f ? f.geometry : null;
   } catch { return null; }
 }
-function contourDepartement(code) {
-  if (!estCodeRegion(code)) return contourDepartementSeul(code);
-  const r = regionDeCode(code);
-  if (!r) return null;
+function fusionnerContours(codes) {
   const polys = [];
-  for (const depCode of r.departements) {
+  for (const depCode of codes) {
     const g = contourDepartementSeul(depCode);
     if (!g) continue;
     if (g.type === 'Polygon') polys.push(g.coordinates);
     else if (g.type === 'MultiPolygon') polys.push(...g.coordinates);
   }
   return polys.length ? { type: 'MultiPolygon', coordinates: polys } : null;
+}
+function tousLesDepartements() {
+  const ref = path.join(__dirname, '..', 'donnees-ref');
+  try {
+    const g = lireJson(path.join(ref, 'departements.geojson'));
+    return (g.features || []).map((f) => f.properties.code);
+  } catch { return []; }
+}
+function contourDepartement(code) {
+  if (estFranceEntiere(code)) return fusionnerContours(tousLesDepartements());
+  if (!estCodeRegion(code)) return contourDepartementSeul(code);
+  const r = regionDeCode(code);
+  return r ? fusionnerContours(r.departements) : null;
 }
 
 const { creerAcces, NIVEAUX: NIVEAUX_ACCES } = require('./acces');
@@ -123,6 +138,7 @@ function rectangleDepartement(code) {
   return [sud, ouest, nord, est];
 }
 function nomDepartement(code) {
+  if (estFranceEntiere(code)) return 'France';
   if (estCodeRegion(code)) { const r = regionDeCode(code); return r ? r.nom : null; }
   try {
     const g = lireJson(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'));

@@ -1012,7 +1012,7 @@ async function rendreReglages() {
     <form id="form-reglages">
       <div class="grille-form">
         <label>Nom de la carte <input name="titre" value="${esc(r.titre)}" maxlength="80"></label>
-        <label>Département <select name="departement"></select><small>Fixe la zone, le contour et le centrage de la carte (un département, ou une région entière)</small></label>
+        <label>Département <select name="departement"></select><small>Fixe la zone, le contour et le centrage de la carte (un département, une région entière, ou la France entière)</small></label>
         <div class="large-col note-source">${r.depuisPage && r.depuisPage.mqtt ? `⚠️ Le serveur MQTT est réglé ici : ces valeurs <b>remplacent celles du .env</b>${r.env && r.env.mqtt.url ? ` (MQTT_URL=${esc(r.env.mqtt.url)})` : ''}. <button type="button" class="mini" data-revenir-env="mqtt">Revenir au .env</button>` : 'ℹ️ Serveur MQTT lu dans le fichier .env. Une valeur changée ici le remplacera (le .env ne sera plus lu pour elle).'}</div>
         <label>Serveur MQTT <input data-notion="mqttUrl" name="mqttUrl" value="${esc(r.mqtt.url)}"></label>
         <label>Sujet racine <input data-notion="mqttRacine" name="mqttRacine" value="${esc(r.mqtt.racine)}"></label>
@@ -1026,7 +1026,7 @@ async function rendreReglages() {
       </div>
       <p class="erreur" id="retour-reglages"></p>
       <div class="actions"><button type="submit" class="principal">Enregistrer et redémarrer</button></div>
-      <p class="note">L’enregistrement redémarre le service (une dizaine de secondes). Un changement de département ou de région retélécharge le relief IGN (quelques minutes pour un département, nettement plus pour une région entière).</p>
+      <p class="note">L’enregistrement redémarre le service (une dizaine de secondes). Un changement de département ou de région retélécharge le relief IGN (quelques minutes pour un département, nettement plus pour une région entière). ⚠️ Pour la France entière, prévoir plusieurs heures de téléchargement IGN la première fois et plusieurs centaines de Mo de RAM : à réserver à un serveur dimensionné pour.</p>
     </form>
     <div class="bloc-france" id="bloc-france"></div>`;
   rendreFrance();

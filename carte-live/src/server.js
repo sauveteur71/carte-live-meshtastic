@@ -2322,11 +2322,20 @@ try {
     .map((f) => ({ code: f.properties.code, nom: f.properties.nom, bbox: emprise(f.geometry) })).sort((a, b) => a.code.localeCompare(b.code));
 } catch { /* liste indisponible */ }
 app.get('/api/departements', (req, res) => res.json(listeDepartements));
-// Régions françaises (code « R » + code région, ex. R84) : une carte peut aussi être réglée sur une région
-// entière plutôt qu'un seul département (zone, contour et relief = union de ses départements, voir relief.js).
-// Endpoint séparé de /api/departements pour ne rien changer aux usages existants de ce dernier (calculs de
-// couverture par département, répartition des nœuds…), qui ne concernent pas les régions.
-const listeRegions = calculerRegions().map((r) => ({ code: 'R' + r.code, nom: r.nom, bbox: r.bbox, departements: r.departements }));
+// Régions françaises (code « R » + code région, ex. R84), et France entière (code FR) : une carte peut aussi
+// être réglée sur une région ou le pays entier plutôt qu'un seul département (zone, contour et relief = union
+// de ses départements, voir relief.js). Endpoint séparé de /api/departements pour ne rien changer aux usages
+// existants de ce dernier (calculs de couverture par département, répartition des nœuds…), qui ne concernent
+// pas les régions. « France » est signalée à part (special) : son relief représente plusieurs dizaines de
+// millions de cellules à 250 m, donc plusieurs heures de téléchargement IGN la première fois.
+const bboxFrance = () => {
+  const s = listeDepartements.reduce((b, d) => [Math.min(b[0], d.bbox[0]), Math.min(b[1], d.bbox[1]), Math.max(b[2], d.bbox[2]), Math.max(b[3], d.bbox[3])], [90, 180, -90, -180]);
+  return s.map((v) => +v.toFixed(4));
+};
+const listeRegions = [
+  { code: 'FR', nom: 'France entière', bbox: bboxFrance(), departements: listeDepartements.map((d) => d.code), special: true },
+  ...calculerRegions().map((r) => ({ code: 'R' + r.code, nom: r.nom, bbox: r.bbox, departements: r.departements })),
+];
 app.get('/api/regions', (req, res) => res.json(listeRegions));
 // Nœuds rangés par département, d'après la position que chacun a retransmise (test du point dans le polygone,
 // contours nationaux). Le GeoJSON des départements pèse plus de 500 ko : le calcul reste ici, le navigateur ne
@@ -2441,17 +2450,17 @@ function preparerReglages(b, existants = {}) {
   if (txt(b.titre)) r.titre = txt(b.titre, 80);
   if (b.departement) {
     const codeDemande = String(b.departement).toUpperCase();
-    const estRegion = /^R\d{2}$/.test(codeDemande);
-    const d = estRegion ? listeRegions.find((x) => x.code === codeDemande) : listeDepartements.find((x) => x.code === String(b.departement));
-    if (!d) throw new Error(estRegion ? 'Région inconnue' : 'Département inconnu');
+    const estEtendue = /^(R\d{2}|FR)$/.test(codeDemande); // région ou France entière
+    const d = estEtendue ? listeRegions.find((x) => x.code === codeDemande) : listeDepartements.find((x) => x.code === String(b.departement));
+    if (!d) throw new Error(estEtendue ? 'Région inconnue' : 'Département inconnu');
     const geom = contourDepartement(d.code);
-    if (!geom) throw new Error(`Contour ${estRegion ? 'de la région' : 'du département'} introuvable`);
+    if (!geom) throw new Error(`Contour ${estEtendue ? 'de la zone' : 'du département'} introuvable`);
     const z = emprise(geom);
     r.departement = { code: d.code, nom: d.nom };
     r.zone = z;
     r.zoneNom = d.nom;
     r.centre = [+((z[0] + z[2]) / 2).toFixed(4), +((z[1] + z[3]) / 2).toFixed(4)];
-    r.zoom = estRegion ? 7 : 9;
+    r.zoom = d.code === 'FR' ? 6 : estEtendue ? 7 : 9;
     if (!txt(b.titre) && !existants.titre) r.titre = `Réseau Meshtastic · ${d.nom}`;
   }
   if (b.mqtt) {

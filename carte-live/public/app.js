@@ -6834,8 +6834,10 @@ const ROLES_COMPTE = { membre: 'Membre', gestionnaire: 'Gestionnaire de secteur'
 
 async function optionsDepartements(select, code) {
   const [deps, regions] = await Promise.all([api('/api/departements').catch(() => []), api('/api/regions').catch(() => [])]);
-  const opt = (d) => `<option value="${d.code}" ${d.code === code ? 'selected' : ''}>${d.code} · ${esc(d.nom)}</option>`;
-  select.innerHTML = (regions.length ? `<optgroup label="Régions">${regions.map(opt).join('')}</optgroup>` : '')
+  const opt = (d) => `<option value="${d.code}" ${d.code === code ? 'selected' : ''}>${d.code === 'FR' ? '' : d.code + ' · '}${esc(d.nom)}</option>`;
+  const special = regions.filter((r) => r.special), autres = regions.filter((r) => !r.special);
+  select.innerHTML = special.map(opt).join('')
+    + (autres.length ? `<optgroup label="Régions">${autres.map(opt).join('')}</optgroup>` : '')
     + `<optgroup label="Départements">${deps.map(opt).join('')}</optgroup>`;
 }
 
