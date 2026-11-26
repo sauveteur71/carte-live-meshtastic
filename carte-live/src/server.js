@@ -2322,6 +2322,12 @@ try {
     .map((f) => ({ code: f.properties.code, nom: f.properties.nom, bbox: emprise(f.geometry) })).sort((a, b) => a.code.localeCompare(b.code));
 } catch { /* liste indisponible */ }
 app.get('/api/departements', (req, res) => res.json(listeDepartements));
+// Régions françaises (code « R » + code région, ex. R84) : une carte peut aussi être réglée sur une région
+// entière plutôt qu'un seul département (zone, contour et relief = union de ses départements, voir relief.js).
+// Endpoint séparé de /api/departements pour ne rien changer aux usages existants de ce dernier (calculs de
+// couverture par département, répartition des nœuds…), qui ne concernent pas les régions.
+const listeRegions = calculerRegions().map((r) => ({ code: 'R' + r.code, nom: r.nom, bbox: r.bbox, departements: r.departements }));
+app.get('/api/regions', (req, res) => res.json(listeRegions));
 // Nœuds rangés par département, d'après la position que chacun a retransmise (test du point dans le polygone,
 // contours nationaux). Le GeoJSON des départements pèse plus de 500 ko : le calcul reste ici, le navigateur ne
 // reçoit que le code du département de chaque nœud. Le département d'un nœud n'est recalculé que si sa position
@@ -2434,16 +2440,18 @@ function preparerReglages(b, existants = {}) {
   const txt = (v, max = 200) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined);
   if (txt(b.titre)) r.titre = txt(b.titre, 80);
   if (b.departement) {
-    const d = listeDepartements.find((x) => x.code === String(b.departement));
-    if (!d) throw new Error('Département inconnu');
+    const codeDemande = String(b.departement).toUpperCase();
+    const estRegion = /^R\d{2}$/.test(codeDemande);
+    const d = estRegion ? listeRegions.find((x) => x.code === codeDemande) : listeDepartements.find((x) => x.code === String(b.departement));
+    if (!d) throw new Error(estRegion ? 'Région inconnue' : 'Département inconnu');
     const geom = contourDepartement(d.code);
-    if (!geom) throw new Error('Contour du département introuvable');
+    if (!geom) throw new Error(`Contour ${estRegion ? 'de la région' : 'du département'} introuvable`);
     const z = emprise(geom);
-    r.departement = d;
+    r.departement = { code: d.code, nom: d.nom };
     r.zone = z;
     r.zoneNom = d.nom;
     r.centre = [+((z[0] + z[2]) / 2).toFixed(4), +((z[1] + z[3]) / 2).toFixed(4)];
-    r.zoom = 9;
+    r.zoom = estRegion ? 7 : 9;
     if (!txt(b.titre) && !existants.titre) r.titre = `Réseau Meshtastic · ${d.nom}`;
   }
   if (b.mqtt) {

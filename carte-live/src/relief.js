@@ -74,7 +74,17 @@ async function pngAsync(largeur, hauteur, rgba) {
 }
 
 // Contour d'un département : fichier détaillé s'il existe (Haute-Loire), sinon contour simplifié national
-function contourDepartement(code) {
+// Un « département » de la carte peut aussi être une région (code "R" + code région, ex. R84) : le contour,
+// le nom et le rectangle englobant deviennent alors ceux de l'union des départements qui la composent. Le reste
+// du calcul de relief (creerRelief, masque, points hauts…) ne connaît que des anneaux de polygone : il fonctionne
+// sans changement, qu'ils viennent d'un seul département ou de plusieurs regroupés ici.
+const estCodeRegion = (code) => /^R\d{2}$/i.test(String(code || ''));
+function regionDeCode(code) {
+  const { calculerRegions } = require('./voisins'); // évite une dépendance circulaire au chargement du module
+  const c = String(code).toUpperCase().slice(1);
+  return calculerRegions().find((r) => r.code === c) || null;
+}
+function contourDepartementSeul(code) {
   const ref = path.join(__dirname, '..', 'donnees-ref');
   try {
     const g = lireJson(path.join(ref, `departement-${code}.geojson`));
@@ -86,11 +96,24 @@ function contourDepartement(code) {
     return f ? f.geometry : null;
   } catch { return null; }
 }
+function contourDepartement(code) {
+  if (!estCodeRegion(code)) return contourDepartementSeul(code);
+  const r = regionDeCode(code);
+  if (!r) return null;
+  const polys = [];
+  for (const depCode of r.departements) {
+    const g = contourDepartementSeul(depCode);
+    if (!g) continue;
+    if (g.type === 'Polygon') polys.push(g.coordinates);
+    else if (g.type === 'MultiPolygon') polys.push(...g.coordinates);
+  }
+  return polys.length ? { type: 'MultiPolygon', coordinates: polys } : null;
+}
 
 const { creerAcces, NIVEAUX: NIVEAUX_ACCES } = require('./acces');
 const { creerRealisme } = require('./realisme');
 
-// Rectangle englobant [sud, ouest, nord, est] d'un département (contour national)
+// Rectangle englobant [sud, ouest, nord, est] d'un département ou d'une région (contour national)
 function rectangleDepartement(code) {
   const g = contourDepartement(code);
   if (!g) return null;
@@ -100,6 +123,7 @@ function rectangleDepartement(code) {
   return [sud, ouest, nord, est];
 }
 function nomDepartement(code) {
+  if (estCodeRegion(code)) { const r = regionDeCode(code); return r ? r.nom : null; }
   try {
     const g = lireJson(path.join(__dirname, '..', 'donnees-ref', 'departements.geojson'));
     const f = g.features.find((x) => x.properties.code === code);

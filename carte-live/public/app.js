@@ -6833,8 +6833,10 @@ function ouvrirGestion() {
 const ROLES_COMPTE = { membre: 'Membre', gestionnaire: 'Gestionnaire de secteur', admin: 'Administrateur' };
 
 async function optionsDepartements(select, code) {
-  const liste = await api('/api/departements').catch(() => []);
-  select.innerHTML = liste.map((d) => `<option value="${d.code}" ${d.code === code ? 'selected' : ''}>${d.code} · ${esc(d.nom)}</option>`).join('');
+  const [deps, regions] = await Promise.all([api('/api/departements').catch(() => []), api('/api/regions').catch(() => [])]);
+  const opt = (d) => `<option value="${d.code}" ${d.code === code ? 'selected' : ''}>${d.code} · ${esc(d.nom)}</option>`;
+  select.innerHTML = (regions.length ? `<optgroup label="Régions">${regions.map(opt).join('')}</optgroup>` : '')
+    + `<optgroup label="Départements">${deps.map(opt).join('')}</optgroup>`;
 }
 
 // Téléphone : panneau en tiroir (réduit / moitié / plein), poignée à tirer ou à toucher, état gardé
