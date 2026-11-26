@@ -4,6 +4,12 @@ Le texte de la section de chaque version est repris tel quel dans la note de la 
 
 ## En préparation
 
+## 2.40.0
+
+### 🗺️ La carte peut être réglée sur une région, ou la France entière
+- **Dans Réglages, le sélecteur « Département » propose aussi les régions et « France entière ».** Jusqu'ici, un déploiement ne pouvait couvrir qu'un seul département : zone, contour, relief et centrage de toute la carte sont désormais calculés sur l'union des départements d'une région, ou sur la France entière, exactement de la même façon qu'un seul département (même masque de relief, mêmes points hauts, même calcul de couverture).
+- **France entière reste un choix lourd**, à ne faire qu'en connaissance de cause : plusieurs heures de téléchargement IGN la première fois et plusieurs centaines de Mo de RAM (contre quelques minutes pour un département), vu le volume de relief à fusionner. Un avertissement dédié apparaît dans Réglages.
+
 ## 2.39.0
 
 ### 📡 Couverture calculée sur les seuls nœuds actifs
