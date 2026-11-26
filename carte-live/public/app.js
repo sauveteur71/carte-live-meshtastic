@@ -3500,6 +3500,8 @@ const ACCES = {
 };
 const NIV_ACCES = { tous: 0, pied: 1, '4x4': 2, voiture: 3 };
 etat.filtreAcces = (() => { try { return localStorage.getItem('gaulix_acces') || 'tous'; } catch { return 'tous'; } })();
+etat.filtreActifs = (() => { try { return localStorage.getItem('gaulix_plan_actifs') === '1'; } catch { return false; } })();
+const paramActifs = () => (etat.filtreActifs ? '&actifs=1' : '');
 // Numéros des sites recommandés sur la carte : ceux du plan affiché (filtré ou non par l'accès)
 function appliquerPlan() {
   const rangs = new Map(((etat.classement && etat.classement.plan) || []).map((p) => [p.id, p.rang]));
@@ -3540,7 +3542,7 @@ async function chargerRelief(recadrer) {
   if (e.mnt !== 'pret' || e.classement !== 'pret') etat.minuterieRelief = setTimeout(() => chargerRelief(), e.mnt === 'pret' ? 15000 : 5000);
   else if (etat.classement && etat.classement.acces && etat.classement.acces.enCours) etat.minuterieRelief = setTimeout(() => chargerRelief(), 30000);
   if (e.mnt === 'pret') {
-    const [sommets, classement] = await Promise.all([api('/api/relief/sommets'), api('/api/relief/classement?acces=' + etat.filtreAcces)]).catch(() => [[], null]);
+    const [sommets, classement] = await Promise.all([api('/api/relief/sommets'), api('/api/relief/classement?acces=' + etat.filtreAcces + paramActifs())]).catch(() => [[], null]);
     if (jeton !== jetonRelief) return;
     etat.sommets = sommets;
     etat.classement = classement && !classement.attente ? classement : null;
@@ -4666,7 +4668,7 @@ async function rendreSites() {
   const parId = new Map(etat.sommets.map((s) => [s.id, s]));
   let h = choix + avertissementSites(!lireLs('relief_avertissement_vu', false)) + `<div class="bloc-plan bloc-actuel">
       <h3>📡 Couverture actuelle du réseau</h3>
-      <p class="note">Zone desservie aujourd’hui par les relais et passerelles détectés${c && c.reseauActuel ? ` : <b>${fmt(c.reseauActuel.pct, 1, ' %')}</b> du département avec ${c.reseauActuel.relais.length} relais` : ''}.</p>
+      <p class="note">Zone desservie ${etat.filtreActifs ? 'à l’instant' : 'aujourd’hui'} par les relais et passerelles ${etat.filtreActifs ? 'actifs' : 'détectés'}${c && c.reseauActuel ? ` : <b>${fmt(c.reseauActuel.pct, 1, ' %')}</b> du département avec ${c.reseauActuel.relais.length} relais` : ''}.</p>
       <div class="actions-prop"><button id="sites-couv-reseau" class="principal">Couverture calculée</button><button id="sites-couv-mesuree">📶 Couverture mesurée</button></div>
     </div>
     <details class="bloc-plan pli-plan" id="bloc-plan" ${pliPlan('bloc-plan')}>
@@ -4734,6 +4736,7 @@ async function rendreSites() {
         <option value="pied">🥾 À pied, en 4×4 ou voiture</option>
       </select></label>
     </div>
+    <label class="case"><input type="checkbox" id="filtre-actifs" ${etat.filtreActifs ? 'checked' : ''}> Nœuds actifs uniquement (pas juste entendus dans les 24 h)</label>
     ${c && c.acces ? `<p class="note">${c.acces.enCours || c.acces.faits < c.acces.total ? `Recherche des voies d’accès (OpenStreetMap) : ${c.acces.faits}/${c.acces.total} points${c.acces.erreur ? ' · ' + esc(c.acces.erreur) + ', nouvel essai plus tard' : '…'}` : `Accès évalués pour ${c.acces.faits} points : voie à moins de 150 m.`}${etat.filtreAcces !== 'tous' && c.candidatsAcces != null ? ` <b>${c.candidatsAcces}</b> site(s) retenu(s) avec ce filtre.` : ''}</p>` : ''}`;
   if (!c) {
     h += `<div class="vide">${e.classement === 'erreur' ? 'Erreur : ' + esc(e.erreur) : 'Classement des sites en cours…'}</div>`;
@@ -4741,7 +4744,7 @@ async function rendreSites() {
     const dernier = c.plan.length ? c.plan[c.plan.length - 1].totalPct : c.reseauActuel.pct;
     h += `<h3>Couverture du département</h3>
       <div class="barre-couv"><i style="width:${c.reseauActuel.pct}%" class="actuel"></i><i style="width:${Math.max(0, dernier - c.reseauActuel.pct)}%" class="ajout"></i></div>
-      <p class="note">Réseau actuel (${c.reseauActuel.relais.length} relais et passerelles positionnés) : <b>${fmt(c.reseauActuel.pct, 1, ' %')}</b> de ${c.surfaceDepartementKm2} km². Avec les ${c.plan.length} sites ci-dessous : <b>${fmt(dernier, 1, ' %')}</b>.</p>
+      <p class="note">Réseau actuel (${c.reseauActuel.relais.length} relais et passerelles ${etat.filtreActifs ? 'actifs' : 'positionnés'}) : <b>${fmt(c.reseauActuel.pct, 1, ' %')}</b> de ${c.surfaceDepartementKm2} km². Avec les ${c.plan.length} sites ci-dessous : <b>${fmt(dernier, 1, ' %')}</b>.</p>
       <h3>Meilleurs sites à ajouter <span class="pastille or">${c.plan.length}</span></h3>
       <p class="note">Ordre de priorité : chaque site est celui qui couvre le plus de surface encore non desservie.</p>
       ${c.plan.map((p) => ligneSite(parId.get(p.id) || p, `+${p.gainKm2} km²`, `cumul ${fmt(p.totalPct, 1, ' %')}`, p.rang, true)).join('')}
@@ -4783,13 +4786,22 @@ async function rendreSites() {
       planDepartement();
     };
   }
-  const fa = $('#filtre-acces');
+  const fa = $('#filtre-acces'), fac = $('#filtre-actifs');
   if (fa) {
     fa.value = etat.filtreAcces;
     fa.onchange = async () => {
       etat.filtreAcces = fa.value;
       try { localStorage.setItem('gaulix_acces', fa.value); } catch { /* indisponible */ }
-      try { const c2 = await api('/api/relief/classement?acces=' + fa.value); if (!c2.attente) { etat.classement = c2; appliquerPlan(); } } catch { /* ignore */ }
+      try { const c2 = await api('/api/relief/classement?acces=' + fa.value + paramActifs()); if (!c2.attente) { etat.classement = c2; appliquerPlan(); } } catch { /* ignore */ }
+      dessinerSommets();
+      rendreSites();
+    };
+  }
+  if (fac) {
+    fac.onchange = async () => {
+      etat.filtreActifs = fac.checked;
+      try { localStorage.setItem('gaulix_plan_actifs', fac.checked ? '1' : '0'); } catch { /* indisponible */ }
+      try { const c2 = await api('/api/relief/classement?acces=' + etat.filtreAcces + paramActifs()); if (!c2.attente) { etat.classement = c2; appliquerPlan(); } } catch { /* ignore */ }
       dessinerSommets();
       rendreSites();
     };

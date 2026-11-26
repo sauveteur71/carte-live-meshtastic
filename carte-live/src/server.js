@@ -767,7 +767,8 @@ app.get('/api/relief/sommets', (req, res) => {
 app.get('/api/relief/calibration', (req, res) => res.json(R(req).calibration()));
 app.get('/api/relief/classement', (req, res) => {
   const filtre = ['voiture', '4x4', 'pied'].includes(req.query.acces) ? req.query.acces : null;
-  res.json((filtre ? R(req).classementAcces(filtre) : R(req).classementAcces(null)) || R(req).classement() || { attente: true, etat: R(req).etat() });
+  const actifsSeuls = req.query.actifs === '1';
+  res.json(R(req).classementAcces(filtre, actifsSeuls) || R(req).classement() || { attente: true, etat: R(req).etat() });
 });
 app.post('/api/relief/recalculer', (req, res) => {
   if (!estAdmin(req)) return res.status(401).json({ erreur: 'Connexion admin requise' });

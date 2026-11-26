@@ -621,13 +621,15 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
       // Couverture actuelle des relais du réseau
       const existants = fournisseurs.noeudsReseau().filter((n) => celle(n.lat, n.lon) >= 0);
       const deja = new Uint32Array(Math.ceil(nbZone / 32));
+      const bitsParNoeud = new Map(); // gardé pour recalculer vite un sous-ensemble (ex. nœuds actifs seulement) sans refaire le balayage radio
       for (const n of existants) {
         const c = couvertureZone(n, Pinstallation(P, n), 1440, 150); // réseau existant : même précision que la carte, avec sa fiche d'installation
+        bitsParNoeud.set(n.num, c.bits);
         for (let w = 0; w < deja.length; w++) deja[w] |= c.bits[w];
         await pause();
       }
       const nDeja = compter(deja);
-      dernierCalcul = { couvertures, deja, existants, nDeja };
+      dernierCalcul = { couvertures, deja, existants, nDeja, bitsParNoeud };
       const choisis = planGlouton(couvertures, deja, existants, 0);
       const individuels = couvertures.map((c) => ({ id: c.s.id, n: c.n })).sort((a, b) => b.n - a.n);
       const rang = new Map(individuels.map((x, k) => [x.id, k + 1]));
@@ -1157,18 +1159,34 @@ function creerRelief(config, journal, fournisseurs, options = {}) {
     };
   }
 
-  // Classement filtré par accès (calcul rapide : les couvertures sont déjà en mémoire)
-  function classementAcces(filtre) {
+  // Classement filtré par accès, et/ou restreint aux nœuds actuellement « actifs » (calcul rapide : les
+  // couvertures candidates sont déjà en mémoire ; seule la part « réseau déjà en place » est refaite, à partir
+  // des bits par nœud gardés lors du dernier classement complet — pas besoin de refaire le balayage radio).
+  function classementAcces(filtre, actifsSeuls) {
     const min = niveauMin(filtre);
     if (!classement) return null;
     const avecCommune = (p) => ({ ...p, commune: sommets[p.id] ? sommets[p.id].commune : p.commune, acces: sommets[p.id] ? sommets[p.id].acces || null : null });
-    const base = { ...classement, filtreAcces: filtre || 'tous', acces: acces.etat(),
+    const base = { ...classement, filtreAcces: filtre || 'tous', actifsSeuls: !!actifsSeuls, acces: acces.etat(),
       meilleursIndividuels: classement.meilleursIndividuels.map(avecCommune) };
-    if (!min || !dernierCalcul) return { ...base, plan: classement.plan.map(avecCommune), meilleursIndividuels: !min ? base.meilleursIndividuels : base.meilleursIndividuels };
-    const choisis = planGlouton(dernierCalcul.couvertures, dernierCalcul.deja, dernierCalcul.existants, min);
+    if (!min && !actifsSeuls) return { ...base, plan: classement.plan.map(avecCommune), meilleursIndividuels: base.meilleursIndividuels };
+    if (!dernierCalcul) return { ...base, plan: classement.plan.map(avecCommune), meilleursIndividuels: base.meilleursIndividuels };
+    let existants = dernierCalcul.existants, deja = dernierCalcul.deja, reseauActuel = classement.reseauActuel;
+    if (actifsSeuls) {
+      const actifsNums = new Set(fournisseurs.noeudsReseauActifs().map((n) => n.num));
+      existants = dernierCalcul.existants.filter((n) => actifsNums.has(n.num));
+      deja = new Uint32Array(Math.ceil(nbZone / 32));
+      for (const n of existants) {
+        const bits = dernierCalcul.bitsParNoeud.get(n.num);
+        if (bits) for (let w = 0; w < deja.length; w++) deja[w] |= bits[w];
+      }
+      const nDeja = compter(deja);
+      reseauActuel = { relais: existants.map((n) => n.nom), pct: +((nDeja / nbZone) * 100).toFixed(1), km2: Math.round(nDeja * aireCelleKm2) };
+    }
+    const choisis = planGlouton(dernierCalcul.couvertures, deja, existants, min);
     const indiv = dernierCalcul.couvertures.filter((c) => accessible(c.s, min)).sort((a, b) => b.n - a.n).slice(0, 15);
     return {
       ...base,
+      reseauActuel,
       plan: choisis.map((c, k) => avecCommune({ rang: k + 1, id: c.s.id, nom: c.s.nom, lat: c.s.lat, lon: c.s.lon, alt: c.s.alt, gainKm2: Math.round(c.gain * aireCelleKm2), totalPct: +((c.total / nbZone) * 100).toFixed(1) })),
       meilleursIndividuels: indiv.map((c) => avecCommune({ id: c.s.id, nom: c.s.nom, lat: c.s.lat, lon: c.s.lon, alt: c.s.alt, km2: Math.round(c.n * aireCelleKm2), pct: +((c.n / nbZone) * 100).toFixed(1) })),
       candidatsAcces: dernierCalcul.couvertures.filter((c) => accessible(c.s, min)).length,
