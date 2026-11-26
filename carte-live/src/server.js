@@ -791,8 +791,9 @@ app.get('/api/relief/couvrir-points', async (req, res) => {
   const RR = R(req, ...cibles); await reliefPret(RR);
   try { res.json(RR.couvrirPoints(cibles, o)); } catch (e) { res.status(503).json({ erreur: e.message }); }
 });
-// Répéteurs MeshCore positionnés et entendus depuis 24 h (relais existants pour « Relier » et « Couvrir »)
-const repeteursMc = () => { const lim = Date.now() - 24 * 3600000; return reseauMc.q.noeuds.all().filter((n) => n.lat != null && ['repeteur', 'salon'].includes(n.role) && (n.dernier_vu || 0) >= lim).map((n) => ({ num: n.cle, nom: n.nom || n.cle.slice(0, 8), lat: n.lat, lon: n.lon })); };
+// Répéteurs MeshCore positionnés et entendus depuis 24 h (relais existants pour « Relier » et « Couvrir »).
+// actifsSeuls : ne garder que ceux considérés « actifs » au sens du tableau de bord (seuil configurable, 60 min par défaut)
+const repeteursMc = (actifsSeuls) => { const lim = Date.now() - (actifsSeuls ? config.seuils.actifMinutes * 60000 : 24 * 3600000); return reseauMc.q.noeuds.all().filter((n) => n.lat != null && ['repeteur', 'salon'].includes(n.role) && (n.dernier_vu || 0) >= lim).map((n) => ({ num: n.cle, nom: n.nom || n.cle.slice(0, 8), lat: n.lat, lon: n.lon })); };
 app.get('/api/relief/relier', async (req, res) => {
   const q = req.query, n = (v) => Number(v);
   const a = { lat: n(q.aLat), lon: n(q.aLon), nom: q.aNom ? String(q.aNom).slice(0, 60) : 'Départ' }, b = { lat: n(q.bLat), lon: n(q.bLon), nom: q.bNom ? String(q.bNom).slice(0, 60) : 'Arrivée' };
@@ -872,14 +873,16 @@ app.get('/api/relief/couverture-reseau', async (req, res) => {
   const RR = R(req);
   if (!(await reliefPret(RR, 12000, true))) return res.status(503).json({ erreur: messageChargement(RR) });
   const o = optsRelief(req.query);
-  if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(); o.preset = o.preset || 'MESHCORE_FR'; }
+  const actifsSeuls = req.query.actifs === '1';
+  if (req.query.reseau === 'meshcore') { o.noeuds = repeteursMc(actifsSeuls); o.preset = o.preset || 'MESHCORE_FR'; }
+  else if (actifsSeuls) { o.noeuds = fournisseursRelief.noeudsReseauActifs(); }
   if (req.query.hn) o.hn = Math.min(Math.max(Number(req.query.hn) || 6, 0.5), 60);
   // La calibration (pertes d'environnement) fait partie de la clé : un calcul fait avant elle serait trop optimiste
   let r;
-  try { r = await couvertureReseauCachee(RR, o, req.query.reseau || 'mt'); } catch (e) { return res.status(503).json({ erreur: e.message }); }
-  if (r.vide) return res.json({ noeuds: [], vide: true });
+  try { r = await couvertureReseauCachee(RR, o, (req.query.reseau || 'mt') + (actifsSeuls ? ':actifs' : '')); } catch (e) { return res.status(503).json({ erreur: e.message }); }
+  if (r.vide) return res.json({ noeuds: [], vide: true, actifsSeuls });
   const { image, ...reste } = r;
-  res.json({ ...reste, image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise() });
+  res.json({ ...reste, image: `/api/relief/couverture/${r.id}.png`, emprise: RR.emprise(), actifsSeuls });
 });
 // Principales villes d'un département (API Géo de l'État), gardées sur le disque
 async function villesDepartement(code) {
@@ -4913,6 +4916,16 @@ const fournisseursRelief = {
       .filter((n) => n.lat != null && (n.vu || n.dernier_vu || 0) >= limite && reseau.estSurveille(n))
       .map((n) => ({ num: n.num, nom: n.nom_long || n.nom_court || n.id, lat: n.lat, lon: n.lon, role: n.role, passerelle: !!n.est_passerelle, ...installations.radio(n.num) }))
       .concat(federation ? federation.noeudsCalcul() : []); // relais des bulles voisines (près des limites du département)
+  },
+  // Même chose, mais limité aux nœuds « actifs » au sens du tableau de bord (seuil configurable, 60 min par
+  // défaut) plutôt qu'aux 24 h : une couverture calculée sur ce seul sous-ensemble, pour ne pas compter un
+  // relais éteint ou en panne comme s'il couvrait encore le terrain.
+  noeudsReseauActifs: () => {
+    const limite = Date.now() - config.seuils.actifMinutes * 60000;
+    return stockage.q.noeuds.all()
+      .filter((n) => n.lat != null && (n.vu || n.dernier_vu || 0) >= limite && reseau.estSurveille(n))
+      .map((n) => ({ num: n.num, nom: n.nom_long || n.nom_court || n.id, lat: n.lat, lon: n.lon, role: n.role, passerelle: !!n.est_passerelle, ...installations.radio(n.num) }))
+      .concat(federation ? federation.noeudsCalcul() : []);
   },
   // Liaisons radio directes avec SNR mesuré (pour calibrer le modèle)
   liensMesures: () => [...liensMesuresNoeuds(), ...(() => { try { return mesures().liensCalibration(); } catch { return []; } })()],

@@ -3784,13 +3784,15 @@ function ajouterSiteCouverture(latlng) {
 // ---- Couverture actuelle du réseau (relais et passerelles détectés) ----------------------------------
 async function couvertureReseau() {
   const hn = Number(localStorage.getItem('gaulix_hn')) || 6;
+  const actifsSeuls = localStorage.getItem('gaulix_couv_actifs') === '1';
   $('#fiche').hidden = false;
   etat.selection = null;
   $('#fiche-contenu').innerHTML = '<h2>Couverture actuelle du réseau</h2><div class="alerte info-lecture"><span class="sablier"></span> Calcul de la zone couverte par les relais et passerelles détectés…</div>';
   let r;
-  try { r = await api(`/api/relief/couverture-reseau?hn=${hn}${etat.vueReseau === 'meshcore' ? '&reseau=meshcore' : ''}`); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Couverture actuelle du réseau</h2><div class="vide">${esc(e.message)}</div>`; return; }
+  try { r = await api(`/api/relief/couverture-reseau?hn=${hn}${etat.vueReseau === 'meshcore' ? '&reseau=meshcore' : ''}${actifsSeuls ? '&actifs=1' : ''}`); } catch (e) { $('#fiche-contenu').innerHTML = `<h2>Couverture actuelle du réseau</h2><div class="vide">${esc(e.message)}</div>`; return; }
   const dep = etat.relief && etat.relief.departement ? etat.relief.departement.nom : 'le département';
-  if (r.vide) { $('#fiche-contenu').innerHTML = `<h2>Couverture actuelle du réseau</h2><div class="vide">Aucun relais ni passerelle ${etat.vueReseau === 'meshcore' ? 'MeshCore ' : ''}positionné et entendu depuis 24 h dans ${esc(dep)}.</div>`; return; }
+  const critereVu = actifsSeuls ? 'actuellement actif' : 'entendu depuis 24 h';
+  if (r.vide) { $('#fiche-contenu').innerHTML = `<h2>Couverture actuelle du réseau</h2><div class="vide">Aucun relais ni passerelle ${etat.vueReseau === 'meshcore' ? 'MeshCore ' : ''}positionné et ${critereVu} dans ${esc(dep)}.${actifsSeuls ? ' <button id="actifs-vide-tous" class="mini">Voir avec les 24 h</button>' : ''}</div>`; if (actifsSeuls) $('#actifs-vide-tous').onclick = () => { try { localStorage.setItem('gaulix_couv_actifs', '0'); } catch { /* ignoré */ } couvertureReseau(); }; return; }
   if (etat.coucheCouverture) etat.coucheCouverture.remove();
   const e = r.emprise, g = L.layerGroup();
   L.imageOverlay(r.image, [[e.sud, e.ouest], [e.nord, e.est]], { opacity: 0.75, pane: 'couverture', className: 'pixelise' }).addTo(g);
@@ -3800,20 +3802,24 @@ async function couvertureReseau() {
   carte.fitBounds(L.latLngBounds(r.noeuds.map((n) => [n.lat, n.lon])).pad(0.4), { maxZoom: 11 });
   const tries = [...r.noeuds].sort((a, b) => b.propreKm2 - a.propreKm2);
   $('#fiche-contenu').innerHTML = `<h2>Couverture actuelle du réseau</h2>
-    <div class="ident">${esc(dep)} · ${r.noeuds.length} relais et passerelles ${etat.vueReseau === 'meshcore' ? 'MeshCore ' : ''}détectés (positionnés, entendus depuis 24 h)</div>
+    <div class="ident">${esc(dep)} · ${r.noeuds.length} relais et passerelles ${etat.vueReseau === 'meshcore' ? 'MeshCore ' : ''}détectés (positionnés, ${critereVu})</div>
     <div class="grille">
       <div class="mesure"><span>Part du département</span><b>${fmt(r.pctZone, 1, ' %')}</b></div>
       <div class="mesure"><span>Dans le département</span><b>${r.surfaceZoneKm2} km²</b></div>
       <div class="mesure"><span>Surface totale</span><b>${r.surfaceKm2} km²</b></div>
     </div>
     <div class="barre-couv"><i style="width:${r.pctZone}%" class="actuel"></i></div>
-    <div class="parametres compact"><label>Hauteur supposée des relais sans fiche (m) <input id="hn-reseau" type="number" min="1" max="60" step="1" value="${hn}"></label><button id="hn-recalc">Recalculer</button></div>
+    <div class="parametres compact">
+      <label>Hauteur supposée des relais sans fiche (m) <input id="hn-reseau" type="number" min="1" max="60" step="1" value="${hn}"></label>
+      <label><input id="actifs-reseau" type="checkbox" ${actifsSeuls ? 'checked' : ''}> Nœuds actifs uniquement (pas ceux juste entendus dans les 24 h)</label>
+      <button id="hn-recalc">Recalculer</button>
+    </div>
     <h3>Apport de chaque relais</h3>
     <p class="note">« Seul à couvrir » : surface du département que ce relais est le seul à desservir. Un relais à 0 km² fait doublon avec les autres ; un relais à forte valeur est un point critique (s’il tombe, cette zone n’est plus couverte).</p>
     ${tries.map((n) => `<div class="ligne" data-ouvrir-noeud="${esc(String(n.num))}"><span class="point ${n.propreKm2 > 0 ? 'actif' : 'inactif'}"></span><span class="titre">${esc(n.nom || String(n.num))}<small>${n.km2} km² au total · antenne ${n.hauteur} m ${n.fiche ? '<span title="Valeurs de la fiche d’installation">📋</span>' : '(supposée)'}</small></span><span class="meta"><b>${n.propreKm2} km²</b> seul</span></div>`).join('')}
     <div class="actions-prop"><button id="couv-vers-plan" class="principal">🗺️ Où ajouter des relais ? (plan)</button></div>
     <p class="note">Turquoise : ≥ 10 dB de marge · jaune : 0 à 10 dB · orange : en limite. Hypothèse : antennes à ${hn} m, nœud desservi à 2 m du sol. ${r.env != null ? `Pertes de végétation et bâti : ${r.env} dB.` : ''}</p>`;
-  $('#hn-recalc').onclick = () => { try { localStorage.setItem('gaulix_hn', $('#hn-reseau').value); } catch { /* ignoré */ } couvertureReseau(); };
+  $('#hn-recalc').onclick = () => { try { localStorage.setItem('gaulix_hn', $('#hn-reseau').value); localStorage.setItem('gaulix_couv_actifs', $('#actifs-reseau').checked ? '1' : '0'); } catch { /* ignoré */ } couvertureReseau(); };
   $('#couv-vers-plan').onclick = () => allerPlan();
   suivreApprox(r, () => etat.coucheCouverture === g, () => couvertureReseau());
   $('#fiche-contenu').querySelectorAll('[data-ouvrir-noeud]').forEach((el) => (el.onclick = () => {
