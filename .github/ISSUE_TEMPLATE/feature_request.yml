@@ -1,0 +1,21 @@
+name: 💡 Proposer une fonctionnalité
+description: Une idée d'amélioration ou de nouvelle fonction
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Quel besoin ou problème cela résoudrait-il ?
+      description: Décrivez la situation concrète qui vous amène à cette demande.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solution envisagée
+      description: Ce que vous imaginez comme fonctionnement, si vous avez une idée.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives envisagées
+      description: Avez-vous contourné le problème autrement, ou vu une fonction similaire ailleurs (Meshtastic, MeshCore, etc.) ?

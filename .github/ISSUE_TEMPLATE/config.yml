@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Discussions
+    url: https://github.com/sauveteur71/carte-live-meshtastic/discussions
+    about: Question d'usage, retour d'expérience, idée encore floue — préférez cet espace à une issue.

@@ -1,0 +1,35 @@
+name: 🐛 Signaler un bug
+description: Quelque chose ne fonctionne pas comme attendu
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Version du programme (ex. v2.40.0) et édition (France / internationale)
+      placeholder: "v2.40.0 — édition France"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Étapes pour reproduire
+      description: Que faites-vous, et qu'obtenez-vous à la place de ce qui est attendu ?
+      placeholder: |
+        1. ...
+        2. ...
+        Résultat obtenu : ...
+        Résultat attendu : ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs pertinents
+      description: Sortie de `docker compose logs -f` (pensez à retirer tout identifiant ou donnée personnelle)
+      render: shell
+  - type: textarea
+    id: context
+    attributes:
+      label: Contexte additionnel
+      description: Navigateur, matériel radio, taille du réseau, etc.
