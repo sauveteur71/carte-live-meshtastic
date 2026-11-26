@@ -48,7 +48,7 @@
         <div id="liste">${espaces.length ? espaces.map((e) => `
           <div class="fiche" data-code="${esc(e.code)}">
             <div class="tete"><b>${esc(e.nom)}</b><span class="pastille">${esc((e.genre || '').toUpperCase())}</span><span class="heure">${e.comptes} compte${e.comptes > 1 ? 's' : ''} · ${e.equipes} équipe${e.equipes > 1 ? 's' : ''}</span></div>
-            <p>Adresse à donner aux membres : <a class="mono" href="/secours/${esc(e.code)}">${esc(location.origin)}/secours/${esc(e.code)}</a></p>
+            <p>Adresse à donner aux membres : <a class="mono" href="/secours/${esc(e.code)}" target="_blank" rel="noopener">${esc(location.origin)}/secours/${esc(e.code)}</a></p>
             <p class="note">Responsable${e.responsables.length > 1 ? 's' : ''} : ${e.responsables.map(esc).join(', ') || '<span class="erreur">aucun</span>'}</p>
 
             <h3>Organisations</h3>
